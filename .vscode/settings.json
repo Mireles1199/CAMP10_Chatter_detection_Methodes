@@ -2,8 +2,14 @@
     "python-envs.pythonProjects": [
         {
             "path": "",
-            "envManager": "ms-python.python:conda",
-            "packageManager": "ms-python.python:conda"
+            "envManager": "ms-python.python:venv",
+            "packageManager": "ms-python.python:pip"
         }
+    ],
+
+    "python.defaultInterpreterPath": "D:/Thesis/03-Code_Storage/02-Altintlas_Nessy2m_Storage/entorno_CAMP10/Scripts/python.exe",
+
+    "python.analysis.extraPaths": [
+        "D:/Thesis/03-Code_Storage/02-Altintlas_Nessy2m_Storage/Modulos_python"
     ]
 }

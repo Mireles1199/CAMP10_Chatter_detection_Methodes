@@ -165,8 +165,8 @@ def partial_mu_central(S: np.ndarray, delta_mu_samples: float) -> np.ndarray:
     return dS
 
 
-def inst_freq_from_derivative(S: np.ndarray, dS_dmu: np.ndarray, eps: float = 1e-8,
-                              relative: bool = True) -> np.ndarray:
+def inst_freq_from_derivative(S: np.ndarray, dS_dmu: np.ndarray, rel: float = 0.15,
+                              k_smooth: int = 0) -> np.ndarray:
     """
     Estima la **frecuencia instantánea** (IF) por (μ, ξ) según la ecuación (4):
         \hat{ω}(μ, ξ) = Im{ ∂_μ S(μ, ξ) / S(μ, ξ) }
@@ -177,8 +177,11 @@ def inst_freq_from_derivative(S: np.ndarray, dS_dmu: np.ndarray, eps: float = 1e
         STFT compleja.
     dS_dmu : np.ndarray shape (M, K)
         Derivada de S respecto a μ (en "por muestra").
-    eps : float
-        Umbral mínimo para evitar divisiones numéricamente inestables cuando |S| es pequeño.
+    rel : float
+        rel: umbral relativo a max(|S|) por frame (0.05-0.25 típico)
+    k_smooth:  int
+        Tamaño impar para suavizado ligero a lo largo de k (0 = sin suavizado).
+    
 
     Devuelve
     --------
@@ -202,23 +205,32 @@ def inst_freq_from_derivative(S: np.ndarray, dS_dmu: np.ndarray, eps: float = 1e
     # omega_hat[valid] = np.imag(ratio[valid])  # radianes / muestra
     # return omega_hat
 
+    M, K = S.shape
     mag = np.abs(S)
-    if relative:
-        ref = np.median(mag, axis=1, keepdims=True) + 1e-16
-        mask = mag >= (eps * ref)
-    else:
-        mask = mag >= eps
+
+    # Umbral relativo por frame (mucho mejor que 'eps' fijo o mediana)
+    # max_per_frame = np.max(mag, axis=1, keepdims=True) + 1e-16
+    # valid = mag >= (rel * max_per_frame)
+    
+    mag = np.abs(S)
+    mag_db = 20*np.log10(mag + 1e-12)
+    max_db = np.max(mag_db, axis=1, keepdims=True)
+    valid = mag_db >= (max_db - 25.0) 
 
     ratio = np.zeros_like(S, dtype=np.complex128)
-    ratio[mask] = dS_dmu[mask] / S[mask]
+    ratio[valid] = dS_dmu[valid] / S[valid]   # rad/muestra
 
-    omega_hat = np.full(S.shape, np.nan, dtype=float)
-    omega_hat[mask] = np.imag(ratio[mask])  # rad/muestra
+    omega_hat = np.full((M, K), np.nan, float)
+    omega_hat[valid] = np.imag(ratio[valid])  # rad/muestra
 
-    # (opcional) limitar a [0, pi] si usas rfft
+    # (opcional) suavizado en frecuencia para estabilizar
+    if k_smooth and k_smooth > 1:
+        from scipy.ndimage import uniform_filter1d
+        omega_hat = uniform_filter1d(omega_hat, size=k_smooth, axis=1, mode='nearest')
+
+    # Limitar al rango de rfft: [0, π] rad/muestra
     omega_hat[(omega_hat < 0) | (omega_hat > np.pi)] = np.nan
-    
-    return omega_hat
+    return omega_hat, valid
 
 
 # ---------------------------------------------------------------------------
@@ -227,9 +239,9 @@ def inst_freq_from_derivative(S: np.ndarray, dS_dmu: np.ndarray, eps: float = 1e
 def synchrosqueeze(
     S: np.ndarray,
     omega_hat: np.ndarray,
-    freqs_cyc_per_sample: np.ndarray,
-    out_freqs_cyc_per_sample: np.ndarray,
-    threshold: float = 1e-6,
+    freqs_cps: np.ndarray,
+    out_freqs_cps: np.ndarray,
+    rel: float = 0.15,
 ) -> np.ndarray:
     """
     Reasigna horizontalmente la energía de S[m, k] al bin q cuya frecuencia
@@ -247,8 +259,7 @@ def synchrosqueeze(
     out_freqs_cyc_per_sample : np.ndarray shape (Q,)
         Rejilla de frecuencias de salida para el SST (ciclos por muestra).
         Puedes usar igual que 'freqs_cyc_per_sample' o una más densa.
-    threshold : float
-        Umbral mínimo sobre |S| para acumular (evita ruido numérico).
+
 
     Devuelve
     --------
@@ -261,27 +272,28 @@ def synchrosqueeze(
       Alternativas: *kernels* suaves (p. ej., triangular o gaussiano).
     """
     M, K = S.shape
-    Q = len(out_freqs_cyc_per_sample)
+    Q = out_freqs_cps.size
     T = np.zeros((M, Q), dtype=np.complex128)
 
-    # Convertimos IF angular -> frecuencia cíclica (ciclos por muestra)
-    f_hat = omega_hat / (2.0 * np.pi)  # puede contener NaN
-
-    # Magnitud para umbral
     mag = np.abs(S)
+    max_per_frame = np.max(mag, axis=1, keepdims=True) + 1e-16
+    valid = (mag >= rel * max_per_frame) & np.isfinite(omega_hat)
 
-    # Para cada píxel (m,k) válido, acumulamos en el q más cercano
+    # IF angular -> ciclos/muestra
+    f_hat = omega_hat / (2*np.pi)        # [ciclos/muestra]
+    f_hat[(f_hat < 0) | (f_hat > 0.5)] = np.nan  # Nyquist
+
     for m in range(M):
-        for k in range(K):
-            if not np.isfinite(f_hat[m, k]):
-                continue
-            if mag[m, k] < threshold:
-                continue
-
-            # Elegimos el bin de salida más cercano
-            q = int(np.argmin(np.abs(out_freqs_cyc_per_sample - f_hat[m, k])))
-            T[m, q] += S[m, k]
-
+        idx = np.where(valid[m])[0]
+        if idx.size == 0:
+            continue
+        f_m = f_hat[m, idx]
+        s_m = S[m, idx]
+        # índice q más cercano (vectorizado)
+        q = np.searchsorted(out_freqs_cps, f_m, side='left')
+        q = np.clip(q, 0, Q-1)
+        # acumular
+        np.add.at(T[m], q, s_m)
     return T
 
 
@@ -403,10 +415,14 @@ Ejecuta un flujo completo:
 5) Realiza Synchro-Squeezing y visualiza |T|.
 """
 # ------------------ Parámetros globales ------------------
-fs = 8000.0          # [Hz] frecuencia de muestreo
+fs = 10240.0          # [Hz] frecuencia de muestreo
 duration = 2.0       # [s] duración
 x, t = test_signal(fs, duration)
-t,x = five_senos(fs=fs, duracion=duration, ruido_std=0, fase_aleatoria=False, seed=120)
+t,x = five_senos(fs=fs, duracion=duration, ruido_std=4, fase_aleatoria=False, seed=120)
+
+N = int(np.round(fs * duration))
+t = np.arange(N, dtype=float) / fs 
+xo_2 = 1.5 * np.sin(2*np.pi*10.0*t + 0.0)
 
 # 1) Señal temporal
 plt.figure()
@@ -417,12 +433,14 @@ plt.title("Señal de prueba 5 senos + Noise")
 plt.grid(True)
 plt.tight_layout()
 
+plt.plot(t, xo_2, linewidth=1.0)
+
 
 # %% numpy STFT
 
 win_length_ms = 100.0   # duración de la ventana [ms]  -> controla resolución en frecuencia
-hop_ms        = 10.0   # salto entre ventanas [ms]    -> controla resolución temporal
-n_fft         = 1024*2   # tamaño de la FFT (potencia de 2 suele ser conveniente)
+hop_ms        = 5.0   # salto entre ventanas [ms]    -> controla resolución temporal
+n_fft         = 1024   # tamaño de la FFT (potencia de 2 suele ser conveniente)
 
 win_length = int(round(win_length_ms * 1e-3 * fs))   # muestras por ventana
 hop_length = int(round(hop_ms        * 1e-3 * fs))    # muestras por hop
@@ -433,7 +451,7 @@ hop_length = int(round(hop_ms        * 1e-3 * fs))    # muestras por hop
 if win_length % 2 == 0:
     win_length += 1  # aseguramos longitud impar para centrar ventana
 L = win_length             # longitud impar
-sigma = 150.0         # en muestras
+sigma = 0.25*L         # en muestras
 g = gaussian_window(L, sigma)
 
 # 2) Ventana Gaussiana
@@ -446,10 +464,13 @@ plt.title("Ventana Gaussiana (Heisenberg-óptima) - Numpy")
 plt.grid(True)
 plt.tight_layout()
 
+
+
 # STFT
 hop = hop_length            # [muestras] -> Δμ = hop/fs [s]
 nfft = n_fft
 S_numpy, times, freqs_cps = stft_manual(x, g, hop=hop, nfft=nfft)
+S_numpy_xo2, _, _ = stft_manual(xo_2, g, hop=hop, nfft=nfft)
 
 # # Escalas a unidades físicas
 times_s = times / fs                  # μ_m en segundos
@@ -475,6 +496,7 @@ plt.colorbar(label="Magnitud ")
 plt.ylim(0, 500)
 plt.tight_layout()
 
+
 plt.figure(figsize=(7,4))
 cs = plt.contour(times_s, freqs_hz, S_graph.T, cmap='viridis')
 # plt.clabel(cs, inline=True, fontsize=8, fmt="%.2f")
@@ -494,7 +516,7 @@ plt.ylim(0, 500)
 # ---------- SCIPY STFT -----------
 # ---------------------------------
 
-nperseg = int(fs * win_length_ms / 1000.0)  # en muestras
+nperseg = int(fs * win_length_ms / 1000.0)   # en muestras
 window = get_window(('gaussian', sigma), nperseg)
 noverlap = int(0.90 * nperseg)
 
@@ -550,51 +572,48 @@ S = S_numpy #  Usamos STFT de Numpy
 
 # Derivada respecto a μ y frecuencia instantánea (angular por muestra)
 dS_dmu = partial_mu_central(S, delta_mu_samples=float(hop))
-omega_hat = inst_freq_from_derivative(S, dS_dmu, eps=1e-8, relative=True)  # rad/muestra
-fhat_hz = (omega_hat * fs) / (2.0 * np.pi)  # Hz
-
-#  Frecuencia instantánea estimada \hat{f}(μ,k) (en Hz)
+omega_hat, valid = inst_freq_from_derivative(S, dS_dmu, rel=0.3   , k_smooth=0)  # rad/muestra
+# IF en Hz
+fhat_hz = (omega_hat * fs) / (2*np.pi)  # Hz
 plt.figure()
-fhat_plot = np.copy(fhat_hz.T)
-# Limitar rangos visuales para interpretación
-# fhat_plot[~np.isfinite(fhat_plot)] = np.nan
-
-plt.imshow(
-    fhat_plot,
-    origin="lower",
-    aspect="auto",
-    # extent=extent,
-)
+plt.imshow(fhat_hz.T, origin="lower", aspect="auto",
+           extent=[times_s[0], times_s[-1], freqs_hz[0], freqs_hz[-1]],
+           interpolation="none")
 plt.xlabel("Tiempo μ [s]")
-plt.ylabel("Frecuencia f [Hz] (rejilla STFT)")
-plt.title("Estimador de IF por píxel Im{∂μS/S} [Hz]")
+plt.ylabel("Frecuencia [Hz] (rejilla STFT)")
+plt.title("IF válida por píxel")
+cbar = plt.colorbar(); cbar.set_label("Hz")
 plt.ylim(0, 500)
-plt.colorbar(label="Hz")
-plt.tight_layout()
+
+plt.figure()
+plt.imshow(valid.T, origin='lower', aspect='auto',
+           extent=[times_s[0], times_s[-1], freqs_hz[0], freqs_hz[-1]])
+plt.title('Píxeles válidos usados en IF')
+plt.ylabel('Hz'); plt.xlabel('s'); plt.ylim(0, 500)
+plt.show()
+
+
+
 
 # %%
 
 # Synchro-Squeezing en la misma rejilla de frecuencia
 out_freqs_cps = freqs_cps  # podrías hacerla más densa si deseas
-T = synchrosqueeze(S, omega_hat, freqs_cps, out_freqs_cps, threshold=1e-6)
+T = synchrosqueeze(S, omega_hat, freqs_cps, out_freqs_cps, rel=0.01)
 
 
 # Módulo del Synchro-Squeezed |T|
+# SST: ojo, 'out_freqs_cps' está en ciclos/muestra; conviértelo a Hz para el eje.
+out_freqs_hz = out_freqs_cps * fs
 plt.figure()
-# T_db = 20.0 * np.log10(np.maximum(np.abs(T), 1e-10))
-T_graph = np.abs(T)  # para graficar
-plt.imshow(
-    T_graph.T,
-    origin="lower",
-    aspect="auto",
-    # extent=extent,
-)
+plt.imshow(np.abs(T).T, origin="lower", aspect="auto",
+           extent=[times_s[0], times_s[-1], out_freqs_hz[0], out_freqs_hz[-1]],
+           interpolation="none") 
 plt.xlabel("Tiempo μ [s]")
-plt.ylabel("Frecuencia f [Hz] (salida SST)")
-plt.title("|T_x(μ, ω)| (Synchro-Squeezing)")
-plt.colorbar(label="Magnitud ")
+plt.ylabel("Frecuencia [Hz] (salida SST)")
+plt.title("|T_x(μ, ω)|")
+plt.colorbar(label="Magnitud")
 plt.ylim(0, 500)
-plt.tight_layout()
 
 
 
