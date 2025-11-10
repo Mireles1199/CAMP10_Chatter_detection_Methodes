@@ -488,7 +488,7 @@ def signal_1(
     # Comentario: combinación final
     x = envelope_base * x_base + x_chatter + noise
     return t, x
-
+ 
 
 
 #%%
