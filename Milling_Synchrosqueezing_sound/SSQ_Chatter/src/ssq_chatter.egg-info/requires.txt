@@ -1,0 +1,8 @@
+numpy>=1.26.4
+scipy>=1.9
+numba>=0.62.1
+
+[gpu]
+
+[viz]
+matplotlib>=3.6

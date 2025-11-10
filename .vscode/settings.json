@@ -7,7 +7,7 @@
         }
     ],
 
-    "python.defaultInterpreterPath": "D:/Thesis/03-Code_Storage/02-Altintlas_Nessy2m_Storage/entorno_CAMP10/Scripts/python.exe",
+    "python.defaultInterpreterPath": "D:\\Thesis\\03-Code_Storage\\02-Altintlas_Nessy2m_Storage\\Env\\entorno_CAMP10\\Scripts\\python.exe",
 
     "python.analysis.extraPaths": [
         "D:/Thesis/03-Code_Storage/02-Altintlas_Nessy2m_Storage/Modulos_python"

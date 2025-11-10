@@ -1,0 +1,80 @@
+# ------------------------------
+# pyproject.toml
+# ------------------------------
+
+[build-system]
+# Comentario: backend moderno con setuptools
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+# Comentario: metadatos básicos del paquete
+name = "ssq_chatter"
+version = "0.1.8"
+description = "Herramientas de análisis SSQ-STFT para monitoreo de chatter"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Enrique MIRELES", email = "enrique.mireles-hernandez@ensam.eu" }]
+
+# Comentario: dependencias en tiempo de ejecución
+dependencies = [
+  "numpy>= 1.26.4",
+  "scipy>=1.9",
+  "numba>= 0.62.1",
+  # "matplotlib>=3.6",   # descomenta si usarás visualizaciones
+  # "pyfftw>=0.13",      # descomenta si usarás pyFFTW
+]
+
+# Comentario: etiquetas opcionales para PyPI
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Topic :: Scientific/Engineering",
+]
+
+[project.urls]
+
+
+# Comentario: extras opcionales para instalación tipo:
+#   pip install .[viz]
+#   pip install .[gpu]
+[project.optional-dependencies]
+viz = [
+  "matplotlib>=3.6",
+]
+gpu = [
+  # Comentario: agrega aquí libs GPU si las usas (p.ej., cupy, numba cuda, etc.)
+  # "cupy-cuda12x>=12.0",   # ejemplo
+]
+
+# Comentario: CLI opcional (si tienes src/ssq_chatter/cli/main.py con una función main o Typer/Click)
+# [project.scripts]
+# ssq-chatter = "ssq_chatter.cli.main:app"   # Typer/Click
+# ssq-chatter-demo = "ssq_chatter.cli.main:main"  # función main()
+
+[tool.setuptools]
+# Comentario: layout src/
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+# Comentario: descubre paquetes bajo src/
+where = ["src"]
+
+# Comentario: incluir datos no-Python del paquete (configs, colormaps, etc.)
+[tool.setuptools.package-data]
+# Si guardas configs dentro de src/ssq_chatter/utils/configs.ini
+"ssq_chatter" = [
+  "utils/configs.ini",
+  # "data/*.ini",
+  # "data/*.json",
+  # "viz/*.mplstyle",
+]
+
+# Comentario: si deseas excluir algunos patrones en la distribución:
+# [tool.setuptools.exclude-package-data]
+# "ssq_chatter" = ["**/tests/*", "**/*.ipynb"]
+
+# Comentario: si necesitas definir opciones específicas de compilación para Numba/pyFFTW,
+# puedes controlar vía variables de entorno o un módulo de configuración interna.

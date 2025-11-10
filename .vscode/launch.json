@@ -11,7 +11,9 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
-            "python": "D:/Thesis/03-Code_Storage/02-Altintlas_Nessy2m_Storage/entorno_CAMP10/Scripts/python.exe"
+            "python": "D:\\Thesis\\03-Code_Storage\\02-Altintlas_Nessy2m_Storage\\Env\\entorno_CAMP10\\Scripts\\python.exe",
+            "justMyCode": false
         }
+
     ]
 }
