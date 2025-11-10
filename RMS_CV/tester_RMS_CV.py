@@ -5,7 +5,7 @@ from collections import deque, defaultdict
 
 from typing import Deque, Sequence, Tuple, Dict, Optional, Callable, Mapping, List, Any, Union
 
-from dataclasses import dataclass
+from dataclasses import dataclass 
 
 
 #%%
