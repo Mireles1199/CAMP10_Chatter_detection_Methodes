@@ -567,7 +567,6 @@ for r in rms_vals:
 
 print(f"Processed {len(sig)} RMS values.")
 
-print(f"alert { results['alert']}")
 
 figure = plt.figure()
 plt.plot(t, sig, label="RMS Signal")

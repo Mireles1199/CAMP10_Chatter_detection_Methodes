@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rms-cv"                 # nombre del proyecto (distribución)
+version = "0.1.0"
+description = "RMS and CV online monitoring"
+readme = "README.md"            # asegúrate de que existe
+requires-python = ">=3.9"
+authors = [{name = "You", email = "you@example.com"}]
+license = {text = "MIT"}        # usa string SPDX si quieres: license = "MIT"
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Operating System :: OS Independent",
+]
+dependencies = [
+  "numpy>=1.26.4",
+  "matplotlib>=3.6",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]                 # layout tipo src
+
+# (Opcional) si tienes datos dentro del paquete:
+#[tool.setuptools.package-data]
+#rms_cv = ["data/*"]
