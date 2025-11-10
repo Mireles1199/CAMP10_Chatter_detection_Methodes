@@ -1,0 +1,12 @@
+Metadata-Version: 2.4
+Name: rms-cv
+Version: 0.1.0
+Summary: RMS and CV online monitoring
+Author-email: You <you@example.com>
+License: MIT
+Classifier: Programming Language :: Python :: 3
+Classifier: Operating System :: OS Independent
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+Requires-Dist: numpy>=1.26.4
+Requires-Dist: matplotlib>=3.6
