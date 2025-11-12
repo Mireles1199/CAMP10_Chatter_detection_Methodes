@@ -78,11 +78,7 @@ def make_chatter_like_signal(
     sig200 = f200_amp * np.sin(2*np.pi*f200_hz*t + 2*np.pi*rng.random())
 
     # -- 4) grupo alrededor de ~600 Hz
-    # cluster_sig = sum(
-    #     a * np.sin(2*np.pi*(cluster_center+df)*t + 2*np.pi*rng.random())
-    #     for df, a in zip(cluster_offsets, cluster_amps)
-    # )
-    # --- 4a) cluster_sig (componente de clusters sinusoidales)
+    
     cluster_sig = np.zeros_like(t, dtype=float)
 
     for idx, center in enumerate(cluster_center):
