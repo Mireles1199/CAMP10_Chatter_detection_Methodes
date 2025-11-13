@@ -22,8 +22,11 @@ def signal_chatter_example(fs=2000.0, T=6.0, seed=123):
                                             [0.14, 0.12, 0.10, 0.11, 0.09, 0.13, 0.1],
                                             [0.14, 0.12, 0.10, 0.11, 0.09, 0.13, 0.1]])
 
-    t0_chatter = 1.5
+    t0_chatter = 2.0
     ramp_sec = 1.0
+    
+    narrow_noise_sigma = 0.05
+    white_noise_sigma = 0.02
 
     am_freqs_chatter=np.array([0.7, 1.5, 2.5])
     am_depths_chatter=np.array([3, 1.0, 0.5]) 
@@ -51,7 +54,7 @@ def signal_chatter_example(fs=2000.0, T=6.0, seed=123):
     cluster_amps[5, :] *=1*alpha    #800
     cluster_amps[6, :] *= 1*alpha    #950
 
-    low_amps *= 100
+    low_amps *= 1000
     mid_amps *= 200
 
 
@@ -79,8 +82,8 @@ def signal_chatter_example(fs=2000.0, T=6.0, seed=123):
                                                             am_depths_chatter=am_depths_chatter,
                                                             base_chatter_amp=base_chatter_amp ,
 
-                                                            white_noise_sigma=5,
-                                                            narrow_noise_sigma=5
+                                                            white_noise_sigma=white_noise_sigma,
+                                                            narrow_noise_sigma=narrow_noise_sigma
 
                                                             )
     

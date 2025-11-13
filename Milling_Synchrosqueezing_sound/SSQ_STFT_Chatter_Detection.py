@@ -11,6 +11,7 @@ from ssq_chatter import ChatterPipeline, PipelineConfig
 from ssq_chatter import SSQ_STFT, STFT
 from ssq_chatter import ThreeSigmaWithLilliefors
 from ssq_chatter import five_senos, signal_1
+from ssq_chatter import prep_binary_spectro_for_pcolormesh
 # from ssq_chatter import five_senos  # reexportado desde compat/legacy
 
 
@@ -18,6 +19,10 @@ import os
 import sys
 
 import h5py
+
+import numpy as np
+import matplotlib.colors as mcolors
+
 
 class HDF5Reader:
     # Cache for all discovered paths
@@ -376,13 +381,35 @@ res: Dict[str, Any]
 Tsx, Sx, fs_out, tt, A_i, t_i, D, d1, res = pipe.run(x)
 
 
+# %%
 f = np.linspace(0, fs/2, Sx.shape[0])
 t = np.arange(Sx.shape[1]) * hop_length / fs
 
-Sx = abs(Sx)
+# Sx = abs(Sx)
 
-plt.figure(figsize=(7,4))
-plt.pcolormesh(t, f, Sx, shading='auto', cmap= ListedColormap(['blue', 'yellow']), vmin=None, vmax=None)
+# plt.figure(figsize=(7,4))
+# plt.pcolormesh(t, f, Sx, shading='auto', cmap= ListedColormap(['blue', 'yellow']), vmin=None, vmax=None)
+# plt.title("|S_x(μ, ξ)|  (STFT)")
+# plt.xlabel("Tiempo [s]")
+# plt.ylabel("Frecuencia [Hz]")  
+# plt.ylim(0, 350)
+# plt.colorbar(label="Magnitud") 
+
+
+#
+params = prep_binary_spectro_for_pcolormesh(
+    Sx, fs=fs, 
+    t_vec=t,          # opcional
+    f_vec=f,          # opcional
+    method="quantile", q=0.99,      # o method="quantile", q=0.995
+    smooth_kernel=3           # opcional (0 = sin suavizado)
+)
+
+plt.figure(figsize=(8,4))
+plt.pcolormesh(
+    params["x"], params["y"], params["C"],
+    cmap=params["cmap"], norm=params["norm"], shading=params["shading"]
+)
 plt.title("|S_x(μ, ξ)|  (STFT)")
 plt.xlabel("Tiempo [s]")
 plt.ylabel("Frecuencia [Hz]")  
@@ -390,15 +417,39 @@ plt.ylim(0, 350)
 plt.colorbar(label="Magnitud") 
 
 
-Tsx = abs(Tsx)
 
-plt.figure(figsize=(7,4))
-plt.pcolormesh(t, f, Tsx, shading='auto', cmap= ListedColormap(['blue', 'yellow']), vmin=None, vmax=None)
+# Tsx = abs(Tsx)
+
+# plt.figure(figsize=(7,4))
+# plt.pcolormesh(t, f, Tsx, shading='auto', cmap= ListedColormap(['blue', 'yellow']), vmin=None, vmax=None)
+# plt.title("|T_x(μ, ω)| (SSQ STFT)")
+# plt.xlabel("Tiempo [s]")
+# plt.ylabel("Frecuencia [Hz]")
+# plt.ylim(0, 350)
+# plt.colorbar(label="Magnitud")
+
+params = prep_binary_spectro_for_pcolormesh(
+    Tsx, fs=fs, 
+    t_vec=t,          # opcional
+    f_vec=f,          # opcional
+    method="quantile", q=0.9975,      # o method="quantile", q=0.995
+    smooth_kernel=3           # opcional (0 = sin suavizado)
+)
+
+plt.figure(figsize=(8,4))
+plt.pcolormesh(
+    params["x"], params["y"], params["C"],
+    cmap=params["cmap"], norm=params["norm"], shading=params["shading"]
+)
 plt.title("|T_x(μ, ω)| (SSQ STFT)")
 plt.xlabel("Tiempo [s]")
 plt.ylabel("Frecuencia [Hz]")
 plt.ylim(0, 350)
 plt.colorbar(label="Magnitud")
+
+
+
+
 
 
 plt.figure(figsize=(7,4))
@@ -458,7 +509,7 @@ cfg: PipelineConfig = PipelineConfig(
     win_length_ms=100.0,
     hop_ms=2.0,
     n_fft=n_fft,
-    Ai_length=4,
+    Ai_length=8,
     mode = "causal_inclusive",
 )
 
@@ -480,7 +531,7 @@ tf_strategy = SSQ_STFT(
 
 
 # regla de detección (Strategy)
-detect_rule = ThreeSigmaWithLilliefors(stable_time=[0.05, 0.15], alpha=0.05, z=3.0)
+detect_rule = ThreeSigmaWithLilliefors(stable_time=[0.00, 2], alpha=0.05, z=3.0)
 
 # Comentario: construir tubería (DIP: inyecta estrategias)
 pipe = ChatterPipeline(transformer=tf_strategy, detector=detect_rule, config=cfg)
@@ -498,23 +549,63 @@ res: Dict[str, Any]
 
 Tsx, Sx, fs_out, tt, A_i, t_i, D, d1, res = pipe.run(x)
 
+#%%
 f = np.linspace(0, fs/2, Sx.shape[0])
 t = np.arange(Sx.shape[1]) * hop_length / fs
 
-Sx = abs(Sx)
+# Sx = abs(Sx)
 
-plt.figure(figsize=(7,4))
-plt.pcolormesh(t, f, Sx, shading='auto', cmap=ListedColormap(['blue', 'yellow']), vmin=None, vmax=None)
+# plt.figure(figsize=(7,4))
+# plt.pcolormesh(t, f, Sx, shading='auto', cmap='jet', vmin=None, vmax=None)
+# plt.title("|S_x(μ, ξ)|  (STFT)")
+# plt.xlabel("Tiempo [s]") 
+# plt.ylabel("Frecuencia [Hz]")  
+# plt.ylim(0, 1000)
+# plt.colorbar(label="Magnitud") 
+
+params = prep_binary_spectro_for_pcolormesh(
+    Sx, fs=fs, 
+    t_vec=t,          # opcional
+    f_vec=f,          # opcional
+    method="quantile", q=0.99,      # o method="quantile", q=0.995
+    smooth_kernel=3           # opcional (0 = sin suavizado)
+)
+
+plt.figure(figsize=(8,4))
+plt.pcolormesh(
+    params["x"], params["y"], params["C"],
+    cmap=params["cmap"], norm=params["norm"], shading=params["shading"]
+)
 plt.title("|S_x(μ, ξ)|  (STFT)")
 plt.xlabel("Tiempo [s]")
 plt.ylabel("Frecuencia [Hz]")  
 plt.ylim(0, 1000)
 plt.colorbar(label="Magnitud") 
 
+
 # cmap = 'jet'
-Tsx = abs(Tsx)
-plt.figure(figsize=(7,4))
-plt.pcolormesh(t, f, Tsx, shading='auto', cmap=ListedColormap(['blue', 'yellow']), vmin=None, vmax=None)
+# Tsx = abs(Tsx)
+# plt.figure(figsize=(7,4))
+# plt.pcolormesh(t, f, Tsx, shading='auto', cmap='jet', vmin=None, vmax=None)
+# plt.title("|T_x(μ, ω)| (SSQ STFT)")
+# plt.xlabel("Tiempo [s]")
+# plt.ylabel("Frecuencia [Hz]")
+# plt.ylim(0, 1000)
+# plt.colorbar(label="Magnitud")
+
+params = prep_binary_spectro_for_pcolormesh(
+    Tsx, fs=fs, 
+    t_vec=t,          # opcional
+    f_vec=f,          # opcional
+    method="quantile", q=0.9975,      # o method="quantile", q=0.995
+    smooth_kernel=3           # opcional (0 = sin suavizado)
+)
+
+plt.figure(figsize=(8,4))
+plt.pcolormesh(
+    params["x"], params["y"], params["C"],
+    cmap=params["cmap"], norm=params["norm"], shading=params["shading"]
+)
 plt.title("|T_x(μ, ω)| (SSQ STFT)")
 plt.xlabel("Tiempo [s]")
 plt.ylabel("Frecuencia [Hz]")

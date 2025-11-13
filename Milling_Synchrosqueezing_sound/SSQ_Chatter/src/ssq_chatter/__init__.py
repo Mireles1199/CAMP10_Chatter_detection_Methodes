@@ -4,6 +4,7 @@ from .lib.tf_transformers import SSQ_STFT, STFT
 from .lib.detection_strategies import ThreeSigmaWithLilliefors
 from .utils.tf_windows import WindowExtractor
 from .utils.decorators import timeit
+from .viz.plotting import prep_binary_spectro_for_pcolormesh
 
 
 
@@ -22,5 +23,5 @@ __all__ = [
     "timeit",
     "five_senos",
     "signal_1",
+    "prep_binary_spectro_for_pcolormesh",
 ]
- 
