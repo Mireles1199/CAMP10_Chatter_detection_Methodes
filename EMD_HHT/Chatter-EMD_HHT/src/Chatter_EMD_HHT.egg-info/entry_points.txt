@@ -1,0 +1,2 @@
+[console_scripts]
+chatter-emd-hht = emd_hht.cli.main:main

@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "RMS and CV online monitoring"
 readme = "README.md"            # asegúrate de que existe
 requires-python = ">=3.9"
-authors = [{name = "You", email = "you@example.com"}]
+authors = [{name = "Enrique Mireles", email = "enrique.mireles-hernandez@ensam.eu"}]
 license = {text = "MIT"}        # usa string SPDX si quieres: license = "MIT"
 classifiers = [
   "Programming Language :: Python :: 3",

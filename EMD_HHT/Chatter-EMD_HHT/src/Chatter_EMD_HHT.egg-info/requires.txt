@@ -1,0 +1,4 @@
+numpy>=1.26.4
+scipy>=1.10
+matplotlib>=3.6
+EMD-signal<2.0.0,>=1.6.0
