@@ -5,6 +5,8 @@ from .utils.signal_chatter import make_chatter_like_signal, amplitude_spectrum
 from .utils.signal_senos import five_senos
 from .lib.core import detect_chatter_from_force
 from .lib.datatypes import ChatterResult
+from .models.signal_examples import (signal_chatter_example)
+
 from .viz.plotting import (
     plot_imfs,
     plot_imf_seleccionado,
@@ -24,4 +26,5 @@ __all__ = [
     "plot_imfs_separados",
     "plot_tendencia",
     "plot_HHS",
+    "signal_chatter_example",
 ]

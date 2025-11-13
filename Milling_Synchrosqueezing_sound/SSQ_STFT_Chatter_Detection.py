@@ -1,4 +1,5 @@
 #%%#
+from matplotlib.colors import ListedColormap
 import numpy as np
 
 from matplotlib import pyplot as plt
@@ -378,8 +379,10 @@ Tsx, Sx, fs_out, tt, A_i, t_i, D, d1, res = pipe.run(x)
 f = np.linspace(0, fs/2, Sx.shape[0])
 t = np.arange(Sx.shape[1]) * hop_length / fs
 
+Sx = abs(Sx)
+
 plt.figure(figsize=(7,4))
-plt.pcolormesh(t, f, abs(Sx), shading='auto', cmap='jet', vmin=None, vmax=None)
+plt.pcolormesh(t, f, Sx, shading='auto', cmap= ListedColormap(['blue', 'yellow']), vmin=None, vmax=None)
 plt.title("|S_x(μ, ξ)|  (STFT)")
 plt.xlabel("Tiempo [s]")
 plt.ylabel("Frecuencia [Hz]")  
@@ -387,8 +390,10 @@ plt.ylim(0, 350)
 plt.colorbar(label="Magnitud") 
 
 
+Tsx = abs(Tsx)
+
 plt.figure(figsize=(7,4))
-plt.pcolormesh(t, f, np.abs(Tsx), shading='auto', cmap='jet', vmin=None, vmax=None)
+plt.pcolormesh(t, f, Tsx, shading='auto', cmap= ListedColormap(['blue', 'yellow']), vmin=None, vmax=None)
 plt.title("|T_x(μ, ω)| (SSQ STFT)")
 plt.xlabel("Tiempo [s]")
 plt.ylabel("Frecuencia [Hz]")
@@ -434,12 +439,16 @@ force_N = data.get_element('res_R_p/data',) #Newtons
 x = tool_dyn_vel + 1e-100  * np.random.randn(len(t))
 
 
+# Sigal Chatter
+from C_emd_hht import signal_chatter_example
 
+fs, T = 2000.0, 10.0
+x,t = signal_chatter_example(fs=fs, T=T, seed=123)
 
 plt.figure(figsize=(10,4))
 plt.plot(t, x, label='Velocidad herramienta (m/s)')
 
-fs = 1.0 / (t[1]-t[0])
+# fs = 1.0 / (t[1]-t[0])
 
 
 n_fft_power = 4
@@ -492,21 +501,24 @@ Tsx, Sx, fs_out, tt, A_i, t_i, D, d1, res = pipe.run(x)
 f = np.linspace(0, fs/2, Sx.shape[0])
 t = np.arange(Sx.shape[1]) * hop_length / fs
 
+Sx = abs(Sx)
+
 plt.figure(figsize=(7,4))
-plt.pcolormesh(t, f, abs(Sx), shading='auto', cmap='jet', vmin=None, vmax=None)
+plt.pcolormesh(t, f, Sx, shading='auto', cmap=ListedColormap(['blue', 'yellow']), vmin=None, vmax=None)
 plt.title("|S_x(μ, ξ)|  (STFT)")
 plt.xlabel("Tiempo [s]")
 plt.ylabel("Frecuencia [Hz]")  
-plt.ylim(0, 300)
+plt.ylim(0, 1000)
 plt.colorbar(label="Magnitud") 
 
-
+# cmap = 'jet'
+Tsx = abs(Tsx)
 plt.figure(figsize=(7,4))
-plt.pcolormesh(t, f, np.abs(Tsx), shading='auto', cmap='jet', vmin=None, vmax=None)
+plt.pcolormesh(t, f, Tsx, shading='auto', cmap=ListedColormap(['blue', 'yellow']), vmin=None, vmax=None)
 plt.title("|T_x(μ, ω)| (SSQ STFT)")
 plt.xlabel("Tiempo [s]")
 plt.ylabel("Frecuencia [Hz]")
-plt.ylim(0, 300)
+plt.ylim(0, 1000)
 plt.colorbar(label="Magnitud")
 
 

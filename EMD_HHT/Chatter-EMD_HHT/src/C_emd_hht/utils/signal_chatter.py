@@ -37,7 +37,8 @@ def make_chatter_like_signal(
     T: float = 6.0, 
     signal_chatter:  bool = False,
     t0_chatter: float = 3.0,    # s
-    grow_tau: float = 3,       # s
+    ramp_sec: float = 1.0,      # s
+    grow_tau: float = 2,       # s
     grow_gain: float = 20.0,
     f_chatter: float = 560.0,
     am_freqs_chatter: Tuple[float, ...] = (9.0, 17.0, 26.0),
@@ -191,31 +192,37 @@ def make_chatter_like_signal(
 
     # --- señal final (con o sin chatter)
     if signal_chatter:
-        # --- ventana de arranque (comentario original mantenido; aquí se sobreescribe a Heaviside)
-        ramp_sec = 2
-        tau_ramp = ramp_sec/6
-        w_start = 1.0 / (1.0 + np.exp(-(t - (t0_chatter + ramp_sec/2)) / (tau_ramp + 1e-12)))
-        # (si quieres arranque duro: w_start = np.heaviside(t - T1, 1.0))
-        w_start = np.heaviside(t - t0_chatter, 1.0)
 
-        # --- envolvente sigmoide de crecimiento (1 -> grow_gain)
-        grow_t0   = t0_chatter
-        sigmoid   = 1.0 / (1.0 + np.exp(-(t - grow_t0) / (grow_tau + 1e-12)))
-        env_grow  = 1.0 + (grow_gain - 1.0) * sigmoid
+        t_mid = t0_chatter + ramp_sec/2
+
+        # Pendiente para cubrir ~ramp_sec entre 1% y 99%
+        k = 2*np.log(99) / ramp_sec   # ≈ 9.19/ramp_sec
+        w_start = 1.0 / (1.0 + np.exp(-(t - t_mid)*k))
+
+        # (opcional, por si quieres cero exacto antes de t0)
+        w_start *= np.heaviside(t - t0_chatter, 0.0)
+
+        # Si NO quieres crecimiento extra, fija grow_gain = 1
+        # o deja env_grow pero SIN colas antes de t0:
+        grow_t0  = t0_chatter
+        sigmoid  = 1.0 / (1.0 + np.exp(-(t - grow_t0)/(grow_tau + 1e-12)))
+        env_grow = 1.0 + (grow_gain - 1.0)*sigmoid
+        env_grow *= np.heaviside(t - t0_chatter, 0.0)  # evita “pre-encendido”
+
 
         # --- chatter AM (portadora * producto de modulaciones seno)
-        rng = np.random.default_rng(7)                          # PRNG fijo para fases de AM
+
         phase_c = 2*np.pi*rng.random()
         carrier = base_chatter_amp * np.sin(2*np.pi*f_chatter*t + phase_c)
 
         am = np.ones_like(t)
         for fm, dm in zip(am_freqs_chatter, am_depths_chatter):
-            am *= (1.0 + dm * np.sin(2*np.pi*fm*t + 2*np.pi*rng.random()))
+            am += (1.0+ dm * np.sin(2*np.pi*fm*t ))
 
         chatter_raw = carrier * am
 
         # --- chatter final: aplicado con envolvente de crecimiento (sin apagar antes de t0)
-        chatter_sig =  env_grow * chatter_raw
+        chatter_sig =  w_start*env_grow * chatter_raw
 
         # -- suma de todos los componentes
         signal = low_sig + mid_sig + sig200 + chatter_sig + narrow_noise + white_noise + cluster_sig
