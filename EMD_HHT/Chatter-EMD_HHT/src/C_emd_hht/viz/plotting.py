@@ -15,22 +15,22 @@ from ..lib.misc import _time_axis, _smoothstep
 from ..utils.signal_chatter import amplitude_spectrum
 
 
-def plot_imfs_separados(imfs: np.ndarray , fs: Optional[float] = None, max_to_plot: Optional[int] = None, show: bool = True) -> list[Any]:
-    """Crea una figura independiente por cada IMF (sin subplots).
+def plot_imfs_separados(imfs: np.ndarray, fs: Optional[float] = None, max_to_plot: Optional[int] = None, show: bool = True) -> list[Any]:
+    """Creates one independent figure for each IMF (no subplots).
 
     Args:
-        imfs (np.ndarray): Matriz (K, N) de IMFs.
-        fs (Optional[float]): Frecuencia de muestreo o None.
-        max_to_plot (Optional[int]): Máximo de IMFs a graficar. Si None, grafica todos.
-        show (bool): Si True, realiza `plt.show()` al final.
+        imfs (np.ndarray): (K, N) array of IMFs.
+        fs (Optional[float]): Sampling frequency or None.
+        max_to_plot (Optional[int]): Maximum number of IMFs to plot. If None, plots all.
+        show (bool): If True, calls `plt.show()` at the end.
 
     Returns:
-        list: Lista de objetos Figure creados.
+        list: List of created Figure objects.
     """
     if plt is None:
-        raise ImportError("Falta matplotlib. Instala con: pip install matplotlib")
+        raise ImportError("Matplotlib is required. Install it with: pip install matplotlib")
     if imfs.ndim != 2:
-        raise ValueError("imfs debe tener forma (K, N)")
+        raise ValueError("imfs must have shape (K, N)")
     K, N = imfs.shape
     if max_to_plot is None or max_to_plot > K:
         max_to_plot = K
@@ -42,37 +42,38 @@ def plot_imfs_separados(imfs: np.ndarray , fs: Optional[float] = None, max_to_pl
         ax.plot(t, imfs[k])
         ax.set_title(f"IMF {k+1}")
         ax.set_xlabel(xlabel)
-        ax.set_ylabel("Amplitud")
+        ax.set_ylabel("Amplitude")
         figs.append(fig)
     if show:
         plt.show()
     return figs
 
 
-
 def plot_imf_seleccionado(
-    selected_imf: np.ndarray ,
+    selected_imf: np.ndarray,
     fs: Optional[float] = None,
+    f_max: Optional[float] = None,
     plot_spectrum: bool = False,
-    A: Optional[np.ndarray ] = None,
-    f_inst: Optional[np.ndarray ] = None,
+    A: Optional[np.ndarray] = None,
+    f_inst: Optional[np.ndarray] = None,
     show: bool = True
 ) -> list[Any]:
-    """Grafica el IMF seleccionado y opcionalmente A(t) y f_inst(t), en figuras separadas.
+    """Plots the selected IMF and optionally A(t) and f_inst(t) in separate figures.
 
     Args:
-        selected_imf (np.ndarray): IMF 1D a graficar.
-        fs (Optional[float]): Frecuencia de muestreo (Hz).
-        plot_spectrum (bool): Si True, grafica espectro del IMF en figura adicional.
-        A (Optional[np.ndarray]): Amplitud instantánea para trazar (opcional).
-        f_inst (Optional[np.ndarray]): Frecuencia instantánea para trazar (opcional).
-        show (bool): Si True, hace `plt.show()` al final.
+        selected_imf (np.ndarray): 1D IMF to plot.
+        fs (Optional[float]): Sampling frequency (Hz).
+        plot_spectrum (bool): If True, plots the IMF spectrum in an additional figure.
+        A (Optional[np.ndarray]): Instantaneous amplitude to plot (optional).
+        f_inst (Optional[np.ndarray]): Instantaneous frequency to plot (optional).
+        f_max (Optional[float]): Maximum frequency to display in the spectrum plot (optional).
+        show (bool): If True, calls `plt.show()` at the end.
 
     Returns:
-        list: Lista de figuras creadas.
+        list: List of created figures.
     """
     if plt is None:
-        raise ImportError("Falta matplotlib. Instala con: pip install matplotlib")
+        raise ImportError("Matplotlib is required. Install it with: pip install matplotlib")
     N: int = len(selected_imf)
     t, xlabel = _time_axis(N, fs)
 
@@ -81,16 +82,16 @@ def plot_imf_seleccionado(
     fig1 = plt.figure()
     ax1 = fig1.gca()
     ax1.plot(t, selected_imf)
-    ax1.set_title("IMF seleccionado - dominio temporal")
+    ax1.set_title("Selected IMF - time domain")
     ax1.set_xlabel(xlabel)
-    ax1.set_ylabel("Amplitud")
+    ax1.set_ylabel("Amplitude")
     figs.append(fig1)
 
     if A is not None and len(A) == N:
         fig2 = plt.figure()
         ax2 = fig2.gca()
         ax2.plot(t, A)
-        ax2.set_title("Amplitud instantánea A(t)")
+        ax2.set_title("Instantaneous amplitude A(t)")
         ax2.set_xlabel(xlabel)
         ax2.set_ylabel("A")
         figs.append(fig2)
@@ -99,7 +100,7 @@ def plot_imf_seleccionado(
         fig3 = plt.figure()
         ax3 = fig3.gca()
         ax3.plot(t, f_inst)
-        ax3.set_title("Frecuencia instantánea f_inst(t)")
+        ax3.set_title("Instantaneous frequency f_inst(t)")
         ax3.set_xlabel(xlabel)
         ax3.set_ylabel("Hz")
         figs.append(fig3)
@@ -110,11 +111,11 @@ def plot_imf_seleccionado(
         ax = axes_2[0]
         f, Pxx = amplitude_spectrum(selected_imf, fs=fs, normalize_to=0.1)  # type: ignore
         ax.plot(f, Pxx)
-        ax.set_title("Espectro IMF seleccionado")
-        ax.set_xlabel("Frecuencia (Hz)" if fs is not None else "Frecuencia (muestras)")
-        ax.set_ylabel("Amplitud")
-        ax.set_xlim(0, 1000 if fs is not None else None)
-        ax.xaxis.set_major_locator(MultipleLocator(100))  # type: ignore
+        ax.set_title("Spectrum of selected IMF")
+        ax.set_xlabel("Frequency (Hz)" if fs is not None else "Frequency (samples)")
+        ax.set_ylabel("Amplitude")
+        ax.set_xlim(0, f_max if fs is not None else None)
+        # ax.xaxis.set_major_locator(MultipleLocator(100))  # type: ignore
         fig2.tight_layout()
 
     if show:
@@ -122,32 +123,32 @@ def plot_imf_seleccionado(
     return figs
 
 
-
 def plot_imfs(
-    imfs: np.ndarray ,
+    imfs: np.ndarray,
     fs: Optional[float] = None,
+    f_max: Optional[float] = None,
     plot_spectrum: bool = False,
     max_to_plot: Optional[int] = None,
     ncols: int = 1,
     show: bool = True
 ) -> Tuple[Any, np.ndarray]:
-    """Dibuja *todos* los IMFs en **una sola figura** usando subplots.
+    """Plots all IMFs in a single figure using subplots.
 
     Args:
-        imfs (np.ndarray): Matriz (K, N) con los IMFs.
-        fs (Optional[float]): Frecuencia de muestreo. Si None, el eje x será en muestras.
-        plot_spectrum (bool): Si True, crea una segunda figura con espectros de IMFs.
-        max_to_plot (Optional[int]): Límite superior de IMFs a graficar. Si None, grafica todos.
-        ncols (int): Número de columnas en el mosaico de subplots.
-        show (bool): Si True, hace plt.show() al final.
+        imfs (np.ndarray): (K, N) array with IMFs.
+        fs (Optional[float]): Sampling frequency. If None, x-axis is in samples.
+        plot_spectrum (bool): If True, creates a second figure with IMF spectra.
+        max_to_plot (Optional[int]): Upper limit of IMFs to plot. If None, plots all.
+        ncols (int): Number of columns in the subplot grid.
+        show (bool): If True, calls plt.show() at the end.
 
     Returns:
-        Tuple[object, np.ndarray]: Figura y arreglo de ejes (subplots).
+        Tuple[object, np.ndarray]: Figure and array of axes (subplots).
     """
     if plt is None:
-        raise ImportError("Falta matplotlib. Instala con: pip install matplotlib")
+        raise ImportError("Matplotlib is required. Install it with: pip install matplotlib")
     if imfs.ndim != 2:
-        raise ValueError("imfs debe tener forma (K, N)")
+        raise ValueError("imfs must have shape (K, N)")
     K, N = imfs.shape
     if max_to_plot is None or max_to_plot > K:
         max_to_plot = K
@@ -164,7 +165,7 @@ def plot_imfs(
         ax = axes[i]
         ax.plot(t, imfs[i])
         ax.set_title(f"IMF {i+1}")
-        ax.set_ylabel("Amplitud")
+        ax.set_ylabel("Amplitude")
     for j in range(max_to_plot, len(axes)):
         axes[j].set_visible(False)
 
@@ -182,17 +183,17 @@ def plot_imfs(
             ax = axes_2[i]
             f, Pxx = amplitude_spectrum(imfs[i], fs=fs, normalize_to=0.1)  # type: ignore
             ax.plot(f, Pxx)
-            ax.set_title(f"Espectro IMF {i+1}")
-            ax.set_ylabel("Amplitud")
-            ax.set_xlim(0, 1000 if fs is not None else None)
+            ax.set_title(f"Spectrum IMF {i+1}")
+            ax.set_ylabel("Amplitude")
+            ax.set_xlim(0, f_max if fs is not None else None)
             ax.tick_params(axis='x', )
             ax.tick_params(axis='y', )
-            ax.xaxis.set_major_locator(MultipleLocator(100))  # type: ignore
+            # ax.xaxis.set_major_locator(MultipleLocator(100))  # type: ignore
 
         for j in range(max_to_plot, len(axes_2)):
             axes_2[j].set_visible(False)
 
-        axes_2[min(max_to_plot-1, len(axes_2)-1)].set_xlabel("Frecuencia (Hz)" if fs is not None else "Frecuencia (muestras)")
+        axes_2[min(max_to_plot-1, len(axes_2)-1)].set_xlabel("Frequency (Hz)" if fs is not None else "Frequency (samples)")
         fig2.tight_layout()
         for ax in axes_2:
             ax.tick_params(axis='x', which='both', bottom=True, top=False, labelbottom=True)
@@ -202,10 +203,9 @@ def plot_imfs(
     return fig, axes
 
 
-
 def plot_tendencia(
-    t: Union[Sequence[float], np.ndarray ],
-    y: Union[Sequence[float], np.ndarray ],
+    t: Union[Sequence[float], np.ndarray],
+    y: Union[Sequence[float], np.ndarray],
     tipo: str = "lineal",
     grado: int = 3,
     ventana: int = 7,
@@ -217,33 +217,33 @@ def plot_tendencia(
     trend_kwargs: Optional[Mapping[str, Any]] = None,
     devolver: bool = False,
     n_bins: int = 10
-) -> Optional[Tuple[np.ndarray , np.ndarray ]]:
-    """Dibuja puntos y línea de tendencia según método elegido.
+) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+    """Plots points and a trend line according to the selected method.
 
     Args:
-        t (array-like): Eje x (tiempo o índice).
-        y (array-like): Serie a suavizar/ajustar.
+        t (array-like): x-axis (time or index).
+        y (array-like): Series to smooth/fit.
         tipo (str): 'lineal' | 'polinomial' | 'suavizada' | 'pchip' | 'sigmoide' | 'step_suave'.
-        grado (int): Grado polinómico (si aplica).
-        ventana (int): Ventana para Savitzky-Golay (si 'suavizada').
-        ls (str): Estilo de línea ('--' por defecto).
-        lw (float): Grosor de línea.
-        alpha (float): Transparencia de la línea.
-        color (str): Color de línea.
-        scatter_kwargs (dict): kwargs extra para `plt.scatter`.
-        trend_kwargs (dict): kwargs extra para `plt.plot` de la tendencia.
-        devolver (bool): Si True, devuelve (t, trend).
-        n_bins (int): Número de bins para agregación en PCHIP.
+        grado (int): Polynomial degree (if applicable).
+        ventana (int): Window length for Savitzky-Golay (if 'suavizada').
+        ls (str): Line style ('--' by default).
+        lw (float): Line width.
+        alpha (float): Line transparency.
+        color (str): Line color.
+        scatter_kwargs (dict): Extra kwargs for `plt.scatter`.
+        trend_kwargs (dict): Extra kwargs for `plt.plot` of the trend.
+        devolver (bool): If True, returns (t, trend).
+        n_bins (int): Number of bins for aggregation in PCHIP.
 
     Returns:
-        Optional[Tuple[np.ndarray, np.ndarray]]: (t, trend) si `devolver=True`.
+        Optional[Tuple[np.ndarray, np.ndarray]]: (t, trend) if `devolver=True`.
 
-    Notas:
-        - La rama 'step_suave' ajusta un escalón suavizado (logística/smoothstep) robusto.
-        - Se preserva el comportamiento original; sólo se añaden comentarios y docstrings.
+    Notes:
+        - The 'step_suave' branch fits a smoothed step (logistic/smoothstep) robustly.
+        - Original behavior is preserved; only comments and docstrings are added/translated.
     """
     if plt is None:
-        raise ImportError("Falta matplotlib. Instala con: pip install matplotlib")
+        raise ImportError("Matplotlib is required. Install it with: pip install matplotlib")
 
     t = np.asarray(t)
     y = np.asarray(y)
@@ -278,88 +278,90 @@ def plot_tendencia(
     elif tipo == "sigmoide":
         def logistic(x, L, k, x0, b):  # b + L/(1+e^{-k(x-x0)})
             return b + L/(1.0 + np.exp(-k*(x - x0)))
-        L0 = np.percentile(y,95) - np.percentile(y,5)
-        k0 = 2.0/(np.ptp(t)+1e-12); x0 = np.median(t); b0 = np.percentile(y,5)
-        popt,_ = curve_fit(logistic, t, y, p0=[L0,k0,x0,b0], maxfev=10000)
+        L0 = np.percentile(y, 95) - np.percentile(y, 5)
+        k0 = 2.0/(np.ptp(t)+1e-12); x0 = np.median(t); b0 = np.percentile(y, 5)
+        popt, _ = curve_fit(logistic, t, y, p0=[L0, k0, x0, b0], maxfev=10000)
         trend = logistic(t, *popt)
 
     elif tipo == "step_suave":
-        # Modelo: y = y_lo + (y_hi - y_lo) * smoothstep( (t - t1)/w )
+        # Model: y = y_lo + (y_hi - y_lo) * smoothstep((t - t1)/w)
         def model(x, y_lo, y_hi, t1, w):
             return y_lo + (y_hi - y_lo) * _smoothstep((x - t1)/w)
 
-        # Inicializaciones robustas
+        # Robust initializations
         y_lo0 = np.median(y[:max(5, len(y)//10)])
         y_hi0 = np.median(y[-max(5, len(y))//10:])
-        t1_0  = t[np.argmax(np.gradient(y))]  # aprox del arranque
-        w0    = max( (t.max()-t.min())/10, 1e-3 )
+        t1_0  = t[np.argmax(np.gradient(y))]  # approximate onset
+        w0    = max((t.max()-t.min())/10, 1e-3)
 
         bounds = (
-            [y.min()-abs(np.ptp(y)), y.min(), t.min(), 1e-6],   # bajos
-            [y.max(),             y.max()+abs(np.ptp(y)), t.max(), np.ptp(t)]  # altos
+            [y.min()-abs(np.ptp(y)), y.min(), t.min(), 1e-6],   # lower
+            [y.max(),               y.max()+abs(np.ptp(y)), t.max(), np.ptp(t)]  # upper
         )
         try:
-            popt,_ = curve_fit(model, t, y, p0=[y_lo0, y_hi0, t1_0, w0],
-                               bounds=bounds, maxfev=20000)
+            popt, _ = curve_fit(
+                model,
+                t,
+                y,
+                p0=[y_lo0, y_hi0, t1_0, w0],
+                bounds=bounds,
+                maxfev=20000
+            )
             trend = model(t, *popt)
         except Exception:
-            # fallback por si no converge: PCHIP
+            # Fallback if it does not converge: PCHIP
             p = PchipInterpolator(t, y)
             trend = p(t)
-
 
     else:
         raise ValueError("tipo must be 'lineal', 'polinomial' or 'suavizada'")
 
-    # ---- trazar
+    # ---- plotting ----
     if scatter_kwargs is None:
-        scatter_kwargs = dict(s=20, marker='o', color='b')  # puntos azules
+        scatter_kwargs = dict(s=20, marker='o', color='b')  # blue points
     if trend_kwargs is None:
-        # Dashes más 'bonitos' (segmentos 6, espacios 3) y puntas redondeadas
+        # Nicer dashes (segments 6, spaces 3) and rounded caps
         trend_kwargs = dict(dashes=(6, 3), dash_capstyle='round')
 
     plt.figure()
     plt.scatter(t, y, **scatter_kwargs)
     plt.plot(t, trend, ls=ls, lw=lw, alpha=alpha, color=color, **trend_kwargs)
-    plt.xlabel("Tiempo (s)")
-    plt.ylabel("Conteo")
-    plt.title("Conteo de energía en banda por ventana")
+    plt.xlabel("Time (s)")
+    plt.ylabel("Counts")
+    plt.title("Band energy counts per window")
     plt.grid(True)
-
 
     if devolver:
         return t, trend
-    
-    
+
 
 def plot_HHS(
-    t: Union[Sequence[float], np.ndarray ],
-    fgrid: Union[Sequence[float], np.ndarray ],
-    HHS: np.ndarray ,
+    t: Union[Sequence[float], np.ndarray],
+    fgrid: Union[Sequence[float], np.ndarray],
+    HHS: np.ndarray,
     cmap: Optional[ListedColormap] = None,
     fs: Optional[float] = None,
-    fmax: Optional[float] = 1000.0,
+    fmax: Optional[float] = None,
     show: bool = False
 ) -> Any:
-    """Grafica el Hilbert-Huang Spectrum (HHS) como un mapa de calor.
+    """Plots the Hilbert-Huang Spectrum (HHS) as a heatmap.
 
     Args:
-        t (array-like): Eje temporal.
-        fgrid (array-like): Eje de frecuencia.
-        HHS (np.ndarray): Matriz 2D del HHS (binario o continuo).
-        fs (Optional[float]): Frecuencia de muestreo (Hz).
-        fmax (Optional[float]): Límite superior de frecuencia a mostrar (Hz).
-        show (bool): Si True, hace plt.show() al final.
+        t (array-like): Time axis.
+        fgrid (array-like): Frequency axis.
+        HHS (np.ndarray): 2D HHS matrix (binary or continuous).
+        cmap (Optional[ListedColormap]): Colormap for the HHS plot.
+        fs (Optional[float]): Sampling frequency (Hz).
+        fmax (Optional[float]): Upper frequency limit to display (Hz).
+        show (bool): If True, calls plt.show() at the end.
 
     Returns:
-        object: Objeto Figure creado.
+        object: Created Figure object.
     """
     if plt is None:
-        raise ImportError("Falta matplotlib. Instala con: pip install matplotlib")
+        raise ImportError("Matplotlib is required. Install it with: pip install matplotlib")
 
-    
-    
-    HHS =np.where(HHS > 0, 1, 0)
+    HHS = np.where(HHS > 0, 1, 0)
     if cmap is None:
         cmap = ListedColormap(['blue', 'yellow'])
 
@@ -371,8 +373,7 @@ def plot_HHS(
     ax.set_ylabel("Frequency (Hz)")
     ax.set_ylim(0, fmax if fmax is not None else fgrid.max())
     plt.show()
-    
-    
+
     if show:
         plt.show()
     return fig, ax

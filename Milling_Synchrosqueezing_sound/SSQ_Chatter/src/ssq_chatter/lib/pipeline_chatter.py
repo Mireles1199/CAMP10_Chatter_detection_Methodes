@@ -58,7 +58,7 @@ class ChatterPipeline:
             S1 = Sx
             
         if self._transformer.__class__.__name__ == "SSQ_STFT":
-            Tsx, Sx, t, f = self._transformer.transform(x, fs=fs)
+            Tsx, Sx, t, f, w, dWx = self._transformer.transform(x, fs=fs)
             S1 = Tsx
 
         # Comentario: extraer subventanas locales
@@ -72,7 +72,7 @@ class ChatterPipeline:
         res = self._detector.detect(d1=d1, t=t, idx_stable=None)
 
         # Comentario: preparar salidas (mantener compatibilidad)
-        return Tsx, Sx, fs, t, A_i, t_i, D, d1, res
+        return Tsx, Sx, fs, t, A_i, t_i, D, d1, res, w, dWx
     
     
     

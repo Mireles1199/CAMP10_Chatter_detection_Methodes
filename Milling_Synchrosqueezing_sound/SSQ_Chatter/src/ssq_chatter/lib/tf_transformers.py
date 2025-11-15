@@ -46,10 +46,10 @@ class SSQ_STFT(TimeFrequencyTransform):
     def transform(self, x: np.ndarray, fs: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         sigma_samples = self.win_length / self.sigma
         w = get_window(("gaussian", sigma_samples), self.win_length)
-        Tsx, Sx, *_ = ssq_stft_T(x, window=w, n_fft=self.n_fft, win_len=self.win_length, hop_len=self.hop_length, fs=fs, get_dWx=True, get_w=True)
+        Tsx, Sx, _, _, w, dWx = ssq_stft_T(x, window=w, n_fft=self.n_fft, win_len=self.win_length, hop_len=self.hop_length, fs=fs, get_dWx=True, get_w=True)
 
         # Comentario: vector de tiempo acorde al hop
         t = np.arange(Sx.shape[1]) * (self.hop_length / fs)
         f = np.linspace(0, fs/2, Sx.shape[0], endpoint=True)
         # Comentario: devolvemos Tsx como S1 al priorizar la versión reasignada
-        return Tsx, Sx, t, f
+        return Tsx, Sx, t, f, w, dWx

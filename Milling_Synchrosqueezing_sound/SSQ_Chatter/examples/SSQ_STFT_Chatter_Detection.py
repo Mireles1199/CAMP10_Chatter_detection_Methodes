@@ -12,6 +12,7 @@ from ssq_chatter import SSQ_STFT, STFT
 from ssq_chatter import ThreeSigmaWithLilliefors
 from ssq_chatter import five_senos, signal_1
 from ssq_chatter import prep_binary_spectro_for_pcolormesh
+from C_emd_hht import signal_chatter_example, sinus_6_C_SNR
 # from ssq_chatter import five_senos  # reexportado desde compat/legacy
 
 
@@ -325,10 +326,41 @@ class HDF5Reader:
         matches = self.find_all(key)
         return matches[0] if matches else None
 
-#%%#
-# Ejemplo con generador de prueba:
-fs = 10240.0
-t, x = five_senos(fs=fs, duracion=2.0, ruido_std=0.0, fase_aleatoria=False, seed=120)
+#%%# Signal et parameters
+
+
+dir_25mm = r'D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\Chatter-Criteria\CAMP8-Ventanna_Glisante\Nessy2m_Case_Test_Explicit\1DOF_150Hz_25mm\1DOF_150Hz'
+dir_8mm = r'D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\Chatter-Criteria\CAMP8-Ventanna_Glisante\Nessy2m_Case_Test_Explicit\1DOF_150Hz_8mm\1DOF_150Hz'
+dir_9mm = r'D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\Chatter-Criteria\CAMP8-Ventanna_Glisante\Nessy2m_Case_Test_Explicit\1DOF_150Hz_9mm\1DOF_150Hz'
+dir_5mm = r'D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\Chatter-Criteria\CAMP8-Ventanna_Glisante\Nessy2m_Case_Test_Explicit\1DOF_150Hz_5mm\1DOF_150Hz'
+data_path_1DOF_150Hz_20mm_7_5k_12kSpdS_100_F_0_05_L_50mm_Statico_Green = r'D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\Chatter-Criteria\CAMP8-Ventanna_Glisante\Nessy2m_Case_Test_Explicit\1DOF_150Hz_20mm_7.5k-12kSpdS_100_F-0_05_L-50mm_Statico\1DOF_150Hz'
+
+
+dir_path_use = dir_25mm
+
+data_dir = os.path.abspath(os.path.join(dir_path_use, 'out.hdf5' ))
+data = HDF5Reader(data_dir)
+
+tool_dyn = data.get_element('tool_dyn/data',)
+t = tool_dyn[:,0]
+tool_dyn = tool_dyn[:,1]
+tool_dyn_vel = data.get_element('tool_dyn_o/data',)[:,1]
+force_N = data.get_element('res_R_p/data',) #Newtons
+
+fs = 2000.0  # Hz
+T = 5
+
+# x = tool_dyn_vel + 1e-100  * np.random.randn(len(t))
+# t, x = five_senos(fs=fs, duracion=T, ruido_std=1, fase_aleatoria=False, seed=120)
+x, t = signal_chatter_example(fs=fs, T=T, seed=123)
+t, x = sinus_6_C_SNR(fs=fs, T=T, 
+                     chatter=True,
+                     exp=0.5,
+                     Amp=5,
+                     stable_to_chatter=False,
+                     noise=True,
+                     SNR_dB=10.0)
+
 
 plt.figure(figsize=(10,4))
 plt.plot(t, x, label='Señal de prueba (5 senos + ruido)')
@@ -336,7 +368,7 @@ plt.plot(t, x, label='Señal de prueba (5 senos + ruido)')
 n_fft_power = 4
 n_fft = 1024*(2**n_fft_power)
 cfg: PipelineConfig = PipelineConfig(
-    fs=10_240,
+    fs=fs,
     win_length_ms=100.0,
     hop_ms=2.0,
     n_fft=n_fft,
@@ -377,11 +409,17 @@ t_i: np.ndarray
 D: np.ndarray
 d1: np.ndarray
 res: Dict[str, Any]
+w: np.ndarray
+dWx: np.ndarray
 
-Tsx, Sx, fs_out, tt, A_i, t_i, D, d1, res = pipe.run(x)
+Tsx, Sx, fs_out, tt, A_i, t_i, D, d1, res, w, dWx = pipe.run(x)
+
+print(f"w.shape: {w.shape}, dWx.shape: {dWx.shape}")
+print(f"fs_out: {fs_out}, tt.shape: {tt.shape}")
+print(f"Sx.shape: {Sx.shape}, Tsx.shape: {Tsx.shape}")
 
 
-# %%
+# %% Calcule S,Txs
 f = np.linspace(0, fs/2, Sx.shape[0])
 t = np.arange(Sx.shape[1]) * hop_length / fs
 
@@ -410,11 +448,36 @@ plt.pcolormesh(
     params["x"], params["y"], params["C"],
     cmap=params["cmap"], norm=params["norm"], shading=params["shading"]
 )
+
 plt.title("|S_x(μ, ξ)|  (STFT)")
 plt.xlabel("Tiempo [s]")
 plt.ylabel("Frecuencia [Hz]")  
-plt.ylim(0, 350)
+plt.ylim(0, 1000)
 plt.colorbar(label="Magnitud") 
+
+
+
+# params = prep_binary_spectro_for_pcolormesh(
+#     w, fs=fs, 
+#     t_vec=t,          # opcional
+#     f_vec=f,          # opcional
+#     method="quantile", q=0.99,      # o method="quantile", q=0.995
+#     smooth_kernel=3           # opcional (0 = sin suavizado)
+# )
+
+plt.figure(figsize=(8,4))
+# plt.pcolormesh(
+#     params["x"], params["y"], params["C"],
+#     cmap=params["cmap"], norm=params["norm"], shading=params["shading"]
+# )
+plt.pcolormesh(t, f, abs(dWx), shading='auto', cmap= 'jet', vmin=None, vmax=None)
+
+plt.title("|W(μ, ξ)|  (STFT)")
+plt.xlabel("Tiempo [s]")
+plt.ylabel("Frecuencia [Hz]")  
+plt.ylim(0, 1000)
+plt.colorbar(label="Magnitud") 
+
 
 
 
@@ -444,7 +507,7 @@ plt.pcolormesh(
 plt.title("|T_x(μ, ω)| (SSQ STFT)")
 plt.xlabel("Tiempo [s]")
 plt.ylabel("Frecuencia [Hz]")
-plt.ylim(0, 350)
+plt.ylim(0, 1000)
 plt.colorbar(label="Magnitud")
 
 
@@ -465,172 +528,4 @@ print("normal_ok     :", res["normal_ok"], f"(p={res['p_value']:.4f})")
 print("mu, sigma     :", f"{res['mu']:.4f}", f"{res['sigma']:.4f}")
 print("lim_inf/sup   :", f"{res['lim_inf']:.4f}", f"{res['lim_sup']:.4f}")
 print("chatter(%)    :", f"{100*res['mask'].mean():.2f}%")
-
-
-#%%#
-
-dir_25mm = r'D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\Chatter-Criteria\CAMP8-Ventanna_Glisante\Nessy2m_Case_Test_Explicit\1DOF_150Hz_25mm\1DOF_150Hz'
-dir_8mm = r'D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\Chatter-Criteria\CAMP8-Ventanna_Glisante\Nessy2m_Case_Test_Explicit\1DOF_150Hz_8mm\1DOF_150Hz'
-dir_9mm = r'D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\Chatter-Criteria\CAMP8-Ventanna_Glisante\Nessy2m_Case_Test_Explicit\1DOF_150Hz_9mm\1DOF_150Hz'
-dir_5mm = r'D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\Chatter-Criteria\CAMP8-Ventanna_Glisante\Nessy2m_Case_Test_Explicit\1DOF_150Hz_5mm\1DOF_150Hz'
-data_path_1DOF_150Hz_20mm_7_5k_12kSpdS_100_F_0_05_L_50mm_Statico_Green = r'D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\Chatter-Criteria\CAMP8-Ventanna_Glisante\Nessy2m_Case_Test_Explicit\1DOF_150Hz_20mm_7.5k-12kSpdS_100_F-0_05_L-50mm_Statico\1DOF_150Hz'
-
-
-dir_path_use = dir_25mm
-
-data_dir = os.path.abspath(os.path.join(dir_path_use, 'out.hdf5' ))
-data = HDF5Reader(data_dir)
-
-tool_dyn = data.get_element('tool_dyn/data',)
-t = tool_dyn[:,0]
-tool_dyn = tool_dyn[:,1]
-tool_dyn_vel = data.get_element('tool_dyn_o/data',)[:,1]
-force_N = data.get_element('res_R_p/data',) #Newtons
-
-x = tool_dyn_vel + 1e-100  * np.random.randn(len(t))
-
-
-# Sigal Chatter
-from C_emd_hht import signal_chatter_example
-
-fs, T = 2000.0, 10.0
-x,t = signal_chatter_example(fs=fs, T=T, seed=123)
-
-plt.figure(figsize=(10,4))
-plt.plot(t, x, label='Velocidad herramienta (m/s)')
-
-# fs = 1.0 / (t[1]-t[0])
-
-
-n_fft_power = 4
-n_fft = 1024*(2**n_fft_power)
-cfg: PipelineConfig = PipelineConfig(
-    fs=fs,
-    win_length_ms=100.0,
-    hop_ms=2.0,
-    n_fft=n_fft,
-    Ai_length=8,
-    mode = "causal_inclusive",
-)
-
-hop_length = int(cfg.hop_ms * 1e-3 * cfg.fs)
-# Opción A: SSQ-STFT (requiere ssqueezepy)
-tf_strategy = SSQ_STFT(
-    win_length=int(cfg.win_length_ms * 1e-3 * cfg.fs),
-    hop_length=hop_length,
-    n_fft=cfg.n_fft, 
-    sigma=6.0,
-)
-
-# Opción B: STFT estándar
-# tf_strategy = STFT(
-#     win_length=int(cfg.win_length_ms * 1e-3 * cfg.fs),
-#     hop_length=int(cfg.hop_ms * 1e-3 * cfg.fs),
-#     n_fft=cfg.n_fft,
-# )
-
-
-# regla de detección (Strategy)
-detect_rule = ThreeSigmaWithLilliefors(stable_time=[0.00, 2], alpha=0.05, z=3.0)
-
-# Comentario: construir tubería (DIP: inyecta estrategias)
-pipe = ChatterPipeline(transformer=tf_strategy, detector=detect_rule, config=cfg)
-
-# Comentario: ejecutar
-Tsx: np.ndarray
-Sx: np.ndarray
-fs_out: float
-tt: np.ndarray
-A_i: np.ndarray
-t_i: np.ndarray
-D: np.ndarray
-d1: np.ndarray
-res: Dict[str, Any]
-
-Tsx, Sx, fs_out, tt, A_i, t_i, D, d1, res = pipe.run(x)
-
-#%%
-f = np.linspace(0, fs/2, Sx.shape[0])
-t = np.arange(Sx.shape[1]) * hop_length / fs
-
-# Sx = abs(Sx)
-
-# plt.figure(figsize=(7,4))
-# plt.pcolormesh(t, f, Sx, shading='auto', cmap='jet', vmin=None, vmax=None)
-# plt.title("|S_x(μ, ξ)|  (STFT)")
-# plt.xlabel("Tiempo [s]") 
-# plt.ylabel("Frecuencia [Hz]")  
-# plt.ylim(0, 1000)
-# plt.colorbar(label="Magnitud") 
-
-params = prep_binary_spectro_for_pcolormesh(
-    Sx, fs=fs, 
-    t_vec=t,          # opcional
-    f_vec=f,          # opcional
-    method="quantile", q=0.99,      # o method="quantile", q=0.995
-    smooth_kernel=3           # opcional (0 = sin suavizado)
-)
-
-plt.figure(figsize=(8,4))
-plt.pcolormesh(
-    params["x"], params["y"], params["C"],
-    cmap=params["cmap"], norm=params["norm"], shading=params["shading"]
-)
-plt.title("|S_x(μ, ξ)|  (STFT)")
-plt.xlabel("Tiempo [s]")
-plt.ylabel("Frecuencia [Hz]")  
-plt.ylim(0, 1000)
-plt.colorbar(label="Magnitud") 
-
-
-# cmap = 'jet'
-# Tsx = abs(Tsx)
-# plt.figure(figsize=(7,4))
-# plt.pcolormesh(t, f, Tsx, shading='auto', cmap='jet', vmin=None, vmax=None)
-# plt.title("|T_x(μ, ω)| (SSQ STFT)")
-# plt.xlabel("Tiempo [s]")
-# plt.ylabel("Frecuencia [Hz]")
-# plt.ylim(0, 1000)
-# plt.colorbar(label="Magnitud")
-
-params = prep_binary_spectro_for_pcolormesh(
-    Tsx, fs=fs, 
-    t_vec=t,          # opcional
-    f_vec=f,          # opcional
-    method="quantile", q=0.9975,      # o method="quantile", q=0.995
-    smooth_kernel=3           # opcional (0 = sin suavizado)
-)
-
-plt.figure(figsize=(8,4))
-plt.pcolormesh(
-    params["x"], params["y"], params["C"],
-    cmap=params["cmap"], norm=params["norm"], shading=params["shading"]
-)
-plt.title("|T_x(μ, ω)| (SSQ STFT)")
-plt.xlabel("Tiempo [s]")
-plt.ylabel("Frecuencia [Hz]")
-plt.ylim(0, 1000)
-plt.colorbar(label="Magnitud")
-
-
-
-
-
-plt.figure(figsize=(7,4))
-plt.plot(t_i, d1, marker='o')
-plt.title("Primer valor singular de cada A_i a lo largo del tiempo")
-plt.hlines([res['lim_inf'], res['lim_sup']], xmin=t_i.min(), xmax=t_i.max(), colors='red', linestyles='dashed', label='Límites de chatter')
-
-
-print("metodo_umbral :", res["metodo_umbral"])
-print("normal_ok     :", res["normal_ok"], f"(p={res['p_value']:.4f})")
-print("mu, sigma     :", f"{res['mu']:.4f}", f"{res['sigma']:.4f}")
-print("lim_inf/sup   :", f"{res['lim_inf']:.4f}", f"{res['lim_sup']:.4f}")
-print("chatter(%)    :", f"{100*res['mask'].mean():.2f}%")
-
-
-
 plt.show()
-
-
-

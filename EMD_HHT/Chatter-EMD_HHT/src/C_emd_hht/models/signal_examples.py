@@ -87,7 +87,107 @@ def signal_chatter_example(fs=2000.0, T=6.0, seed=123):
 
                                                             )
     
-    return sig, meta['t']
+    return meta['t'], sig
+
+
+def sinus_6_C_SNR(
+    fs : int, 
+    T  : float, 
+    chatter : bool = True, 
+    exp: float = None, 
+    Amp: float = 1,
+    noise : bool = True, 
+    SNR_dB : float = 10,
+    stable_to_chatter: bool = False,
+    ) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Genera una señal sintética basada en la ecuación (9) del artículo de
+    Altintas y Budak (1995).
+
+    Modos:
+      - chatter=True, stable_to_chatter=False  -> chatter presente en todo el registro
+      - stable_to_chatter=True                -> estable al principio y chatter que crece
+      - chatter=False y stable_to_chatter=False -> sin chatter (solo componentes 1–6 + ruido)
+    """
+
+    # ============================
+    # Vector de tiempo
+    # ============================
+    t = np.arange(0, T, 1/fs)
+
+    # ============================
+    # Definición de A(t)
+    # ============================
+    if stable_to_chatter:
+        # A(t) casi constante y pequeña hasta t0,
+        # luego crecimiento suave tipo exponencial hacia Amp
+        t0 = T / 2               # instante en el que empieza el chatter
+        Amp_ini = 0.1 * Amp      # amplitud “estable” (pequeña)
+        Amp_fin = Amp            # amplitud en régimen de chatter
+        tau = 0.1 * T            # controla lo rápido que crece
+
+        A_t = np.zeros_like(t)
+        # Antes de t0: amplitud baja y casi constante
+        A_t[t < t0] = Amp_ini
+
+        # Después de t0: crecimiento exponencial suave hacia Amp_fin
+        mask = t >= t0
+        A_t[mask] = Amp_ini + (Amp_fin - Amp_ini) * (
+            np.exp((t[mask] - t0) / tau)
+        )
+
+    else:
+        # Comportamiento original
+        if exp is not None:
+            # Ojo: aquí es Amp * exp(exp * t), no Amp * t**exp como dice el comentario
+            A_t = Amp * np.exp(exp * t)
+        else:
+            A_t = Amp * t
+
+    # ============================
+    # Componentes de la ecuación (9)
+    # ============================
+    c1 = 4   * np.sin(800  * np.pi * t)
+    c2 = 1.5 * np.sin(1600 * np.pi * t)
+    c3 = 4   * np.sin(2400 * np.pi * t)
+
+    # chatter (modo de chatter amplitud modulada)
+    if chatter or stable_to_chatter:
+        c4 = A_t * (1 + 0.3 * np.sin(1995 * np.pi * t)) * np.cos(8991 * np.pi * t)
+    else:
+        c4 = np.zeros_like(t)
+
+    c5 = np.sin(4800 * np.pi * t)
+    c6 = 0.6 * np.sin(7200 * np.pi * t)
+
+    # ============================
+    # Ruido w(t) según SNR
+    # ============================
+    signal_no_noise = c1 + c2 + c3 + c5 + c6  # sin chatter
+
+    if SNR_dB is not None and noise:
+        Ps = np.mean(signal_no_noise**2)
+        SNR_lin = 10**(SNR_dB / 10)
+        Pn = Ps / SNR_lin
+        sigma_n = np.sqrt(Pn)
+        w = np.random.normal(0, sigma_n, size=t.shape)
+    else:
+        w = np.zeros_like(t)
+
+    # ============================
+    # Señales finales
+    # ============================
+    signal_chatter       = signal_no_noise + c4 + w      # con chatter (constante o creciente)
+    signal_chatter_free  = signal_no_noise + w           # sin chatter
+
+    if stable_to_chatter:
+        # En este modo, ya hemos hecho el “estable -> chatter”
+        # mediante A(t), así que devolvemos signal_chatter
+        return t, signal_chatter
+    elif chatter:
+        return t, signal_chatter
+    else:
+        return t, signal_chatter_free
 
 from matplotlib import pyplot as plt
 if __name__ == "__main__":

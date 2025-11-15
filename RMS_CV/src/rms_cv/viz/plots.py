@@ -22,10 +22,11 @@ def plot_rms(times: "np.ndarray", rms: "np.ndarray", *, title: str = "RMS") -> N
     plt.title(title)
     plt.grid(True)
 
-def plot_cv(time_seq: Sequence[float], cv_seq: Sequence[float], *, title: str = "CV") -> None:
+def plot_cv(time_seq: Sequence[float], cv_seq: Sequence[float], cv_threshold: float, *, title: str = "CV") -> None:
     # Comentario: traza CV
     plt.figure()
     plt.scatter(time_seq, cv_seq)
+    plt.axhline(y=cv_threshold, color="r", linestyle="--", label="CV threshold")
     plt.xlabel("time (s)")
     plt.ylabel("cv")
     plt.title(title)
