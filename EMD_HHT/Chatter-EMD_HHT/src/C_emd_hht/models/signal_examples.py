@@ -99,6 +99,7 @@ def sinus_6_C_SNR(
     noise : bool = True, 
     SNR_dB : float = 10,
     stable_to_chatter: bool = False,
+    seed: int = None
     ) -> tuple[np.ndarray, np.ndarray]:
     """
     Genera una señal sintética basada en la ecuación (9) del artículo de
@@ -166,11 +167,19 @@ def sinus_6_C_SNR(
     signal_no_noise = c1 + c2 + c3 + c5 + c6  # sin chatter
 
     if SNR_dB is not None and noise:
-        Ps = np.mean(signal_no_noise**2)
+        if seed is None:
+            rng = np.random.default_rng()
+        else:
+            rng = np.random.default_rng(seed)
+        if chatter or stable_to_chatter:
+            signal_use_to_noise = signal_no_noise + c4
+        else:
+            signal_use_to_noise = signal_no_noise
+        Ps = np.mean(signal_use_to_noise**2)
         SNR_lin = 10**(SNR_dB / 10)
         Pn = Ps / SNR_lin
         sigma_n = np.sqrt(Pn)
-        w = np.random.normal(0, sigma_n, size=t.shape)
+        w = rng.normal(0, sigma_n, size=t.shape)
     else:
         w = np.zeros_like(t)
 

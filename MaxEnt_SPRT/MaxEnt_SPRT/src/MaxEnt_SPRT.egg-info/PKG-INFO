@@ -1,0 +1,37 @@
+Metadata-Version: 2.4
+Name: MaxEnt_SPRT
+Version: 0.1.0
+Summary: Detector MaxEnt+SPRT para chatter/early chatter con OPR
+Author-email: Enrique Mireles <author@example.com>
+License: MIT
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: numpy<3,>=1.24
+Requires-Dist: matplotlib>=3.6
+Dynamic: license-file
+
+
+# MaxEnt_SPRT
+
+Paquete Python para detección de *early chatter* con indicador **MaxEnt** por segmentos OPR
+y test secuencial **SPRT** (Wald). Arquitectura modular, comentarios en español.
+
+## Instalación (editable)
+
+```bash
+pip install -e .
+```
+
+## Requisitos
+- NumPy (rama estable 1.24–2.x; fijado `<3` en este paquete)
+- Matplotlib (opcional para ejemplos)
+
+## Ejemplo mínimo
+
+```python
+from MaxEnt_SPRT.lib.detector import MaxEntSPRTDetector, MaxEntSPRTConfig
+```
+
+## Licencia
+MIT

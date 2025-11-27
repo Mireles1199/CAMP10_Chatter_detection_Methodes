@@ -25,6 +25,7 @@ import numpy as np
 import matplotlib.colors as mcolors
 
 
+
 class HDF5Reader:
     # Cache for all discovered paths
     _all_paths_cache: Optional[List[str]]
@@ -334,9 +335,8 @@ dir_8mm = r'D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\Chatter-Crite
 dir_9mm = r'D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\Chatter-Criteria\CAMP8-Ventanna_Glisante\Nessy2m_Case_Test_Explicit\1DOF_150Hz_9mm\1DOF_150Hz'
 dir_5mm = r'D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\Chatter-Criteria\CAMP8-Ventanna_Glisante\Nessy2m_Case_Test_Explicit\1DOF_150Hz_5mm\1DOF_150Hz'
 data_path_1DOF_150Hz_20mm_7_5k_12kSpdS_100_F_0_05_L_50mm_Statico_Green = r'D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\Chatter-Criteria\CAMP8-Ventanna_Glisante\Nessy2m_Case_Test_Explicit\1DOF_150Hz_20mm_7.5k-12kSpdS_100_F-0_05_L-50mm_Statico\1DOF_150Hz'
-
-
-dir_path_use = dir_25mm
+dir_cono =  r'D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\2DOF_Cono\1DOF_150Hz'
+dir_path_use = dir_cono
 
 data_dir = os.path.abspath(os.path.join(dir_path_use, 'out.hdf5' ))
 data = HDF5Reader(data_dir)
@@ -347,30 +347,36 @@ tool_dyn = tool_dyn[:,1]
 tool_dyn_vel = data.get_element('tool_dyn_o/data',)[:,1]
 force_N = data.get_element('res_R_p/data',) #Newtons
 
-fs = 2000.0  # Hz
-T = 5
+
+
+# fs = 2000.0  # Hz
+# T = 5
 
 # x = tool_dyn_vel + 1e-100  * np.random.randn(len(t))
 # t, x = five_senos(fs=fs, duracion=T, ruido_std=1, fase_aleatoria=False, seed=120)
-x, t = signal_chatter_example(fs=fs, T=T, seed=123)
-t, x = sinus_6_C_SNR(fs=fs, T=T, 
-                     chatter=True,
-                     exp=0.5,
-                     Amp=5,
-                     stable_to_chatter=False,
-                     noise=True,
-                     SNR_dB=10.0)
+# t, x = signal_chatter_example(fs=fs, T=T, seed=123)
+# t, x = sinus_6_C_SNR(fs=fs, T=T, 
+#                      chatter=True,
+#                      exp=0.5,
+#                      Amp=5,
+#                      stable_to_chatter=False,
+#                      noise=True,
+                    #  SNR_dB=10.0)
+
+t = t
+fs = 1.0 / (t[1]-t[0])
+x = tool_dyn_vel
 
 
 plt.figure(figsize=(10,4))
 plt.plot(t, x, label='Señal de prueba (5 senos + ruido)')
 
-n_fft_power = 4
+n_fft_power = 1
 n_fft = 1024*(2**n_fft_power)
 cfg: PipelineConfig = PipelineConfig(
     fs=fs,
-    win_length_ms=100.0,
-    hop_ms=2.0,
+    win_length_ms=50.0,
+    hop_ms=30.0,
     n_fft=n_fft,
     Ai_length=4,
     mode = "causal_inclusive",  
@@ -394,7 +400,7 @@ tf_strategy = SSQ_STFT(
 
 
 # regla de detección (Strategy)
-detect_rule = ThreeSigmaWithLilliefors(frac_stable=0.25, alpha=0.05, z=3.0)
+detect_rule = ThreeSigmaWithLilliefors(frac_stable=0.5, alpha=0.05, z=3.0)
 
 # Comentario: construir tubería (DIP: inyecta estrategias)
 pipe = ChatterPipeline(transformer=tf_strategy, detector=detect_rule, config=cfg)
@@ -423,37 +429,37 @@ print(f"Sx.shape: {Sx.shape}, Tsx.shape: {Tsx.shape}")
 f = np.linspace(0, fs/2, Sx.shape[0])
 t = np.arange(Sx.shape[1]) * hop_length / fs
 
-# Sx = abs(Sx)
+Sx = abs(Sx)
 
-# plt.figure(figsize=(7,4))
-# plt.pcolormesh(t, f, Sx, shading='auto', cmap= ListedColormap(['blue', 'yellow']), vmin=None, vmax=None)
-# plt.title("|S_x(μ, ξ)|  (STFT)")
-# plt.xlabel("Tiempo [s]")
-# plt.ylabel("Frecuencia [Hz]")  
-# plt.ylim(0, 350)
-# plt.colorbar(label="Magnitud") 
-
-
-#
-params = prep_binary_spectro_for_pcolormesh(
-    Sx, fs=fs, 
-    t_vec=t,          # opcional
-    f_vec=f,          # opcional
-    method="quantile", q=0.99,      # o method="quantile", q=0.995
-    smooth_kernel=3           # opcional (0 = sin suavizado)
-)
-
-plt.figure(figsize=(8,4))
-plt.pcolormesh(
-    params["x"], params["y"], params["C"],
-    cmap=params["cmap"], norm=params["norm"], shading=params["shading"]
-)
-
+plt.figure(figsize=(7,4))
+plt.pcolormesh(t, f, Sx, shading='auto', cmap= 'jet', vmin=None, vmax=None)
 plt.title("|S_x(μ, ξ)|  (STFT)")
 plt.xlabel("Tiempo [s]")
 plt.ylabel("Frecuencia [Hz]")  
 plt.ylim(0, 1000)
 plt.colorbar(label="Magnitud") 
+
+
+#
+# params = prep_binary_spectro_for_pcolormesh(
+#     Sx, fs=fs, 
+#     t_vec=t,          # opcional
+#     f_vec=f,          # opcional
+#     method="quantile", q=0.99,      # o method="quantile", q=0.995
+#     smooth_kernel=3           # opcional (0 = sin suavizado)
+# )
+
+# plt.figure(figsize=(8,4))
+# plt.pcolormesh(
+#     params["x"], params["y"], params["C"],
+#     cmap=params["cmap"], norm=params["norm"], shading=params["shading"]
+# )
+
+# plt.title("|S_x(μ, ξ)|  (STFT)")
+# plt.xlabel("Tiempo [s]")
+# plt.ylabel("Frecuencia [Hz]")  
+# plt.ylim(0, 1000)
+# plt.colorbar(label="Magnitud") 
 
 
 
@@ -481,34 +487,34 @@ plt.colorbar(label="Magnitud")
 
 
 
-# Tsx = abs(Tsx)
+Tsx = abs(Tsx)
 
-# plt.figure(figsize=(7,4))
-# plt.pcolormesh(t, f, Tsx, shading='auto', cmap= ListedColormap(['blue', 'yellow']), vmin=None, vmax=None)
-# plt.title("|T_x(μ, ω)| (SSQ STFT)")
-# plt.xlabel("Tiempo [s]")
-# plt.ylabel("Frecuencia [Hz]")
-# plt.ylim(0, 350)
-# plt.colorbar(label="Magnitud")
-
-params = prep_binary_spectro_for_pcolormesh(
-    Tsx, fs=fs, 
-    t_vec=t,          # opcional
-    f_vec=f,          # opcional
-    method="quantile", q=0.9975,      # o method="quantile", q=0.995
-    smooth_kernel=3           # opcional (0 = sin suavizado)
-)
-
-plt.figure(figsize=(8,4))
-plt.pcolormesh(
-    params["x"], params["y"], params["C"],
-    cmap=params["cmap"], norm=params["norm"], shading=params["shading"]
-)
+plt.figure(figsize=(7,4))
+plt.pcolormesh(t, f, Tsx, shading='auto', cmap= 'jet', vmin=None, vmax=None)
 plt.title("|T_x(μ, ω)| (SSQ STFT)")
 plt.xlabel("Tiempo [s]")
 plt.ylabel("Frecuencia [Hz]")
 plt.ylim(0, 1000)
 plt.colorbar(label="Magnitud")
+
+# params = prep_binary_spectro_for_pcolormesh(
+#     Tsx, fs=fs, 
+#     t_vec=t,          # opcional
+#     f_vec=f,          # opcional
+#     method="quantile", q=0.9975,      # o method="quantile", q=0.995
+#     smooth_kernel=3           # opcional (0 = sin suavizado)
+# )
+
+# plt.figure(figsize=(8,4))
+# plt.pcolormesh(
+#     params["x"], params["y"], params["C"],
+#     cmap=params["cmap"], norm=params["norm"], shading=params["shading"]
+# )
+# plt.title("|T_x(μ, ω)| (SSQ STFT)")
+# plt.xlabel("Tiempo [s]")
+# plt.ylabel("Frecuencia [Hz]")
+# plt.ylim(0, 1000)
+# plt.colorbar(label="Magnitud")
 
 
 
