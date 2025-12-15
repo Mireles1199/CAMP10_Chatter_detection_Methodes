@@ -2,6 +2,7 @@ LICENCE.txt
 README.md
 pyproject.toml
 src/ssq_chatter/__init__.py
+src/ssq_chatter/ruido.py
 src/ssq_chatter.egg-info/PKG-INFO
 src/ssq_chatter.egg-info/SOURCES.txt
 src/ssq_chatter.egg-info/dependency_links.txt
@@ -28,3 +29,4 @@ src/ssq_chatter/utils/scales.py
 src/ssq_chatter/utils/ssq_core.py
 src/ssq_chatter/utils/tf_windows.py
 src/ssq_chatter/utils/windows.py
+src/ssq_chatter/viz/plotting.py

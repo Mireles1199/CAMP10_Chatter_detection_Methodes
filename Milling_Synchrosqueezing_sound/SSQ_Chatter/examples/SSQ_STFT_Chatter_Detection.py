@@ -400,7 +400,7 @@ tf_strategy = SSQ_STFT(
 
 
 # regla de detección (Strategy)
-detect_rule = ThreeSigmaWithLilliefors(frac_stable=0.5, alpha=0.05, z=3.0)
+detect_rule = ThreeSigmaWithLilliefors(frac_stable=0.36052, alpha=0.05, z=3.0, fallback_mad=False,)
 
 # Comentario: construir tubería (DIP: inyecta estrategias)
 pipe = ChatterPipeline(transformer=tf_strategy, detector=detect_rule, config=cfg)
@@ -432,7 +432,7 @@ t = np.arange(Sx.shape[1]) * hop_length / fs
 Sx = abs(Sx)
 
 plt.figure(figsize=(7,4))
-plt.pcolormesh(t, f, Sx, shading='auto', cmap= 'jet', vmin=None, vmax=None)
+plt.pcolormesh(t, f, Sx, shading='auto', cmap= 'viridis', vmin=None, vmax=None)
 plt.title("|S_x(μ, ξ)|  (STFT)")
 plt.xlabel("Tiempo [s]")
 plt.ylabel("Frecuencia [Hz]")  

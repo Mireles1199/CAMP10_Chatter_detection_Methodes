@@ -10,7 +10,9 @@ src/C_emd_hht/lib/hht.py
 src/C_emd_hht/lib/metrics.py
 src/C_emd_hht/lib/misc.py
 src/C_emd_hht/lib/selection.py
+src/C_emd_hht/models/signal_examples.py
 src/C_emd_hht/utils/signal_chatter.py
+src/C_emd_hht/utils/signal_senos.py
 src/C_emd_hht/viz/plotting.py
 src/Chatter_EMD_HHT.egg-info/PKG-INFO
 src/Chatter_EMD_HHT.egg-info/SOURCES.txt

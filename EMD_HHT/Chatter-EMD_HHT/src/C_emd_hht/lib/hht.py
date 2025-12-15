@@ -85,11 +85,35 @@ def build_hhs(
     """
     if fbin_hz <= 0:
         raise ValueError("fbin_hz debe ser > 0")
+
     Fbins: int = int(np.ceil(fmax / fbin_hz))
-    fgrid: np.ndarray  = np.arange(Fbins) * fbin_hz
-    H: np.ndarray  = np.zeros((Fbins, len(A)), dtype=float)
-    E: np.ndarray  = A**2 if energy_mode == "A2" else A
-    idx: np.ndarray = np.floor(np.clip(f_inst, 0, fmax - 1e-9) / fbin_hz).astype(int)
-    H[idx, np.arange(len(A))] += E  # type: ignore[index]
+    fgrid: np.ndarray = np.arange(Fbins) * fbin_hz
+    H: np.ndarray = np.zeros((Fbins, len(A)), dtype=float)
+    E: np.ndarray = A**2 if energy_mode == "A2" else A
+
+    # 1) Recortamos al rango [0, fmax)
+    f_inst_clipped = np.clip(f_inst, 0, fmax - 1e-9)
+
+    # 2) Reemplazamos NaN (y, si quieres, infinitos) por algo seguro
+    #    - nan → 0.0 (por ejemplo)
+    #    - +inf → fmax - 1e-9
+    #    - -inf → 0.0
+    f_inst_clean = np.nan_to_num(
+        f_inst_clipped,
+        nan=0.0,
+        posinf=fmax - 1e-9,
+        neginf=0.0,
+    )
+
+    # 3) Pasamos a índices de bin
+    idx: np.ndarray = np.floor(f_inst_clean / fbin_hz).astype(np.intp)
+
+    # 4) Clip final de seguridad por si acaso
+    idx = np.clip(idx, 0, Fbins - 1)
+
+    cols: np.ndarray = np.arange(len(A), dtype=np.intp)
+
+    H[idx, cols] += E
+
     return H, fgrid
 

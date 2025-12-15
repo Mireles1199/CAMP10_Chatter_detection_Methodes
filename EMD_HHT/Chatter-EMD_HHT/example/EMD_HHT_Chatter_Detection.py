@@ -13,17 +13,17 @@ fs = 10_000.0
 T = 5.0
 t = np.arange(int(T * fs)) / fs
 
-t, F = five_senos(fs, duracion=T, ruido_std=0.2, fase_aleatoria=True, seed=42)
+t, F = five_senos(fs, duracion=T, ruido_std=0.0, fase_aleatoria=True, seed=42)
 # t, F = signal_chatter_example(fs=fs, T=T, seed=123)
-t, F = sinus_6_C_SNR(fs=fs, T=T, 
-                     chatter=True,
-                     exp=None,
-                     Amp=5,
-                     stable_to_chatter=False,
-                     noise=True,
-                     SNR_dB=10.0)
+# t, F = sinus_6_C_SNR(fs=fs, T=T, 
+#                      chatter=False,
+#                      exp=None,
+#                      Amp=5,
+#                      stable_to_chatter=False,
+#                      noise=True,
+#                      SNR_dB=10.0)
 
-fmax = 5000.0
+fmax = 10_000
 
 
 f, A = amplitude_spectrum(F, fs=fs,)
