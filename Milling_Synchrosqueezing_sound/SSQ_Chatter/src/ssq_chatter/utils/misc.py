@@ -32,7 +32,7 @@ def zero_denormals(x, parallel=None):
     fn = _zero_denormals_par if parallel else _zero_denormals
     fn(x.ravel(), tiny)
     
-@jit(nopython=True, cache=True)
+@jit(nopython=True, cache=False)
 def _zero_denormals(x, tiny):
     for i in range(x.size):
         if x[i] < tiny and x[i] > -tiny:
