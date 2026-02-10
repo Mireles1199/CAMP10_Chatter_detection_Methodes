@@ -4,6 +4,8 @@ from typing import Dict, Any, Sequence
 import numpy as np
 import matplotlib.pyplot as plt
 
+#Deprecated
+
 def plot_signal(t: "np.ndarray", x: "np.ndarray", *, title: str = "Signal") -> None:
     # Comentario: traza señal temporal
     plt.figure()

@@ -16,6 +16,7 @@ src/ssq_chatter/legacy/__init__.py
 src/ssq_chatter/legacy/utils/signal_generators.py
 src/ssq_chatter/lib/detection_strategies.py
 src/ssq_chatter/lib/pipeline_chatter.py
+src/ssq_chatter/lib/runner.py
 src/ssq_chatter/lib/tf_transformers.py
 src/ssq_chatter/lib/trans_mio.py
 src/ssq_chatter/utils/__init__.py
@@ -24,9 +25,12 @@ src/ssq_chatter/utils/config_defaults.py
 src/ssq_chatter/utils/configs.ini
 src/ssq_chatter/utils/decorators.py
 src/ssq_chatter/utils/fft_utils.py
+src/ssq_chatter/utils/hdf5_utils.py
 src/ssq_chatter/utils/misc.py
 src/ssq_chatter/utils/scales.py
 src/ssq_chatter/utils/ssq_core.py
 src/ssq_chatter/utils/tf_windows.py
+src/ssq_chatter/utils/types.py
 src/ssq_chatter/utils/windows.py
 src/ssq_chatter/viz/plotting.py
+src/ssq_chatter/viz/sst_svd_plots.py

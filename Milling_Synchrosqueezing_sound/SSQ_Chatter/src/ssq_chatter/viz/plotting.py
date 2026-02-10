@@ -5,6 +5,8 @@ import numpy as np
 import matplotlib.colors as mcolors
 from matplotlib import pyplot as plt
 
+# Deprecated
+
 
 def prep_binary_spectro_for_pcolormesh(
     S: np.ndarray,
