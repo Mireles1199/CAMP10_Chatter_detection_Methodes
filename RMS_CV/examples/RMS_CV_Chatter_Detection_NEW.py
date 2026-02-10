@@ -21,7 +21,35 @@ if str(SRC) not in sys.path:
 def _cut_signal( t,x , time_range: Tuple[float, float]) -> Tuple[np.ndarray, np.ndarray]:
     """
     Cuts the signal to the specified time range.
+
+    Parameters
+    ----------
+    t : np.ndarray
+        Time array of the signal.
+    x : np.ndarray
+        Signal values corresponding to time points.
+    time_range : Tuple[float, float]
+        A tuple containing (start_time, end_time) defining the time window
+        to extract from the signal.
+    Returns
+    -------
+    Tuple[np.ndarray, np.ndarray]
+        A tuple containing:
+        - t_cut : np.ndarray
+            Time array values within the specified range.
+        - x_cut : np.ndarray
+            Signal values within the specified time range.
+    Examples
+    --------
+    >>> t = np.array([0, 1, 2, 3, 4, 5])
+    >>> x = np.array([1, 2, 3, 4, 5, 6])
+    >>> t_cut, x_cut = _cut_signal(t, x, (1.5, 4.5))
+    >>> t_cut
+    array([2., 3., 4.])
+    >>> x_cut
+    array([3, 4, 5])
     """
+
     start_time, end_time = time_range
     mask = (t >= start_time) & (t <= end_time)
     return t[mask], x[mask]
@@ -47,24 +75,24 @@ t_cut, v_cut = _cut_signal( t, v , curt_range )
 _ , x_cut = _cut_signal( t, tool_dyn , curt_range )
 _ , force_cut = _cut_signal( t, force_N , curt_range )
 
-INDICATOR_CONFIG ={
-        "id": "RMS_CV",                  # identificador interno (opcional)
-        "func": "Default",    # wrapper del indicador
-        "params": {                      # parámetros por defecto para este benchmark
-            "n_max": 30,
-            "samples_per_window": 4000,
-            "overlap_pct": 0.0,
-            "detrend": False,
-            "pad_mode": "none",
-            "use_unbiased_std": True,
-            "eps": 1e-12,
-            "cv_threshold": 1.05,
-            "rms_threshold": 0.9,
-            "n_min_cv": 2,
-            "warmup_ignore_alerts": False,
-            "start_time": 0.05,
-        },
-    }
+INDICATOR_CONFIG = {
+    "id": "RMS_CV",                # internal identifier (optional)
+    "func": "Default",             # indicator wrapper
+    "params": {                    # default parameters for this benchmark
+        "n_max": 30,
+        "samples_per_window": 4000,
+        "overlap_pct": 0.0,
+        "detrend": False,
+        "pad_mode": "none",
+        "use_unbiased_std": True,
+        "eps": 1e-12,
+        "cv_threshold": 1.05,
+        "rms_threshold": 0.9,
+        "n_min_cv": 2,
+        "warmup_ignore_alerts": False,
+        "start_time": 0.05,
+    },
+}
 
 sig = SignalData(
     t_cut=t_cut,
@@ -88,7 +116,7 @@ resultat_rms = run_rms_cv(sig, INDICATOR_CONFIG)
 zoom_x = (4,11)
 zoom_x = None
 zoom_y = None
-vlines = [5.365770208787228, 7.947208594272872]  
+vlines = [5.365770208787228, 7.947208594272872]
 
 plots_rms_cv(signal=sig, result=resultat_rms, show_signal=True,
              zoom_x=zoom_x, zoom_y=zoom_y, vlines=vlines, hlines=None,)

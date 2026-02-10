@@ -7,28 +7,96 @@ def rms_sequence(
     signal: Union[np.ndarray, list],
     fs: float,
     *,
-    # Ventaneo en tiempo
+    # Time windowing
     window_sec: Optional[float] = None,
     step_sec: Optional[float] = None,
-    overlap_pct: Optional[float] = None,  # si se da, prioridad sobre step_sec
-    # Ventaneo en muestras (tiene prioridad sobre *_sec)
+    overlap_pct: Optional[float] = None,  # if given, takes priority over step_sec
+    # Sample-based windowing (takes priority over *_sec)
     N: Optional[int] = None,
     hop: Optional[int] = None,
-    # Pretratamientos
+    # Preprocessing
     detrend: bool = False,
-    bandpass: Optional[Tuple] = None,  # Hook no implementado
+    bandpass: Optional[Tuple] = None,  # Hook not implemented
     clip: Optional[Tuple[float, float]] = None,  # (vmin, vmax)
-    # Salidas / bordes
+    # Outputs / edges
     return_times: bool = True,
     return_indices: bool = False,
     pad_mode: str = "none",  # "none" | "reflect" | "constant"
-    # Aliases por errores de tecleo
+    # Aliases for typos
     **kwargs: Any,
 ) -> Dict[str, Any]:
     """
-    Calcula la secuencia RMS por ventanas para monitoreo en línea.
+    Compute Root Mean Square (RMS) values over a sequence of windowed frames.
+    This function segments a signal into overlapping or non-overlapping windows and
+    computes the RMS value for each window across all channels.
+    Parameters
+    ----------
+    signal : Union[np.ndarray, list]
+        Input signal. Can be 1D with shape (T,) for single channel or 2D with
+        shape (T, C) for multi-channel, where T is the number of samples and
+        C is the number of channels.
+    fs : float
+        Sampling frequency in Hz. Must be > 0.
+    window_sec : Optional[float], default=None
+        Window duration in seconds. Required if `N` is not provided. Must be > 0.
+    step_sec : Optional[float], default=None
+        Step/hop duration in seconds between consecutive windows. Must be > 0.
+        Ignored if `overlap_pct` or `hop` is provided.
+    overlap_pct : Optional[float], default=None
+        Overlap percentage in range [0, 1). Takes priority over `step_sec`.
+        Computed as: step = window_duration * (1 - overlap_pct).
+    N : Optional[int], default=None
+        Window length in samples. Takes priority over `window_sec`. Must be >= 1.
+    hop : Optional[int], default=None
+        Hop length in samples. Takes priority over `step_sec` and `overlap_pct`.
+        Must be >= 1.
+    detrend : bool, default=False
+        If True, removes the mean from each window before RMS computation.
+    bandpass : Optional[Tuple], default=None
+        Bandpass filter parameters (not implemented; reserved for future use).
+    clip : Optional[Tuple[float, float]], default=None
+        Clipping range (vmin, vmax). If provided, all samples are clipped to
+        this range before RMS computation.
+    return_times : bool, default=True
+        If True, returns the center time of each window in seconds.
+    return_indices : bool, default=False
+        If True, returns the start and end sample indices of each window.
+    pad_mode : str, default="none"
+        Padding mode for handling edges. Options:
+        - "none": No padding; may return fewer frames
+        - "reflect": Reflect padding at signal boundaries
+        - "constant": Zero-padding at signal boundaries
+    Returns
+    -------
+    Dict[str, Any]
+        Dictionary containing:
+        - "rms" : np.ndarray
+            RMS values with shape (F,) for 1D input or (F, C) for 2D input,
+            where F is the number of frames.
+        - "pad_mode" : str
+            The padding mode used.
+        - "times" : np.ndarray (if return_times=True)
+            Center time of each frame in seconds, shape (F,).
+        - "indices" : np.ndarray (if return_indices=True)
+            Start and end sample indices for each frame, shape (F, 2).
+    Raises
+    ------
+    ValueError
+        If signal dimensions are invalid, fs <= 0, window parameters are invalid,
+        or overlap_pct is not in [0, 1).
+    NotImplementedError
+        If `bandpass` parameter is provided (hook not yet implemented).
+    RuntimeError
+        If NumPy version < 1.20 (sliding_window_view not available).
+    Notes
+    -----
+    - Sample-based parameters (N, hop) take priority over time-based parameters
+      (window_sec, step_sec, overlap_pct).
+    - Typos in keyword arguments are automatically corrected ("derend" → detrend,
+      "bandpas" → bandpass).
+    - RMS computation uses float64 internally for numerical stability.
     """
-    # --- Corrección de tecleos
+
     if "derend" in kwargs:
         detrend = kwargs["derend"]
     if "bandpas" in kwargs:
@@ -45,7 +113,7 @@ def rms_sequence(
 
     T, C = x.shape
 
-    # --- Ventana en muestras
+    # --- Window in samples
     if N is not None:
         if not (isinstance(N, (int, np.integer)) and N >= 1):
             raise ValueError("`N` debe ser entero >= 1.")
@@ -57,7 +125,7 @@ def rms_sequence(
         if win < 1:
             raise ValueError("`window_sec * fs` < 1: ventana demasiado pequeña.")
 
-    # --- Salto entre ventanas
+    # --- Hop length in samples
     if hop is not None:
         if not (isinstance(hop, (int, np.integer)) and hop >= 1):
             raise ValueError("`hop` debe ser entero >= 1.")

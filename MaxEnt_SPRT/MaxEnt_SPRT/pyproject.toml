@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "MaxEnt_SPRT"
-version = "0.1.0"
+version = "0.2.0"
 description = "Detector MaxEnt+SPRT para chatter/early chatter con OPR"
 readme = "README.md"
 license = {text = "MIT"}
