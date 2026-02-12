@@ -148,7 +148,7 @@ class FFT():
 
     #### Main methods #########################################################
     def fft(self, x, axis=-1, patience=None, astensor=False):
-        """See `help(ssqueezepy.utils.FFT)`."""
+
         out = self._maybe_gpu('fft', x, dim=axis, astensor=astensor)
         if out is not None:
             return out
@@ -161,7 +161,7 @@ class FFT():
         return fft_object()
 
     def rfft(self, x, axis=-1, patience=None, astensor=False):
-        """See `help(ssqueezepy.utils.FFT)`."""
+
         out = self._maybe_gpu('rfft', x, dim=axis, astensor=astensor)
         if out is not None:
             return out
@@ -174,7 +174,7 @@ class FFT():
         return fft_object()
 
     def ifft(self, x, axis=-1, patience=None, astensor=False):
-        """See `help(ssqueezepy.utils.FFT)`."""
+
         out = self._maybe_gpu('ifft', x, dim=axis, astensor=astensor)
         if out is not None:
             return out
@@ -188,7 +188,7 @@ class FFT():
         return fft_object()
 
     def irfft(self, x, axis=-1, patience=None, astensor=False, n=None):
-        """See `help(ssqueezepy.utils.FFT)`."""
+
         out = self._maybe_gpu('irfft', x, dim=axis, astensor=astensor, n=n)
         if out is not None:
             return out

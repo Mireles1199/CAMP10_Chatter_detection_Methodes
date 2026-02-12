@@ -13,19 +13,22 @@ IndicatorFunc = Callable[..., IndicatorResult]
 
 def run_maxent_sprt(signal: SignalData, INDICATOR_CONFIG: dict ) -> IndicatorResult:
     """
-    Ejecuta el indicador RMS-CV con la configuración dada.
-
-    Parameters
-    ----------
-    signal : SignalData
-        Señal de entrada
-    INDICATOR_CONFIG : dict
-        Configuración específica para el indicador RMS-CV, incluyendo parámetros como n_max, samples_per_window, etc.
-
-    Returns
-    -------
-    IndicatorResult
-        Resultado del indicador
+    Execute the Maximum Entropy Sequential Probability Ratio Test (MaxEnt SPRT) indicator.
+    This function serves as a wrapper that retrieves the appropriate analysis function
+    from the configuration and executes it with the provided signal data and parameters.
+    Args:
+        signal (SignalData): The input signal data to be analyzed.
+        INDICATOR_CONFIG (dict): Configuration dictionary containing:
+            - "func" (str or callable): The function to execute. If "Default", uses
+                _maxent_sprt_pipeline. Can also be a custom callable function.
+            - "params" (dict, optional): Additional keyword arguments to pass to the
+                function. Defaults to an empty dict if not provided.
+    Returns:
+        IndicatorResult: The result object containing the analysis output from the
+            executed indicator function.
+    Raises:
+        KeyError: If required keys are missing from INDICATOR_CONFIG.
+        TypeError: If the specified function is not callable or signal is invalid.
     """
 
     results: IndicatorResult = None
@@ -61,22 +64,68 @@ def _maxent_sprt_pipeline(
     cut_end_time: Optional[float] = None,
 
     ) -> IndicatorResult:
-    t = signal.t_analysis
-    x = signal.signal_analysis
+    """
+    Execute the Maximum Entropy Sequential Probability Ratio Test (MaxEnt SPRT) pipeline for chatter detection.
+    This function performs a complete chatter detection workflow consisting of offline training and online detection phases.
+    It processes a signal into stable (chatter-free) and chatter-included segments, trains a Gaussian maximum entropy
+    estimator on sampled Operating Point Response (OPR) data, and applies SPRT for online chatter detection.
+    Parameters
+    ----------
+    signal : SignalData
+        Input signal data object containing time array (t_analysis), signal array (signal_analysis), and sampling frequency (fs).
+    rpm : float
+        Rotational speed in revolutions per minute.
+    ratio_sampling : float
+        Sampling ratio for the online detection phase.
+    N_seg : int
+        Number of revolutions per segment for signal segmentation.
+    t_stable_total : float
+        Duration (in seconds) of the stable (chatter-free) signal portion from the start.
+    alpha : float
+        Type I error probability (false positive rate) for the SPRT detector.
+    beta : float
+        Type II error probability (false negative rate) for the SPRT detector.
+    reset_on_H0 : bool
+        If True, reset the SPRT test statistic when accepting H0 (no chatter hypothesis).
+    cut_start_time : Optional[float], optional
+        Start time for cutting the signal. If None, uses the signal's start time. Default is None.
+    cut_end_time : Optional[float], optional
+        End time for cutting the signal. If None, uses the signal's end time. Default is None.
+    Returns
+    -------
+    IndicatorResult
+        An IndicatorResult object containing:
+        - name: Indicator name ("MaxEnt_SPRT")
+        - t: Time array of segment midpoints
+        - I_t: SPRT test statistic history (S_history)
+        - t_d: Time points where chatter was detected
+        - meta: Dictionary with comprehensive metadata including signal parameters, trained model statistics,
+                detector configuration, intermediate signals, and all intermediate processing results.
+    Notes
+    -----
+    The pipeline consists of three main phases:
+    1. Signal Preparation: Splits the input signal into stable and chatter-included portions.
+    2. Offline Training: Samples OPR from both signal portions and trains a Gaussian MaxEnt estimator.
+    3. Online Detection: Applies SPRT on the entire signal in segments and identifies chatter points.
+    Chatter points are identified where the SPRT statistic S exceeds the detection threshold (b).
+    """
+
+    t_analysis = signal.t_analysis
+    signal_analysis = signal.signal_analysis
     fs = signal.fs
 
     fr: float = rpm / 60.0       # Hz, frecuencia de rotación
-    t_total = t[-1]-t[0]
+    t_total = t_analysis[-1]-t_analysis[0]
 
     t_stable_total = t_stable_total  # seconds to consider stable
-    t_chatter_total = t[-1] - t_stable_total
+    t_chatter_total = t_analysis[-1] - t_stable_total
 
-    t_stable, signal_analysis_stable = _cut_signal( t, x , (cut_start_time, t_stable_total) )
-    t_chatter, signal_analysis_chatter = _cut_signal( t, x , (t_stable_total, cut_end_time) )
+    t_stable, signal_analysis_stable = _cut_signal( t_analysis, signal_analysis , (cut_start_time, t_stable_total) )
+    t_chatter, signal_analysis_chatter = _cut_signal( t_analysis, signal_analysis , (t_stable_total, cut_end_time) )
 
     print("Signal loaded:")
-    print(f" - Samples: {x.size}")
-    print(f" - Duration: {t[-1]-t[0]:.2f} s")
+    print(f" - Samples: {signal_analysis.size}")
+    print(f" - Duration: {t_analysis[-1]-t_analysis[0]:.2f} s")
     print(f" - Sampling freq.: {fs:.1f} Hz")
     print(f" - Rotation freq.: {fr:.1f} Hz")
     print(f" - Segments of {N_seg} revolutions: {N_seg/fr:.2f} s each")
@@ -97,7 +146,7 @@ def _maxent_sprt_pipeline(
     gaussian_estimator = GaussianMaxEntEstimator()
     detector = MaxEntSPRTDetector(config=detector_cfg, estimator=gaussian_estimator)
 
-    # Entrenamiento offline a partir de OPR
+    # Offline phase: OPR Training
     detector.fit_offline_from_opr(
         opr_free=opr_free,
         opr_t_free=t_opr_free,
@@ -112,8 +161,8 @@ def _maxent_sprt_pipeline(
     print(f"  CHAT:  mu1={models_trained.p1.mu:.5f}, sigma1={models_trained.p1.sigma:.5f}")
 
     sprt_result, H_seq_online, t_mid_segments = detector.detect_online_from_signal(
-        y_online=x,
-        t_online=t,
+        y_online=signal_analysis,
+        t_online=t_analysis,
         rpm=rpm,
         ratio_sampling=ratio_sampling,
         N_seg=N_seg,
@@ -130,12 +179,12 @@ def _maxent_sprt_pipeline(
     chatter_points_values = sprt_result.S_history[mask] if mask.size > 0 else np.array([])
 
     result = IndicatorResult(
-        name="MaxEnt_SPRT",  # nombre del indicador (pon el que quieras)
+        name="MaxEnt_SPRT",
         t=t_mid_segments,
         I_t=sprt_result.S_history,
         t_d=chatter_points_time,
         meta={
-            "Samples": x.size,
+            "Samples": signal_analysis.size,
             "Duration": t_total,
             "fs": fs,
             "Rotational_Frequency_Hz": fr,

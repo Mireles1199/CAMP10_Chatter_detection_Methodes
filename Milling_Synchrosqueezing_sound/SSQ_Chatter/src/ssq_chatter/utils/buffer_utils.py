@@ -16,7 +16,7 @@ def padsignal(x, padtype='reflect', padlength=None, get_params=False):
     """Pads signal and returns trim indices to recover original.
 
     # Arguments:
-        x: np.ndarray / torch.Tensor
+        x: np.ndarray
             Input vector, 1D or 2D. 2D has time in dim1, e.g. `(n_inputs, time)`.
 
         padtype: str
@@ -25,8 +25,6 @@ def padsignal(x, padtype='reflect', padlength=None, get_params=False):
             'zero' is most naive, while 'reflect' (default) partly mitigates
             boundary effects. See [1] & [2].
 
-            Torch doesn't support all padding schemes, but `cwt` will still
-            pad it via NumPy.
 
         padlength: int / None
             Number of samples to pad input to (i.e. len(x_padded) == padlength).
@@ -109,12 +107,6 @@ def padsignal(x, padtype='reflect', padlength=None, get_params=False):
             elif x.ndim == 2:
                 xp = np.hstack([x[:, ::-1][:, -n1:], x, x[:, ::-1][:, :n2]])
     else:
-        # import torch
-        # mode = 'constant' if padtype == 'zero' else 'reflect'
-        # if x.ndim == 1:
-        #     xp = torch.nn.functional.pad(x[None], pad_width, mode)[0]
-        # else:
-        #     xp = torch.nn.functional.pad(x, pad_width, mode)
         print("padsignal with torch.Tensor not implemented")
 
     return (xp, n_up, n1, n2) if get_params else xp
@@ -149,7 +141,7 @@ def buffer(x, seg_len, n_overlap, modulated=False, parallel=None):
     Mimics MATLAB's `buffer`, with less functionality.
 
     Supports batched input with samples along dim 0, i.e. `(n_inputs, input_len)`.
-    See `help(stft)` on `modulated`.
+
 
     Ex:
         x = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]

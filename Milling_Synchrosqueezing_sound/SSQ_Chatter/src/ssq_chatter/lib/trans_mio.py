@@ -6,70 +6,70 @@ import logging
 import scipy.signal as sig
 
 
-def ssq_stft_T(x, window=None, n_fft=None, win_len=None, hop_len=1, fs=None, t=None,
-             modulated=True, ssq_freqs=None, padtype='reflect', squeezing='sum',
+def ssq_stft_T(x, window=None, n_fft=None, win_len=None, hop_len=1, fs=None, t=None,             
+            modulated=True, ssq_freqs=None, padtype='reflect', squeezing='sum',
              gamma=None, preserve_transform=None, dtype=None, astensor=True,
              flipud=False, get_w=False, get_dWx=False):
-    """Synchrosqueezed Short-Time Fourier Transform.
-    Implements the algorithm described in Sec. III of [1].
+    """
+    Compute the Synchrosqueezing Transform (SSQ) of a signal using Short-Time Fourier Transform (STFT).
+    This function performs synchrosqueezing on the STFT of an input signal, which provides improved
+    time-frequency resolution by realigning the transform coefficients based on instantaneous frequency.
+    Parameters
+    ----------
+    x : array-like
+        Input signal.
+    window : str or tuple or array-like, optional
+        Desired window to use. If None, defaults to 'hann'.
+    n_fft : int, optional
+        Length of the FFT. If None, defaults to the length of the input signal.
+    win_len : int, optional
+        Window length. If None, defaults to n_fft.
+    hop_len : int, default=1
+        Number of samples between successive frames.
+    fs : float, optional
+        Sampling frequency of the signal.
+    t : array-like, optional
+        Time vector corresponding to the input signal.
+    modulated : bool, default=True
+        If True, computes modulated synchrosqueezing.
+    ssq_freqs : array-like, optional
+        Frequency bins for the synchrosqueezed output.
+    padtype : str, default='reflect'
+        Type of padding to apply. See numpy.pad for available options.
+    squeezing : str, default='sum'
+        Method for squeezing operation ('sum', 'mean', etc.).
+    gamma : float, optional
+        Regularization parameter for synchrosqueezing.
+    preserve_transform : bool, optional
+        If True, preserves the original STFT values.
+    dtype : data-type, optional
+        Data type of the output array.
+    astensor : bool, default=True
+        If True, returns output as a tensor.
+    flipud : bool, default=False
+        If True, flips the output upside down.
+    get_w : bool, default=False
+        If True, also returns the instantaneous frequency (w).
+    get_dWx : bool, default=False
+        If True, also returns the derivative of the STFT.
 
-    MATLAB docs: https://www.mathworks.com/help/signal/ref/fsst.html
+    Returns
+    -------
+    Tx : ndarray
+        Synchrosqueezed transform of the input signal.
+    w : ndarray, optional
+        Instantaneous frequency (returned if get_w=True).
+    dWx : ndarray, optional
+        Derivative of the STFT (returned if get_dWx=True).
 
-    # Arguments:
-        x: np.ndarray
-            Input vector(s), 1D or 2D. See `help(cwt)`.
+    References
+    ----------
+    [1] Synchrosqueezing-based Recovery of Instantaneous Frequency from Nonuniform Samples.
+        G. Thakur and H.-T. Wu. https://arxiv.org/abs/1006.2533
+    [2] Synchrosqueezing Toolbox, (C) 2014--present. E. Brevdo, G. Thakur.
+        https://github.com/ebrevdo/synchrosqueezing/blob/master/synchrosqueezing/synsq_stft_fw.m
 
-        window, n_fft, win_len, hop_len, fs, t, padtype, modulated
-            See `help(stft)`.
 
-        ssq_freqs, squeezing
-            See `help(ssqueezing.ssqueeze)`.
-            `ssq_freqs`, if array, must be linearly distributed.
-
-        gamma: float / None
-            See `help(ssqueezepy.ssq_cwt)`.
-
-        preserve_transform: bool (default True)
-            Whether to return `Sx` as directly output from `stft` (it might be
-            altered by `ssqueeze` or `phase_transform`). Uses more memory
-            per storing extra copy of `Sx`.
-
-        dtype: str['float32', 'float64'] / None
-            See `help(stft)`.
-
-        astensor: bool (default True)
-            If `'SSQ_GPU' == '1'`, whether to return arrays as on-GPU tensors
-            or move them back to CPU & convert to Numpy arrays.
-
-        flipud: bool (default False)
-            See `help(ssqueeze)`.
-
-        get_w, get_dWx
-            See `help(ssq_cwt)`.
-            (Named `_dWx` instead of `_dSx` for consistency.)
-
-    # Returns:
-        Tx: np.ndarray
-            Synchrosqueezed STFT of `x`, of same shape as `Sx`.
-        Sx: np.ndarray
-            STFT of `x`. See `help(stft)`.
-        ssq_freqs: np.ndarray
-            Frequencies associated with rows of `Tx`.
-        Sfs: np.ndarray
-            Frequencies associated with rows of `Sx` (by default == `ssq_freqs`).
-        w: np.ndarray (if `get_w=True`)
-            Phase transform of STFT of `x`. See `help(phase_stft)`.
-        dSx: np.ndarray (if `get_dWx=True`)
-            Time-derivative of STFT of `x`. See `help(stft)`.
-
-    # References:
-        1. Synchrosqueezing-based Recovery of Instantaneous Frequency from
-        Nonuniform Samples. G. Thakur and H.-T. Wu.
-        https://arxiv.org/abs/1006.2533
-
-        2. Synchrosqueezing Toolbox, (C) 2014--present. E. Brevdo, G. Thakur.
-        https://github.com/ebrevdo/synchrosqueezing/blob/master/synchrosqueezing/
-        synsq_stft_fw.m
     """
     if x.ndim == 2 and get_w:
         raise NotImplementedError("`get_w=True` unsupported with batched input.")
@@ -139,8 +139,30 @@ def ssq_stft_T(x, window=None, n_fft=None, win_len=None, hop_len=1, fs=None, t=N
     
     
 def _process_fs_and_t(fs, t, N):
-    """Ensures `t` is uniformly-spaced and of same length as `x` (==N)
-    and returns `fs` and `dt` based on it, or from defaults if `t` is None.
+    """
+    Process and validate sampling frequency and time vector parameters.
+    Validates and normalizes the sampling frequency (`fs`) and time vector (`t`)
+    parameters. If both are provided, `t` takes precedence. Ensures that the
+    time vector is uniformly sampled and matches the input length.
+        fs: float or None
+            Sampling frequency in Hz. Must be > 0 if provided.
+        t: array-like or None
+            Time vector. Must have length equal to `N` and be uniformly sampled.
+        N: int
+            Expected length of the time vector and input signal.
+    # Returns:
+        dt: float
+            Time interval (inverse of sampling frequency).
+        fs: float
+            Sampling frequency in Hz. Defaults to 1 if neither `fs` nor `t` provided.
+        t: array-like or None
+            Time vector (unchanged if provided, otherwise None).
+    # Raises:
+        Exception
+            If `t` length does not match `N` or if `t` is not uniformly sampled.
+        ValueError
+            If `fs` is <= 0.
+
     """
     if fs is not None and t is not None:
         WARN("`t` will override `fs` (both were passed)")
@@ -162,15 +184,74 @@ def _process_fs_and_t(fs, t, N):
 
 
 def assert_is_one_of(x, name, supported, e=ValueError):
+    """
+    Validate that a value is one of the supported options.
+    Args:
+        x: The value to validate.
+        name (str): The name of the parameter being validated (used in error message).
+        supported (list or tuple): A collection of supported/valid values.
+        e (Exception): The exception type to raise if validation fails. Defaults to ValueError.
+    Raises:
+        Exception: Raised when `x` is not found in `supported`. The exception type is determined
+                   by the `e` parameter. Error message format: "`{name}` must be one of: {supported_list} (got {x})".
+    Examples:
+        >>> assert_is_one_of('gpu', 'device', ['cpu', 'gpu', 'tpu'])
+        >>> assert_is_one_of('xyz', 'device', ['cpu', 'gpu'])  # Raises ValueError
+    """
+
     if x not in supported:
         raise e("`{}` must be one of: {} (got {})".format(
             name, ', '.join(supported), x))
 
-    
-    
 
 def _check_ssqueezing_args(squeezing, maprange=None, wavelet=None, difftype=None,
                            difforder=None, get_w=None, transform='cwt'):
+    """
+    Validate and process synchrosqueezing transform arguments.
+    Performs validation checks on parameters used for synchrosqueezing transforms,
+    including the squeezing method, transform type, and optional difftype/difforder
+    parameters. Currently, maprange and difftype validation are disabled.
+
+    Parameters
+    ----------
+    squeezing : str or callable
+        The squeezing method to apply. If string, must be one of:
+        'sum', 'lebesgue', or 'abs'. Can also be a callable function.
+    maprange : {None, str, tuple, list}, optional
+        Range mapping specification. Currently not validated.
+        When implemented, if string must be one of: 'maximal', 'peak', 'energy'.
+        If tuple/list, all elements must be float or int.
+        Default is None.
+    wavelet : optional
+        Wavelet specification. Required if maprange is a string other than 'maximal'.
+        Default is None.
+    difftype : {None, 'trig', 'phase', 'numeric'}, optional
+        Differentiation type. Currently not validated.
+        Default is None.
+    difforder : {None, 1, 2, 4}, optional
+        Differentiation order. Only used when difftype='numeric'.
+        Default is None, which defaults to 4 if difftype='numeric'.
+    get_w : bool, optional
+        Whether to return frequency array. Required for certain difftype settings.
+        Default is None.
+    transform : {'cwt', 'stft'}, optional
+        Transform  cwt not implemented yet, only stft supported. 
+
+    Returns
+    -------
+    int or None
+        The validated/processed difforder value. Returns 4 if difftype='numeric'
+        and difforder was None, otherwise returns the input difforder.
+    Raises
+    ------
+    ValueError
+        If transform is not 'cwt' or 'stft'.
+    TypeError
+        If squeezing is not a string or function.
+    AssertionError
+        If squeezing string is not one of the valid options.
+    """
+    
     if transform not in ('cwt', 'stft'):
         raise ValueError("`transform` must be one of: cwt, stft "
                          "(got %s)" % squeezing)
@@ -268,8 +349,6 @@ def infer_scaletype(scales):
 
 def asnumpy(x):
     print("`asnumpy` called")
-    # if is_tensor(x):
-    #     return x.cpu().numpy()
     return x
 
 def logscale_transition_idx(scales):
@@ -318,7 +397,6 @@ def stft(x, window=None, n_fft=None, win_len=None, hop_len=1, fs=None, t=None,
 
     # Arguments:
         x: np.ndarray
-            Input vector(s), 1D or 2D. See `help(cwt)`.
 
         window: str / np.ndarray / None
             STFT windowing kernel. If string, will fetch per
@@ -358,7 +436,6 @@ def stft(x, window=None, n_fft=None, win_len=None, hop_len=1, fs=None, t=None,
             Overrides `fs` if not None.
 
         padtype: str
-            Pad scheme to apply on input. See `help(utils.padsignal)`.
 
         modulated: bool (default True)
             Whether to use "modified" variant as in [1], which centers DFT
@@ -405,7 +482,6 @@ def stft(x, window=None, n_fft=None, win_len=None, hop_len=1, fs=None, t=None,
             Time-derivative of the STFT of `x`, computed via STFT done with
             time-differentiated `window`, as in [1]. This differs from CWT's,
             where its (and Sx's) DFTs are taken along columns rather than rows.
-            d/dt(window) obtained via freq-domain differentiation (help(cwt)).
 
     # References:
         1. Synchrosqueezing-based Recovery of Instantaneous Frequency from
@@ -465,17 +541,9 @@ def stft(x, window=None, n_fft=None, win_len=None, hop_len=1, fs=None, t=None,
     padlength = N + n_fft - 1
     xp = padsignal(x, padtype, padlength=padlength)
 
-    # arrays -> tensors if using GPU
-    # if USE_GPU():
-    #     xp, window, diff_window = [torch.as_tensor(g, device='cuda') for g in
-    #                                (xp, window, diff_window)]
     # take STFT
     Sx, dSx = _stft(xp, window, diff_window, n_fft, hop_len, fs, modulated,
                     derivative)
-
-    # ensure indexing works as expected downstream (cupy)
-    # Sx  = Sx.contiguous()  if is_tensor(Sx)  else Sx
-    # dSx = dSx.contiguous() if is_tensor(dSx) else dSx
 
     return (Sx, dSx) if derivative else Sx
 
@@ -588,7 +656,7 @@ def _get_gdefaults():
             GDEFAULTS[module][obj][key] = process_value(value)
     return GDEFAULTS
 
-def IS_PARALLEL():
+def IS_PARALLEL(): # Not implemented yet
     """Returns False if 'SSQ_PARALLEL' environment flag was set to '0', or
     if `parallel` in `configs.ini` is set to `0`; former overrides latter.
     """
@@ -613,7 +681,7 @@ def USE_GPU():
 # ----------------------------------------------------------------------------
 
 def get_window(window, win_len, n_fft=None, derivative=False, dtype=None):
-    """See `window` in `help(stft)`. Will return window of length `n_fft`,
+    """ Will return window of length `n_fft`,
     regardless of `win_len` (will pad if needed).
     """
     if n_fft is None:
@@ -818,7 +886,6 @@ class FFT():
 
     #### Main methods #########################################################
     def fft(self, x, axis=-1, patience=None, astensor=False):
-        """See `help(ssqueezepy.utils.FFT)`."""
         out = self._maybe_gpu('fft', x, dim=axis, astensor=astensor)
         if out is not None:
             return out
@@ -831,7 +898,6 @@ class FFT():
         return fft_object()
 
     def rfft(self, x, axis=-1, patience=None, astensor=False):
-        """See `help(ssqueezepy.utils.FFT)`."""
         out = self._maybe_gpu('rfft', x, dim=axis, astensor=astensor)
         if out is not None:
             return out
@@ -844,7 +910,7 @@ class FFT():
         return fft_object()
 
     def ifft(self, x, axis=-1, patience=None, astensor=False):
-        """See `help(ssqueezepy.utils.FFT)`."""
+        
         out = self._maybe_gpu('ifft', x, dim=axis, astensor=astensor)
         if out is not None:
             return out
@@ -858,7 +924,7 @@ class FFT():
         return fft_object()
 
     def irfft(self, x, axis=-1, patience=None, astensor=False, n=None):
-        """See `help(ssqueezepy.utils.FFT)`."""
+        
         out = self._maybe_gpu('irfft', x, dim=axis, astensor=astensor, n=n)
         if out is not None:
             return out
@@ -1067,24 +1133,18 @@ def _process_params_dtype(*params, dtype, auto_gpu=True):
 DTYPES = {'float32', 'float64'}
 def _process_dtype(dtype, as_str=None):
     """Ensures `dtype` is supported, and converts per `as_str` (if True,
-    numpy/torch -> str, else vice versa; if None, returns as-is).
+    numpy -> str, else vice versa; if None, returns as-is).
     """
     if isinstance(dtype, str):
         assert_is_one_of(dtype, 'dtype', DTYPES)
         if not as_str:
             return getattr(Q, dtype)
-    # elif not isinstance(dtype, (type, np.dtype, torch.dtype)):
-    #     raise TypeError("`dtype` must be string or type (np./torch.dtype) "
-    #                     "(got %s)" % dtype)
     return dtype if not as_str else str(dtype).split('.')[-1]
 
 class _Q():
-    """Class for accessing `numpy` or `torch` attributes according to `USE_GPU()`.
+    """Class for accessing `numpy` attributes according to `USE_GPU()`.
     """
     def __getattr__(self, name):
-        # if USE_GPU():
-        #     return getattr(torch, name)
-        # always use numpy for now
         return getattr(np, name)
 
 
@@ -1197,16 +1257,9 @@ def find_maximum(fn, step_size=1e-3, steps_per_search=1e4, step_start=0,
 def indexed_sum_onfly(Wx, w, ssq_freqs, const=1, logscale=False, flipud=False,
                       out=None, parallel=None):
     """`indexed_sum` and `find_closest` within same loop, sparing an array;
-    see `help(algos.find_closest)` on how `k` is computed.
     """
     outs = _process_ssq_params(Wx, w, ssq_freqs, const, logscale, flipud, out,
                                gamma=None, parallel=parallel, complex_out=True)
-    # if S.is_tensor(Wx): # GPU version
-    #     out, params, args, kernel_kw, ssq_scaletype = outs
-    #     kernel = _kernel_codes[f'indexed_sum_{ssq_scaletype}']
-    #     _run_on_gpu(kernel, *args, **kernel_kw)
-    #     out = torch.view_as_complex(out)
-    # else:
     Wx, w, out, params, ssq_scaletype = outs
     fn = _cpu_fns[f'indexed_sum_{ssq_scaletype}']
     fn(Wx, w, out, **params)
@@ -1224,36 +1277,22 @@ def _process_ssq_params(Wx, w_or_dWx, ssq_freqs, const, logscale, flipud, out,
     if out is None:
         out_shape = (*Wx.shape, 2) if (gpu and complex_out) else Wx.shape
         if gpu:
-            # out_dtype = (torch.float32 if Wx.dtype == torch.complex64 else
-            #              torch.float64)
-            # out = torch.zeros(out_shape, dtype=out_dtype, device=Wx.device)
             print("_process_ssq_params with gpu=True not implemented")
         else:
             out = np.zeros(out_shape, dtype=Wx.dtype)
     elif complex_out and gpu:
-        # out = torch.view_as_real(out)
         print("_process_ssq_params with gpu=True not implemented")
     if gpu:
-        # Wx = torch.view_as_real(Wx)
-        # if 'complex' in str(w_or_dWx.dtype):
-        #     w_or_dWx = torch.view_as_real(w_or_dWx)
         print("_process_ssq_params with gpu=True not implemented")
 
-    # process `const`
-    # len_const = (const.numel() if isinstance(const, torch.Tensor) else
-    #              (const.size if isinstance(const, np.ndarray) else 1))
     len_const = (len(const) if isinstance(const, np.ndarray) else 1)
     if len_const != len(Wx):
         if gpu:
-            # const_arr = torch.full((len(Wx),), fill_value=const,
-            #                          device=Wx.device, dtype=Wx.dtype)
             print("_process_ssq_params with gpu=True not implemented")
         else:
-            
-                                   
+
             const_arr = np.full(len(Wx), const, dtype=Wx.dtype)
     elif gpu and isinstance(const, np.ndarray):
-        # const_arr = torch.as_tensor(const, dtype=Wx.dtype, device=Wx.device)
         print("_process_ssq_params with gpu=True not implemented")
     else:
         const_arr = const
@@ -1569,8 +1608,7 @@ _cpu_fns = {
 def ssqueeze_fast(Wx, dWx, ssq_freqs, const, logscale=False, flipud=False,
                   gamma=None, out=None, Sfs=None, parallel=None):
     """`indexed_sum`, `find_closest`, and `phase_transform` within same loop,
-    sparing two arrays and intermediate elementwise conditionals; see
-    `help(algos.find_closest)` on how `k` is computed.
+    sparing two arrays and intermediate elementwise conditionals; see.
     """
     def fn_name(transform, ssq_scaletype):
         return ('ssq_stft' if transform == 'stft' else
@@ -1579,12 +1617,7 @@ def ssqueeze_fast(Wx, dWx, ssq_freqs, const, logscale=False, flipud=False,
     outs = _process_ssq_params(Wx, dWx, ssq_freqs, const, logscale, flipud, out,
                                gamma, parallel, complex_out=True, Sfs=Sfs)
     transform = 'cwt' if Sfs is None else 'stft'
-    # if S.is_tensor(Wx):
-    #     out, params, args, kernel_kw, ssq_scaletype = outs
-    #     kernel = _kernel_codes[fn_name(transform, ssq_scaletype)]
-    #     _run_on_gpu(kernel, *args, **kernel_kw)
-    #     out = torch.view_as_complex(out)
-    # else:
+
     Wx, dWx, out, params, ssq_scaletype = outs
     fn = _cpu_fns[fn_name(transform, ssq_scaletype)]
     args = ([Wx, dWx, out] if transform == 'cwt' else
@@ -1626,7 +1659,7 @@ def padsignal(x, padtype='reflect', padlength=None, get_params=False):
     """Pads signal and returns trim indices to recover original.
 
     # Arguments:
-        x: np.ndarray / torch.Tensor
+        x: np.ndarray
             Input vector, 1D or 2D. 2D has time in dim1, e.g. `(n_inputs, time)`.
 
         padtype: str
@@ -1634,9 +1667,6 @@ def padsignal(x, padtype='reflect', padlength=None, get_params=False):
                 ('reflect', 'symmetric', 'replicate', 'wrap', 'zero').
             'zero' is most naive, while 'reflect' (default) partly mitigates
             boundary effects. See [1] & [2].
-
-            Torch doesn't support all padding schemes, but `cwt` will still
-            pad it via NumPy.
 
         padlength: int / None
             Number of samples to pad input to (i.e. len(x_padded) == padlength).
@@ -1719,12 +1749,6 @@ def padsignal(x, padtype='reflect', padlength=None, get_params=False):
             elif x.ndim == 2:
                 xp = np.hstack([x[:, ::-1][:, -n1:], x, x[:, ::-1][:, :n2]])
     else:
-        # import torch
-        # mode = 'constant' if padtype == 'zero' else 'reflect'
-        # if x.ndim == 1:
-        #     xp = torch.nn.functional.pad(x[None], pad_width, mode)[0]
-        # else:
-        #     xp = torch.nn.functional.pad(x, pad_width, mode)
         print("padsignal with torch.Tensor not implemented")
 
     return (xp, n_up, n1, n2) if get_params else xp
@@ -1758,8 +1782,7 @@ def buffer(x, seg_len, n_overlap, modulated=False, parallel=None):
 
     Mimics MATLAB's `buffer`, with less functionality.
 
-    Supports batched input with samples along dim 0, i.e. `(n_inputs, input_len)`.
-    See `help(stft)` on `modulated`.
+    Supports batched input with samples along dim 0, i.e. `(n_inputs, input_len)`.`.
 
     Ex:
         x = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
@@ -1835,11 +1858,6 @@ def _buffer_par(x, out, seg_len, n_segs, hop_len, s20, s21, modulated=False):
 def _make_Sfs(Sx, fs):
     dtype = 'float32' if 'complex64' in str(Sx.dtype) else 'float64'
     n_rows = len(Sx) if Sx.ndim == 2 else Sx.shape[1]
-    # if S.is_tensor(Sx):
-    #     Sfs = torch.linspace(0, .5*fs, n_rows, device=Sx.device,
-    #                          dtype=getattr(torch, dtype))
-    # else:
-    # not tensor suportted for now
     Sfs = np.linspace(0, .5*fs, n_rows, dtype=dtype)
     return Sfs
 
@@ -1864,7 +1882,6 @@ def phase_stft(Sx, dSx, Sfs, gamma=None, parallel=None):
             Spans 0 to fs/2, linearly.
 
         gamma: float / None
-            See `help(ssqueezepy.ssq_cwt)`.
 
     # Returns:
         w: np.ndarray
@@ -1915,13 +1932,10 @@ def ssqueeze(Wx, w=None, ssq_freqs=None, scales=None, Sfs=None, fs=None, t=None,
             Frequencies to synchrosqueeze CWT scales onto. Scale-frequency
             mapping is only approximate and wavelet-dependent.
             If None, will infer from and set to same distribution as `scales`.
-            See `help(cwt)` on `'log-piecewise'`.
 
         scales: str['log', 'log-piecewise', 'linear', ...] / np.ndarray
-            See `help(cwt)`.
 
         Sfs: np.ndarray
-            Needed if `transform='stft'` and `dWx=None`. See `help(ssq_stft)`.
 
         fs: float / None
             Sampling frequency of `x`. Defaults to 1, which makes ssq
@@ -1954,14 +1968,11 @@ def ssqueeze(Wx, w=None, ssq_freqs=None, scales=None, Sfs=None, fs=None, t=None,
             must match `Wx.shape`.
 
         maprange: str['maximal', 'peak', 'energy'] / tuple(float, float)
-            See `help(ssq_cwt)`. Only `'maximal'` supported with STFT.
 
         wavelet: wavelets.Wavelet
             Only used if maprange != 'maximal' to compute center frequencies.
-            See `help(cwt)`.
 
         gamma: float
-            See `help(ssq_cwt)`.
 
         was_padded: bool (default `rpadded`)
             Whether `x` was padded to next power of 2 in `cwt`, in which case
@@ -2108,8 +2119,6 @@ def ssqueeze(Wx, w=None, ssq_freqs=None, scales=None, Sfs=None, fs=None, t=None,
     # `scales` go high -> low
     if (transform == 'cwt' and not flipud) or flipud:
         if not isinstance(ssq_freqs, np.ndarray):
-            # import torch
-            # ssq_freqs = torch.flip(ssq_freqs, (0,))
             print("ssq_freqs flipping not implemented.")
         else:
             ssq_freqs = ssq_freqs[::-1]

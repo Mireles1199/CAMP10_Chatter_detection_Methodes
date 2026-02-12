@@ -60,25 +60,19 @@ def _process_params_dtype(*params, dtype, auto_gpu=True):
 DTYPES = {'float32', 'float64'}
 def _process_dtype(dtype, as_str=None):
     """Ensures `dtype` is supported, and converts per `as_str` (if True,
-    numpy/torch -> str, else vice versa; if None, returns as-is).
+    numpy-> str, else vice versa; if None, returns as-is).
     """
     if isinstance(dtype, str):
         assert_is_one_of(dtype, 'dtype', DTYPES)
         if not as_str:
             return getattr(Q, dtype)
-    # elif not isinstance(dtype, (type, np.dtype, torch.dtype)):
-    #     raise TypeError("`dtype` must be string or type (np./torch.dtype) "
-    #                     "(got %s)" % dtype)
     return dtype if not as_str else str(dtype).split('.')[-1]
 
 
 class _Q():
-    """Class for accessing `numpy` or `torch` attributes according to `USE_GPU()`.
+    """Class for accessing `numpy`  attributes according to `USE_GPU()`.
     """
     def __getattr__(self, name):
-        # if USE_GPU():
-        #     return getattr(torch, name)
-        # always use numpy for now
         return getattr(np, name)
 
 Q = _Q()

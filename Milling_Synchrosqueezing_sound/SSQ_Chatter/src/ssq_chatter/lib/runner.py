@@ -14,20 +14,19 @@ IndicatorFunc = Callable[..., IndicatorResult]
 
 def run_sst_svd(signal: SignalData, INDICATOR_CONFIG: dict ) -> IndicatorResult:
     """
-    Ejecuta el indicador SST-SVD con la configuración dada.
-
-    Parameters
-    ----------
-    signal : SignalData
-        Señal de entrada
-    INDICATOR_CONFIG : dict
-        Configuración específica para el indicador SST-SVD, incluyendo parámetros como n_fft_power, win_length_ms, etc.
-
-    Returns
-    -------
-    IndicatorResult
-        Resultado del indicador
+    Execute a Synchrosqueezing Transform (SST) with Singular Value Decomposition (SVD) analysis on signal data.
+    Args:
+        signal (SignalData): The input signal data to be analyzed.
+        INDICATOR_CONFIG (dict): Configuration dictionary containing:
+            - "func" (str or callable): The function to execute. If "Default", uses _sst_svd_pipeline.
+            - "params" (dict, optional): Additional keyword arguments to pass to the function.
+    Returns:
+        IndicatorResult: The result of the SST-SVD analysis containing indicator metrics and computed values.
+    Raises:
+        KeyError: If required keys are missing from INDICATOR_CONFIG.
+        TypeError: If the specified function is not callable or signal is not SignalData type.
     """
+
     results: IndicatorResult = None
 
     func: IndicatorFunc = INDICATOR_CONFIG["func"]
@@ -55,37 +54,51 @@ def _sst_svd_pipeline(
     fallback_mad: bool,
 ) -> IndicatorResult:
     """
-    Wrapper del indicador basado en SST-SVD (ejemplo).
-
+    Execute Synchrosqueezing Transform (SST) with SVD-based chatter detection pipeline.
+    This function performs time-frequency analysis of a milling signal using Synchrosqueezing
+    STFT (SSQ-STFT) and applies a statistical detection rule to identify chatter events.
+    The pipeline combines signal transformation and anomaly detection strategies following
+    a dependency injection pattern.
     Parameters
     ----------
     signal : SignalData
-        Señal de entrada (t, x, t_original, x_original, fs, meta).
+        Input signal object containing raw signal data, analysis time vector, and sampling frequency.
     n_fft_power : int
-        Potencia de 2 para el tamaño de FFT (n_fft = 1024 * 2**n_fft_power).
+        Power of 2 for FFT size calculation. Actual n_fft = 1024 * (2**n_fft_power).
     win_length_ms : float
-        Longitud de ventana en ms.
+        Window length in milliseconds for STFT analysis.
     hop_ms : float
-        Hop size en ms.
+        Hop length in milliseconds between successive frames.
     Ai_length : int
-        Longitud de la serie temporal de amplitud.
+        Length parameter for amplitude analysis window.
     mode : str
-        Modo de SST
+        Mode parameter for the processing pipeline configuration.
     sigma : float
-        Parámetro sigma para SST.
+        Smoothing parameter for Synchrosqueezing Transform.
     frac_stable : float
-        Fracción de estabilidad para la regla de detección.
+        Fraction parameter for Lilliefors normality test stability threshold.
     alpha : float
-        Nivel de significancia para la regla de detección.
+        Significance level for statistical hypothesis testing.
     z : float
-        Parámetro z para la regla de detección.
+        Z-score threshold multiplier for outlier detection.
     fallback_mad : bool
-        Si es True, usa MAD como fallback en la regla de detección.
-
+        If True, use Median Absolute Deviation (MAD) as fallback for standard deviation estimation
+        when normality test fails.
     Returns
     -------
     IndicatorResult
-        Resultado estándar del indicador,
+        Result object containing:
+        - name: Indicator name ("SST_SVD")
+        - t: Time vector of analysis
+        - I_t: Indicator values (d1 statistic) over time
+        - t_d: Time points where chatter was detected
+        - meta: Dictionary with all processing parameters, intermediate results (Jsx, Sx, W, etc.),
+                and detection thresholds (lim_inf, lim_sup, p_value, chatter percentage)
+    Notes
+    -----
+    - Uses Three-Sigma rule with Lilliefors normality test for chatter detection
+    - Synchrosqueezing STFT provides improved time-frequency resolution
+    - Detection thresholds are automatically computed based on signal statistics
     """
 
     t = signal.t_analysis
@@ -104,7 +117,7 @@ def _sst_svd_pipeline(
         mode = mode,
     )
 
-    # Opción A: SSQ-STFT (requiere ssqueezepy)
+    # SSQ-STFT (Strategy)
     hop_length = int(cfg.hop_ms * 1e-3 * cfg.fs)
     tf_strategy = SSQ_STFT(
         win_length=int(cfg.win_length_ms * 1e-3 * cfg.fs),
@@ -113,15 +126,14 @@ def _sst_svd_pipeline(
         sigma=sigma,
     )
 
-    # regla de detección (Strategy)
+    # detection rule (Strategy)
     detect_rule = ThreeSigmaWithLilliefors(frac_stable=frac_stable ,
                                         alpha=alpha, z=z,
                                         fallback_mad=fallback_mad,)
 
-    # Comentario: construir tubería (DIP: inyecta estrategias)
+    # Pipeline (Context)
     pipe = ChatterPipeline(transformer=tf_strategy, detector=detect_rule, config=cfg)
 
-    # Comentario: ejecutar
     Tsx: np.ndarray
     Sx: np.ndarray
     fs_out: float
@@ -138,26 +150,12 @@ def _sst_svd_pipeline(
     # ========= Run pipeline ============
     Tsx, Sx, fs_out, tt, A_i, t_i, D, d1, res, w, dWx = pipe.run(signal_analysis)
 
-    # f = np.linspace(0, fs/2, Sx.shape[0])
-    # t = np.arange(Sx.shape[1]) * hop_length / fs
-
-    # Tsx = abs(Tsx)
-
-    # plt.figure(figsize=(7,4))
-    # plt.pcolormesh(t, f, Tsx, shading='auto', cmap= 'jet', vmin=None, vmax=None)
-    # plt.title("|T_x(μ, ω)| (SSQ STFT)")
-    # plt.xlabel("Tiempo [s]")
-    # plt.ylabel("Frecuencia [Hz]")
-    # plt.ylim(0, 1000)
-    # plt.colorbar(label="Magnitud")
-    # plt.show()
-
     chatter_points_mask = np.where(d1 > res['lim_sup'])[0]
     chatter_points_time = t_i[chatter_points_mask] if chatter_points_mask.size > 0 else np.array([])
     chatter_points_values = d1[chatter_points_mask] if chatter_points_mask.size > 0 else np.array([])
 
     result = IndicatorResult(
-        name="SST_SVD",  # nombre del indicador (pon el que quieras)
+        name="SST_SVD",
         t=t_i,
         I_t=d1,
         t_d=chatter_points_time,
