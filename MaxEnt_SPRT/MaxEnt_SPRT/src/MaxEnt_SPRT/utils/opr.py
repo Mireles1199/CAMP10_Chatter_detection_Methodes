@@ -23,7 +23,7 @@ def sample_opr(y: np.ndarray, t: np.ndarray, fs: float, fr: float) -> Tuple[np.n
         ValueError: If fs/fr is not an integer (within tolerance of 1e-9),
                    as exact OPR sampling requires an integer downsampling factor.
     """
-    
+
     ratio = fs / fr
     if abs(ratio - round(ratio)) > 1e-9:
         raise ValueError("fs/fr must be an integer for exact OPR sampling.")

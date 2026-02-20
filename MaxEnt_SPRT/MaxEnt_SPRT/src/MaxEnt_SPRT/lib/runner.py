@@ -114,7 +114,7 @@ def _maxent_sprt_pipeline(
     signal_analysis = signal.signal_analysis
     fs = signal.fs
 
-    fr: float = rpm / 60.0       # Hz, frecuencia de rotación
+    fr: float = rpm / 60.0       # Hz, frequency of rotation
     t_total = t_analysis[-1]-t_analysis[0]
 
     t_stable_total = t_stable_total  # seconds to consider stable

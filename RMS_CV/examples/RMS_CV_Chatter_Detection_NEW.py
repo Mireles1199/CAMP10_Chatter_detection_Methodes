@@ -76,11 +76,11 @@ _ , x_cut = _cut_signal( t, tool_dyn , curt_range )
 _ , force_cut = _cut_signal( t, force_N , curt_range )
 
 INDICATOR_CONFIG = {
-    "id": "RMS_CV",                # internal identifier (optional)
-    "func": "Default",             # indicator wrapper
-    "params": {                    # default parameters for this benchmark
-        "n_max": 30,
-        "samples_per_window": 4000,
+    "id": "RMS_CV",
+    "func": "Default",
+    "params": {
+        "n_max": 20,
+        "samples_per_window": 400,
         "overlap_pct": 0.0,
         "detrend": False,
         "pad_mode": "none",
@@ -103,7 +103,7 @@ sig = SignalData(
     x_original=tool_dyn,
     v_original=v,
     t_analysis=t_cut,
-    signal_analysis=x_cut,
+    signal_analysis=v_cut,
     force_original=force_N,
     path=data_dir,
     fs=fs,

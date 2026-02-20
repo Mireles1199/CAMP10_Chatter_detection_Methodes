@@ -391,7 +391,12 @@ class MaxEntSPRTDetector:
         models = self._check_models()
 
         fr = rpm / 60.0
-        fs = ratio_sampling * fr
+        r"""
+        ======= REVISAR =============
+        fs debe ser de la senal de estudio, poisble implementacion de ratio_samplig como param optionel
+        """
+
+        fs = ratio_sampling * fr # A revisar
 
         # 1) OPR
         opr_online, opr_t_online = sample_opr(y_online, t_online, fs=fs, fr=fr)
