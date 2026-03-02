@@ -10,7 +10,7 @@ build-backend = "setuptools.build_meta"
 [project]
 # Comentario: metadatos básicos del paquete
 name = "ssq_chatter"
-version = "0.2.2"
+version = "1.1.0"
 description = "Herramientas de análisis SSQ-STFT para monitoreo de chatter"
 readme = "README.md"
 requires-python = ">=3.9"

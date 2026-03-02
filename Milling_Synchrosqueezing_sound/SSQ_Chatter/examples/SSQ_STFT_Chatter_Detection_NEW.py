@@ -1,3 +1,4 @@
+import logging
 from typing import  Tuple
 import os
 import sys
@@ -9,6 +10,22 @@ from pathlib import Path
 from ssq_chatter import SignalData, HDF5Reader
 from ssq_chatter import run_sst_svd
 from ssq_chatter import plots_sst_svd
+
+logger = logging.getLogger(__name__)
+
+INFO_PLUS_LEVEL = 15
+logging.addLevelName(INFO_PLUS_LEVEL, "INFO_PLUS")
+
+def info_plus(self, message, *args, **kwargs):
+    if self.isEnabledFor(INFO_PLUS_LEVEL):
+        self._log(INFO_PLUS_LEVEL, message, args, **kwargs)
+
+logging.Logger.info_plus = info_plus
+
+logging.basicConfig(
+    level=logging.INFO,   # DEBUG para ver todo
+    format="%(asctime)s | %(levelname)s | %(message)s"
+)
 
 def _cut_signal( t,x , time_range: Tuple[float, float]) -> Tuple[np.ndarray, np.ndarray]:
     """
@@ -44,9 +61,9 @@ INDICATOR_CONFIG ={
         "func": "Default",
         "params": {
             "n_fft_power": 3,
-            "win_length_ms": 50.0,
+            "win_length_ms": 40.0,
             "hop_ms": 30.0,
-            "Ai_length": 4,
+            "Ai_length": 3,
             "mode": "causal_inclusive",
             "sigma": 6.0,
             "frac_stable": 0.36052,
@@ -65,7 +82,7 @@ sig = SignalData(
     x_original=tool_dyn,
     v_original=v,
     t_analysis=t_cut,
-    signal_analysis=force_cut,
+    signal_analysis=v_cut,
     force_original=force_N,
     path=data_dir,
     fs=fs,

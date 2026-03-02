@@ -1,4 +1,5 @@
 from __future__ import annotations
+import logging
 from typing import Any, Callable, Dict, List, Sequence, Optional, Tuple
 
 from collections import defaultdict
@@ -10,6 +11,7 @@ from ..utils.opr import sample_opr
 import numpy as np
 
 IndicatorFunc = Callable[..., IndicatorResult]
+logger = logging.getLogger(__name__)
 
 def run_maxent_sprt(signal: SignalData, INDICATOR_CONFIG: dict ) -> IndicatorResult:
     """
@@ -54,12 +56,12 @@ def _cut_signal( t,x , time_range: Tuple[float, float]) -> Tuple[np.ndarray, np.
 def _maxent_sprt_pipeline(
     signal: SignalData,
     rpm: float,
-    ratio_sampling: float,
     N_seg: int,
     t_stable_total: float,
     alpha: float,
     beta: float,
     reset_on_H0: bool,
+    ratio_sampling: Optional[float] = None,
     cut_start_time: Optional[float] = None,
     cut_end_time: Optional[float] = None,
 
@@ -123,23 +125,23 @@ def _maxent_sprt_pipeline(
     t_stable, signal_analysis_stable = _cut_signal( t_analysis, signal_analysis , (cut_start_time, t_stable_total) )
     t_chatter, signal_analysis_chatter = _cut_signal( t_analysis, signal_analysis , (t_stable_total, cut_end_time) )
 
-    print("Signal loaded:")
-    print(f" - Samples: {signal_analysis.size}")
-    print(f" - Duration: {t_analysis[-1]-t_analysis[0]:.2f} s")
-    print(f" - Sampling freq.: {fs:.1f} Hz")
-    print(f" - Rotation freq.: {fr:.1f} Hz")
-    print(f" - Segments of {N_seg} revolutions: {N_seg/fr:.2f} s each")
-    print(f" - Total segments available: {int(t_total*fr/N_seg)}")
+    logger.info_plus("Signal loaded:")
+    logger.info_plus(f" - Samples: {signal_analysis.size}")
+    logger.info_plus(f" - Duration: {t_analysis[-1]-t_analysis[0]:.2f} s")
+    logger.info_plus(f" - Sampling freq.: {fs:.1f} Hz")
+    logger.info_plus(f" - Rotation freq.: {fr:.1f} Hz")
+    logger.info_plus(f" - Segments of {N_seg} revolutions: {N_seg/fr:.2f} s each")
+    logger.info_plus(f" - Total segments available: {int(t_total*fr/N_seg)}")
 
-    print("Generated chatter-free and chatter-included signals.")
-    print(f"Size of signal free: {signal_analysis_stable.size} samples.")
-    print(f"Size of signal chatter: {signal_analysis_chatter.size} samples.")
+    logger.info_plus("Generated chatter-free and chatter-included signals.")
+    logger.info_plus(f"Size of signal free: {signal_analysis_stable.size} samples.")
+    logger.info_plus(f"Size of signal chatter: {signal_analysis_chatter.size} samples.")
 
 
     # =========== Fase Ofline : OPR Training ==========
     opr_free, t_opr_free = sample_opr(signal_analysis_stable, t_stable, fs=fs, fr=fr)
     opr_chat, t_opr_chat = sample_opr(signal_analysis_chatter, t_chatter, fs=fs, fr=fr)
-    print(f"Sampled OPR: {opr_free.size} samples free, {opr_chat.size} samples chatter.")
+    logger.info_plus(f"\n Sampled OPR: {opr_free.size} samples free, {opr_chat.size} samples chatter.")
 
     # ============ Offline Phase:END-TO-END GAUSSIAN ===========
     detector_cfg = MaxEntSPRTConfig(alpha=alpha, beta=beta, reset_on_H0=reset_on_H0)
@@ -156,9 +158,9 @@ def _maxent_sprt_pipeline(
     )
 
     models_trained = detector._check_models()
-    print("OFFLINE MODEL (Gaussian MaxEnt):")
-    print(f"  FREE:  mu0={models_trained.p0.mu:.5f}, sigma0={models_trained.p0.sigma:.5f}")
-    print(f"  CHAT:  mu1={models_trained.p1.mu:.5f}, sigma1={models_trained.p1.sigma:.5f}")
+    logger.info_plus("\n OFFLINE MODEL (Gaussian MaxEnt):")
+    logger.info_plus(f"  FREE:  mu0={models_trained.p0.mu:.5f}, sigma0={models_trained.p0.sigma:.5f}")
+    logger.info_plus(f"  CHAT:  mu1={models_trained.p1.mu:.5f}, sigma1={models_trained.p1.sigma:.5f}")
 
     sprt_result, H_seq_online, t_mid_segments = detector.detect_online_from_signal(
         y_online=signal_analysis,
@@ -166,12 +168,13 @@ def _maxent_sprt_pipeline(
         rpm=rpm,
         ratio_sampling=ratio_sampling,
         N_seg=N_seg,
+        fs=fs,
     )
 
     #%%
     # ============ Online Phase: Results visualization ===========
 
-    print(f"ONLINE FINAL STATE: {sprt_result.final_state}, decision at segment {sprt_result.decision_index}")
+    logger.info_plus(f"ONLINE FINAL STATE: {sprt_result.final_state}, decision at segment {sprt_result.decision_index}")
 
     # =========== Early chatter Results - Points Chatter ==========
     mask = np.where(sprt_result.S_history >= sprt_result.b)[0]

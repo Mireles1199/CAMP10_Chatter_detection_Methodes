@@ -5,6 +5,9 @@ import functools
 from typing import Callable, Any
 import numpy as np
 import inspect
+import logging
+
+logger = logging.getLogger(__name__)
 
 def timeit(func: Callable[..., Any]) -> Callable[..., Any]:
     # Comentario: reporta el tiempo de ejecución en segundos
@@ -13,7 +16,7 @@ def timeit(func: Callable[..., Any]) -> Callable[..., Any]:
         t0 = time.perf_counter()
         result = func(*args, **kwargs)
         dt = time.perf_counter() - t0
-        print(f"[timeit] {func.__name__}: {dt:.6f}s")
+        logger.info_plus(f"[timeit] {func.__name__}: {dt:.6f}s")
         return result
     return wrapper
 

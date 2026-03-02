@@ -35,6 +35,21 @@ def run_sst_svd(signal: SignalData, INDICATOR_CONFIG: dict ) -> IndicatorResult:
 
     params: Dict[str, Any] = INDICATOR_CONFIG.get("params", {})
 
+    # ── VALIDACIÓN hop vs ventana ─────────────────────────────
+    win_length_ms = params.get("win_length_ms")
+    hop_ms = params.get("hop_ms")
+
+    if win_length_ms is None or hop_ms is None:
+        raise KeyError("Both 'win_length_ms' and 'hop_ms' must be provided in params")
+
+    hop_min = 0.25 * win_length_ms
+    hop_max = 0.50 * win_length_ms
+
+    if not (hop_min <= hop_ms <= hop_max):
+        raise ValueError(
+            f"hop_ms must be between 25% and 50% of win_length_ms.")
+    # ───────────────────────────────────────────────────────────
+
     results = func(signal, **params)
 
     return results

@@ -7,6 +7,9 @@ import os
 
 from .config_defaults import gdefaults  # si IS_PARALLEL depende de defaults
 
+import logging
+logger = logging.getLogger(__name__)
+
 __all__ = [
     "asnumpy", "float_if_number", "zero_denormals",
     "_zero_denormals", "_zero_denormals_par",
@@ -17,7 +20,7 @@ __all__ = [
 
 
 def asnumpy(x):
-    print("`asnumpy` called")
+    logger.info_plus("`asnumpy` called")
     # if is_tensor(x):
     #     return x.cpu().numpy()
     return x
@@ -31,7 +34,7 @@ def zero_denormals(x, parallel=None):
     tiny = 1000 * np.finfo(x.dtype).tiny
     fn = _zero_denormals_par if parallel else _zero_denormals
     fn(x.ravel(), tiny)
-    
+
 @jit(nopython=True, cache=False)
 def _zero_denormals(x, tiny):
     for i in range(x.size):
@@ -47,7 +50,7 @@ def _zero_denormals_par(x, tiny):
 def _process_params_dtype(*params, dtype, auto_gpu=True):
     if dtype is None:
         # dtype = S.asarray(params[0]).dtype
-        print("`_process_params_dtype` called with dtype=None")
+        logger.info_plus("`_process_params_dtype` called with dtype=None")
     if auto_gpu:
         # dtype = Wavelet._process_dtype(dtype, as_str=True)
         # params = [S.astype(S.asarray(p), dtype) for p in params]

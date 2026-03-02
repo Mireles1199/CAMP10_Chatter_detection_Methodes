@@ -79,8 +79,8 @@ INDICATOR_CONFIG = {
     "id": "RMS_CV",
     "func": "Default",
     "params": {
-        "n_max": 20,
-        "samples_per_window": 400,
+        "n_max": 28,
+        "samples_per_window":     4000   ,
         "overlap_pct": 0.0,
         "detrend": False,
         "pad_mode": "none",

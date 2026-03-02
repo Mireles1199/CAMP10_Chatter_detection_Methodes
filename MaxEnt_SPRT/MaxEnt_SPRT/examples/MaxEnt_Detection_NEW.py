@@ -1,3 +1,4 @@
+import logging
 from typing import  Tuple
 import os
 import sys
@@ -10,6 +11,22 @@ from MaxEnt_SPRT import SignalData
 from MaxEnt_SPRT import HDF5Reader
 from MaxEnt_SPRT import run_maxent_sprt
 from MaxEnt_SPRT import plots_maxent_sprt
+
+logger = logging.getLogger(__name__)
+
+INFO_PLUS_LEVEL = 15
+logging.addLevelName(INFO_PLUS_LEVEL, "INFO_PLUS")
+
+def info_plus(self, message, *args, **kwargs):
+    if self.isEnabledFor(INFO_PLUS_LEVEL):
+        self._log(INFO_PLUS_LEVEL, message, args, **kwargs)
+
+logging.Logger.info_plus = info_plus
+
+logging.basicConfig(
+    level=logging.INFO,   # DEBUG para ver todo
+    format="%(asctime)s | %(levelname)s | %(message)s"
+)
 
 def _cut_signal( t,x , time_range: Tuple[float, float]) -> Tuple[np.ndarray, np.ndarray]:
     """
@@ -72,14 +89,14 @@ INDICATOR_CONFIG = {
     "func": "Default",                    # indicator wrapper
     "params": {                           # default parameters for this benchmark
         "rpm": 12_000.0,
-        "ratio_sampling": 100.0,
-        "N_seg": 10,
+        "ratio_sampling": 50.0,
+        "N_seg": 2,
         "t_stable_total": 5.365770208787228,
         "alpha": 0.05,
         "beta": 0.05,
         "reset_on_H0": True,
-        "cut_start_time": 0.05,
-        "cut_end_time": 10,
+        "cut_start_time":  1.00608,
+        "cut_end_time":10.30330 ,
     },
 }
 

@@ -1,7 +1,7 @@
 
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Iterable, Tuple
+from typing import Iterable, Tuple, Optional
 import numpy as np
 
 from ..models.maxent import MaxEntModels
@@ -369,6 +369,7 @@ class MaxEntSPRTDetector:
         rpm: float,
         ratio_sampling: float,
         N_seg: int,
+        fs: Optional[float] = None,
     ) -> Tuple[SPRTResult, np.ndarray, np.ndarray]:
         """
         Detect chatter from an online signal using sequential probability ratio test (SPRT).
@@ -380,6 +381,7 @@ class MaxEntSPRTDetector:
             rpm (float): Spindle speed in revolutions per minute.
             ratio_sampling (float): Sampling ratio relative to the fundamental frequency.
             N_seg (int): Number of segments to divide the OPR signal into.
+            fs (Optional[float]): Sampling frequency ignore ratio_sampling. If None, it will be calculated from ratio_sampling and rpm.
         Returns:
             Tuple[SPRTResult, np.ndarray, np.ndarray]: A tuple containing:
                 - SPRTResult: Sequential probability ratio test result with decision and likelihood ratio.
@@ -396,7 +398,10 @@ class MaxEntSPRTDetector:
         fs debe ser de la senal de estudio, poisble implementacion de ratio_samplig como param optionel
         """
 
-        fs = ratio_sampling * fr # A revisar
+        if fs is None:
+            fs = ratio_sampling * fr
+        else:
+            fs = fs
 
         # 1) OPR
         opr_online, opr_t_online = sample_opr(y_online, t_online, fs=fs, fr=fr)

@@ -6,6 +6,9 @@ import logging
 import scipy.signal as sig
 
 
+logger = logging.getLogger(__name__)
+
+
 def ssq_stft_T(x, window=None, n_fft=None, win_len=None, hop_len=1, fs=None, t=None,             
             modulated=True, ssq_freqs=None, padtype='reflect', squeezing='sum',
              gamma=None, preserve_transform=None, dtype=None, astensor=True,
@@ -264,7 +267,7 @@ def _check_ssqueezing_args(squeezing, maprange=None, wavelet=None, difftype=None
 
     # maprange
     if maprange is not None:
-        print("`maprange` checking currently disabled")
+        logger.info_plus("`maprange` checking currently disabled")
         # if isinstance(maprange, (tuple, list)):
         #     if not all(isinstance(m, (float, int)) for m in maprange):
         #         raise ValueError("all elements of `maprange` must be "
@@ -284,7 +287,7 @@ def _check_ssqueezing_args(squeezing, maprange=None, wavelet=None, difftype=None
 
     # difftype
     if difftype is not None:
-        print("`difftype` checking currently disabled")
+        logger.info_plus("`difftype` checking currently disabled")
         # if difftype not in ('trig', 'phase', 'numeric'):
         #     raise ValueError("`difftype` must be one of: direct, phase, numeric"
         #                      " (got %s)" % difftype)
@@ -298,14 +301,14 @@ def _check_ssqueezing_args(squeezing, maprange=None, wavelet=None, difftype=None
 
     # difforder
     if difforder is not None:
-        print("`difforder` checking currently disabled")
+        logger.info_plus("`difforder` checking currently disabled")
         # if difftype != 'numeric':
         #     WARN("`difforder` is ignored if `difftype != 'numeric'")
         # elif difforder not in (1, 2, 4):
         #     raise ValueError("`difforder` must be one of: 1, 2, 4 "
         #                      "(got %s)" % difforder)
     elif difftype == 'numeric':
-        print("Defaulting `difforder` to 4")
+        logger.info_plus("Defaulting `difforder` to 4")
         difforder = 4
 
     return difforder
@@ -348,7 +351,7 @@ def infer_scaletype(scales):
     return scaletype, nv
 
 def asnumpy(x):
-    print("`asnumpy` called")
+    logger.info_plus("`asnumpy` called")
     return x
 
 def logscale_transition_idx(scales):
@@ -1015,10 +1018,10 @@ class FFT():
         if self.verbose:
             if planning_timelimit is None:
                 adjective = "very long" if patience == 2 else "long"
-                print("Planning optimal FFT algorithm; this may "
+                logger.info("Planning optimal FFT algorithm; this may "
                       "take %s..." % adjective)
             else:
-                print("Planning optimal FFT algorithm; this will take up to "
+                logger.info("Planning optimal FFT algorithm; this will take up to "
                       "%s secs" % planning_timelimit)
 
         return ((shape_in, shape_out), (dtype_in, dtype_out), flags,
@@ -1120,7 +1123,7 @@ def _xifn(scale, N, dtype=np.float64):
 def _process_params_dtype(*params, dtype, auto_gpu=True):
     if dtype is None:
         # dtype = S.asarray(params[0]).dtype
-        print("`_process_params_dtype` called with dtype=None")
+        logger.info_plus("`_process_params_dtype` called with dtype=None")
     if auto_gpu:
         # dtype = Wavelet._process_dtype(dtype, as_str=True)
         # params = [S.astype(S.asarray(p), dtype) for p in params]
@@ -1189,7 +1192,7 @@ def phase_stft_cpu(Wx, dWx, Sfs, gamma, parallel=None):
 
 @jit(nopython=True, cache=True)
 def _phase_stft(Wx, dWx, Sfs, out, gamma):
-    print("Using _phase_stft")
+    logger.info_plus("Using _phase_stft")
     for i in range(Wx.shape[0]):
         for j in range(Wx.shape[1]):
             if abs(Wx[i, j]) < gamma:
@@ -1202,7 +1205,7 @@ def _phase_stft(Wx, dWx, Sfs, out, gamma):
 
 @jit(nopython=True, cache=True, parallel=True)
 def _phase_stft_par(Wx, dWx, Sfs, out, gamma):
-    print("Using _phase_stft_par")
+    logger.info_plus("Using _phase_stft_par")
     for i in prange(Wx.shape[0]):
         for j in prange(Wx.shape[1]):
             if abs(Wx[i, j]) < gamma:
@@ -1277,23 +1280,23 @@ def _process_ssq_params(Wx, w_or_dWx, ssq_freqs, const, logscale, flipud, out,
     if out is None:
         out_shape = (*Wx.shape, 2) if (gpu and complex_out) else Wx.shape
         if gpu:
-            print("_process_ssq_params with gpu=True not implemented")
+            logger.info_plus("_process_ssq_params with gpu=True not implemented")
         else:
             out = np.zeros(out_shape, dtype=Wx.dtype)
     elif complex_out and gpu:
-        print("_process_ssq_params with gpu=True not implemented")
+        logger.info_plus("_process_ssq_params with gpu=True not implemented")
     if gpu:
-        print("_process_ssq_params with gpu=True not implemented")
+        logger.info_plus("_process_ssq_params with gpu=True not implemented")
 
     len_const = (len(const) if isinstance(const, np.ndarray) else 1)
     if len_const != len(Wx):
         if gpu:
-            print("_process_ssq_params with gpu=True not implemented")
+            logger.info_plus("_process_ssq_params with gpu=True not implemented")
         else:
 
             const_arr = np.full(len(Wx), const, dtype=Wx.dtype)
     elif gpu and isinstance(const, np.ndarray):
-        print("_process_ssq_params with gpu=True not implemented")
+        logger.info_plus("_process_ssq_params with gpu=True not implemented")
     else:
         const_arr = const
     const_arr = const_arr.squeeze()
@@ -1326,7 +1329,7 @@ def _process_ssq_params(Wx, w_or_dWx, ssq_freqs, const, logscale, flipud, out,
 
         # ssq_scaletype = (('log_piecewise' if 'idx1' in params else 'log')
         #                  if logscale else 'lin')
-        print("_process_ssq_params with gpu=True not implemented")
+        logger.info_plus("_process_ssq_params with gpu=True not implemented")
     else:
         # cpu function params
         params.update(dict(const=const_arr, flipud=flipud, omax=len(out) - 1))
@@ -1341,7 +1344,7 @@ def _process_ssq_params(Wx, w_or_dWx, ssq_freqs, const, logscale, flipud, out,
     if gpu:
         # args = (blockspergrid, threadsperblock, *kernel_args)
         # return (out, params, args, kernel_kw, ssq_scaletype)
-        print("_process_ssq_params with gpu=True not implemented")
+        logger.info_plus("_process_ssq_params with gpu=True not implemented")
     return (Wx, w_or_dWx, out, params, ssq_scaletype)
 
 
@@ -1749,7 +1752,7 @@ def padsignal(x, padtype='reflect', padlength=None, get_params=False):
             elif x.ndim == 2:
                 xp = np.hstack([x[:, ::-1][:, -n1:], x, x[:, ::-1][:, :n2]])
     else:
-        print("padsignal with torch.Tensor not implemented")
+        logger.info_plus("padsignal with torch.Tensor not implemented")
 
     return (xp, n_up, n1, n2) if get_params else xp
 
@@ -2019,7 +2022,7 @@ def ssqueeze(Wx, w=None, ssq_freqs=None, scales=None, Sfs=None, fs=None, t=None,
     def _ssqueeze(Tx, w, Wx, dWx, nv, ssq_freqs, scales, transform, ssq_scaletype,
                   cwt_scaletype, flipud, gamma, Sfs):
         if transform == 'cwt':
-            print("CWT synchrosqueezing not implemented in `_ssqueeze`")
+            logger.info_plus("CWT synchrosqueezing not implemented in `_ssqueeze`")
             # # Eq 14 [2]; Eq 2.3 [1]
             # if cwt_scaletype.startswith('log'):
             #     # ln(2)/nv == diff(ln(scales))[0] == ln(2**(1/nv))
@@ -2065,7 +2068,7 @@ def ssqueeze(Wx, w=None, ssq_freqs=None, scales=None, Sfs=None, fs=None, t=None,
 
     if transform == 'cwt':
         # scales, cwt_scaletype, _, nv = process_scales(scales, N, get_params=True)
-        print("CWT scales processing not implemented in `ssqueeze`")
+        logger.info_plus("CWT scales processing not implemented in `ssqueeze`")
     else:
         cwt_scaletype, nv = None, None
 
@@ -2085,7 +2088,7 @@ def ssqueeze(Wx, w=None, ssq_freqs=None, scales=None, Sfs=None, fs=None, t=None,
         # ssq_freqs = _compute_associated_frequencies(
         #     scales, N, wavelet, ssq_scaletype, maprange, was_padded, dt,
         #     transform)
-        print("Computation of `ssq_freqs` not implemented in `ssqueeze`")
+        logger.info_plus("Computation of `ssq_freqs` not implemented in `ssqueeze`")
     elif transform == 'stft':
         # removes warning per issue with `infer_scaletype`
         # future TODO: shouldn't need this
@@ -2095,11 +2098,11 @@ def ssqueeze(Wx, w=None, ssq_freqs=None, scales=None, Sfs=None, fs=None, t=None,
 
     # transform `Wx` if needed
     if isinstance(squeezing, FunctionType):
-        print(f"ssqueeze: using custom squeezing function {squeezing}.")
+        logger.info_plus(f"ssqueeze: using custom squeezing function {squeezing}.")
         Wx = squeezing(Wx)
     elif squeezing == 'lebesgue':  # from reference [3]
         # Wx = S.ones(Wx.shape, dtype=Wx.dtype) / len(Wx)
-        print("ssqueeze: 'lebesgue' squeezing not implemented.")
+        logger.info_plus("ssqueeze: 'lebesgue' squeezing not implemented.")
     elif squeezing == 'abs':
         Wx = Q.abs(Wx)
 
@@ -2119,7 +2122,7 @@ def ssqueeze(Wx, w=None, ssq_freqs=None, scales=None, Sfs=None, fs=None, t=None,
     # `scales` go high -> low
     if (transform == 'cwt' and not flipud) or flipud:
         if not isinstance(ssq_freqs, np.ndarray):
-            print("ssq_freqs flipping not implemented.")
+            logger.info_plus("ssq_freqs flipping not implemented.")
         else:
             ssq_freqs = ssq_freqs[::-1]
 

@@ -201,7 +201,7 @@ class ThreeSigmaWithLilliefors(DetectionRule):
             The 1D input signal to analyze for anomalies.
         idx_stable : Optional[Sequence[int]], default=None
             Explicit indices defining the stable region of the signal. If not provided,
-            the stable region is constructed from `stable_index`, `stable_time`, or 
+            the stable region is constructed from `stable_index`, `stable_time`, or
             `frac_stable` attributes. Indices are validated to be within [0, n).
         t : Optional[np.ndarray], default=None
             Time or position array corresponding to d1, used when constructing the stable

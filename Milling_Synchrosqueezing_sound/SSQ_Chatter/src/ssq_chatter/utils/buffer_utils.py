@@ -1,10 +1,14 @@
 # Comentario: framing/buffer y padding de señal
 from __future__ import annotations
+import logging
 from typing import Tuple, Any
 import numpy as np
 
 from numba import jit, prange
 from .misc import assert_is_one_of, IS_PARALLEL
+
+
+logger = logging.getLogger(__name__)
 
 
 __all__ = [
@@ -107,7 +111,7 @@ def padsignal(x, padtype='reflect', padlength=None, get_params=False):
             elif x.ndim == 2:
                 xp = np.hstack([x[:, ::-1][:, -n1:], x, x[:, ::-1][:, :n2]])
     else:
-        print("padsignal with torch.Tensor not implemented")
+        logger.info_plus("padsignal with torch.Tensor not implemented")
 
     return (xp, n_up, n1, n2) if get_params else xp
 
