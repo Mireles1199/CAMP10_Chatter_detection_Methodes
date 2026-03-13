@@ -62,7 +62,7 @@ INDICATOR_CONFIG ={
         "params": {
             "n_fft_power": 3,
             "win_length_ms": 40.0,
-            "hop_ms": 30.0,
+            "hop_ms": 15.0,
             "Ai_length": 3,
             "mode": "causal_inclusive",
             "sigma": 6.0,

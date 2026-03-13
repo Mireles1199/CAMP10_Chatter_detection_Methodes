@@ -910,7 +910,7 @@ sig = SignalData(
 
 f_modal = 150.0 #Hz
 T_modal = 1.0 / f_modal #s
-Num_cycles_max = 30
+Num_cycles_max = 5
 
 # ============ RMS_CV search space ===========
 samples_per_window = [math.ceil(n * fs / f_modal) for n in range(1, Num_cycles_max + 1)]
@@ -956,7 +956,7 @@ win_hop_pairs = [
 
 SEARCH_SPACE_SST_SVD = {
     ("win_length_ms", "hop_ms"): win_hop_pairs,
-    "Ai_length": list(range(1, 10)),  # 1 to 10 inclusive
+    "Ai_length": list(range(1, 2)),  # 1 to 10 inclusive
     "sigma": [3.0, 6.0, 9.0],
 }
 # ===========================================================================
