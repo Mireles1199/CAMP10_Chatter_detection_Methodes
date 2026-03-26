@@ -1,0 +1,86 @@
+MaxEnt_SPRT.lib.llr
+===================
+
+.. py:module:: MaxEnt_SPRT.lib.llr
+
+
+Classes
+-------
+
+.. autoapisummary::
+
+   MaxEnt_SPRT.lib.llr.LLRModel
+   MaxEnt_SPRT.lib.llr.GaussianIndicatorLLR
+
+
+Module Contents
+---------------
+
+.. py:class:: LLRModel
+
+   Bases: :py:obj:`abc.ABC`
+
+
+   Abstract interface for log-likelihood ratio models.
+
+   Implementations must provide a scalar ``llr`` evaluation for one observed
+   indicator value.
+
+
+   .. py:method:: llr(h_obs)
+      :abstractmethod:
+
+
+      Evaluate the incremental log-likelihood ratio for one observation.
+
+      :param h_obs: Observed scalar feature value to score, usually an entropy-like indicator extracted from one segment.
+
+      :returns: Signed evidence contribution added to the cumulative SPRT
+                statistic. Positive values favor H1 and negative values favor H0.
+      :rtype: float
+
+
+
+.. py:class:: GaussianIndicatorLLR
+
+   Bases: :py:obj:`LLRModel`
+
+
+   Gaussian log-likelihood ratio model for chatter detection.
+
+   This implementation compares two Gaussian maximum-entropy models:
+   ``p0`` (stable regime) and ``p1`` (chatter regime). For each observed
+   indicator value ``h_obs``, it returns the evidence in favor of chatter as:
+
+   ``log p1(h_obs) - log p0(h_obs)``.
+
+   Interpretation of the output is straightforward:
+
+   - Positive values: evidence favoring chatter (H1).
+   - Negative values: evidence favoring stable cutting (H0).
+   - Values near zero: weak or ambiguous evidence.
+
+   The class is immutable (``frozen=True``), which helps keep SPRT runs
+   reproducible once the statistical models are fitted.
+
+
+   .. py:attribute:: models
+      :type:  MaxEnt_SPRT.models.maxent.MaxEntModels
+
+      Pair of Gaussian densities where ``p0`` represents the stable regime and ``p1`` represents the chatter regime.
+
+
+   .. py:method:: llr(h_obs)
+
+      Evaluate the log-likelihood ratio at one observed indicator value.
+
+      :param h_obs: Observed entropy-like indicator value associated with the current segment or analysis window.
+
+      :returns:
+
+                Signed evidence score for SPRT updates,
+                    ``log p1(h_obs) - log p0(h_obs)``.
+      :rtype: float
+
+
+

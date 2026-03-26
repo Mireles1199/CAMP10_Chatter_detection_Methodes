@@ -1,0 +1,99 @@
+MaxEnt_SPRT.models.prob
+=======================
+
+.. py:module:: MaxEnt_SPRT.models.prob
+
+
+Classes
+-------
+
+.. autoapisummary::
+
+   MaxEnt_SPRT.models.prob.GaussianPDF
+
+
+Module Contents
+---------------
+
+.. py:class:: GaussianPDF
+
+   Gaussian probability density model.
+
+   The class stores the mean and standard deviation and exposes helpers for
+   log-density evaluation, entropy computation, and fitting from samples.
+
+   This lightweight container is the probabilistic core used by MaxEnt-SPRT:
+   one instance represents the stable regime (H0) and another the chatter
+   regime (H1).
+
+
+   .. py:attribute:: mu
+      :type:  float
+
+      Mean of the Gaussian distribution, i.e. the center of the modeled indicator distribution.
+
+
+   .. py:attribute:: sigma
+      :type:  float
+
+      Standard deviation. Must be strictly positive; controls the spread/uncertainty around ``mu``.
+
+
+   .. py:method:: __post_init__()
+
+
+   .. py:method:: logpdf(x)
+
+      Evaluate the natural logarithm of the Gaussian PDF at ``x``.
+
+      :param x: Scalar observation at which the Gaussian log-density is evaluated.
+
+      :returns: ``log N(x ; mu, sigma^2)``.
+      :rtype: float
+
+      .. rubric:: Notes
+
+      Using log-density improves numerical stability when values are later
+      combined into cumulative LLR statistics.
+
+
+
+   .. py:method:: entropy_shannon()
+
+      Calculate the Shannon entropy of the Gaussian distribution.
+
+      The Shannon entropy for a continuous Gaussian distribution N(mu, sigma^2) is given by:
+      H(X) = 0.5 * log(2 * pi * e * sigma^2)
+
+      :returns: Differential Shannon entropy in nats, fully determined by the
+                current value of ``sigma``.
+      :rtype: float
+
+
+
+   .. py:method:: from_samples(samples, eps = 1e-12)
+      :staticmethod:
+
+
+      Create a GaussianPDF instance from a collection of sample data.
+
+      Estimates the mean and standard deviation of a Gaussian distribution
+      from the provided samples using maximum likelihood estimation.
+
+      :param samples: Collection of scalar observations used to estimate the Gaussian mean and spread.
+      :param eps: Minimum variance floor used before taking the square root, ensuring the resulting standard deviation is never zero.
+
+      :returns: A new GaussianPDF instance with estimated mu and sigma parameters.
+      :rtype: GaussianPDF
+
+      :raises ValueError: If fewer than 2 samples are provided. At least 2 samples are required
+          to estimate the standard deviation using Bessel's correction (ddof=1).
+
+      .. rubric:: Examples
+
+      >>> samples = [1.0, 2.0, 3.0, 4.0, 5.0]
+      >>> pdf = GaussianPDF.from_samples(samples)
+      >>> print(pdf.mu, pdf.sigma)
+
+
+

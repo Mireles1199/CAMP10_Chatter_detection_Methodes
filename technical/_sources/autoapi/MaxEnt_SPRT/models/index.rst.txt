@@ -1,0 +1,21 @@
+MaxEnt_SPRT.models
+==================
+
+.. py:module:: MaxEnt_SPRT.models
+
+.. autoapi-nested-parse::
+
+   Probability models for MaxEnt and SPRT.
+
+
+
+Submodules
+----------
+
+.. toctree::
+   :maxdepth: 1
+
+   /autoapi/MaxEnt_SPRT/models/maxent/index
+   /autoapi/MaxEnt_SPRT/models/prob/index
+
+

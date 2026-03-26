@@ -1,0 +1,45 @@
+MaxEnt_SPRT.utils.validation
+============================
+
+.. py:module:: MaxEnt_SPRT.utils.validation
+
+
+Attributes
+----------
+
+.. autoapisummary::
+
+   MaxEnt_SPRT.utils.validation.P
+   MaxEnt_SPRT.utils.validation.R
+
+
+Functions
+---------
+
+.. autoapisummary::
+
+   MaxEnt_SPRT.utils.validation.validate_alpha_beta
+
+
+Module Contents
+---------------
+
+.. py:data:: P
+
+.. py:data:: R
+
+.. py:function:: validate_alpha_beta(func)
+
+   Validate ``alpha`` and ``beta`` keyword arguments before calling a function.
+
+   This decorator centralizes one cross-cutting rule used by SPRT-related
+   wrappers: both statistical error probabilities must lie in the open interval
+   ``(0, 1)`` whenever they are explicitly provided.
+
+   :param func: Wrapped callable that may accept ``alpha`` and ``beta`` as keyword arguments.
+
+   :returns: Wrapper preserving the original call signature while
+             enforcing valid SPRT error-probability bounds.
+   :rtype: Callable[P, R]
+
+

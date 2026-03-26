@@ -1,0 +1,165 @@
+MaxEnt_SPRT.lib.sprt
+====================
+
+.. py:module:: MaxEnt_SPRT.lib.sprt
+
+
+Classes
+-------
+
+.. autoapisummary::
+
+   MaxEnt_SPRT.lib.sprt.SPRTConfig
+   MaxEnt_SPRT.lib.sprt.SPRTResult
+   MaxEnt_SPRT.lib.sprt.SequentialProbabilityRatioTest
+
+
+Module Contents
+---------------
+
+.. py:class:: SPRTConfig
+
+   Configuration of the Sequential Probability Ratio Test.
+
+   This object stores the statistical error tolerances that define the two
+   decision thresholds used by the sequential test. It does not contain any
+   signal-processing logic; it only describes how strict the test should be
+   when deciding between the stable and chatter hypotheses.
+
+
+   .. py:attribute:: alpha
+      :type:  float
+      :value: 0.01
+
+
+      probability of declaring chatter when the process is actually stable.
+
+      :type: Maximum Type I error probability (false-alarm rate)
+
+
+   .. py:attribute:: beta
+      :type:  float
+      :value: 0.01
+
+
+      probability of failing to declare chatter when chatter is present.
+
+      :type: Maximum Type II error probability (missed-detection rate)
+
+
+   .. py:attribute:: reset_on_H0
+      :type:  bool
+      :value: True
+
+
+      If ``True``, the cumulative SPRT statistic is reset to zero after crossing the lower threshold and accepting the stable hypothesis.
+
+
+   .. py:method:: __post_init__()
+
+
+   .. py:property:: a
+      :type: float
+
+
+      Lower SPRT decision threshold.
+
+      :returns: Log-threshold associated with accepting hypothesis H0
+                (stable, chatter-free regime).
+      :rtype: float
+
+
+   .. py:property:: b
+      :type: float
+
+
+      Upper SPRT decision threshold.
+
+      :returns: Log-threshold associated with accepting hypothesis H1
+                (chatter regime).
+      :rtype: float
+
+
+.. py:class:: SPRTResult
+
+   Result of running SPRT on a sequence of indicator values.
+
+   This dataclass captures both the final decision and the full cumulative
+   statistic history so downstream code can inspect not only whether chatter
+   was detected, but also how the evidence evolved over time.
+
+
+   .. py:attribute:: final_state
+      :type:  str
+
+      ``"free"``, ``"chatter"``, or ``"indeterminado"`` when no bound was crossed.
+
+      :type: Final categorical decision
+
+
+   .. py:attribute:: decision_index
+      :type:  int
+
+      Index of the segment where the latest decisive threshold crossing occurred. Remains ``-1`` if no threshold is ever crossed.
+
+
+   .. py:attribute:: S_history
+      :type:  numpy.ndarray
+
+      One-dimensional array of the running cumulative log-likelihood ratio statistic, one entry per processed segment.
+
+
+   .. py:attribute:: a
+      :type:  float
+
+      Lower decision threshold used for stable-state acceptance.
+
+
+   .. py:attribute:: b
+      :type:  float
+
+      Upper decision threshold used for chatter-state acceptance.
+
+
+.. py:class:: SequentialProbabilityRatioTest
+
+   Stateful sequential hypothesis-testing engine.
+
+   The engine is intentionally minimal: it only knows how to accumulate an LLR
+   model and how to compare the cumulative statistic against thresholds defined
+   by :class:`SPRTConfig`. It is agnostic to how features were extracted,
+   which probability model produced the LLR, or whether the inputs come from
+   vibration, force, or any other measured signal.
+
+
+   .. py:attribute:: llr_model
+      :type:  MaxEnt_SPRT.lib.llr.LLRModel
+
+      Strategy object that converts one scalar observation into an incremental log-likelihood ratio contribution.
+
+
+   .. py:attribute:: config
+      :type:  SPRTConfig
+
+      Statistical configuration determining the lower/upper decision thresholds and the reset policy.
+
+
+   .. py:method:: run(H_seq)
+
+      Run the sequential test over an ordered indicator sequence.
+
+      :param H_seq: Ordered scalar observations, usually one entropy-like indicator value per signal segment, consumed in time order.
+
+      :returns: Final decision summary containing the final state,
+                decision index, cumulative statistic history, and the thresholds
+                used during the test.
+      :rtype: SPRTResult
+
+      Decision behavior:
+      When the cumulative statistic falls below ``a``, the test favors the
+      stable regime. When it rises above ``b``, the test favors chatter. If
+      ``reset_on_H0`` is enabled, the statistic is reset to zero after a lower
+      threshold crossing so evidence can accumulate again on later segments.
+
+
+

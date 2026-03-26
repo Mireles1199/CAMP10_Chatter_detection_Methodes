@@ -1,0 +1,18 @@
+MaxEnt_SPRT
+===========
+
+.. py:module:: MaxEnt_SPRT
+
+
+Submodules
+----------
+
+.. toctree::
+   :maxdepth: 1
+
+   /autoapi/MaxEnt_SPRT/lib/index
+   /autoapi/MaxEnt_SPRT/models/index
+   /autoapi/MaxEnt_SPRT/utils/index
+   /autoapi/MaxEnt_SPRT/viz/index
+
+

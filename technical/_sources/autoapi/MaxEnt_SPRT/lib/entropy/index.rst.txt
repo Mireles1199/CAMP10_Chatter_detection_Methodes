@@ -1,0 +1,151 @@
+MaxEnt_SPRT.lib.entropy
+=======================
+
+.. py:module:: MaxEnt_SPRT.lib.entropy
+
+
+Classes
+-------
+
+.. autoapisummary::
+
+   MaxEnt_SPRT.lib.entropy.EntropyEstimator
+   MaxEnt_SPRT.lib.entropy.GaussianMaxEntEstimator
+   MaxEnt_SPRT.lib.entropy.EmpiricalHistogramEntropyEstimator
+
+
+Functions
+---------
+
+.. autoapisummary::
+
+   MaxEnt_SPRT.lib.entropy.entropy_from_segments
+
+
+Module Contents
+---------------
+
+.. py:class:: EntropyEstimator
+
+   Bases: :py:obj:`abc.ABC`
+
+
+   Abstract interface for entropy estimation from signal segments.
+
+   Subclasses implement ``entropy_from_segment`` while this base class provides
+   a convenience method to process a sequence of segments.
+
+
+   .. py:method:: entropy_from_segment(seg)
+      :abstractmethod:
+
+
+      Compute one scalar entropy value from a single segment.
+
+      :param seg: One-dimensional segment containing the samples of one analysis window.
+
+      :returns: Entropy-like scalar feature representing the information
+                content or spread of the segment.
+      :rtype: float
+
+
+
+   .. py:method:: entropy_from_segments(segments)
+
+      Calculate entropy values for multiple segments.
+
+      Computes the entropy for each segment in the input sequence using the
+      entropy_from_segment method.
+
+      :param segments: Ordered collection of 1D signal segments, each processed independently.
+
+      :returns: One-dimensional float array containing one entropy value
+                per input segment, preserving input order.
+      :rtype: np.ndarray
+
+
+
+.. py:class:: GaussianMaxEntEstimator
+
+   Bases: :py:obj:`EntropyEstimator`
+
+
+   Entropy estimator under a Gaussian maximum-entropy assumption.
+
+   For each segment, the method fits a Gaussian distribution from samples and
+   returns its Shannon differential entropy. This is the default estimator used
+   by the detector because it is compact, fast, and directly compatible with
+   the Gaussian likelihood models used in SPRT.
+
+
+   .. py:method:: entropy_from_segment(seg)
+
+      Estimate segment entropy under a Gaussian maximum-entropy assumption.
+
+      :param seg: One-dimensional segment whose sample mean and variance define the Gaussian surrogate model.
+
+      :returns: Shannon differential entropy of the fitted Gaussian model for
+                the input segment.
+      :rtype: float
+
+
+
+.. py:class:: EmpiricalHistogramEntropyEstimator(bins = 20)
+
+   Bases: :py:obj:`EntropyEstimator`
+
+
+   Histogram-based nonparametric entropy estimator.
+
+   The estimator approximates the empirical distribution of a segment through a
+   finite histogram and then computes the discrete Shannon entropy
+   ``H = -sum p_i log(p_i)``. Unlike ``GaussianMaxEntEstimator``, it does not
+   assume a parametric Gaussian model.
+
+
+   .. py:attribute:: bins
+      :type:  int
+
+      Number of histogram bins used to approximate the segment distribution.
+
+
+   .. py:method:: entropy_from_segment(seg)
+
+      Calculate the Shannon entropy of a segment of data.
+
+      Computes the discrete entropy of an input array by binning the data into
+      a histogram and calculating the information entropy using the formula:
+      H = -sum(p * ln(p)), where p is the probability of each bin.
+
+      :param seg: One-dimensional array containing the raw sample values of the segment to summarize.
+
+      :returns: The Shannon entropy value of the segment. Returns 0.0 if the total
+                count of histogram values is zero.
+      :rtype: float
+
+      :raises ValueError: If the input segment is empty.
+      :raises Notes:: Uses the natural logarithm, ignores zero-probability bins, and bases
+          the discretization on the configured number of histogram bins.
+
+
+
+.. py:function:: entropy_from_segments(segments, estimator = None)
+
+   Compute entropy values for a sequence of segments with a chosen estimator.
+
+   The function provides a single entry point for batch entropy extraction in
+   both offline training and online detection pipelines. If no estimator is
+   provided, it defaults to :class:`GaussianMaxEntEstimator`.
+
+   :param segments: Sequence of one-dimensional signal segments to convert into scalar entropy values.
+   :param estimator: Estimator implementation used to process each segment. If ``None``, ``GaussianMaxEntEstimator`` is used.
+
+   :returns: One entropy value per input segment, preserving input order.
+   :rtype: np.ndarray
+
+   .. rubric:: Notes
+
+   The returned values are always ``float`` and can be consumed directly by
+   LLR/SPRT routines.
+
+

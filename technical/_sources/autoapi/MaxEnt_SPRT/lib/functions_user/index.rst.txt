@@ -1,0 +1,93 @@
+MaxEnt_SPRT.lib.functions_user
+==============================
+
+.. py:module:: MaxEnt_SPRT.lib.functions_user
+
+
+Functions
+---------
+
+.. autoapisummary::
+
+   MaxEnt_SPRT.lib.functions_user.validate_alpha_beta
+   MaxEnt_SPRT.lib.functions_user.sample_opr
+   MaxEnt_SPRT.lib.functions_user.segment_opr
+   MaxEnt_SPRT.lib.functions_user.fit_maxent_gaussians
+   MaxEnt_SPRT.lib.functions_user.entropy_from_segments
+   MaxEnt_SPRT.lib.functions_user.offline_train_maxent_sprt
+   MaxEnt_SPRT.lib.functions_user.sprt_detect_sequence
+   MaxEnt_SPRT.lib.functions_user.online_maxent_sprt_from_signal
+
+
+Module Contents
+---------------
+
+.. py:function:: validate_alpha_beta(func)
+
+   Valida que alpha y beta (si se pasan como kwargs) estén en (0, 1).
+
+   Este decorador añade validación sin modificar la lógica interna del
+   test estadístico (ejemplo de preocupación transversal).
+
+
+.. py:function:: sample_opr(y, t, fs, fr)
+
+   Extrae datos once-per-revolution (1 muestra por revolución).
+
+   ratio = fs/fr debe ser entero. Se toma el primer índice de cada revolución.
+
+
+.. py:function:: segment_opr(opr, opr_t, N_seg)
+
+   Divide la señal OPR en segmentos consecutivos de longitud N_seg.
+   Se descarta el sobrante final si no completa un segmento.
+
+
+.. py:function:: fit_maxent_gaussians(samples_H0, samples_H1, min_sigma = 1e-12)
+
+   Ajusta dos gaussianas a:
+   - samples_H0: valores MaxEnt en estado chatter-free
+   - samples_H1: valores MaxEnt en estado chatter
+
+   Devuelve modelos p0(H) y p1(H) sobre el indicador H.
+
+
+.. py:function:: entropy_from_segments(segments, estimator = None)
+
+   Calcula el indicador MaxEnt para una colección de segmentos OPR.
+
+
+.. py:function:: offline_train_maxent_sprt(opr_free, opr_chat, opr_t_free, opr_t_chat, N_seg, estimator = None)
+
+   FASE OFFLINE (prior knowledge) a partir de señales OPR etiquetadas:
+
+   - opr_free: OPR en condición chatter-free
+   - opr_chat: OPR en condición early chatter
+   - N_seg: número de revoluciones (muestras OPR) por segmento
+
+   Devuelve:
+   - models: MaxEntModels con p0(H) y p1(H)
+   - H_free: entropías por segmento en estado libre
+   - H_chat: entropías por segmento en estado chatter
+   - t_mid_free: tiempos medios por segmento en estado libre
+   - t_mid_chat: tiempos medios por segmento en estado chatter
+
+
+.. py:function:: sprt_detect_sequence(H_seq, models, alpha = 0.01, beta = 0.01, reset_on_H0 = True)
+
+   Wrapper funcional para ejecutar SPRT usando gaussianas sobre el indicador.
+
+   Se mantiene por comodidad, pero internamente usa la clase
+   SequentialProbabilityRatioTest y GaussianIndicatorLLR.
+
+
+.. py:function:: online_maxent_sprt_from_signal(y_online, t_online, rpm, ratio_sampling, N_seg, models, alpha = 0.01, beta = 0.01, reset_on_H0 = True, estimator = None)
+
+   FASE ONLINE completa para una señal nueva:
+
+   1) OPR: y_online -> opr_online
+   2) Segmentación: opr_online -> segmentos
+   3) Entropía local: segmentos -> H_seq
+   4) SPRT: H_seq + models (p0(H), p1(H)) -> decisión chatter/free
+
+

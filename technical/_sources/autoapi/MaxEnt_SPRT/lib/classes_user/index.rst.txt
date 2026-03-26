@@ -1,0 +1,386 @@
+MaxEnt_SPRT.lib.classes_user
+============================
+
+.. py:module:: MaxEnt_SPRT.lib.classes_user
+
+
+Classes
+-------
+
+.. autoapisummary::
+
+   MaxEnt_SPRT.lib.classes_user.GaussianPDF
+   MaxEnt_SPRT.lib.classes_user.MaxEntModels
+   MaxEnt_SPRT.lib.classes_user.EntropyEstimator
+   MaxEnt_SPRT.lib.classes_user.GaussianMaxEntEstimator
+   MaxEnt_SPRT.lib.classes_user.EmpiricalHistogramEntropyEstimator
+   MaxEnt_SPRT.lib.classes_user.LLRModel
+   MaxEnt_SPRT.lib.classes_user.GaussianIndicatorLLR
+   MaxEnt_SPRT.lib.classes_user.SPRTConfig
+   MaxEnt_SPRT.lib.classes_user.SPRTResult
+   MaxEnt_SPRT.lib.classes_user.SequentialProbabilityRatioTest
+   MaxEnt_SPRT.lib.classes_user.MaxEntSPRTConfig
+   MaxEnt_SPRT.lib.classes_user.MaxEntSPRTDetector
+
+
+Module Contents
+---------------
+
+.. py:class:: GaussianPDF
+
+   Representa una distribución normal N(mu, sigma^2) y permite:
+
+   - Evaluar su log-pdf.
+   - Calcular su entropía de Shannon cerrada.
+
+
+   .. py:attribute:: mu
+      :type:  float
+
+
+   .. py:attribute:: sigma
+      :type:  float
+
+
+   .. py:method:: __post_init__()
+
+
+   .. py:method:: logpdf(x)
+
+      log N(x ; mu, sigma^2)
+
+
+
+   .. py:method:: entropy_shannon()
+
+      Entropía de una normal N(mu, sigma^2):
+      H = 0.5 * log(2*pi*e*sigma^2)
+
+
+
+   .. py:method:: from_samples(samples, eps = 1e-12)
+      :staticmethod:
+
+
+      Ajusta N(mu, sigma^2) a las muestras dadas.
+
+
+
+.. py:class:: MaxEntModels
+
+   Modelos globales de la pdf del indicador MaxEnt (entropía) bajo:
+   - H0: chatter-free  -> p0(H)
+   - H1: early chatter -> p1(H)
+
+
+   .. py:attribute:: p0
+      :type:  GaussianPDF
+
+
+   .. py:attribute:: p1
+      :type:  GaussianPDF
+
+
+.. py:class:: EntropyEstimator
+
+   Bases: :py:obj:`abc.ABC`
+
+
+   Clase base abstracta para estimadores de entropía a partir de segmentos OPR.
+
+   Esta abstracción permite enchufar distintos modelos (MaxEnt gaussiano,
+   histograma empírico, kernel, etc.) sin cambiar el resto del pipeline.
+
+
+   .. py:method:: entropy_from_segment(seg)
+      :abstractmethod:
+
+
+      Calcula la entropía para un segmento OPR.
+
+
+
+   .. py:method:: entropy_from_segments(segments)
+
+      Calcula la entropía para una secuencia de segmentos OPR.
+
+
+
+.. py:class:: GaussianMaxEntEstimator
+
+   Bases: :py:obj:`EntropyEstimator`
+
+
+   Implementación concreta basada en MaxEnt gaussiano:
+   ajusta N(mu, sigma^2) al segmento y usa su entropía analítica.
+
+
+   .. py:method:: entropy_from_segment(seg)
+
+      Calcula la entropía para un segmento OPR.
+
+
+
+.. py:class:: EmpiricalHistogramEntropyEstimator(bins = 20)
+
+   Bases: :py:obj:`EntropyEstimator`
+
+
+   Estimador de entropía empírica usando histograma discreto:
+
+   1) Estima la distribución empírica vía histograma normalizado.
+   2) Calcula H = -sum p_i log p_i.
+
+   Esto NO asume modelo paramétrico y permite comparar contra MaxEnt gaussiano.
+
+
+   .. py:attribute:: bins
+      :type:  int
+      :value: 20
+
+
+
+   .. py:method:: entropy_from_segment(seg)
+
+      Entropía de Shannon discreta a partir de histograma empírico.
+
+
+
+.. py:class:: LLRModel
+
+   Bases: :py:obj:`abc.ABC`
+
+
+   Estrategia abstracta para calcular el LLR de una observación H.
+
+   Esto desacopla el motor SPRT de los detalles del modelo (gaussiano,
+   kernel, histogramas, etc.) → DIP (Dependency Inversion Principle).
+
+
+   .. py:method:: llr(h_obs)
+      :abstractmethod:
+
+
+      Devuelve log( p1(h_obs) / p0(h_obs) ).
+
+
+
+.. py:class:: GaussianIndicatorLLR
+
+   Bases: :py:obj:`LLRModel`
+
+
+   Implementación concreta de LLR usando dos gaussianas sobre el indicador H.
+
+
+   .. py:attribute:: models
+      :type:  MaxEntModels
+
+
+   .. py:method:: llr(h_obs)
+
+      Devuelve log( p1(h_obs) / p0(h_obs) ).
+
+
+
+.. py:class:: SPRTConfig
+
+   Configuración del test SPRT:
+   - alpha: prob. de falso positivo máxima.
+   - beta: prob. de falso negativo máxima.
+   - reset_on_H0: si True, resetea S_n a 0 cuando cae por debajo de a.
+
+
+   .. py:attribute:: alpha
+      :type:  float
+      :value: 0.01
+
+
+
+   .. py:attribute:: beta
+      :type:  float
+      :value: 0.01
+
+
+
+   .. py:attribute:: reset_on_H0
+      :type:  bool
+      :value: True
+
+
+
+   .. py:method:: __post_init__()
+
+
+   .. py:property:: a
+      :type: float
+
+
+      región de aceptación de H0 (chatter-free).
+
+      :type: Umbral inferior
+
+
+   .. py:property:: b
+      :type: float
+
+
+      región de aceptación de H1 (chatter).
+
+      :type: Umbral superior
+
+
+.. py:class:: SPRTResult
+
+   Resultado del test secuencial SPRT sobre una secuencia H_n.
+
+
+   .. py:attribute:: final_state
+      :type:  str
+
+
+   .. py:attribute:: decision_index
+      :type:  int
+
+
+   .. py:attribute:: S_history
+      :type:  numpy.ndarray
+
+
+   .. py:attribute:: a
+      :type:  float
+
+
+   .. py:attribute:: b
+      :type:  float
+
+
+.. py:class:: SequentialProbabilityRatioTest
+
+   Motor del SPRT: solo sabe:
+   - cómo calcular LLR (objeto LLRModel)
+   - qué umbrales usar (SPRTConfig)
+
+   No sabe nada de MaxEnt, ni de señales, ni de PDFs concretas.
+
+
+   .. py:attribute:: llr_model
+      :type:  LLRModel
+
+
+   .. py:attribute:: config
+      :type:  SPRTConfig
+
+
+   .. py:method:: run(H_seq)
+
+      Ejecuta el SPRT sobre una secuencia H_seq de indicadores H_n.
+
+
+
+.. py:class:: MaxEntSPRTConfig
+
+   Contenedor de configuración para el detector de alto nivel.
+
+   Encapsula parámetros específicos de SPRT (alpha, beta, reset_on_H0).
+
+
+   .. py:attribute:: alpha
+      :type:  float
+      :value: 0.01
+
+
+
+   .. py:attribute:: beta
+      :type:  float
+      :value: 0.01
+
+
+
+   .. py:attribute:: reset_on_H0
+      :type:  bool
+      :value: True
+
+
+
+.. py:class:: MaxEntSPRTDetector
+
+   Objeto de alto nivel que encapsula:
+
+   - MaxEntModels (p0, p1) → pdf del indicador H bajo H0/H1.
+   - MaxEntSPRTConfig → parámetros del SPRT.
+   - EntropyEstimator → cómo se construye el indicador H a partir de segmentos.
+
+   Es un objeto END-TO-END:
+   - fit_offline_from_opr / fit_offline_from_signals → entrenamiento offline.
+   - detect_from_H_seq → SPRT sobre H ya calculados.
+   - detect_online_from_signal → pipeline completa sobre una señal nueva.
+
+
+   .. py:attribute:: models
+      :type:  MaxEntModels | None
+      :value: None
+
+
+
+   .. py:attribute:: config
+      :type:  MaxEntSPRTConfig
+
+
+   .. py:attribute:: estimator
+      :type:  EntropyEstimator
+
+
+   .. py:attribute:: H_free
+      :type:  numpy.ndarray | None
+      :value: None
+
+
+
+   .. py:attribute:: H_chat
+      :type:  numpy.ndarray | None
+      :value: None
+
+
+
+   .. py:attribute:: t_mid_free
+      :type:  numpy.ndarray | None
+      :value: None
+
+
+
+   .. py:attribute:: t_mid_chat
+      :type:  numpy.ndarray | None
+      :value: None
+
+
+
+   .. py:method:: fit_offline_from_opr(opr_free, opr_t_free, opr_chat, opr_t_chat, N_seg)
+
+      Entrena los modelos MaxEnt (p0(H), p1(H)) directamente a partir de OPR etiquetados.
+
+
+
+   .. py:method:: fit_offline_from_signals(y_free, t_free, y_chat, t_chat, rpm, ratio_sampling, N_seg)
+
+      Wrapper de más alto nivel: parte de señales completas y genera OPR + modelos.
+
+
+
+   .. py:method:: detect_from_H_seq(H_seq)
+
+      Ejecuta SPRT sobre una secuencia de H precomputada, usando el motor OO.
+
+
+
+   .. py:method:: detect_online_from_signal(y_online, t_online, rpm, ratio_sampling, N_seg)
+
+      Ejecuta la pipeline online completa sobre una señal nueva:
+
+      Devuelve:
+          sprt_result: objeto SPRTResult con estado final y S_history.
+          H_seq: entropías por segmento.
+          t_mid_segments: tiempos medios de cada segmento.
+
+
+

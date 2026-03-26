@@ -1,0 +1,26 @@
+MaxEnt_SPRT.lib
+===============
+
+.. py:module:: MaxEnt_SPRT.lib
+
+.. autoapi-nested-parse::
+
+   Core detection logic and SPRT implementation.
+
+
+
+Submodules
+----------
+
+.. toctree::
+   :maxdepth: 1
+
+   /autoapi/MaxEnt_SPRT/lib/detector/index
+   /autoapi/MaxEnt_SPRT/lib/entropy/index
+   /autoapi/MaxEnt_SPRT/lib/llr/index
+   /autoapi/MaxEnt_SPRT/lib/offline/index
+   /autoapi/MaxEnt_SPRT/lib/runner/index
+   /autoapi/MaxEnt_SPRT/lib/sprt/index
+   /autoapi/MaxEnt_SPRT/lib/wrappers/index
+
+
