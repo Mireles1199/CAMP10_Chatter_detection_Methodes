@@ -30,7 +30,7 @@ If you want to inspect the implementation in a productive order, start with:
 
 1. ``MaxEnt_SPRT.lib.runner``
 2. ``MaxEnt_SPRT.lib.detector``
-3. ``MaxEnt_SPRT.lib.sprt``
+3. ``MaxEnt_SPRT.lib.sprt``m
 4. ``MaxEnt_SPRT.lib.llr``
 5. ``MaxEnt_SPRT.lib.entropy``
 6. ``MaxEnt_SPRT.utils.types``

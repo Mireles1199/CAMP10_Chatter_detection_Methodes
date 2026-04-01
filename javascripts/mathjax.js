@@ -1,14 +1,18 @@
 window.MathJax = {
+  loader: {
+    load: ['[tex]/color']
+  },
   tex: {
-    inlineMath: [["$", "$"], ["\\(", "\\)"]],
-    displayMath: [["\\[", "\\]"]],
+    inlineMath: [['$', '$'], ['\\(', '\\)']],
+    displayMath: [['$$', '$$'], ['\\[', '\\]']],
     processEscapes: true,
     processEnvironments: true,
+    packages: {'[+]': ['color']}
   },
   options: {
     ignoreHtmlClass: ".*|",
-    processHtmlClass: "arithmatex",
-  },
+    processHtmlClass: "arithmatex"
+  }
 };
 
 document$.subscribe(() => {

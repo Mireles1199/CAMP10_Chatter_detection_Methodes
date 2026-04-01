@@ -1284,33 +1284,48 @@
 
 
 
-<p><a class="md-button" href="../maxent/">← Maximum Entropy</a>   <a class="md-button--primary" href="../../guide/installation/">Installation →</a></p>
+<p><a class="md-button" href="../maxent/">← Maximum Entropy</a>   <a class="md-button" href="../../guide/installation/">Installation →</a></p>
 <h1 id="sequential-probability-ratio-test-sprt">Sequential Probability Ratio Test (SPRT)<a class="headerlink" href="#sequential-probability-ratio-test-sprt" title="Permanent link">&para;</a></h1>
 <p>This page explains how the <strong>SPRT</strong> makes a binary chatter/no-chatter decision from the entropy sequence <span class="arithmatex">\(\{H_n\}\)</span> computed in the previous stage.</p>
 <hr />
 <h2 id="1-the-decision-problem">1. The Decision Problem<a class="headerlink" href="#1-the-decision-problem" title="Permanent link">&para;</a></h2>
-<p>After training we have two probability models:</p>
+<p>We considere this example:</p>
+<p><img alt="signal" src="../img/Signal_3.svg" /></p>
+<p align="center"><strong>Figure 1.</strong> Illustration of the velocity sampling strategy used in the estimation of the Operational Parameter Ratio (OPR)..</p>
+
+<p><a id="fig-opr"></a>
+After training we have two probability models:</p>
 <ul>
-<li><span class="arithmatex">\(P_0(H)\)</span>: entropy PDF under <em>normal</em> (chatter-free) conditions.</li>
-<li><span class="arithmatex">\(P_1(H)\)</span>: entropy PDF under <em>chatter</em> conditions.</li>
+<li><span class="arithmatex">\(\textcolor{blue}{P_{0}}(H)\)</span>: entropy PDF under <em>normal</em> (chatter-free) conditions.</li>
+<li><span class="arithmatex">\(\textcolor{orange}{P_{1}}(H)\)</span>: entropy PDF under <em>chatter</em> conditions.</li>
 </ul>
+<p><img alt="PDF_models" src="../img/pdf_models.svg" /></p>
+<p align="center"><strong>Figure 1.</strong> Illustration of the velocity sampling strategy used in the estimation of the Operational Parameter Ratio (OPR)..</p>
+
+<p><a id="fig-psd-models"></a></p>
 <p>For every new segment <span class="arithmatex">\(n\)</span> we observe entropy <span class="arithmatex">\(H_n\)</span> and must decide:</p>
 <div class="arithmatex">\[H_0: \text{no chatter} \quad \text{vs.} \quad H_1: \text{chatter}\]</div>
 <p>A simple threshold on <span class="arithmatex">\(H_n\)</span> alone would require a large <span class="arithmatex">\(H_n\)</span> to be confident. The <strong>SPRT</strong> instead <em>accumulates evidence</em> across segments — it becomes confident faster.</p>
 <hr />
 <h2 id="2-log-likelihood-ratio-llr">2. Log-Likelihood Ratio (LLR)<a class="headerlink" href="#2-log-likelihood-ratio-llr" title="Permanent link">&para;</a></h2>
 <p>For each observation <span class="arithmatex">\(H_n\)</span>, the <strong>log-likelihood ratio</strong> is:</p>
-<div class="arithmatex">\[\Lambda_n = \ln \frac{P_1(H_n)}{P_0(H_n)}\]</div>
+<div class="arithmatex">\[
+\ln \Lambda(H_{\mathrm{seg},n})
+= \ln\frac{\textcolor{orange}{P_1}(H_{\mathrm{seg},n})}
+                  {\textcolor{blue}{P_0}(H_{\mathrm{seg},n})},
+\]</div>
 <ul>
 <li><span class="arithmatex">\(\Lambda_n &gt; 0\)</span>: this observation is more consistent with <strong>chatter</strong> (<span class="arithmatex">\(P_1\)</span>).</li>
 <li><span class="arithmatex">\(\Lambda_n &lt; 0\)</span>: this observation is more consistent with <strong>no chatter</strong> (<span class="arithmatex">\(P_0\)</span>).</li>
 </ul>
 <p>For Gaussian models the LLR has a closed-form expression. With <span class="arithmatex">\(P_i = \mathcal{N}(\mu_i, \sigma_i^2)\)</span>:</p>
-<div class="arithmatex">\[\Lambda_n = \ln\frac{\sigma_0}{\sigma_1} + \frac{(H_n - \mu_0)^2}{2\sigma_0^2} - \frac{(H_n - \mu_1)^2}{2\sigma_1^2}\]</div>
+<div class="arithmatex">\[\ln\Lambda_n = \ln\frac{\sigma_0}{\sigma_1} + \frac{(H_n - \mu_0)^2}{2\sigma_0^2} - \frac{(H_n - \mu_1)^2}{2\sigma_1^2}\]</div>
 <hr />
 <h2 id="3-the-sprt-accumulator">3. The SPRT Accumulator<a class="headerlink" href="#3-the-sprt-accumulator" title="Permanent link">&para;</a></h2>
 <p>Wald's SPRT keeps a <strong>running sum</strong> <span class="arithmatex">\(S_n\)</span>:</p>
-<div class="arithmatex">\[S_0 = 0, \qquad S_n = S_{n-1} + \Lambda_n\]</div>
+<div class="arithmatex">\[\textcolor{purple}{I_{\mathrm{SPRT}}}(0) = 0, \qquad \textcolor{purple}{I_{\mathrm{SPRT}}}(n)
+= \textcolor{purple}{I_{\mathrm{SPRT}}}(n-1)
++ \log \Lambda(H_{\mathrm{seg},n}),\]</div>
 <p>Think of <span class="arithmatex">\(S_n\)</span> as a bank account: each segment deposits or withdraws evidence. When the account reaches a <strong>threshold</strong>, a decision is made.</p>
 <hr />
 <h2 id="4-decision-thresholds">4. Decision Thresholds<a class="headerlink" href="#4-decision-thresholds" title="Permanent link">&para;</a></h2>
@@ -1344,20 +1359,26 @@
 <h2 id="5-decision-rule">5. Decision Rule<a class="headerlink" href="#5-decision-rule" title="Permanent link">&para;</a></h2>
 <p>At each step:</p>
 <div class="arithmatex">\[
-\begin{cases}
-S_n \ge b \;\Rightarrow\; \text{CHATTER detected (accept } H_1\text{)} \\
-S_n \le a \;\Rightarrow\; \text{FREE state (accept } H_0\text{)} \\
-\text{otherwise} \;\Rightarrow\; \text{continue collecting evidence}
-\end{cases}
+\begin{aligned}
+\textcolor{purple}{I_{\mathrm{SPRT}}}(n) &amp;\ge b 
+&amp;\;\Rightarrow\;&amp; \text{Chatter detected (accept } \textcolor{orange}{H_{1}}\text{)} \\
+\textcolor{purple}{I_{\mathrm{SPRT}}}(n) &amp;\le a 
+&amp;\;\Rightarrow\;&amp; \text{Free state (accept } \textcolor{blue}{H_{0}}\text{)} \\
+&amp; &amp;\;\Rightarrow\;&amp; \text{Continue sampling (otherwise)}
+\end{aligned}
 \]</div>
-<p>When <code>reset_on_H0 = True</code>, <span class="arithmatex">\(S_n\)</span> is reset to 0 every time <span class="arithmatex">\(H_0\)</span> is accepted — this allows the detector to re-arm itself and catch <em>multiple</em> chatter events in the same signal.</p>
+<p>When <code>reset_on_H0 = True</code>, <span class="arithmatex">\(\textcolor{purple}{I_{\mathrm{SPRT}}}(n)\)</span> is reset to 0 every time <span class="arithmatex">\(\textcolor{blue}{H_{0}}\)</span> is accepted — this allows the detector to re-arm itself and catch <em>multiple</em> chatter events in the same signal.</p>
+<p><img alt="SPRT" src="../img/sprt.svg" /></p>
+<p align="center"><strong>Figure 1.</strong> Illustration of the velocity sampling strategy used in the estimation of the Operational Parameter Ratio (OPR)..</p>
+
+<p><a id="fig-opr"></a></p>
 <hr />
 <h2 id="6-visual-interpretation">6. Visual Interpretation<a class="headerlink" href="#6-visual-interpretation" title="Permanent link">&para;</a></h2>
 <pre class="mermaid"><code>flowchart TD
-    I[Start monitoring] --&gt; A[Update cumulative statistic S_n]
-    A --&gt; B{S_n &gt;= b?}
+    I[Start monitoring] --&gt; A[Update cumulative statistic I_SPRT]
+    A --&gt; B{I_SPRT &gt;= b?}
     B -- Yes --&gt; C[Decision: CHATTER&lt;br/&gt;Accept H1]
-    B -- No --&gt; D{S_n &lt;= a?}
+    B -- No --&gt; D{I_SPRT &lt;= a?}
     D -- Yes --&gt; E[Decision: FREE&lt;br/&gt;Accept H0]
     E --&gt; R[Reset and start new cycle]
     D -- No --&gt; F[No decision yet]
@@ -1365,8 +1386,8 @@ S_n \le a \;\Rightarrow\; \text{FREE state (accept } H_0\text{)} \\
     R --&gt; A</code></pre>
 <ul>
 <li>The statistic drifts near zero while the signal is stable.</li>
-<li>When chatter starts, <span class="arithmatex">\(\Lambda_n &gt; 0\)</span> on average and <span class="arithmatex">\(S_n\)</span> rises toward <span class="arithmatex">\(b\)</span>.</li>
-<li>Once <span class="arithmatex">\(S_n \geq b\)</span>, chatter is flagged at the corresponding time.</li>
+<li>When chatter starts, <span class="arithmatex">\(\ln\Lambda_n &gt; 0\)</span> on average and <span class="arithmatex">\(S_n\)</span> rises toward <span class="arithmatex">\(b\)</span>.</li>
+<li>Once <span class="arithmatex">\(\textcolor{purple}{I_{\mathrm{SPRT}}}(n) \geq b\)</span>, chatter is flagged at the corresponding time.</li>
 </ul>
 <hr />
 <h2 id="7-in-code">7. In Code<a class="headerlink" href="#7-in-code" title="Permanent link">&para;</a></h2>
@@ -1397,7 +1418,7 @@ S_n \le a \;\Rightarrow\; \text{FREE state (accept } H_0\text{)} \\
 <tr>
 <td>Uses past evidence</td>
 <td>No</td>
-<td>Yes — accumulates <span class="arithmatex">\(\Lambda_n\)</span></td>
+<td>Yes — accumulates <span class="arithmatex">\(\ln\Lambda_n\)</span></td>
 </tr>
 <tr>
 <td>Error rate control</td>
@@ -1427,11 +1448,11 @@ S_n \le a \;\Rightarrow\; \text{FREE state (accept } H_0\text{)} \\
 </thead>
 <tbody>
 <tr>
-<td><span class="arithmatex">\(\Lambda_n\)</span></td>
+<td><span class="arithmatex">\(\ln\Lambda_n\)</span></td>
 <td>LLR for segment <span class="arithmatex">\(n\)</span>: positive = evidence for chatter</td>
 </tr>
 <tr>
-<td><span class="arithmatex">\(S_n\)</span></td>
+<td><span class="arithmatex">\(\textcolor{purple}{I_{\mathrm{SPRT}}}(n)\)</span></td>
 <td>Cumulative LLR (the "test statistic")</td>
 </tr>
 <tr>
@@ -1510,8 +1531,6 @@ S_n \le a \;\Rightarrow\; \text{FREE state (accept } H_0\text{)} \\
       <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
       
         <script src="../../javascripts/mathjax.js"></script>
-      
-        <script src="https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js"></script>
       
         <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
       

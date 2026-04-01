@@ -8,7 +8,7 @@ Technical Overview
 		 <a class="nav-link-btn" href="../index.html">Back to User Docs</a>
 	 </p>
 
-This Sphinx site is intentionally more detailed than the main MkDocs site.
+This site is intentionally more detailed than the main site.
 
 Use this documentation when you need to inspect:
 
@@ -17,7 +17,7 @@ Use this documentation when you need to inspect:
 - internal helper modules that support training, inference, and plotting
 - source order for classes, functions, and type definitions
 
-Use the main MkDocs site when you need:
+Use the main site when you need:
 
 - theory and mathematical intuition
 - installation guidance and quickstart examples
