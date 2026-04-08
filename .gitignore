@@ -8,3 +8,5 @@
 **/wp/
 *.zip
 **/xlsx/
+MaxEnt_SPRT/MaxEnt_SPRT/docs/technical/
+MaxEnt_SPRT/MaxEnt_SPRT/sphinx_docs/build/

@@ -12,22 +12,12 @@ import numpy as np
 @dataclass
 class SignalData:
     """
-    A data class for storing signal data and its analysis results.
-    Attributes:
-        t_cut (np.ndarray): Time array of the cut signal segment.
-        v_cut (np.ndarray): Velocity array of the cut signal segment.
-        x_cut (np.ndarray): Position array of the cut signal segment.
-        force_cut (np.ndarray): Force array of the cut signal segment.
-        t_original (np.ndarray): Time array of the original signal.
-        x_original (np.ndarray): Position array of the original signal.
-        v_original (np.ndarray): Velocity array of the original signal.
-        t_analysis (np.ndarray): Time array used for analysis.
-        signal_analysis (np.ndarray): Processed signal array for analysis.
-        force_original (np.ndarray): Force array of the original signal.
-        path (str): File path to the signal data source.
-        fs (float): Sampling frequency of the signal in Hz.
-        meta (Dict[str, Any]): Metadata dictionary containing additional information about the signal.
-            Defaults to an empty dictionary.
+    Container for the signal array, its analysis timeline, and related metadata.
+
+    This structure is the main input type for the MaxEnt-SPRT workflow.
+    It bundles the analysis-ready signal and timeline together with source path,
+    sampling frequency, and optional context metadata so pipelines can remain
+    function-oriented without passing many independent arguments.
     """
 
     # t_cut: np.ndarray
@@ -38,11 +28,16 @@ class SignalData:
     # x_original: np.ndarray
     # v_original: np.ndarray
     t_analysis: np.ndarray
+    """Time axis associated with ``signal_analysis``."""
     signal_analysis: np.ndarray
+    """Analysis-ready 1D signal used by OPR sampling, segmentation, entropy extraction, and sequential detection."""
     # force_original: np.ndarray
     path: str
+    """Source identifier of the signal (typically a file path) used for traceability and experiment bookkeeping."""
     fs: float
+    """Sampling frequency in Hz of ``signal_analysis``."""
     meta: Dict[str, Any] = field(default_factory=dict)
+    """Flexible metadata dictionary for optional context (machine setup, test labels, channel info, units, notes, etc.)."""
 
 
 
@@ -52,20 +47,26 @@ class SignalData:
 @dataclass
 class IndicatorResult:
     """
-    Data class representing the result of an indicator calculation.
-    Attributes:
-        name (str): The name of the indicator.
-        t (np.ndarray): Time values or time points associated with the indicator.
-        I_t (np.ndarray): Indicator values at corresponding time points.
-        t_d (Optional[float]): Detection time or threshold time, if applicable. Defaults to None.
-        meta (Dict[str, Any]): Dictionary containing metadata or additional information about the indicator result. Defaults to an empty dictionary.
+    Result of an indicator calculation.
+
+    Stores the computed time axis, indicator history, detection time information,
+    and any additional metadata required for analysis or plotting.
+
+    The ``meta`` dictionary is intentionally flexible and can include trained
+    models, intermediate signals, thresholds, or references to detector objects
+    needed for reproducibility and debugging.
     """
 
     name: str
+    """Human-readable identifier of the indicator or method that produced this result."""
     t: np.ndarray
+    """Time axis for the computed indicator trajectory."""
     I_t: np.ndarray
+    """Indicator values evaluated along ``t``."""
     t_d: Optional[float] = None
+    """Detection timestamp in seconds when available; ``None`` when no detection time is defined."""
     meta: Dict[str, Any] = field(default_factory=dict)
+    """Auxiliary artifacts required for analysis, visualization, reproducibility, or post-hoc debugging."""
 
 
 # =========================
@@ -74,19 +75,20 @@ class IndicatorResult:
 @dataclass
 class ScenarioMetadata:
     """
-    Metadata container for experimental scenarios.
-    Attributes:
-        scenario_id (str): Unique identifier for the scenario.
-        ap_ramp (Optional[tuple[float, float]]): Acceleration/power ramp parameters
-            specified as a tuple of (start, end) values. Defaults to None.
-        rpm (Optional[float]): Revolutions per minute value. Defaults to None.
-        snr_db (Optional[float]): Signal-to-noise ratio in decibels. Defaults to None.
-        extra (Dict[str, Any]): Additional metadata as key-value pairs.
-            Defaults to an empty dictionary.
+    Metadata attached to a simulated or experimental scenario.
+
+    This lightweight record keeps experimental conditions (such as spindle
+    speed and SNR) close to generated or measured signals, which simplifies
+    reporting and batch comparisons across scenarios.
     """
 
     scenario_id: str
+    """Unique scenario label used in logs, exports, and benchmark tables."""
     ap_ramp: Optional[tuple[float, float]] = None
+    """Optional lower/upper range of axial depth-of-cut ramp (or analogous scalar progression)."""
     rpm: Optional[float] = None
+    """Spindle speed in revolutions per minute."""
     snr_db: Optional[float] = None
+    """Signal-to-noise ratio in dB when known."""
     extra: Dict[str, Any] = field(default_factory=dict)
+    """Arbitrary extension fields for experiment-specific metadata without changing the dataclass schema."""

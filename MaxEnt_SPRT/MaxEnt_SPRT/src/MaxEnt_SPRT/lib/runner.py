@@ -16,21 +16,23 @@ logger = logging.getLogger(__name__)
 def run_maxent_sprt(signal: SignalData, INDICATOR_CONFIG: dict ) -> IndicatorResult:
     """
     Execute the Maximum Entropy Sequential Probability Ratio Test (MaxEnt SPRT) indicator.
+
     This function serves as a wrapper that retrieves the appropriate analysis function
     from the configuration and executes it with the provided signal data and parameters.
-    Args:
-        signal (SignalData): The input signal data to be analyzed.
-        INDICATOR_CONFIG (dict): Configuration dictionary containing:
-            - "func" (str or callable): The function to execute. If "Default", uses
-                _maxent_sprt_pipeline. Can also be a custom callable function.
-            - "params" (dict, optional): Additional keyword arguments to pass to the
-                function. Defaults to an empty dict if not provided.
+
+    :param signal: Input signal bundle containing the analysis array, aligned time axis, sampling frequency, and optional metadata.
+    :param INDICATOR_CONFIG: Dispatcher dictionary containing the selected function under ``func`` and its keyword arguments under ``params``.
+
     Returns:
-        IndicatorResult: The result object containing the analysis output from the
-            executed indicator function.
-    Raises:
-        KeyError: If required keys are missing from INDICATOR_CONFIG.
-        TypeError: If the specified function is not callable or signal is invalid.
+        IndicatorResult: Result object returned by the selected indicator
+        function.
+
+    Raises
+    ------
+    KeyError
+        If required keys are missing from ``INDICATOR_CONFIG``.
+    TypeError
+        If the selected function is not callable or the signal is invalid.
     """
 
     results: IndicatorResult = None
@@ -47,7 +49,15 @@ def run_maxent_sprt(signal: SignalData, INDICATOR_CONFIG: dict ) -> IndicatorRes
 
 def _cut_signal( t,x , time_range: Tuple[float, float]) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Cuts the signal to the specified time range.
+    Restrict a time series to a closed time interval.
+
+    :param t: Time vector of the signal.
+    :param x: Signal values aligned with ``t``.
+    :param time_range: Start and end times delimiting the interval to keep.
+
+    Returns:
+        Tuple[np.ndarray, np.ndarray]: Time and signal arrays restricted to the
+        requested interval.
     """
     start_time, end_time = time_range
     mask = (t >= start_time) & (t <= end_time)
@@ -68,47 +78,35 @@ def _maxent_sprt_pipeline(
     ) -> IndicatorResult:
     """
     Execute the Maximum Entropy Sequential Probability Ratio Test (MaxEnt SPRT) pipeline for chatter detection.
+
     This function performs a complete chatter detection workflow consisting of offline training and online detection phases.
     It processes a signal into stable (chatter-free) and chatter-included segments, trains a Gaussian maximum entropy
     estimator on sampled Operating Point Response (OPR) data, and applies SPRT for online chatter detection.
-    Parameters
-    ----------
-    signal : SignalData
-        Input signal data object containing time array (t_analysis), signal array (signal_analysis), and sampling frequency (fs).
-    rpm : float
-        Rotational speed in revolutions per minute.
-    ratio_sampling : float
-        Sampling ratio for the online detection phase.
-    N_seg : int
-        Number of revolutions per segment for signal segmentation.
-    t_stable_total : float
-        Duration (in seconds) of the stable (chatter-free) signal portion from the start.
-    alpha : float
-        Type I error probability (false positive rate) for the SPRT detector.
-    beta : float
-        Type II error probability (false negative rate) for the SPRT detector.
-    reset_on_H0 : bool
-        If True, reset the SPRT test statistic when accepting H0 (no chatter hypothesis).
-    cut_start_time : Optional[float], optional
-        Start time for cutting the signal. If None, uses the signal's start time. Default is None.
-    cut_end_time : Optional[float], optional
-        End time for cutting the signal. If None, uses the signal's end time. Default is None.
-    Returns
-    -------
-    IndicatorResult
-        An IndicatorResult object containing:
-        - name: Indicator name ("MaxEnt_SPRT")
-        - t: Time array of segment midpoints
-        - I_t: SPRT test statistic history (S_history)
-        - t_d: Time points where chatter was detected
-        - meta: Dictionary with comprehensive metadata including signal parameters, trained model statistics,
-                detector configuration, intermediate signals, and all intermediate processing results.
+
+    :param signal: Full input bundle containing the time axis, analysis signal, sampling frequency, and any source metadata.
+    :param rpm: Spindle speed in revolutions per minute.
+    :param N_seg: Number of revolutions or OPR samples grouped into one analysis segment.
+    :param t_stable_total: Duration in seconds from the beginning of the record assumed to be chatter-free and used for stable-state training.
+    :param alpha: Target false-alarm probability used to derive SPRT thresholds.
+    :param beta: Target missed-detection probability used to derive SPRT thresholds.
+    :param reset_on_H0: Whether the cumulative SPRT statistic is reset after accepting the stable hypothesis.
+    :param ratio_sampling: Optional OPR sampling ratio used during online detection.
+    :param cut_start_time: Optional lower time bound applied before splitting the signal into stable and chatter portions.
+    :param cut_end_time: Optional upper time bound applied before splitting the signal into stable and chatter portions.
+
+    Returns:
+        IndicatorResult: Result object with segment timestamps, SPRT statistic
+        history, detected chatter times, and rich metadata containing the
+        intermediate models, signals, detector state, and derived quantities.
+
     Notes
     -----
     The pipeline consists of three main phases:
+
     1. Signal Preparation: Splits the input signal into stable and chatter-included portions.
     2. Offline Training: Samples OPR from both signal portions and trains a Gaussian MaxEnt estimator.
     3. Online Detection: Applies SPRT on the entire signal in segments and identifies chatter points.
+
     Chatter points are identified where the SPRT statistic S exceeds the detection threshold (b).
     """
 

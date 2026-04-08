@@ -8,40 +8,36 @@ from ..models.prob import GaussianPDF
 
 class EntropyEstimator(ABC):
     """
-    Abstract base class for entropy estimation from signal segments.
-    This class defines the interface for calculating entropy metrics from OPR (Operating Point Resident)
-    signal segments. Subclasses must implement the entropy calculation for individual segments,
-    while this base class provides a vectorized method for multiple segments.
-    Methods:
-        entropy_from_segment: Abstract method to calculate entropy for a single segment.
-        entropy_from_segments: Calculate entropy for multiple segments in sequence.
+    Abstract interface for entropy estimation from signal segments.
+
+    Subclasses implement ``entropy_from_segment`` while this base class provides
+    a convenience method to process a sequence of segments.
     """
 
     @abstractmethod
     def entropy_from_segment(self, seg: np.ndarray) -> float:
         """
-        Calculate entropy for a single signal segment.
-        This abstract method must be implemented by subclasses to compute the entropy
-        metric for an individual OPR (Operating Point Resident) signal segment.
-        Args:
-            seg (np.ndarray): A one-dimensional numpy array representing a signal segment.
+        Compute one scalar entropy value from a single segment.
+
+        :param seg: One-dimensional segment containing the samples of one analysis window.
+
         Returns:
-            float: The entropy value calculated for the given segment.
-        Raises:
-            NotImplementedError: If not implemented by a subclass.
+            float: Entropy-like scalar feature representing the information
+            content or spread of the segment.
         """
 
     def entropy_from_segments(self, segments: Sequence[np.ndarray]) -> np.ndarray:
         """
         Calculate entropy values for multiple segments.
+
         Computes the entropy for each segment in the input sequence using the
         entropy_from_segment method.
-        Args:
-            segments: A sequence of numpy arrays, where each array represents a segment
-                     for which entropy will be calculated.
+
+        :param segments: Ordered collection of 1D signal segments, each processed independently.
+
         Returns:
-            np.ndarray: A 1D array of float values containing the entropy for each
-                       input segment, in the same order as provided.
+            np.ndarray: One-dimensional float array containing one entropy value
+            per input segment, preserving input order.
         """
         return np.array(
             [self.entropy_from_segment(seg) for seg in segments],
@@ -50,31 +46,38 @@ class EntropyEstimator(ABC):
 
 class GaussianMaxEntEstimator(EntropyEstimator):
     """
-    Gaussian Maximum Entropy Estimator.
-    A concrete implementation of EntropyEstimator that computes entropy
-    using Gaussian distribution assumptions. This estimator fits a Gaussian
-    probability density function to signal segments and calculates the
-    Shannon entropy of the resulting distribution.
-    Attributes:
-        Inherits from EntropyEstimator base class.
-    Methods:
-        entropy_from_segment: Computes Shannon entropy from a segment of data
-                             by fitting a Gaussian distribution to the samples.
+    Entropy estimator under a Gaussian maximum-entropy assumption.
+
+    For each segment, the method fits a Gaussian distribution from samples and
+    returns its Shannon differential entropy. This is the default estimator used
+    by the detector because it is compact, fast, and directly compatible with
+    the Gaussian likelihood models used in SPRT.
     """
     def entropy_from_segment(self, seg: np.ndarray) -> float:
+        """
+        Estimate segment entropy under a Gaussian maximum-entropy assumption.
+
+        :param seg: One-dimensional segment whose sample mean and variance define the Gaussian surrogate model.
+
+        Returns:
+            float: Shannon differential entropy of the fitted Gaussian model for
+            the input segment.
+        """
         gaussian = GaussianPDF.from_samples(seg)
         return gaussian.entropy_shannon()
 
 class EmpiricalHistogramEntropyEstimator(EntropyEstimator):
     """
-    Empirical Histogram Entropy Estimator:
+    Histogram-based nonparametric entropy estimator.
 
-    1) Estimates the empirical distribution via normalized histogram.
-    2) Calculates H = -sum p_i log p_i.
-
-    This does NOT assume a parametric model and allows comparison against Gaussian MaxEnt.
-
+    The estimator approximates the empirical distribution of a segment through a
+    finite histogram and then computes the discrete Shannon entropy
+    ``H = -sum p_i log(p_i)``. Unlike ``GaussianMaxEntEstimator``, it does not
+    assume a parametric Gaussian model.
     """
+
+    bins: int
+    """Number of histogram bins used to approximate the segment distribution."""
 
     def __init__(self, bins: int = 20) -> None:
         if bins <= 0:
@@ -89,10 +92,7 @@ class EmpiricalHistogramEntropyEstimator(EntropyEstimator):
         a histogram and calculating the information entropy using the formula:
         H = -sum(p * ln(p)), where p is the probability of each bin.
 
-        Parameters
-        ----------
-        seg : np.ndarray
-            Input segment as a numpy array containing numerical values.
+        :param seg: One-dimensional array containing the raw sample values of the segment to summarize.
 
         Returns
         -------
@@ -105,11 +105,9 @@ class EmpiricalHistogramEntropyEstimator(EntropyEstimator):
         ValueError
             If the input segment is empty.
 
-        Notes
-        -----
-        - Uses natural logarithm (ln) for entropy calculation
-        - Only non-zero probability bins contribute to the sum
-        - Binning is based on self.bins attribute
+        Notes:
+            Uses the natural logarithm, ignores zero-probability bins, and bases
+            the discretization on the configured number of histogram bins.
         """
 
         x = np.asarray(seg, dtype=float)
@@ -133,21 +131,21 @@ def entropy_from_segments(
     estimator: EntropyEstimator | None = None,
     ) -> np.ndarray:
     """
-    Calculate entropy from a sequence of data segments using a specified estimator.
-    This function computes the entropy of multiple data segments using the provided
-    entropy estimation method. If no estimator is specified, it defaults to using
-    a Gaussian Maximum Entropy estimator.
-    Args:
-        segments: A sequence of numpy arrays, where each array represents a data segment
-                 for which entropy will be calculated.
-        estimator: An optional EntropyEstimator instance to use for entropy calculation.
-                  If None, defaults to GaussianMaxEntEstimator. Defaults to None.
+    Compute entropy values for a sequence of segments with a chosen estimator.
+
+    The function provides a single entry point for batch entropy extraction in
+    both offline training and online detection pipelines. If no estimator is
+    provided, it defaults to :class:`GaussianMaxEntEstimator`.
+
+    :param segments: Sequence of one-dimensional signal segments to convert into scalar entropy values.
+    :param estimator: Estimator implementation used to process each segment. If ``None``, ``GaussianMaxEntEstimator`` is used.
+
     Returns:
-        np.ndarray: An array containing the entropy values calculated for each segment.
-    Example:
-        >>> import numpy as np
-        >>> segments = [np.random.randn(100), np.random.randn(100)]
-        >>> entropies = entropy_from_segments(segments)
+        np.ndarray: One entropy value per input segment, preserving input order.
+
+    Notes:
+        The returned values are always ``float`` and can be consumed directly by
+        LLR/SPRT routines.
     """
     est = estimator or GaussianMaxEntEstimator()
     return est.entropy_from_segments(segments)

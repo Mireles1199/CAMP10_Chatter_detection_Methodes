@@ -956,8 +956,8 @@ win_hop_pairs = [
 
 SEARCH_SPACE_SST_SVD = {
     ("win_length_ms", "hop_ms"): win_hop_pairs,
-    "Ai_length": list(range(1, 2)),  # 1 to 10 inclusive
-    "sigma": [3.0, 6.0, 9.0],
+    "Ai_length": list(range(1, 5)),  # 1 to 4 inclusive
+    # "sigma": [3.0, 6.0, 9.0],
 }
 # ===========================================================================
 

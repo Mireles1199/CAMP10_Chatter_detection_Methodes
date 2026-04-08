@@ -1,0 +1,98 @@
+site_name: MaxEnt-SPRT Documentation
+site_description: Chatter detection indicator — step-by-step guide (MaxEnt + SPRT)
+site_author: Enrique Mireles
+
+docs_dir: docs
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - content.code.annotate
+    - toc.follow
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            show_source: false
+            docstring_style: google
+            heading_level: 3
+            separate_signature: true
+            show_signature_annotations: true
+
+markdown_extensions:
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+  - pymdownx.tabbed:
+      alternate_style: true
+  - admonition
+  - pymdownx.details
+  - tables
+  - attr_list
+  - md_in_html
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - toc:
+      permalink: true
+
+extra_javascript:
+  - javascripts/mathjax.js
+  # - https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
+  - https://unpkg.com/mermaid/dist/mermaid.min.js
+
+extra:
+  mathjax:
+    tex:
+      packages: {'[+]': ['color']}
+
+nav:
+  - Home: index.md
+  - Theory:
+      - OPR Sampling: theory/opr.md
+      - Maximum Entropy: theory/maxent.md
+      - Sequential Probability Ratio Test: theory/sprt.md
+  - User Guide:
+      - Installation: guide/installation.md
+      - Quick Start: guide/quickstart.md
+      - Signal Data: guide/signal_data.md
+      - Indicator Configuration: guide/indicator_config.md
+      - Run & Plot: guide/run_and_plot.md
+      - Real HDF5 Data: guide/hdf5_real_data.md
+  - API Reference:
+      - Overview: api/index.md
+      - Data & I/O: api/data_io.md
+      - Workflow: api/workflow.md
+      - Detector & SPRT: api/detection.md
+      - Models & Entropy: api/models_entropy.md
+      - Visualization: api/visualization.md
+  - Developer Hub: developer_hub.md

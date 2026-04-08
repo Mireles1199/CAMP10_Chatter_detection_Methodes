@@ -16,60 +16,42 @@ from ..lib.offline import offline_train_maxent_sprt
 @dataclass
 class SequentialProbabilityRatioTest:
     """
-    Sequential Probability Ratio Test (SPRT) detector for chatter identification.
+    Stateful Sequential Probability Ratio Test engine used by the detector.
 
-    This class implements the SPRT algorithm to sequentially analyze a stream of
-    likelihood ratio indicators and make binary decisions (chatter vs. free state)
-    based on cumulative log-likelihood ratios.
+    The object consumes an indicator sequence one sample at a time through the
+    cumulative statistic:
 
-    Attributes:
-        llr_model (LLRModel): Model that computes log-likelihood ratios from observations.
-        config (SPRTConfig): Configuration parameters including decision thresholds (a, b)
-                             and reset behavior.
+    ``S_k = sum_i llr(h_i)``.
 
-    Methods:
-        run(H_seq: Iterable[float]) -> SPRTResult:
-            Executes the SPRT algorithm on a sequence of H_n indicators.
-
-            Args:
-                H_seq (Iterable[float]): Sequence of H_n indicator values to analyze.
-
-            Returns:
-                SPRTResult: Contains the final decision state ("free", "chatter", or
-                           "indeterminado"), the index where decision was made,
-                           cumulative likelihood ratio history, and threshold values.
-
-            Algorithm:
-                - Sequentially accumulates log-likelihood ratios from observations
-                - Compares cumulative sum S against thresholds a (lower) and b (upper)
-                - When S <= a: declares "free" state, optionally resets S if configured
-                - When S >= b: declares "chatter" state
-                - Continues processing entire sequence; early stopping can be enabled
+    Two decision bounds are used: a lower bound ``a`` for the stable regime and
+    an upper bound ``b`` for chatter. The returned history allows post-analysis
+    of how close the process was to each decision boundary over time.
     """
 
     llr_model: LLRModel
+    """Model that maps one scalar indicator value to one incremental log-likelihood contribution."""
     config: SPRTConfig
+    """Object containing the statistical thresholds and reset policy used during the sequential decision process."""
 
     def run(self, H_seq: Iterable[float]) -> SPRTResult:
         """
         Execute the Sequential Probability Ratio Test (SPRT) on a sequence of observations.
+
         This method processes a sequence of observation values and performs sequential
         hypothesis testing to detect chatter conditions. The test maintains a cumulative
         log-likelihood ratio (S) and terminates when it crosses defined thresholds.
-        Args:
-            H_seq (Iterable[float]): An iterable sequence of observation values to be tested.
+
+        :param H_seq: Ordered sequence of scalar indicator values, typically one entropy value per processed segment.
+
         Returns:
-            SPRTResult: An object containing:
-                - final_state (str): The final decision state ("free", "chatter", or "indeterminado").
-                - decision_index (int): The index in the sequence where the decision was made (-1 if indeterminate).
-                - S_history (np.ndarray): The complete history of cumulative log-likelihood ratio values.
-                - a (float): The lower threshold for rejecting the alternative hypothesis.
-                - b (float): The upper threshold for accepting the alternative hypothesis.
+            SPRTResult: Final decision state, decision index, cumulative statistic
+            history, and threshold values.
+
         Notes:
-            - The test starts in "indeterminado" state and continues until a decision boundary is crossed.
-            - If S <= a, the state transitions to "free" and may reset S if config.reset_on_H0 is True.
-            - If S >= b, the state transitions to "chatter".
-            - Early termination with break can be implemented if early detection is desired.
+            The test starts in ``"indeterminado"`` state. Crossing the lower
+            threshold favors the stable regime, while crossing the upper
+            threshold favors chatter. The current implementation keeps scanning
+            the full sequence instead of exiting early on the first detection.
         """
         
         H_list = list(H_seq)
@@ -107,105 +89,57 @@ class SequentialProbabilityRatioTest:
 @dataclass
 class MaxEntSPRTConfig:
     """
-    Configuration class for Maximum Entropy Sequential Probability Ratio Test (MaxEnt SPRT) detector.
-    This class defines the hyperparameters used to control the behavior of the MaxEnt SPRT
-    detection algorithm.
-    Attributes:
-        alpha (float): Type I error rate (false positive rate). Default is 0.01.
-            Represents the probability of rejecting the null hypothesis when it is true.
-        beta (float): Type II error rate (false negative rate). Default is 0.01.
-            Represents the probability of failing to reject the null hypothesis when it is false.
-        reset_on_H0 (bool): Flag to reset the detector state when null hypothesis is accepted.
-            Default is True. When True, the detector resets its internal state after accepting H0,
-            allowing for fresh detection cycles.
+    High-level detector configuration shared by offline and online stages.
+
+    ``alpha`` and ``beta`` control SPRT error probabilities, while
+    ``reset_on_H0`` defines whether the cumulative statistic is reset after a
+    stable decision. Keeping this policy explicit makes detector behavior easier
+    to compare across experiments.
     """
 
     alpha: float = 0.01
+    """Target false-alarm probability for chatter detection."""
     beta: float = 0.01
+    """Target missed-detection probability for chatter detection."""
     reset_on_H0: bool = True
+    """Whether the cumulative SPRT statistic is reset after a lower-threshold crossing."""
 
 @dataclass
 class MaxEntSPRTDetector:
     """
-    MaxEnt-SPRT Detector for chatter identification using entropy-based features.
-    This class implements a Sequential Probability Ratio Test (SPRT) detector that uses
-    Maximum Entropy (MaxEnt) models trained on entropy features extracted from vibration
-    signals. The detector supports both offline training and online detection workflows.
+    End-to-end detector that combines MaxEnt modeling and SPRT decision logic.
 
-    Attributes:
-        models (MaxEntModels | None):
-            Trained MaxEnt models containing p0(H) and p1(H) distributions.
-            Initialized to None and set during fit_offline_* methods.
-        config (MaxEntSPRTConfig):
-            High-level configuration parameters for SPRT including alpha, beta,
-            and reset behavior. Defaults to MaxEntSPRTConfig().
-        estimator (EntropyEstimator):
-            Entropy estimation method used during training and detection.
-            Defaults to GaussianMaxEntEstimator.
-        H_free (np.ndarray | None):
-            Diagnostic variable storing entropy values computed from free-chatter signals
-            during offline training. Used for post-training analysis.
-        H_chat (np.ndarray | None):
-            Diagnostic variable storing entropy values computed from chatter signals
-            during offline training. Used for post-training analysis.
-        t_mid_free (np.ndarray | None):
-            Diagnostic variable storing mean segment times from free-chatter training signals.
-        t_mid_chat (np.ndarray | None):
-            Diagnostic variable storing mean segment times from chatter training signals.
+    The detector exposes offline fitting methods, online detection methods, and
+    diagnostic arrays useful for plotting, reproducibility, and threshold
+    troubleshooting. The same estimator and configuration are reused across
+    stages so the modeling assumptions remain consistent from training to
+    deployment.
 
-    Methods:
-        _build_sprt_config() -> SPRTConfig:
-            Constructs an SPRTConfig object from high-level configuration parameters.
-        _check_models() -> MaxEntModels:
-            Validates that models are trained before detection operations.
-        fit_offline_from_opr(opr_free, opr_t_free, opr_chat, opr_t_chat, N_seg) -> MaxEntSPRTDetector:
-            Trains MaxEnt models directly from pre-computed Order-Preserving
-            Representation (OPR) features labeled as either free-chatter or chatter.
-            Returns self for method chaining.
-        fit_offline_from_signals(y_free, t_free, y_chat, t_chat, rpm, ratio_sampling, N_seg) -> MaxEntSPRTDetector:
-            High-level training wrapper that extracts OPR features from raw vibration signals
-            and trains MaxEnt models. Handles automatic sampling rate computation.
-            Returns self for method chaining.
-        detect_from_H_seq(H_seq) -> SPRTResult:
-            Executes SPRT detection on a pre-computed entropy sequence using trained models.
-            Returns SPRTResult with final state and likelihood ratio history.
-        detect_online_from_signal(y_online, t_online, rpm, ratio_sampling, N_seg) -> Tuple[SPRTResult, np.ndarray, np.ndarray]:
-            Executes the complete online detection pipeline on new vibration signals,
-            including OPR extraction, segmentation, entropy computation, and SPRT execution.
-            Returns detection result, entropy sequence, and segment timings.
-
-    Design Pattern:
-        This class uses a combination of high-level and low-level APIs:
-        - High-level: fit_offline_from_signals, detect_online_from_signal
-        - Low-level: fit_offline_from_opr, detect_from_H_seq
-        Users can either use the high-level methods for end-to-end pipelines or
-        use low-level methods for more granular control over intermediate computations.
-    Notes:
-        x
     """
 
     models: MaxEntModels | None = None
+    """Trained Gaussian pair for the stable and chatter regimes. Remains ``None`` until an offline fit method runs."""
     config: MaxEntSPRTConfig = field(default_factory=MaxEntSPRTConfig)
+    """High-level detector settings controlling the SPRT behavior."""
     estimator: EntropyEstimator = field(default_factory=GaussianMaxEntEstimator)
+    """Segment-to-entropy transformation used consistently in offline fitting and online inference."""
 
     # Variables de diagnóstico offline (opcionales)
     H_free: np.ndarray | None = field(default=None, init=False)
+    """Offline entropy sequence computed from the stable training data."""
     H_chat: np.ndarray | None = field(default=None, init=False)
+    """Offline entropy sequence computed from the chatter training data."""
     t_mid_free: np.ndarray | None = field(default=None, init=False)
+    """Time midpoints of the stable training segments."""
     t_mid_chat: np.ndarray | None = field(default=None, init=False)
+    """Time midpoints of the chatter training segments."""
 
     def _build_sprt_config(self) -> SPRTConfig:
         """
-        Build and return a SPRT (Sequential Probability Ratio Test) configuration object.
-        Constructs an SPRTConfig instance by extracting relevant parameters from the
-        detector's configuration settings. This configuration is used to initialize
-        or configure the Sequential Probability Ratio Test with the appropriate
-        alpha, beta, and reset behavior parameters.
+        Build the low-level SPRT configuration from the detector settings.
+
         Returns:
-            SPRTConfig: A configuration object for SPRT containing:
-                - alpha: The significance level (Type I error rate)
-                - beta: The power parameter (Type II error rate)
-                - reset_on_H0: Boolean flag indicating whether to reset the test upon accepting the null hypothesis
+            SPRTConfig: Configuration object with alpha, beta, and reset policy.
         """
 
         return SPRTConfig(
@@ -216,15 +150,14 @@ class MaxEntSPRTDetector:
 
     def _check_models(self) -> MaxEntModels:
         """
-        Verifies that the MaxEnt models have been trained.
+        Return the trained models or raise if training has not happened yet.
 
-        Validates that the models attribute is not None, ensuring that
-        the MaxEnt models have been initialized and trained previously.
+        Returns:
+            MaxEntModels: The trained probability models.
 
-            MaxEntModels: The trained MaxEnt models.
-
-            RuntimeError: If the MaxEnt models have not been trained.
-                          fit_offline_* must be called first.
+        Raises:
+            RuntimeError: If ``fit_offline_from_opr`` or ``fit_offline_from_signals``
+            has not been called yet.
         """
 
         if self.models is None:
@@ -248,23 +181,15 @@ class MaxEntSPRTDetector:
         segmented into N_seg parts. It extracts entropy characteristics and time midpoints
         for both state conditions.
 
-        Parameters
-        ----------
-        opr_free : np.ndarray
-            Operational deflection shape data for the free (non-chatter) state.
-        opr_t_free : np.ndarray
-            Time values corresponding to the free operational deflection shape data.
-        opr_chat : np.ndarray
-            Operational deflection shape data for the chatter state.
-        opr_t_chat : np.ndarray
-            Time values corresponding to the chatter operational deflection shape data.
-        N_seg : int
-            Number of segments to divide the operational data into for training.
+        :param opr_free: OPR-resampled signal representing the stable reference condition.
+        :param opr_t_free: Time vector aligned with ``opr_free``.
+        :param opr_chat: OPR-resampled signal representing the chatter reference condition.
+        :param opr_t_chat: Time vector aligned with ``opr_chat``.
+        :param N_seg: Number of OPR samples per segment used to build the offline training windows.
 
-        Returns
-        -------
-        MaxEntSPRTDetector
-            Returns self with fitted models and entropy characteristics stored as instance attributes.
+        Returns:
+            MaxEntSPRTDetector: ``self`` with trained models and diagnostic
+            arrays populated.
         """
 
         models, H_free, H_chat, t_mid_free, t_mid_chat = offline_train_maxent_sprt(
@@ -294,34 +219,26 @@ class MaxEntSPRTDetector:
     ) -> "MaxEntSPRTDetector":
         """
         Fit the detector offline using raw signal data from free and chatter conditions.
-        This method processes raw vibration signals by resampling them according to 
-        the spindle rotation frequency and then fits the detector using the resampled 
+
+        This method processes raw vibration signals by resampling them according to
+        the spindle rotation frequency and then fits the detector using the resampled
         operational parameter data.
-        Parameters
-        ----------
-        y_free : np.ndarray
-            Raw vibration signal samples during free (non-chatter) operation.
-        t_free : np.ndarray
-            Time vector corresponding to y_free samples.
-        y_chat : np.ndarray
-            Raw vibration signal samples during chatter operation.
-        t_chat : np.ndarray
-            Time vector corresponding to y_chat samples.
-        rpm : float
-            Spindle rotation speed in revolutions per minute.
-        ratio_sampling : float
-            Sampling frequency ratio relative to the spindle rotation frequency.
-            Determines the resampling rate: fs = ratio_sampling * (rpm / 60).
-        N_seg : int
-            Number of segments to divide the data into for analysis.
-        Returns
-        -------
-        MaxEntSPRTDetector
-            Returns self with fitted parameters for chatter detection.
-        Notes
-        -----
-        The method internally resamples the input signals using the sample_opr function
-        before fitting the detector.
+
+        :param y_free: Raw signal samples measured under stable cutting conditions.
+        :param t_free: Time vector aligned with ``y_free``.
+        :param y_chat: Raw signal samples measured under chatter conditions.
+        :param t_chat: Time vector aligned with ``y_chat``.
+        :param rpm: Spindle speed in revolutions per minute used to derive the fundamental rotation frequency.
+        :param ratio_sampling: Number of analysis samples per revolution, used to derive the OPR sampling frequency.
+        :param N_seg: Number of OPR samples per entropy segment.
+
+        Returns:
+            MaxEntSPRTDetector: ``self`` after OPR resampling and offline model
+            fitting.
+
+        Notes:
+            This method is a convenience wrapper around ``sample_opr`` followed
+            by ``fit_offline_from_opr``.
         """
         fr = rpm / 60.0
         fs = ratio_sampling * fr
@@ -343,18 +260,19 @@ class MaxEntSPRTDetector:
         H_seq: Iterable[float],
     ) -> SPRTResult:
         """
-        Detect chatter from a sequence of Hurst exponents using Sequential Probability Ratio Test.
+        Classify a precomputed entropy sequence using SPRT.
 
-        Args:
-            H_seq (Iterable[float]): An iterable sequence of Hurst exponent values to analyze.
+        This path is useful when entropy values are produced externally and only
+        the sequential decision logic is needed.
+
+        :param H_seq: Precomputed scalar indicator sequence, typically one entropy value per segment.
 
         Returns:
             SPRTResult: The result of the Sequential Probability Ratio Test containing the
                         detection decision and test statistics.
 
         Raises:
-            ValueError: If models are not properly configured or initialized.
-            TypeError: If H_seq is not iterable or contains non-float values.
+            RuntimeError: If MaxEnt models are not fitted yet.
         """
         models = self._check_models()
         llr_model = GaussianIndicatorLLR(models=models)
@@ -373,30 +291,27 @@ class MaxEntSPRTDetector:
     ) -> Tuple[SPRTResult, np.ndarray, np.ndarray]:
         """
         Detect chatter from an online signal using sequential probability ratio test (SPRT).
+
         Processes a real-time signal by computing its order-preserving representation (OPR),
         segmenting it, calculating entropy for each segment, and applying SPRT for chatter detection.
-        Args:
-            y_online (np.ndarray): Online signal samples (amplitude values).
-            t_online (np.ndarray): Time vector corresponding to signal samples.
-            rpm (float): Spindle speed in revolutions per minute.
-            ratio_sampling (float): Sampling ratio relative to the fundamental frequency.
-            N_seg (int): Number of segments to divide the OPR signal into.
-            fs (Optional[float]): Sampling frequency ignore ratio_sampling. If None, it will be calculated from ratio_sampling and rpm.
+
+        :param y_online: Raw online signal samples to classify.
+        :param t_online: Time vector aligned with ``y_online``.
+        :param rpm: Spindle speed in revolutions per minute used to derive the rotation frequency.
+        :param ratio_sampling: Sampling ratio used to derive the target OPR sampling frequency when ``fs`` is not explicitly provided.
+        :param N_seg: Number of OPR samples grouped into each entropy segment.
+        :param fs: Explicit OPR sampling frequency in Hz. If ``None``, it is computed from ``ratio_sampling`` and ``rpm``.
+
         Returns:
-            Tuple[SPRTResult, np.ndarray, np.ndarray]: A tuple containing:
-                - SPRTResult: Sequential probability ratio test result with decision and likelihood ratio.
-                - np.ndarray: Entropy values computed for each segment.
-                - np.ndarray: Time midpoints of each segment.
+            Tuple[SPRTResult, np.ndarray, np.ndarray]: Detection result, entropy
+            sequence, and segment midpoint times.
+
         Raises:
             ValueError: If insufficient segments are generated from the online signal.
         """
         models = self._check_models()
 
         fr = rpm / 60.0
-        r"""
-        ======= REVISAR =============
-        fs debe ser de la senal de estudio, poisble implementacion de ratio_samplig como param optionel
-        """
 
         if fs is None:
             fs = ratio_sampling * fr

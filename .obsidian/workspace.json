@@ -1,0 +1,151 @@
+{
+  "main": {
+    "id": "a464506d5ffc06fc",
+    "type": "split",
+    "children": [
+      {
+        "id": "0d084d3398dba841",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "e74f33d94ec895e0",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "MaxEnt_SPRT/MaxEnt_SPRT/docs/theory/maxent.md",
+                "mode": "source",
+                "source": false
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "cb9d08e967848505",
+    "type": "split",
+    "children": [
+      {
+        "id": "e96f857612472c62",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "1e057e228901da6b",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical"
+              }
+            }
+          },
+          {
+            "id": "6ae34a0469068864",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              }
+            }
+          },
+          {
+            "id": "e8f32c6216bd18ed",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {}
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "efeca7689b0de43d",
+    "type": "split",
+    "children": [
+      {
+        "id": "fd5c956cbdf59bed",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "46e6715c7972fed3",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "MaxEnt_SPRT/MaxEnt_SPRT/docs/theory/maxent.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              }
+            }
+          },
+          {
+            "id": "d7ed536b4043ce2c",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "MaxEnt_SPRT/MaxEnt_SPRT/docs/theory/maxent.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              }
+            }
+          },
+          {
+            "id": "079396fa77a4861a",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true
+              }
+            }
+          },
+          {
+            "id": "b51891fdd1c209d3",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "MaxEnt_SPRT/MaxEnt_SPRT/docs/theory/maxent.md"
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Abrir selector rápido": false,
+      "graph:Abrir vista gráfica": false,
+      "canvas:Crear nuevo canvas": false,
+      "daily-notes:Abrir la nota de hoy": false,
+      "templates:Insertar plantilla": false,
+      "command-palette:Abrir paleta de comandos": false
+    }
+  },
+  "active": "e74f33d94ec895e0",
+  "lastOpenFiles": []
+}

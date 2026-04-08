@@ -1,0 +1,22 @@
+MaxEnt_SPRT.lib.constants_user
+==============================
+
+.. py:module:: MaxEnt_SPRT.lib.constants_user
+
+
+Attributes
+----------
+
+.. autoapisummary::
+
+   MaxEnt_SPRT.lib.constants_user.P
+   MaxEnt_SPRT.lib.constants_user.R
+
+
+Module Contents
+---------------
+
+.. py:data:: P
+
+.. py:data:: R
+

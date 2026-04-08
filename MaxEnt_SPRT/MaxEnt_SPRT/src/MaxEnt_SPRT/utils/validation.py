@@ -8,10 +8,17 @@ R = TypeVar("R")
 
 def validate_alpha_beta(func: Callable[P, R]) -> Callable[P, R]:
     """
-    Valida que alpha y beta (si se pasan como kwargs) estén en (0, 1).
+    Validate ``alpha`` and ``beta`` keyword arguments before calling a function.
 
-    Este decorador añade validación sin modificar la lógica interna del
-    test estadístico (ejemplo de preocupación transversal).
+    This decorator centralizes one cross-cutting rule used by SPRT-related
+    wrappers: both statistical error probabilities must lie in the open interval
+    ``(0, 1)`` whenever they are explicitly provided.
+
+    :param func: Wrapped callable that may accept ``alpha`` and ``beta`` as keyword arguments.
+
+    Returns:
+        Callable[P, R]: Wrapper preserving the original call signature while
+        enforcing valid SPRT error-probability bounds.
     """
 
     @wraps(func)

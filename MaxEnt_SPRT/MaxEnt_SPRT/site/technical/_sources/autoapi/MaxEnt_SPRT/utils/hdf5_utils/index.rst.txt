@@ -1,0 +1,93 @@
+MaxEnt_SPRT.utils.hdf5_utils
+============================
+
+.. py:module:: MaxEnt_SPRT.utils.hdf5_utils
+
+
+Classes
+-------
+
+.. autoapisummary::
+
+   MaxEnt_SPRT.utils.hdf5_utils.HDF5Reader
+
+
+Module Contents
+---------------
+
+.. py:class:: HDF5Reader(filepath)
+
+   
+   Initialize the reader and eagerly load the HDF5 structure.
+
+   :param filepath: Filesystem path to the HDF5 file that will be parsed into nested Python objects.
+
+
+   .. py:attribute:: filepath
+
+
+   .. py:attribute:: data
+
+
+   .. py:method:: get_data()
+
+      Return the full in-memory representation of the HDF5 file.
+
+      :returns: Nested dictionary containing groups and datasets
+                converted into native Python / NumPy objects.
+      :rtype: Dict[str, Any]
+
+
+
+   .. py:method:: get_element(*keys)
+
+      Access a specific element using hierarchical keys.
+
+      :param keys: Path tokens used to navigate the loaded structure. They may be provided as separate arguments or as a slash-separated path.
+
+      Usage examples:
+      - get_element('group', 'subgroup', 'dataset')
+      - get_element('group/subgroup/dataset')
+      - get_element('dataset', '0')  # index into list/np.ndarray
+      - get_element('dataset', '0:10')  # slice
+      - get_element('dataset', '1,2')  # multi-dim index for numpy arrays
+
+      :returns: Dataset, subgroup, scalar value, array slice, or nested object
+                addressed by the provided path/index sequence.
+      :rtype: Any
+
+
+
+   .. py:method:: list_paths()
+
+      List every accessible path discovered in the loaded HDF5 structure.
+
+      :returns: Slash-separated paths for groups and datasets found in
+                the file tree.
+      :rtype: List[str]
+
+
+
+   .. py:method:: find_all(key)
+
+      Find all stored paths whose final segment matches the requested key.
+
+      :param key: Final path token to search for.
+
+      :returns: All matching full paths.
+      :rtype: List[str]
+
+
+
+   .. py:method:: find_first(key)
+
+      Return the first matching full path for the requested key.
+
+      :param key: Final path token to search for.
+
+      :returns: First matching full path, or ``None`` if no match is
+                found.
+      :rtype: Optional[str]
+
+
+

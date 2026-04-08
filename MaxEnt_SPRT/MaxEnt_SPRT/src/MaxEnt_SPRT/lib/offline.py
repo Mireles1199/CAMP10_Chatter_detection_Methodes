@@ -16,37 +16,23 @@ def offline_train_maxent_sprt(
 ) -> Tuple[MaxEntModels, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     Train Maximum Entropy SPRT models on offline OPR (Operating Point Range) data.
+
     This function segments operational data into windows, computes entropy metrics for each segment,
     and fits maximum entropy Gaussian models to distinguish between free and chatter states.
-    Parameters
-    ----------
-    opr_free : np.ndarray
-        Operating Point Range data for free (non-chatter) condition.
-    opr_chat : np.ndarray
-        Operating Point Range data for chatter condition.
-    opr_t_free : np.ndarray
-        Time indices or timestamps corresponding to opr_free data.
-    opr_t_chat : np.ndarray
-        Time indices or timestamps corresponding to opr_chat data.
-    N_seg : int
-        Number of segments to partition the OPR data into.
-    estimator : EntropyEstimator | None, optional
-        Entropy estimation method. If None, uses default estimator.
-        Default is None.
-    Returns
-    -------
-    Tuple[MaxEntModels, np.ndarray, np.ndarray, np.ndarray, np.ndarray]
-        A tuple containing:
-        - models : MaxEntModels
-            Fitted maximum entropy Gaussian models for free (p0) and chatter (p1) conditions.
-        - H_free : np.ndarray
-            Computed entropy values for free condition segments.
-        - H_chat : np.ndarray
-            Computed entropy values for chatter condition segments.
-        - t_mid_free : np.ndarray
-            Midpoint timestamps for free condition segments.
-        - t_mid_chat : np.ndarray
-            Midpoint timestamps for chatter condition segments.
+
+    :param opr_free: OPR signal representing the stable reference condition.
+    :param opr_chat: OPR signal representing the chatter reference condition.
+    :param opr_t_free: Time vector aligned with ``opr_free``.
+    :param opr_t_chat: Time vector aligned with ``opr_chat``.
+    :param N_seg: Number of OPR samples grouped into each training segment.
+    :param estimator: Segment-to-entropy estimator. If ``None``, the default entropy estimator is used.
+
+    Returns:
+        Tuple[MaxEntModels, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        Trained Gaussian models, entropy sequence for stable segments, entropy
+        sequence for chatter segments, and the midpoint timestamps for both
+        segment sets.
+
     Raises
     ------
     ValueError

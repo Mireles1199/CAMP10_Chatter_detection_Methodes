@@ -85,12 +85,12 @@ _ , x_cut = _cut_signal( t, tool_dyn , curt_range )
 _ , force_cut = _cut_signal( t, force_N , curt_range )
 
 INDICATOR_CONFIG = {
-    "id": "MaxEnt_SPRT",                  # internal identifier (optional)
+    "id": "MaxEnt_SPRT",                  # internal identifier 
     "func": "Default",                    # indicator wrapper
     "params": {                           # default parameters for this benchmark
-        "rpm": 12_000.0,
-        "ratio_sampling": 50.0,
-        "N_seg": 2,
+        "rpm": 9_000.0,
+        # "ratio_sampling": 50.0, :
+        "N_seg": 5,
         "t_stable_total": 5.365770208787228,
         "alpha": 0.05,
         "beta": 0.05,
@@ -118,6 +118,8 @@ sig = SignalData(
 )
 
 resultat_maxent_sprt = run_maxent_sprt(sig, INDICATOR_CONFIG)
+time_detection = resultat_maxent_sprt.t_d[0]
+print (f"Time Detection {time_detection}")
 
 zoom_x = None
 zoom_y = None

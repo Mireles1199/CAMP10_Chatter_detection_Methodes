@@ -25,10 +25,10 @@ __all__ = [
     "SequentialProbabilityRatioTest",
     "MaxEntSPRTConfig",
     "MaxEntSPRTDetector",
-    SignalData,
-    IndicatorResult,
-    HDF5Reader,
-    run_maxent_sprt,
-    plots_maxent_sprt,
+    "SignalData",
+    "IndicatorResult",
+    "HDF5Reader",
+    "run_maxent_sprt",
+    "plots_maxent_sprt",
 ]
 

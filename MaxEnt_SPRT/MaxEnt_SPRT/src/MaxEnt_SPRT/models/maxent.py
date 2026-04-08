@@ -7,18 +7,17 @@ from .prob import GaussianPDF
 @dataclass
 class MaxEntModels:
     """
-    Maximum Entropy-based Statistical Models.
-    A class for managing maximum entropy models using Gaussian probability density
-    functions for two-class classification or hypothesis testing scenarios.
-    Attributes:
-        p0 (GaussianPDF): Gaussian probability density function for the null hypothesis
-            or primary class distribution.
-        p1 (GaussianPDF): Gaussian probability density function for the alternative
-            hypothesis or secondary class distribution.
+    Pair of Gaussian models used by the MaxEnt detector.
+
+    ``p0`` models the stable regime and ``p1`` models the chatter regime.
+    The pair is treated as a coherent statistical state and passed as a single
+    object across detector components (LLR, SPRT wrapper, plotting metadata).
     """
 
     p0: GaussianPDF
+    """Gaussian density fitted on samples belonging to the stable or chatter-free regime."""
     p1: GaussianPDF
+    """Gaussian density fitted on samples belonging to the chatter regime."""
 
 
 def fit_maxent_gaussians(
@@ -28,28 +27,26 @@ def fit_maxent_gaussians(
 ) -> MaxEntModels:
     """
     Fit maximum entropy Gaussian models to two sets of samples.
-    This function creates Gaussian probability density functions for two hypothesis
-    classes (H0 and H1) using the maximum entropy principle, where each Gaussian is
-    characterized by the mean and standard deviation of its respective samples.
-    Parameters
-    ----------
-    samples_H0 : Iterable[float]
-        Samples from the null hypothesis (H0) distribution.
-    samples_H1 : Iterable[float]
-        Samples from the alternative hypothesis (H1) distribution.
-    min_sigma : float, optional
-        Minimum standard deviation threshold to ensure numerical stability.
-        Default is 1e-12.
-    Returns
-    -------
-    MaxEntModels
-        A MaxEntModels object containing two fitted Gaussian PDFs:
-        - p0: Gaussian model fitted to samples_H0
-        - p1: Gaussian model fitted to samples_H1
+
+    Given indicator samples from stable and chatter regimes, this function fits
+    one Gaussian per hypothesis under the maximum-entropy rationale (mean and
+    variance constraints). The output is ready to be consumed by the LLR model.
+
+    :param samples_H0: Indicator samples representing the stable reference regime used to fit ``p0``.
+    :param samples_H1: Indicator samples representing the chatter reference regime used to fit ``p1``.
+    :param min_sigma: Lower bound imposed on the estimated standard deviation to avoid degenerate or numerically unstable Gaussian models.
+
+    Returns:
+        MaxEntModels: Container with ``p0`` fitted from ``samples_H0`` and
+        ``p1`` fitted from ``samples_H1``.
+
     Notes
     -----
     The minimum sigma parameter prevents zero or near-zero standard deviations
     that could cause numerical instability in likelihood calculations.
+
+    In practice, this regularization avoids overconfident LLR jumps when a
+    training segment has very low variance.
     """
     g0 = GaussianPDF.from_samples(samples_H0, eps=min_sigma)
     g1 = GaussianPDF.from_samples(samples_H1, eps=min_sigma)

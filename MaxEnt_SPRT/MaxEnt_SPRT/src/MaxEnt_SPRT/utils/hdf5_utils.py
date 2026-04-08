@@ -9,7 +9,9 @@ class HDF5Reader:
     _all_paths_cache: Optional[List[str]]
     def __init__(self, filepath: str):
         """
-        Initializes the reader and loads the entire structure into memory.
+        Initialize the reader and eagerly load the HDF5 structure.
+
+        :param filepath: Filesystem path to the HDF5 file that will be parsed into nested Python objects.
         """
         if not os.path.exists(filepath):
             raise FileNotFoundError(f"File not found: {filepath}")
@@ -88,7 +90,11 @@ class HDF5Reader:
 
     def get_data(self) -> Dict[str, Any]:
         """
-        Returns the complete dictionary.
+        Return the full in-memory representation of the HDF5 file.
+
+        Returns:
+            Dict[str, Any]: Nested dictionary containing groups and datasets
+            converted into native Python / NumPy objects.
         """
         return self.data
 
@@ -96,12 +102,18 @@ class HDF5Reader:
         """
         Access a specific element using hierarchical keys.
 
+        :param keys: Path tokens used to navigate the loaded structure. They may be provided as separate arguments or as a slash-separated path.
+
         Usage examples:
         - get_element('group', 'subgroup', 'dataset')
         - get_element('group/subgroup/dataset')
         - get_element('dataset', '0')  # index into list/np.ndarray
         - get_element('dataset', '0:10')  # slice
         - get_element('dataset', '1,2')  # multi-dim index for numpy arrays
+
+        Returns:
+            Any: Dataset, subgroup, scalar value, array slice, or nested object
+            addressed by the provided path/index sequence.
         """
 
         def _parse_slice(token: str):
@@ -261,7 +273,11 @@ class HDF5Reader:
 
     def list_paths(self) -> List[str]:
         """
-        List all dataset paths available in the loaded HDF5 structure, using '/' as separator.
+        List every accessible path discovered in the loaded HDF5 structure.
+
+        Returns:
+            List[str]: Slash-separated paths for groups and datasets found in
+            the file tree.
         """
         if self._all_paths_cache is not None:
             return self._all_paths_cache
@@ -288,8 +304,12 @@ class HDF5Reader:
 
     def find_all(self, key: str) -> List[str]:
         """
-        Find all full paths whose last segment equals the provided key.
-        Example: find_all('tool_dyn') -> ['group1/tool_dyn', 'group2/sub/tool_dyn']
+        Find all stored paths whose final segment matches the requested key.
+
+        :param key: Final path token to search for.
+
+        Returns:
+            List[str]: All matching full paths.
         """
         matches = []
         for p in self.list_paths():
@@ -300,7 +320,13 @@ class HDF5Reader:
 
     def find_first(self, key: str) -> Optional[str]:
         """
-        Return the first matching path for the given key, or None if not found.
+        Return the first matching full path for the requested key.
+
+        :param key: Final path token to search for.
+
+        Returns:
+            Optional[str]: First matching full path, or ``None`` if no match is
+            found.
         """
         matches = self.find_all(key)
         return matches[0] if matches else None

@@ -6,48 +6,55 @@ from ..models.maxent import MaxEntModels
 
 class LLRModel(ABC):
     """
-    Abstract base class for Log-Likelihood Ratio (LLR) models.
-    This class defines the interface for computing the log-likelihood ratio between
-    two hypotheses (H1 and H0) for a given observation.
-    Methods:
-        llr: Compute the log-likelihood ratio for an observation.
+    Abstract interface for log-likelihood ratio models.
+
+    Implementations must provide a scalar ``llr`` evaluation for one observed
+    indicator value.
     """
     @abstractmethod
     def llr(self, h_obs: float) -> float:
         """
-        Calculate the log-likelihood ratio between two hypotheses.
+        Evaluate the incremental log-likelihood ratio for one observation.
 
-        Computes the natural logarithm of the ratio of probability densities:
-        log(p1(h_obs) / p0(h_obs)), where p1 and p0 represent the probability
-        density functions under hypothesis H1 and H0 respectively.
-
-        Args:
-            h_obs (float): The observed test statistic or measurement value.
+        :param h_obs: Observed scalar feature value to score, usually an entropy-like indicator extracted from one segment.
 
         Returns:
-            float: The log-likelihood ratio log(p1(h_obs) / p0(h_obs)).
-                   Positive values indicate evidence favoring H1,
-                   negative values indicate evidence favoring H0.
-
-        Notes:
-            This method is typically used in Sequential Probability Ratio Test (SPRT)
-            for hypothesis testing.
+            float: Signed evidence contribution added to the cumulative SPRT
+            statistic. Positive values favor H1 and negative values favor H0.
         """
 
 
 @dataclass(frozen=True)
 class GaussianIndicatorLLR(LLRModel):
     """
-    Gaussian Indicator Log-Likelihood Ratio Model.
-    A specialized LLR (Log-Likelihood Ratio) model that computes the likelihood ratio
-    between two Gaussian distributions for chatter detection.
-    Attributes:
-        models (MaxEntModels): Container holding the maximum entropy statistical models,
-            including p0 (null hypothesis distribution) and p1 (alternative hypothesis distribution).
-    Methods:
-        llr(h_obs): Computes the log-likelihood ratio given an observed indicator value.
+    Gaussian log-likelihood ratio model for chatter detection.
+
+    This implementation compares two Gaussian maximum-entropy models:
+    ``p0`` (stable regime) and ``p1`` (chatter regime). For each observed
+    indicator value ``h_obs``, it returns the evidence in favor of chatter as:
+
+    ``log p1(h_obs) - log p0(h_obs)``.
+
+    Interpretation of the output is straightforward:
+
+    - Positive values: evidence favoring chatter (H1).
+    - Negative values: evidence favoring stable cutting (H0).
+    - Values near zero: weak or ambiguous evidence.
+
+    The class is immutable (``frozen=True``), which helps keep SPRT runs
+    reproducible once the statistical models are fitted.
     """
     models: MaxEntModels
+    """Pair of Gaussian densities where ``p0`` represents the stable regime and ``p1`` represents the chatter regime."""
 
     def llr(self, h_obs: float) -> float:
+        """
+        Evaluate the log-likelihood ratio at one observed indicator value.
+
+        :param h_obs: Observed entropy-like indicator value associated with the current segment or analysis window.
+
+        Returns:
+            float: Signed evidence score for SPRT updates,
+                ``log p1(h_obs) - log p0(h_obs)``.
+        """
         return self.models.p1.logpdf(h_obs) - self.models.p0.logpdf(h_obs)

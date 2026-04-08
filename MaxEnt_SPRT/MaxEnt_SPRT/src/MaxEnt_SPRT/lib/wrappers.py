@@ -19,10 +19,21 @@ def sprt_detect_sequence(
     reset_on_H0: bool = True,
 ) -> Tuple[str, int, np.ndarray, float, float]:
     """
-    Wrapper funcional para ejecutar SPRT usando gaussianas sobre el indicador.
+    Functional convenience wrapper around the object-oriented SPRT engine.
 
-    Se mantiene por comodidad, pero internamente usa la clase
-    SequentialProbabilityRatioTest y GaussianIndicatorLLR.
+    This helper is preserved for quick scripts and notebook use, but internally
+    it delegates to ``SequentialProbabilityRatioTest`` and
+    ``GaussianIndicatorLLR``.
+
+    :param H_seq: Ordered indicator sequence, typically one entropy value per segment.
+    :param models: Pair of Gaussian models used to score the sequence.
+    :param alpha: Target false-alarm probability.
+    :param beta: Target missed-detection probability.
+    :param reset_on_H0: Whether to reset the cumulative SPRT statistic after a lower-threshold crossing.
+
+    Returns:
+        Tuple[str, int, np.ndarray, float, float]: Final state, decision index,
+        cumulative statistic history, lower threshold, and upper threshold.
     """
     config = SPRTConfig(alpha=alpha, beta=beta, reset_on_H0=reset_on_H0)
     llr_model = GaussianIndicatorLLR(models=models)
@@ -51,12 +62,27 @@ def online_maxent_sprt_from_signal(
     estimator: EntropyEstimator | None = None,
 ) -> Tuple[str, int, np.ndarray, np.ndarray, np.ndarray, float, float]:
     """
-    FASE ONLINE completa para una señal nueva:
+    Complete functional online MaxEnt-SPRT pipeline for a new signal.
 
-    1) OPR: y_online -> opr_online
-    2) Segmentación: opr_online -> segmentos
-    3) Entropía local: segmentos -> H_seq
-    4) SPRT: H_seq + models (p0(H), p1(H)) -> decisión chatter/free
+    The routine performs OPR resampling, fixed-length segmentation, entropy
+    extraction, and finally sequential decision-making on the resulting feature
+    sequence.
+
+    :param y_online: Raw signal samples to classify.
+    :param t_online: Time vector aligned with ``y_online``.
+    :param rpm: Spindle speed in revolutions per minute.
+    :param ratio_sampling: Number of OPR samples per revolution.
+    :param N_seg: Number of OPR samples grouped into each entropy segment.
+    :param models: Previously trained Gaussian pair used by the LLR and SPRT stages.
+    :param alpha: Target false-alarm probability.
+    :param beta: Target missed-detection probability.
+    :param reset_on_H0: Whether to reset the SPRT statistic after a stable decision.
+    :param estimator: Optional custom estimator used to convert segments into entropy values.
+
+    Returns:
+        Tuple[str, int, np.ndarray, np.ndarray, np.ndarray, float, float]: Final
+        state, decision index, entropy sequence, cumulative SPRT history,
+        segment midpoint times, lower threshold, and upper threshold.
     """
     fr = rpm / 60.0      # Hz, frecuencia de rotación
     fs = ratio_sampling * fr  # Hz, frecuencia de muestreo

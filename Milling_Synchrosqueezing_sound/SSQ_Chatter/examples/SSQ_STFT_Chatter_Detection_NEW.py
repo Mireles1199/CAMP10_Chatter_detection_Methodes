@@ -90,7 +90,7 @@ sig = SignalData(
             "RPM": 12_000,}
 )
 
-results_SST_SVD = run_sst_svd(sig, INDICATOR_CONFIG)
+results_SST_SVD = run_sst_svd(sig, INDICATOR_CONFIG) 
 zoom_x = None
 zoom_y = None
 vlines = [5.3]
