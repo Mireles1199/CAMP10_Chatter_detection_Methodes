@@ -1,0 +1,2124 @@
+\documentclass[12pt,a4paper, openany]{book}
+
+
+% ------------------------------------------------
+% PACKAGES
+% ------------------------------------------------
+\usepackage[
+  top=2cm,
+  bottom=2cm,
+  left=2cm,
+  right=2cm,
+  footskip=1.2cm
+]{geometry}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{amsmath}
+\usepackage{hyperref}
+\usepackage{longtable}
+\usepackage{booktabs}
+\usepackage{pdflscape}
+\usepackage{amssymb}
+
+\usepackage[most]{tcolorbox}
+
+
+\usepackage[table]{xcolor}
+
+\definecolor{azul1}{RGB}{68,124,132}
+\definecolor{azul1b}{RGB}{219,235,237}
+\definecolor{azul1c}{RGB}{219,235,237}
+
+\definecolor{azul2}{RGB}{0,32,96}
+\definecolor{azul3}{RGB}{19, 78,123}
+
+\definecolor{purple1}{RGB}{120, 32,110}
+\definecolor{purple2}{RGB}{242, 207,238}
+
+\definecolor{orange1}{RGB}{192, 79,21}
+\definecolor{orange2}{RGB}{251, 227,214}
+
+\definecolor{azulmarino}{RGB}{10,40,90}
+\definecolor{azulclaro}{RGB}{200,220,255}
+
+
+
+
+
+
+\usepackage[backend=biber,style=authoryear]{biblatex}
+\addbibresource{references.bib}
+
+
+
+%----------------------------------
+% Chapter
+%----------------------------------
+\usepackage{titlesec}
+
+\titleformat{\chapter}[display]
+  {\fontsize{18}{22}\bfseries\selectfont} % tamaño y estilo
+  {\chaptertitlename\ \thechapter}
+  {10pt}
+  {\fontsize{18}{22}\bfseries\selectfont}
+
+\titlespacing*{\chapter}{0pt}{-20pt}{20pt}
+
+%---------------------------
+% Section
+%---------------------------
+\titleformat{\section}
+  {\fontsize{14}{18}\bfseries\selectfont}
+  {\thesection}
+  {1em}
+  {}
+
+%---------------------------
+% Subsection
+%---------------------------
+\titleformat{\subsection}
+  {\fontsize{12}{16}\bfseries\selectfont}
+  {\thesubsection}
+  {1em}
+  {}
+
+
+%---------------------------
+% Numerotation - Pie de pagina 
+%---------------------------
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{} % limpia encabezados y pies
+\fancyfoot[C]{\thepage} % número centrado
+\fancyfoot[R]{\hyperlink{indice}{\textcolor{blue}{[Contents]}}} % link a la derecha
+
+%---------------------------
+% Encabezados
+%---------------------------
+\renewcommand{\chaptermark}[1]{%
+  \markboth{CHAPTER \thechapter\ : #1}{}%
+}
+\renewcommand{\sectionmark}[1]{\markright{\thesection\ #1}}
+
+\fancyhead[LE]{\nouppercase{\rightmark}}   % páginas pares = sección
+\fancyhead[RO]{\leftmark}                  % páginas impares = capítulo
+
+% ------------------------------------------------
+% TABLE SETTINGS
+% ------------------------------------------------
+\renewcommand{\arraystretch}{1.15}
+\setlength{\tabcolsep}{4pt}
+\newcolumntype{L}{>{\ttfamily}l}
+
+%-------------------------
+% References
+%-------------------------
+\usepackage[french]{babel}
+% \usepackage{cleveref}
+
+% ----------------------
+% Caja de código
+% ----------------------
+\definecolor{codebg}{RGB}{248,249,250}
+\definecolor{codeframe}{RGB}{210,215,220}
+\definecolor{codetitlebg}{RGB}{235,240,244}
+\definecolor{codetitletext}{RGB}{40,40,40}
+\definecolor{codeaccent}{RGB}{19,78,123}
+
+\newtcblisting{codeboxpro}{
+  enhanced,
+  breakable,
+  colback=codebg,
+  colframe=codeframe,
+  boxrule=0.35pt,
+  arc=1.2mm,
+  left=5mm,
+  right=3mm,
+  top=2.8mm,
+  bottom=2.8mm,
+  borderline west={2.2pt}{0pt}{codeaccent},
+  title=\texttt{Extrait de code},
+  fonttitle=\bfseries\footnotesize,
+  coltitle=codetitletext,
+  colbacktitle=codetitlebg,
+  fontupper=\ttfamily\small,
+  boxed title style={
+    boxrule=0pt,
+    colframe=codetitlebg,
+    colback=codetitlebg,
+    arc=0.8mm,
+    left=2.2mm,
+    right=2.2mm,
+    top=1mm,
+    bottom=1mm
+  },
+  attach boxed title to top left={xshift=2.5mm,yshift*=-\tcboxedtitleheight/2},
+  listing only,
+  verbatim,
+  before skip=10pt,
+  after skip=10pt
+}
+
+
+% ------------------------------------------------
+% PROFESSIONAL GLOSSARY STYLE
+% ------------------------------------------------
+\usepackage[automake,toc]{glossaries}
+
+
+\newglossary[sym]{symbols}{syi}{syg}{List of Symbols}
+\newglossary[par]{parameters}{pri}{prg}{Implementation Parameters}
+
+\makeglossaries
+
+
+\newglossarystyle{symbstyle}{
+    \setglossarystyle{long}
+    \renewenvironment{theglossary}
+        {\begin{longtable}{@{}
+            >{\raggedright\arraybackslash}p{0.10\textwidth}
+            >{\raggedright\arraybackslash}p{0.16\textwidth}
+            >{\raggedright\arraybackslash}p{0.68\textwidth}
+            @{}}}
+        {\end{longtable}}
+    \renewcommand*{\glossaryheader}{
+        \toprule
+        \textbf{Symbole} & \textbf{Type} & \textbf{Définition} \\
+        \midrule
+        \endhead
+        \midrule
+        \multicolumn{3}{r}{\textit{Continued on next page}} \\
+        \midrule
+        \endfoot
+        \bottomrule
+        \endlastfoot
+    }
+    \renewcommand*{\glossentry}[2]{%
+        \glstarget{##1}{\textbf{\glossentryname{##1}}} &
+        \texttt{\glsentryuseri{##1}} &
+        \glossentrydesc{##1}\tabularnewline
+    }
+    \renewcommand*{\subglossentry}[3]{%
+        \glossentry{##2}{##3}
+    }
+    \renewcommand*{\glsgroupskip}{}
+}
+
+\newglossarystyle{paramstyle}{
+    \setglossarystyle{long}
+    \renewenvironment{theglossary}
+        {\begin{longtable}{@{}
+            >{\raggedright\arraybackslash}p{0.24\textwidth}
+            >{\raggedright\arraybackslash}p{0.14\textwidth}
+            >{\raggedright\arraybackslash}p{0.56\textwidth}
+            @{}}}
+        {\end{longtable}}
+    \renewcommand*{\glossaryheader}{
+        \toprule
+        \textbf{Paramètre} & \textbf{Type} & \textbf{Définition} \\
+        \midrule
+        \endhead
+        \midrule
+        \multicolumn{3}{r}{\textit{Continued on next page}} \\
+        \midrule
+        \endfoot
+        \bottomrule
+        \endlastfoot
+    }
+    \renewcommand*{\glossentry}[2]{%
+        \glstarget{##1}{\textbf{\glossentryname{##1}}} &
+        \texttt{\glsentryuseri{##1}} &
+        \glossentrydesc{##1}\tabularnewline
+    }
+    \renewcommand*{\subglossentry}[3]{%
+        \glossentry{##2}{##3}
+    }
+    \renewcommand*{\glsgroupskip}{}
+}
+
+
+% ------------------------------------------------
+% SYMBOLS
+% ------------------------------------------------
+
+\newglossaryentry{ncyc}{
+    type=symbols,
+    name={$n_{\mathrm{cyc}}$},
+    user1={entier},
+    sort=ncyc,
+    description={Nombre générique de cycles modaux}
+}
+
+\newglossaryentry{ncycseg}{
+    type=symbols,
+    name={$n_{\mathrm{cyc}}^{\mathrm{seg}}$},
+    user1={entier},
+    sort=ncycseg,
+    description={Nombre de cycles modaux couverts par un segment d'analyse MaxEnt--SPRT}
+}
+
+\newglossaryentry{ncycstft}{
+    type=symbols,
+    name={$n_{\mathrm{cyc}}^{\mathrm{STFT}}$},
+    user1={entier},
+    sort=ncycstft,
+    description={Nombre de cycles modaux contenus dans une fenêtre de STFT}
+}
+
+\newglossaryentry{ncycrms}{
+    type=symbols,
+    name={$n_{\mathrm{cyc}}^{\mathrm{RMS}}$},
+    user1={entier},
+    sort=ncycrms,
+    description={Nombre de cycles modaux contenus dans une fenêtre élémentaire de RMS}
+}
+
+\newglossaryentry{ncyctot}{
+    type=symbols,
+    name={$n_{\mathrm{cyc}}^{\mathrm{tot}}$},
+    user1={entier},
+    sort=ncyctot,
+    description={Nombre total de cycles modaux couverts par la fenêtre effective du détecteur}
+}
+
+\newglossaryentry{frev}{
+    type=symbols,
+    name={$f_{\mathrm{rev}}$},
+    user1={fréquence},
+    sort=frev,
+    description={Fréquence de rotation de la broche ou du système tournant}
+}
+
+\newglossaryentry{trev}{
+    type=symbols,
+    name={$T_{\mathrm{rev}}$},
+    user1={temps},
+    sort=trev,
+    description={Période de révolution, définie par $T_{\mathrm{rev}} = 1/f_{\mathrm{rev}}$}
+}
+
+\newglossaryentry{fmodal}{
+    type=symbols,
+    name={$f_{\mathrm{modal}}$},
+    user1={fréquence},
+    sort=fmodal,
+    description={Fréquence modale de référence utilisée pour exprimer les fenêtres d'analyse en termes physiques}
+}
+
+\newglossaryentry{tmodal}{
+    type=symbols,
+    name={$T_{\mathrm{modal}}$},
+    user1={temps},
+    sort=tmodal,
+    description={Période modale associée à la fréquence modale de référence, définie par $T_{\mathrm{modal}} = 1/f_{\mathrm{modal}}$}
+}
+
+\newglossaryentry{tw}{
+    type=symbols,
+    name={$T_w$},
+    user1={temps},
+    sort=tw,
+    description={Coût de fenêtre, c'est-à-dire le temps minimal d'observation requis pour construire la fenêtre d'analyse effective ou produire une décision}
+}
+
+\newglossaryentry{w}{
+    type=symbols,
+    name={$w$},
+    user1={temps},
+    sort=w,
+    description={Durée de la fenêtre d'analyse STFT}
+}
+
+\newglossaryentry{h}{
+    type=symbols,
+    name={$h$},
+    user1={temps},
+    sort=h,
+    description={Pas temporel entre deux trames STFT consécutives}
+}
+
+\newglossaryentry{fh}{
+    type=symbols,
+    name={$f_h$},
+    user1={scalaire},
+    sort=fh,
+    description={Rapport de saut utilisé pour définir le pas STFT à partir de la longueur de fenêtre, tel que $h = f_h\,w$}
+}
+
+\newglossaryentry{na}{
+    type=symbols,
+    name={$n_A$},
+    user1={entier},
+    sort=na,
+    description={Nombre de trames temps--fréquence consécutives utilisées dans l'analyse locale SST--SVD}
+}
+
+\newglossaryentry{trms}{
+    type=symbols,
+    name={$T_{\mathrm{RMS}}$},
+    user1={temps},
+    sort=trms,
+    description={Durée d'une fenêtre élémentaire de RMS}
+}
+
+\newglossaryentry{dtrms}{
+    type=symbols,
+    name={$\Delta t_{\mathrm{RMS}}$},
+    user1={temps},
+    sort=dtrms,
+    description={Pas temporel entre deux fenêtres RMS consécutives}
+}
+
+\newglossaryentry{rho}{
+    type=symbols,
+    name={$\rho$},
+    user1={scalaire},
+    sort=rho,
+    description={Taux de recouvrement entre fenêtres RMS consécutives}
+}
+
+\newglossaryentry{Nsym}{
+    type=symbols,
+    name={$N$},
+    user1={entier},
+    sort=Nsym,
+    description={Nombre d'échantillons contenus dans une fenêtre élémentaire de RMS}
+}
+
+\newglossaryentry{Nsamples}{
+    type=symbols,
+    name={$N_{\mathrm{samples}}$},
+    user1={entier},
+    sort=Nsamples,
+    description={Nombre d'échantillons requis pour couvrir un nombre prescrit de cycles modaux dans une fenêtre RMS}
+}
+
+\newglossaryentry{Nsegsym}{
+    type=symbols,
+    name={$N_{\mathrm{seg}}$},
+    user1={entier},
+    sort=Nsegsym,
+    description={Nombre de révolutions agrégées dans un segment d'analyse MaxEnt--SPRT}
+}
+
+\newglossaryentry{nmaxsym}{
+    type=symbols,
+    name={$n_{\max}$},
+    user1={entier},
+    sort=nmaxsym,
+    description={Profondeur mémoire du moniteur RMS--CV, correspondant au nombre maximal de valeurs RMS conservées dans l'historique}
+}
+
+\newglossaryentry{muhat}{
+    type=symbols,
+    name={$\widehat{\mu}$},
+    user1={estimateur},
+    sort=muhat,
+    description={Estimateur empirique de la moyenne calculé à partir d'un segment d'observations}
+}
+
+\newglossaryentry{sigmahatsq}{
+    type=symbols,
+    name={$\widehat{\sigma}^{2}$},
+    user1={estimateur},
+    sort=sigmahatsq,
+    description={Estimateur empirique de la variance calculé à partir d'un segment d'observations}
+}
+
+\newglossaryentry{xk}{
+    type=symbols,
+    name={$x_k$},
+    user1={scalaire},
+    sort=xk,
+    description={Observation scalaire à une valeur par révolution associée à la $k$-ième révolution dans un segment MaxEnt--SPRT}
+}
+
+\newglossaryentry{fs}{
+    type=symbols,
+    name={$f_s$},
+    user1={fréquence},
+    sort=fs,
+    description={Fréquence d'échantillonnage du signal vibratoire mesuré}
+}
+
+\newglossaryentry{df}{
+    type=symbols,
+    name={$\Delta f$},
+    user1={fréquence},
+    sort=df,
+    description={Résolution fréquentielle de la transformée temps--fréquence, définie par $\Delta f = f_s / n_{\mathrm{fft}}$}
+}
+
+\newglossaryentry{nfft}{
+    type=symbols,
+    name={$n_{\mathrm{fft}}$},
+    user1={entier},
+    sort=nfft,
+    description={Taille de FFT utilisée dans l'analyse temps--fréquence STFT ou SST}
+}
+
+\newglossaryentry{alphasym}{
+    type=symbols,
+    name={$\alpha$},
+    user1={probabilité},
+    sort=alphasym,
+    description={Paramètre de seuil statistique. Selon le contexte, il désigne soit la probabilité d'erreur de type I du SPRT, soit le niveau de signification d'un test statistique}
+}
+
+\newglossaryentry{betasym}{
+    type=symbols,
+    name={$\beta$},
+    user1={probabilité},
+    sort=betasym,
+    description={Probabilité d'erreur de type II dans le test séquentiel SPRT}
+}
+
+\newglossaryentry{zsym}{
+    type=symbols,
+    name={$z$},
+    user1={scalaire},
+    sort=zsym,
+    description={Nombre d'écarts-types, ou de multiples de MAD, utilisé pour définir un seuil de détection}
+}
+
+\newglossaryentry{Hzero}{
+    type=symbols,
+    name={$H_0$},
+    user1={hypothèse},
+    sort=Hzero,
+    description={Hypothèse nulle du test séquentiel, correspondant au régime nominal sans broutement}
+}
+
+% ------------------------------------------------
+% IMPLEMENTATION PARAMETERS
+% ------------------------------------------------
+
+\newglossaryentry{rpm}{
+    type=parameters,
+    name={\texttt{rpm}},
+    user1={scalaire},
+    sort=rpm,
+    description={Vitesse de rotation de la broche exprimée en tours par minute}
+}
+
+\newglossaryentry{ratiosampling}{
+    type=parameters,
+    name={\texttt{ratio\_sampling}},
+    user1={scalaire},
+    sort=ratiosampling,
+    description={Ratio d'échantillonnage utilisé pendant l'étape de détection en ligne}
+}
+
+\newglossaryentry{Nseg}{
+    type=parameters,
+    name={\texttt{N\_seg}},
+    user1={entier},
+    sort=Nseg,
+    description={Nombre de révolutions par segment dans le détecteur MaxEnt--SPRT}
+}
+
+\newglossaryentry{tstabletotal}{
+    type=parameters,
+    name={\texttt{t\_stable\_total}},
+    user1={scalaire},
+    sort=tstabletotal,
+    description={Durée de la portion initiale stable du signal, sans broutement, utilisée pour l'estimation hors ligne du modèle MaxEnt}
+}
+
+\newglossaryentry{tchatter}{
+    type=parameters,
+    name={\texttt{t\_chatter}},
+    user1={scalaire},
+    sort=tchatter,
+    description={Durée ou intervalle temporel délimitant la portion du signal contenant du broutement, utilisée pour l'estimation hors ligne du modèle MaxEnt}
+}
+
+\newglossaryentry{signalstable}{
+    type=parameters,
+    name={\texttt{signal\_stable}},
+    user1={vecteur},
+    sort=signalstable,
+    description={Segment de signal stable extrait, utilisé pour estimer le modèle à maximum d'entropie}
+}
+
+\newglossaryentry{signalchatter}{
+    type=parameters,
+    name={\texttt{signal\_chatter}},
+    user1={vecteur},
+    sort=signalchatter,
+    description={Segment de signal extrait contenant du broutement, utilisé pour estimer le modèle à maximum d'entropie}
+}
+
+\newglossaryentry{alphaParam}{
+    type=parameters,
+    name={\texttt{alpha}},
+    user1={scalaire},
+    sort=alphaParam,
+    description={Probabilité cible d'erreur de type I dans le détecteur MaxEnt--SPRT, c'est-à-dire la probabilité de fausse alarme}
+}
+
+\newglossaryentry{betaParam}{
+    type=parameters,
+    name={\texttt{beta}},
+    user1={scalaire},
+    sort=betaParam,
+    description={Probabilité cible d'erreur de type II dans le détecteur MaxEnt--SPRT, c'est-à-dire la probabilité de non-détection}
+}
+
+\newglossaryentry{resetonHzero}{
+    type=parameters,
+    name={\texttt{reset\_on\_H0}},
+    user1={booléen},
+    sort=resetonHzero,
+    description={Indicateur booléen précisant si la statistique SPRT est réinitialisée lorsque l'hypothèse nulle $H_0$ est acceptée}
+}
+
+\newglossaryentry{nfftpower}{
+    type=parameters,
+    name={\texttt{n\_fft\_power}},
+    user1={entier},
+    sort=nfftpower,
+    description={Exposant contrôlant la taille de la FFT selon $n_{\mathrm{fft}} = 1024 \cdot 2^{\texttt{n\_fft\_power}}$}
+}
+
+\newglossaryentry{winlengthms}{
+    type=parameters,
+    name={\texttt{win\_length\_ms}},
+    user1={scalaire},
+    sort=winlengthms,
+    description={Longueur de la fenêtre STFT exprimée en millisecondes}
+}
+
+\newglossaryentry{hopms}{
+    type=parameters,
+    name={\texttt{hop\_ms}},
+    user1={scalaire},
+    sort=hopms,
+    description={Pas temporel entre deux fenêtres STFT consécutives, exprimé en millisecondes}
+}
+
+\newglossaryentry{ailength}{
+    type=parameters,
+    name={\texttt{Ai\_length}},
+    user1={entier},
+    sort=ailength,
+    description={Nombre de trames consécutives utilisées pour l'analyse locale d'amplitude dans la chaîne SST--SVD}
+}
+
+\newglossaryentry{mode}{
+    type=parameters,
+    name={\texttt{mode}},
+    user1={chaîne},
+    sort=mode,
+    description={Mode d'alignement de fenêtre, par exemple centré, causal inclusif, ou avant inclusif}
+}
+
+\newglossaryentry{sigma}{
+    type=parameters,
+    name={\texttt{sigma}},
+    user1={scalaire},
+    sort=sigma,
+    description={Paramètre d'écart-type de la fenêtre gaussienne utilisée dans la transformée SST}
+}
+
+\newglossaryentry{fracstable}{
+    type=parameters,
+    name={\texttt{frac\_stable}},
+    user1={scalaire},
+    sort=fracstable,
+    description={Fraction du signal utilisée pour définir la zone stable pendant l'étape d'apprentissage hors ligne}
+}
+
+\newglossaryentry{alphaLillie}{
+    type=parameters,
+    name={\texttt{alpha}},
+    user1={scalaire},
+    sort=alphaLillie,
+    description={Niveau de signification utilisé dans le test de normalité de Lilliefors au sein de la chaîne SST--SVD}
+}
+
+\newglossaryentry{zparam}{
+    type=parameters,
+    name={\texttt{z}},
+    user1={scalaire},
+    sort=zparam,
+    description={Nombre d'écarts-types, ou de multiples de MAD, utilisé pour définir le seuil de détection}
+}
+
+\newglossaryentry{fallbackmad}{
+    type=parameters,
+    name={\texttt{fallback\_mad}},
+    user1={booléen},
+    sort=fallbackmad,
+    description={Indicateur booléen précisant si le MAD est utilisé comme estimateur robuste lorsque la normalité est rejetée}
+}
+
+\newglossaryentry{samplesperwindow}{
+    type=parameters,
+    name={\texttt{samples\_per\_window}},
+    user1={entier},
+    sort=samplesperwindow,
+    description={Nombre d'échantillons contenus dans une fenêtre élémentaire de RMS}
+}
+
+\newglossaryentry{overlappct}{
+    type=parameters,
+    name={\texttt{overlap\_pct}},
+    user1={scalaire},
+    sort=overlappct,
+    description={Taux de recouvrement entre fenêtres RMS consécutives, compris entre 0 et 1}
+}
+
+\newglossaryentry{detrend}{
+    type=parameters,
+    name={\texttt{detrend}},
+    user1={booléen},
+    sort=detrend,
+    description={Indicateur booléen précisant si le signal est détendancié avant le calcul du RMS}
+}
+
+\newglossaryentry{padmode}{
+    type=parameters,
+    name={\texttt{pad\_mode}},
+    user1={chaîne},
+    sort=padmode,
+    description={Mode de prolongement utilisé lors du fenêtrage du signal}
+}
+
+\newglossaryentry{nmax}{
+    type=parameters,
+    name={\texttt{n\_max}},
+    user1={entier},
+    sort=nmax,
+    description={Nombre maximal de valeurs RMS conservées dans l'historique glissant utilisé pour calculer en ligne le coefficient de variation}
+}
+
+\newglossaryentry{nmincv}{
+    type=parameters,
+    name={\texttt{n\_min\_cv}},
+    user1={entier},
+    sort=nmincv,
+    description={Nombre minimal de valeurs RMS requis avant d'activer le suivi du coefficient de variation}
+}
+
+\newglossaryentry{useunbiasedstd}{
+    type=parameters,
+    name={\texttt{use\_unbiased\_std}},
+    user1={booléen},
+    sort=useunbiasedstd,
+    description={Indicateur booléen précisant si l'écart-type est calculé avec la correction de Bessel pour l'estimation du coefficient de variation}
+}
+
+\newglossaryentry{cvthreshold}{
+    type=parameters,
+    name={\texttt{cv\_threshold}},
+    user1={scalaire},
+    sort=cvthreshold,
+    description={Seuil d'alerte appliqué au coefficient de variation}
+}
+
+\newglossaryentry{rmsthreshold}{
+    type=parameters,
+    name={\texttt{rms\_threshold}},
+    user1={scalaire},
+    sort=rmsthreshold,
+    description={Seuil d'alerte appliqué à la valeur RMS}
+}
+
+\newglossaryentry{warmupignorealerts}{
+    type=parameters,
+    name={\texttt{warmup\_ignore\_alerts}},
+    user1={booléen},
+    sort=warmupignorealerts,
+    description={Indicateur booléen précisant si les alertes sont ignorées pendant la phase initiale de chauffe}
+}
+
+\newglossaryentry{fsrms}{
+    type=parameters,
+    name={\texttt{fs\_rms}},
+    user1={scalaire optionnel},
+    sort=fsrms,
+    description={Paramètre optionnel réservé à la fréquence d'échantillonnage de la séquence RMS}
+}
+
+
+
+% ------------------------------------------------
+% DOCUMENT
+% ------------------------------------------------
+\begin{document}
+
+\title{Chatter Criteria Parameter Definition}
+\author{}
+\date{}
+\maketitle
+
+\glsaddall
+
+\vspace{0.5em}
+\printglossary[type=symbols,style=symbstyle]
+
+\vspace{1em}
+
+
+\vspace{0.5em}
+\printglossary[type=parameters,style=paramstyle]
+
+
+\newpage
+
+\hypertarget{indice}{} % LInk para el index
+\tableofcontents
+
+
+\chapter{MaxEnt–SPRT Parameter Definition}
+
+Table~\ref{tab:parametres_maxent_sprt} summarizes the parameters used in the MaxEnt--SPRT pipeline.
+
+% \begin{landscape}
+
+\small
+\renewcommand{\arraystretch}{1.15}
+
+\begin{longtable}{
+        >{\ttfamily\small}p{2.7cm} 
+        p{7.7cm} 
+        >{\centering\arraybackslash}p{2.0cm} 
+        >{\centering\arraybackslash}p{2.5cm} 
+        >{\centering\arraybackslash}p{1.0cm}}
+
+\caption{Paramètres du modèle MaxEnt--SPRT}
+\label{tab:parametres_maxent_sprt} \\
+
+\toprule
+\textbf{Paramètre} & \textbf{Description} & \textbf{Type} & \textbf{Rôle} & \textbf{Unités} \\
+\midrule
+\endfirsthead
+
+\toprule
+\textbf{Paramètre} & \textbf{Description} & \textbf{Type} & \textbf{Rôle} & \textbf{Unités} \\
+\midrule
+\endhead
+
+\midrule
+\multicolumn{5}{r}{\textit{Suite à la page suivante}} \\
+\midrule
+\endfoot
+
+\bottomrule
+\endlastfoot
+
+% t\_analysis
+% & Vecteur temporel utilisé pour l'analyse (chronologie du signal original).
+% & np.ndarray & Donnée d'entrée & s \\
+
+% signal\_analysis
+% & Signal vibratoire mesuré (échantillons de réponse) utilisé pour le traitement.
+% & np.ndarray & Donnée d'entrée & -- \\
+
+% fs
+% & Fréquence d'échantillonnage du signal mesuré.
+% & float & Configuration & Hz \\
+
+rpm
+& Vitesse de rotation.
+& float & Configuration & tr/min \\
+
+ratio\_sampling
+& Rapport d'échantillonnage utilisé durant la phase de détection en ligne.
+& float & Détection en ligne & -- \\
+
+N\_seg
+& Nombre de révolutions par segment (segmentation du signal).
+& int & Segmentation & tours \\
+
+t\_stable\_total
+& Durée de la portion initiale stable (sans broutement) utilisée pour l'estimation MaxEnt.
+& float & Offline training & s \\
+
+t\_chatter
+& Durée (ou durée de délimitation) de la portion contenant le broutement utilisée utilisée pour l'estimation MaxEnt.
+& float & Offline training & s \\
+
+signal\_stable
+& Segment stable extrait utilisé pour l'estimation du modèle à entropie maximale.
+& np.ndarray & Offline training & -- \\
+
+signal\_chatter
+& Segment contenant le broutement utilisé pour l'estimation du modèle à entropie maximale.
+& np.ndarray & Offline training & -- \\
+
+alpha
+& Probabilité d'erreur de type I (taux de faux positifs).
+& float & Configuration & -- \\
+
+beta
+& Probabilité d'erreur de type II (taux de faux négatifs).
+& float & Configuration & -- \\
+
+reset\_on\_H0
+& Indicateur booléen permettant de réinitialiser la statistique SPRT lors de l'acceptation de $H_0$.
+& bool & Détection & -- \\
+
+\end{longtable}
+
+
+\section{Définition du \textit{window cost}}
+
+Soit $T_{\mathrm{rev}} > 0$ la période de révolution du système , définie comme l'inverse de la fréquence de rotation $f_{\mathrm{rev}}$ :
+\begin{equation}
+T_{\mathrm{rev}} = \frac{1}{f_{\mathrm{rev}}}.
+\end{equation}
+
+Soit également $N_{\mathrm{seg}} \in \mathbb{N}^{*}$ le nombre de révolutions agrégées dans une fenêtre élémentaire d'analyse. Dans le cadre du détecteur MaxEnt-SPRT considéré ici, l'information est échantillonnée selon une logique OPR (\textit{One-Per-Revolution}), c'est-à-dire qu'une seule observation scalaire est extraite par révolution. En conséquence, un segment d'analyse de taille $N_{\mathrm{seg}}$ contient exactement $N_{\mathrm{seg}}$ observations OPR successives.
+\medskip
+
+Le détecteur ne peut produire une première décision qu'après acquisition complète des données nécessaires à la construction des statistiques du segment. On définit donc le \textit{window cost} comme le temps minimal d'observation requis pour constituer une fenêtre d'analyse complète. Cette quantité s'écrit
+\begin{equation}
+T_{w} = N_{\mathrm{seg}}\, T_{\mathrm{rev}}.
+\label{eq:window_cost}
+\end{equation}
+
+La grandeur $T_w$ représente ainsi la latence minimale intrinsèque induite par le choix de la taille de fenêtre $N_{\mathrm{seg}}$.
+
+\section{Justification de l'expression du \textit{window cost}}
+
+Le détecteur MaxEnt-SPRT n'opère pas directement sur le signal continu brut, mais sur des statistiques construites à partir d'observations agrégées à l'échelle de la révolution. Plus précisément, si l'on note
+\begin{equation}
+x_k, \qquad k = 1,\dots,N_{\mathrm{seg}},
+\end{equation}
+les observations OPR successives associées à un segment donné, alors les quantités injectées dans le test séquentiel sont obtenues à partir de ces $N_{\mathrm{seg}}$ échantillons. Dans une formulation usuelle, il s'agit notamment d'estimateurs empiriques de la moyenne et de la variance, donnés par
+\begin{equation}
+\widehat{\mu}
+=
+\frac{1}{N_{\mathrm{seg}}}
+\sum_{k=1}^{N_{\mathrm{seg}}} x_k,
+\label{eq:mu_hat}
+\end{equation}
+et
+\begin{equation}
+\widehat{\sigma}^{2}
+=
+\frac{1}{N_{\mathrm{seg}}-1}
+\sum_{k=1}^{N_{\mathrm{seg}}}
+\left(x_k - \widehat{\mu}\right)^2.
+\label{eq:sigma_hat}
+\end{equation}
+
+Il en résulte qu'aucune décision ne peut être émise avant que l'ensemble des $N_{\mathrm{seg}}$ observations nécessaires ait été acquis. Or, chaque observation est obtenue après une révolution complète, de durée $T_{\mathrm{rev}}$. Le temps total requis pour disposer de $N_{\mathrm{seg}}$ observations est donc nécessairement égal à $N_{\mathrm{seg}}T_{\mathrm{rev}}$, ce qui justifie l'expression \eqref{eq:window_cost}.
+\medskip
+
+Cette relation met en évidence un compromis classique entre résolution temporelle et robustesse statistique :
+\begin{itemize}
+    \item une diminution de $N_{\mathrm{seg}}$ réduit la latence de détection, puisque $T_w$ décroît linéairement avec $N_{\mathrm{seg}}$;
+    \item en revanche, des fenêtres plus courtes conduisent à des estimateurs plus dispersés, donc à une plus forte variabilité des statistiques d'entrée du test ;
+    \item à l'inverse, une augmentation de $N_{\mathrm{seg}}$ améliore la stabilité des estimateurs \eqref{eq:mu_hat}--\eqref{eq:sigma_hat}, au prix d'une augmentation du délai de décision.
+\end{itemize}
+
+Le choix de $N_{\mathrm{seg}}$ relève ainsi d'un arbitrage entre rapidité de détection, stabilité statistique et maîtrise du taux de fausse alarme.
+\medskip
+
+
+On résume dans la Table \ref{tab:maxent_sprt_parameters_2} les principaux paramètres intervenant dans le détecteur MaxEnt-SPRT, ainsi que leur signification et leur influence qualitative sur les performances de détection.
+
+\begin{table}[!ht]
+\centering
+\caption{Principaux paramètres influençant directement la fenêtre d'observation ou la latence associée du détecteur MaxEnt-SPRT, leur définition et leur influence qualitative sur les performances de détection.}
+\label{tab:maxent_sprt_parameters_2}
+\begin{tabularx}{\textwidth}{|l|>{\raggedright\arraybackslash}X|>{\raggedright\arraybackslash}X|}
+\hline
+\textbf{Paramètre} & \textbf{Définition} & \textbf{Influence sur le détecteur} \\
+\hline
+$N_{\mathrm{seg}}$ & Nombre de révolutions agrégées dans une fenêtre élémentaire d'analyse. & Une augmentation de $N_{\mathrm{seg}}$ améliore la stabilité des estimateurs statistiques, mais accroît proportionnellement la latence de décision. Le \textit{window cost} varie linéairement avec ce paramètre selon $T_w = N_{\mathrm{seg}} T_{\mathrm{rev}}$. \\
+\hline
+$t_{\mathrm{stable,total}}$ & Durée totale de la portion de signal utilisée pour l'apprentissage hors ligne, supposée représentative du régime nominal et exempte de chatter. & Une valeur trop faible limite la quantité de données disponibles pour estimer les statistiques de référence, ce qui peut dégrader la robustesse du modèle. Une valeur plus élevée améliore en général la qualité de l'estimation, à condition que la zone retenue soit effectivement stable. \\
+\hline
+$\alpha_{\mathrm{SPRT}}$ & Probabilité cible d'erreur de type I du test séquentiel, c'est-à-dire probabilité de fausse alarme. & Une augmentation de $\alpha_{\mathrm{SPRT}}$ rend le détecteur plus permissif vis-à-vis de l'hypothèse alternative, ce qui tend à réduire le délai de détection mais à accroître le taux de fausse alarme. \\
+\hline
+$\beta$ & Probabilité cible d'erreur de type II du test séquentiel, c'est-à-dire probabilité de non-détection. & Ce paramètre contrôle la propension du test à manquer une déviation réelle. En combinaison avec $\alpha_{\mathrm{SPRT}}$, il fixe les seuils de décision du SPRT et structure le compromis entre sensibilité et robustesse. \\
+\hline
+\end{tabularx}
+\end{table}
+
+\section{Pilotage en fonction du nombre de cycles d'oscillation}
+
+Afin de donner une interprétation physique au paramètre $N_{\mathrm{seg}}$, il est naturel de le relier au nombre de cycles de la dynamique modale contenus dans une fenêtre d'analyse.
+
+Soit $f_{\mathrm{modal}} > 0$ la fréquence modale de référence, et soit
+\begin{equation}
+T_{\mathrm{modal}} = \frac{1}{f_{\mathrm{modal}}}
+\end{equation}
+la période associée. De même, la période de révolution s'écrit
+\begin{equation}
+T_{\mathrm{rev}} = \frac{1}{f_{\mathrm{rev}}}.
+\end{equation}
+
+Si l'on souhaite qu'une fenêtre d'analyse couvre au moins $n_{\mathrm{cyc}}^{\mathrm{seg}} \in \mathbb{N}^{*}$ cycles modaux, alors le nombre minimal de révolutions devant être agrégées est donné par
+\begin{equation}
+N_{\mathrm{seg}}\!\left(n_{\mathrm{cyc}}^{\mathrm{seg}}\right)
+=
+\left\lceil
+n_{\mathrm{cyc}}^{\mathrm{seg}} \,\frac{T_{\mathrm{modal}}}{T_{\mathrm{rev}}}
+\right\rceil
+=
+\left\lceil
+n_{\mathrm{cyc}}^{\mathrm{seg}} \,\frac{f_{\mathrm{rev}}}{f_{\mathrm{modal}}}
+\right\rceil.
+\label{eq:nseg_modal}
+\end{equation}
+
+Finalement le \textit{window cost} associé à une fenêtre couvrant au moins $n_{\mathrm{cyc}}^{\mathrm{seg}}$ cycles modaux s'écrit
+\begin{equation}
+T_w
+=
+\left\lceil
+n_{\mathrm{cyc}}^{\mathrm{seg}}
+\frac{f_{\mathrm{rev}}}{f_{\mathrm{modal}}}
+\right\rceil
+T_{\mathrm{rev}}
+=
+\frac{1}{f_{\mathrm{rev}}}
+\left\lceil
+n_{\mathrm{cyc}}^{\mathrm{seg}}
+\frac{f_{\mathrm{rev}}}{f_{\mathrm{modal}}}
+\right\rceil.
+\end{equation}
+
+
+% L'expression \eqref{eq:nseg_modal} découle directement du fait qu'une révolution de durée $T_{\mathrm{rev}}$ contient en moyenne
+% \begin{equation}
+% \frac{T_{\mathrm{rev}}}{T_{\mathrm{modal}}}
+% =
+% \frac{f_{\mathrm{modal}}}{f_{\mathrm{rev}}}
+% \label{eq:cycles_per_rev}
+% \end{equation}
+% cycles modaux. Réciproquement, le nombre de révolutions nécessaires pour couvrir un cycle modal vaut
+% \begin{equation}
+% \frac{T_{\mathrm{modal}}}{T_{\mathrm{rev}}}
+% =
+% \frac{f_{\mathrm{rev}}}{f_{\mathrm{modal}}}.
+% \label{eq:rev_per_cycle}
+% \end{equation}
+
+% Ainsi, pour couvrir $n_{\mathrm{cyc}}^{\mathrm{seg}}$ cycles modaux, il faut au minimum
+% $n_{\mathrm{cyc}}^{\mathrm{seg}}\,f_{\mathrm{rev}}/f_{\mathrm{modal}}$ révolutions
+
+\section{Application au cas étudié}
+
+Dans le cas d’étude considéré, on prend :
+\begin{equation}
+f_{\mathrm{modal}} = 150~\mathrm{Hz},
+\qquad
+\mathrm{rpm} = 12000.
+\end{equation}
+
+La fréquence de rotation associée est :
+\begin{equation}
+f_{\mathrm{rev}}=\frac{\mathrm{rpm}}{60}
+=\frac{12000}{60}
+=200~\mathrm{Hz}.
+\end{equation}
+
+On fixe comme hypothèse de calcul :
+\begin{equation}
+n_{\mathrm{cyc}}^{\mathrm{seg}} = 5
+\end{equation}
+c’est-à-dire que chaque fenêtre temporelle doit contenir 5 cycles modaux.
+
+Le rapport entre fréquence de rotation et fréquence modale vaut alors :
+\begin{equation}
+\frac{f_{\mathrm{rev}}}{f_{\mathrm{modal}}}
+=
+\frac{200}{150}
+=
+1.33.
+\end{equation}
+
+En appliquant la relation :
+\begin{equation}
+T_w
+=
+\left\lceil
+n_{\mathrm{cyc}}^{\mathrm{seg}}
+\frac{f_{\mathrm{rev}}}{f_{\mathrm{modal}}}
+\right\rceil
+T_{\mathrm{rev}},
+\end{equation}
+on obtient :
+\begin{equation}
+T_w
+=
+\left\lceil
+5\times1.33
+\right\rceil
+\times
+\frac{1}{200}.
+\end{equation}
+
+Comme
+\begin{equation}
+5\times1.33 = 6.67
+\qquad\Rightarrow\qquad
+\left\lceil 6.67 \right\rceil = 7,
+\end{equation}
+il vient :
+\begin{equation}
+T_w = 7\times \frac{1}{200}
+= 0.035~\mathrm{s}.
+\end{equation}
+
+Ainsi, la fenêtre temporelle retenue correspond à :
+\begin{equation}
+T_w = 35~\mathrm{ms},
+\end{equation}
+soit une durée couvrant 7 révolutions, garantissant au moins 5 cycles modaux.
+
+\section{Implémentation associée}
+
+Une implémentation directe de l'équation \eqref{eq:nseg_modal} peut être formulée de la manière suivante :
+
+\begin{codeboxpro}
+def compute_nseg(n_cyc_seg, f_rev, f_modal):
+    return math.ceil(n_cyc_seg * (f_rev / f_modal))
+\end{codeboxpro}
+
+Dans le cas particulier défini par \eqref{eq:f_rev_case}, cela revient à écrire
+\begin{codeboxpro}
+N_seg = math.ceil(n_cycles * 200 / 150)
+\end{codeboxpro}
+
+% \section{Interprétation physique}
+
+% La relation \eqref{eq:nseg_case} montre que le paramètre $N_{\mathrm{seg}}$ possède une signification physique immédiate : il correspond au nombre de révolutions qu'il faut agrégerpour observer au moins $n_{\mathrm{cyc}}^{\mathrm{seg}}$ cycles de la dynamique modale de fréquence $150$~Hz. En pratique, cela signifie qu'un cycle modal requiert environ $1.33$ révolution, et que l'observation de $n$ cycles modaux nécessite donc environ $1.33\,n$ révolutions.
+
+% Dès lors, le balayage de $N_{\mathrm{seg}}$ dans un espace de recherche donné revient à explorer des fenêtres d'analyse de contenu dynamique croissant. Par exemple, si l'on considère
+% \begin{equation}
+% N_{\mathrm{seg}} \in \{1,\dots,200\},
+% \end{equation}
+% alors le nombre de cycles modaux couverts varie approximativement entre
+% \begin{equation}
+% \frac{1}{1.33} \approx 0.75
+% \qquad \text{et} \qquad
+% \frac{200}{1.33} \approx 150.
+% \end{equation}
+
+% Ainsi, l'exploration de $N_{\mathrm{seg}}$ entre $1$ et $200$ revient à balayer des fenêtres couvrant approximativement de $0.75$ à $150$ cycles modaux. Dans un cadre d'optimisation multiobjectif, par exemple via une analyse de front de Pareto, ce paramètre permet d'identifier la plus petite fenêtre compatible avec les exigences simultanées de délai de détection, de taux de fausse alarme et de stabilité statistique.
+
+
+
+
+
+
+
+
+
+
+
+% \end{landscape}
+
+% \newpage
+% ============================================
+
+\chapter{SST-SVD Parameter Definition}
+
+Table~\ref{tab:parametres_sst_svd} summarizes the parameters used in the SST--SVD pipeline.
+
+\small
+\renewcommand{\arraystretch}{1.15}
+
+\begin{longtable}{
+    >{\ttfamily\small}p{2.7cm} 
+    p{7.5cm} 
+    >{\centering\arraybackslash}p{2.0cm} 
+    >{\centering\arraybackslash}p{2.5cm} 
+    >{\centering\arraybackslash}p{1.0cm}}
+
+\caption{Paramètres du pipeline SST--SVD }
+\label{tab:parametres_sst_svd} \\
+
+\toprule
+\textbf{Paramètre} & \textbf{Description} & \textbf{Type} & \textbf{Rôle} & \textbf{Unités} \\
+\midrule
+\endfirsthead
+
+\toprule
+\textbf{Paramètre} & \textbf{Description} & \textbf{Type} & \textbf{Rôle} & \textbf{Unités} \\
+\midrule
+\endhead
+
+\midrule
+\multicolumn{5}{r}{\textit{Suite à la page suivante}} \\
+\midrule
+\endfoot
+
+\bottomrule
+\endlastfoot
+
+
+
+% t\_analysis
+% & Vecteur temporel utilisé pour l'analyse (chronologie du signal).
+% & np.ndarray & Donnée d'entrée & s \\
+
+% signal\_analysis
+% & Signal vibratoire mesuré (échantillons) utilisé pour le calcul STFT et SST.
+% & np.ndarray & Donnée d'entrée & -- \\
+
+% fs
+% & Fréquence d'échantillonnage associée à \texttt{signal\_analysis}.
+% & float & Configuration & Hz \\
+
+n\_fft\_power
+& Puissance de 2 définissant la taille FFT :
+\(n_{\mathrm{fft}} = 1024 \cdot 2^{n\_fft\_power}\).
+& int & Configuration T-F & -- \\
+
+win\_length\_ms
+& Longueur de fenêtre (ms) pour l'analyse STFT (compromis résolution temps / fréquence).
+& float & Configuration T-F & ms \\
+
+hop\_ms
+& Pas temporel (ms) entre fenêtres successives.
+& float & Configuration T-F & ms \\
+
+Ai\_length
+& Largeur  de la fenêtre locale extraite dans la représentation temps--fréquence pour l'analyse SVD.
+& int & Analyse locale & échan \\
+
+mode
+& Mode d'alignement de la fenêtre : centré, causal inclusif  or forward inclusive.
+& str & Alignement fenêtre & -- \\
+
+sigma
+& Standard deviation parameter for the Gaussian window, used to compute sigma samples.
+& float & Transformation SST & -- \\
+
+frac\_stable
+& Fraction seuil utilisée dans le test de normalité de Lilliefors pour définir la région stable.
+& float & Offline trainning & -- \\
+
+alpha
+& Significance level for the Lilliefors normality test.
+& float & Détection statistique & -- \\
+
+z
+& Number of standard deviations (or MAD multiples) for threshold calculation. Typical value is 3.0.
+& float & Seuil de détection & -- \\
+
+fallback\_mad
+& Si vrai, utilise la MAD (Median Absolute Deviation) comme estimateur robuste lorsque la normalité est rejetée.
+& bool & Robustesse & -- \\
+
+\end{longtable}
+
+
+
+\section{Définition du \textit{window cost}}
+
+L'indicateur SST-SVD repose sur une représentation temps--fréquence obtenue à l'aide d'une transformée de Fourier à court terme (\textit{Short-Time Fourier Transform}, STFT), suivie d'une opération de \textit{synchrosqueezing}. Le signal est analysé au moyen d'une fenêtre glissante \(w\)   correspondant au paramètre \texttt{win\_length\_ms}  de durée
+
+\begin{equation}
+w > 0,
+\end{equation}
+et deux fenêtres successives sont séparées par un pas temporel, ou \textit{hop} correspondant au paramètre \texttt{hop\_ms},
+\begin{equation}
+h > 0.
+\end{equation}
+
+Le détecteur n'exploite pas un seul \textit{frame} temps--fréquence, mais une séquence de
+\begin{equation}
+n_A = \texttt{Ai\_length} \in \mathbb{N}^{*}
+\end{equation}
+\textit{frames} consécutifs afin d'estimer l'évolution de l'amplitude modale instantanée et de la comparer à une référence nominale. Le \textit{window cost} correspond alors au support temporel total nécessaire pour disposer de ces $n_A$ \textit{frames} consécutifs. Il est donné par
+\begin{equation}
+T_w = w + (n_A-1)\,h.
+\label{eq:sst_window_cost}
+\end{equation}
+
+La quantité $T_w$ représente ainsi la durée minimale d'observation requise pour former une décision à partir de la dynamique temps--fréquence considérée.
+
+\section{Justification de l'expression du \textit{window cost}}
+
+Considérons un instant initial $t_0$. Le premier \textit{frame} de la STFT couvre l'intervalle temporel
+\begin{equation}
+[t_0,\; t_0 + w].
+\end{equation}
+Le deuxième \textit{frame}, décalé de $h$, couvre quant à lui
+\begin{equation}
+[t_0 + h,\; t_0 + h + w].
+\end{equation}
+Plus généralement, le $k$-ième \textit{frame}, pour $k \in \{1,\dots,n_A\}$, est supporté sur l'intervalle
+\begin{equation}
+[t_0 + (k-1)h,\; t_0 + (k-1)h + w].
+\label{eq:frame_support_sst}
+\end{equation}
+
+En particulier, le dernier \textit{frame}, c'est-à-dire le $n_A$-ième, couvre
+\begin{equation}
+[t_0 + (n_A-1)h,\; t_0 + (n_A-1)h + w].
+\end{equation}
+
+Le support temporel total de l'ensemble des $n_A$ \textit{frames} successifs s'étend donc depuis le début du premier \textit{frame}, situé en $t_0$, jusqu'à la fin du dernier, située en $t_0 + (n_A-1)h + w$. La durée correspondante vaut alors
+\begin{equation}
+\bigl(t_0 + (n_A-1)h + w\bigr) - t_0 = w + (n_A-1)h,
+\end{equation}
+ce qui justifie directement l'équation \eqref{eq:sst_window_cost}.
+\medskip
+
+Cette relation met en évidence un compromis entre réactivité et robustesse :
+\begin{itemize}
+    \item lorsque $n_A$ augmente, l'estimation de l'amplitude modale bénéficie d'un lissage temporel accru, ce qui tend à réduire la variabilité instantanée et donc le taux de fausse alarme ;
+    \item en contrepartie, le délai minimal avant décision croît linéairement avec $(n_A-1)h$ ;
+    \item de même, une augmentation de la durée de fenêtre $w$ améliore généralement la résolution fréquentielle, mais accroît également le support temporel nécessaire à l'analyse.
+\end{itemize}
+\medskip
+
+Ainsi, le \textit{window cost} associé à l'indicateur SST-SVD résulte à la fois de la durée intrinsèque des \textit{frames} STFT et de l'agrégation temporelle utilisée pour stabiliser la détection.
+\medskip
+
+
+On résume ci-dans la Table \ref{tab:sst_svd_parameters_2} les principaux paramètres de l'indicateur SST-SVD, leur signification et leur influence qualitative sur les performances de détection.
+
+\begin{table}[h]
+\centering
+\caption{Principaux paramètres influençant directement la fenêtre d'observation ou la latence associée de l'indicateur SST-SVD, leur définition et leur influence qualitative sur les performances de détection.}
+\label{tab:sst_svd_parameters_2}
+\begin{tabularx}{\textwidth}{|l|>{\raggedright\arraybackslash}X|>{\raggedright\arraybackslash}X|}
+\hline
+\textbf{Paramètre} & \textbf{Définition} & \textbf{Influence sur le détecteur} \\
+\hline
+\texttt{win\_length\_ms} (w) & Durée de la fenêtre d'analyse utilisée dans la STFT, exprimée en millisecondes. & Une augmentation de cette durée améliore la résolution fréquentielle et facilite la séparation de la fréquence modale d'intérêt, au prix d'une dégradation de la résolution temporelle et d'une augmentation du \textit{window cost}. \\
+\hline
+\texttt{hop\_ms} (h) & Pas d'avancement temporel entre deux \textit{frames} consécutifs de la STFT, exprimé en millisecondes. & Une diminution de ce paramètre accroît la densité temporelle du spectrogramme et améliore le suivi temporel, mais augmente le coût de traitement. Dans l'espace de recherche considéré, il est choisi comme une fraction de la longueur de fenêtre. \\
+\hline
+\texttt{Ai\_length} ($n_A$) & Nombre de \textit{frames} consécutifs utilisés pour l'analyse de l'amplitude modale instantanée. & Une augmentation de ce paramètre introduit un lissage temporel plus marqué, ce qui tend à réduire le taux de fausse alarme, mais accroît la latence via la relation $T_w = w + (n_A-1)h$. \\
+\hline
+% \texttt{frac\_stable} & Fraction de la durée totale du signal utilisée pour estimer la ligne de base stable. & Une augmentation de cette fraction améliore en général la robustesse de l'estimation de référence, sous réserve que la portion retenue soit effectivement représentative du régime nominal. \\
+% \hline
+% \texttt{n\_fft\_power} & Exposant définissant la taille de transformée fréquentielle selon la relation $n_{\mathrm{fft}} = 1024 \times 2^{\texttt{n\_fft\_power}}$. & Une augmentation de ce paramètre affine l'échantillonnage fréquentiel du spectre et peut améliorer la séparation spectrale, au prix d'un coût de calcul plus élevé. \\
+% \hline
+\end{tabularx}
+\end{table}
+
+\section{Pilotage en fonction du nombre de cycles d'oscillation}
+
+Afin de donner une interprétation physique aux paramètres temporels de la STFT, il est naturel de les exprimer en fonction de la période modale caractéristique. Soit $f_{\mathrm{modal}} > 0$ la fréquence modale d'intérêt. On définit la période modale associée par
+\begin{equation}
+T_{\mathrm{modal}} = \frac{1}{f_{\mathrm{modal}}}.
+\label{eq:t_modal_sst}
+\end{equation}
+
+Dans le cas considéré, on prend
+\begin{equation}
+f_{\mathrm{modal}} = 150~\mathrm{Hz},
+\end{equation}
+d'où
+\begin{equation}
+T_{\mathrm{modal}} = \frac{1}{150}~\mathrm{s} \approx 6.67~\mathrm{ms}.
+\label{eq:t_modal_667}
+\end{equation}
+
+L'espace de recherche est construit de telle sorte que la longueur de fenêtre STFT corresponde directement à un nombre entier de cycles modaux. Si l'on note $n_{\mathrm{cyc}}^{\mathrm{STFT}} \in \mathbb{N}^{*}$ le nombre de cycles modaux contenus dans la fenêtre, alors:
+
+\begin{equation}
+w = n_{\mathrm{cyc}}^{\mathrm{STFT}}\, T_{\mathrm{modal}}.
+\label{eq:win_cycles_sst}
+\end{equation}
+
+En millisecondes, cette relation s'écrit
+\begin{equation}
+w_{\mathrm{ms}} = n_{\mathrm{cyc}}^{\mathrm{STFT}}\, T_{\mathrm{modal}} \times 10^{3}.
+\label{eq:win_cycles_ms}
+\end{equation}
+
+De même, le pas d'avancement temporel est défini comme une fraction $f_h$ de la longueur de fenêtre :
+\begin{equation}
+h = f_h\, w,
+\label{eq:hop_fraction}
+\end{equation}
+avec, dans l'implémentation considérée,
+\begin{equation}
+f_h \in \{0.25,\;0.33,\;0.50\}.
+\label{eq:hop_values}
+\end{equation}
+
+En millisecondes, on obtient donc
+\begin{equation}
+h_{\mathrm{ms}} = f_h\, w_{\mathrm{ms}} = f_h\, n_{\mathrm{cyc}}^{\mathrm{STFT}}\, T_{\mathrm{modal}} \times 10^{3}.
+\label{eq:hop_ms}
+\end{equation}
+
+Le recouvrement entre deux fenêtres successives vaut alors
+\begin{equation}
+1-f_h,
+\end{equation}
+ce qui correspond, pour les valeurs \eqref{eq:hop_values}, à des recouvrements de $75\,\%$, $67\,\%$ et $50\,\%$.
+\medskip
+
+Finalement le \textit{window cost} associé à une fenêtre couvrant au moins $n_{\mathrm{cyc}}^{\mathrm{seg}}$ cycles modaux s'écrit
+\begin{equation}
+    T_w = w + (n_A-1)\,h
+    = n_{\mathrm{cyc}}^{\mathrm{STFT}}T_{\mathrm{modal}}
+      \left[1+(n_A-1)f_h\right].
+      \label{eq:sst_window_cost_n_cyc}
+\end{equation}
+
+\section{Justification physique du choix de la fenêtre STFT}
+
+La STFT impose un compromis classique entre localisation temporelle et résolution fréquentielle. Pour qu'une composante oscillatoire de fréquence $f_{\mathrm{modal}}$ soit correctement résolue dans le domaine fréquentiel, la fenêtre d'analyse doit contenir plusieurs périodes de cette composante. En pratique, une règle couramment retenue consiste à imposer que la fenêtre contienne au moins deux à quatre cycles de l'oscillation modale. Dans le cadre du présent indicateur, l'exploration est élargie et le nombre de cycles de la fenêtre est traité comme une variable de recherche
+\begin{equation}
+n_{\mathrm{cyc}}^{\mathrm{STFT}} \in \{1,\dots,200\}.
+\end{equation}
+
+Cette paramétrisation permet d'explorer des fenêtres très courtes, favorables à la réactivité, ainsi que des fenêtres plus longues, offrant une meilleure séparation fréquentielle.
+
+\section{Application au cas d'étude}
+
+Pour la fréquence modale considérée,
+\begin{equation}
+f_{\mathrm{modal}} = 150~\mathrm{Hz},
+\qquad
+T_{\mathrm{modal}}=\frac{1}{f_{\mathrm{modal}}}
+\approx 6.67~\mathrm{ms}.
+\end{equation}
+
+On fixe ici une fenêtre STFT couvrant 5 cycles modaux :
+\begin{equation}
+n_{\mathrm{cyc}}^{\mathrm{STFT}}=5.
+\end{equation}
+
+D'après \eqref{eq:win_cycles_ms}, la durée de fenêtre élémentaire vaut alors
+\begin{equation}
+w
+=
+n_{\mathrm{cyc}}^{\mathrm{STFT}}T_{\mathrm{modal}}
+=
+5\times6.67
+\approx 33.3~\mathrm{ms}.
+\label{eq:win_case}
+\end{equation}
+
+On considère ensuite :
+\begin{equation}
+n_A = 3,
+\qquad
+f_h = 50\% = 0.5.
+\end{equation}
+
+La durée totale d’observation utilisée pour l’agrégation temporelle est  definie dans l'équation \eqref{eq:sst_window_cost_n_cyc} :
+\begin{equation*}
+T_w = w + (n_A-1)\,h
+=
+n_{\mathrm{cyc}}^{\mathrm{STFT}}T_{\mathrm{modal}}
+\left[1+(n_A-1)f_h\right].
+\end{equation*}
+
+En remplaçant par les valeurs numériques :
+\begin{equation}
+T_w
+=
+5\times6.67
+\left[1+(3-1)\times0.5\right].
+\end{equation}
+
+Comme
+\begin{equation}
+1+(3-1)\times0.5 = 2,
+\end{equation}
+on obtient :
+\begin{equation}
+T_w \approx 33.3\times2 = 66.7~\mathrm{ms}.
+\end{equation}
+
+Ainsi, bien que chaque fenêtre STFT élémentaire couvre 5 cycles modaux, l’agrégation sur 3 fenêtres avec un recouvrement de 50\% conduit à une durée effective totale d’analyse de :
+\begin{equation}
+T_w \approx 66.7~\mathrm{ms}.
+\end{equation}
+
+Ce choix constitue un compromis robuste entre résolution fréquentielle, continuité temporelle et stabilité de l’estimation de l’amplitude modale.
+
+Par ailleurs, si l'on fixe
+\begin{equation}
+n_{\mathrm{fft}} = 1024,
+\end{equation}
+la discrétisation fréquentielle est donnée par
+\begin{equation}
+\Delta f = \frac{f_s}{n_{\mathrm{fft}}},
+\label{eq:delta_f_sst}
+\end{equation}
+où $f_s$ désigne la fréquence d'échantillonnage. Pour les conditions d'acquisition considérées, cette configuration conduit à une résolution fréquentielle de l'ordre de
+\begin{equation}
+\Delta f \approx 50~\mathrm{Hz},
+\end{equation}
+ce qui reste suffisant pour isoler la composante modale visée et la distinguer des composantes voisines.
+
+Enfin, le paramètre \texttt{Ai\_length}, ici fixé à $n_A=3$, permet de lisser la détection sur plusieurs trames successives. Le détecteur ne repose donc pas sur une seule observation spectrale instantanée, mais sur une accumulation temporelle plus stable, limitant ainsi les fluctuations parasites et les fausses alarmes.
+
+\section{Implémentation associée}
+
+L'espace de recherche conjoint sur la longueur de fenêtre et le pas d'avancement est généré selon la logique suivante :
+
+\begin{codeboxpro}
+win_hop_pairs = [
+    (n_cyc_stft * T_modal * 1000,              # win_ms = n_cyc_stft cycles
+     n_cyc_stft * T_modal * 1000 * f_h)        # hop_ms = fraction f_h of win
+    for n_cyc_stft in range(1, 201)
+    for f_h in [0.25, 0.33, 0.50]
+]
+\end{codeboxpro}
+
+Mathématiquement, cette implémentation revient à construire les couples
+\begin{equation}
+\left(w_{\mathrm{ms}},\, h_{\mathrm{ms}}\right)
+=
+\left(
+n_{\mathrm{cyc}}^{\mathrm{STFT}}\,T_{\mathrm{modal}}\times 10^{3},
+\;
+f_h\,n_{\mathrm{cyc}}^{\mathrm{STFT}}\,T_{\mathrm{modal}}\times 10^{3}
+\right),
+\end{equation}
+pour
+\begin{equation}
+n_w \in \{1,\dots,200\},
+\qquad
+f_h \in \{0.25,\;0.33,\;0.50\}.
+\end{equation}
+
+Ainsi, la longueur de fenêtre est directement indexée par un nombre entier de cycles modaux, tandis que le \textit{hop} est défini comme une fraction fixe de cette fenêtre. Cette construction assure une cohérence physique immédiate du paramétrage : chaque point de l'espace de recherche correspond à une fenêtre STFT couvrant un nombre explicite de cycles de la dynamique modale, avec un niveau de recouvrement parfaitement contrôlé.
+
+\section{Interprétation physique}
+
+Le paramétrage de l'indicateur SST-SVD peut donc être interprété directement en termes de contenu oscillatoire observé. La durée de fenêtre \texttt{win\_length\_ms} fixe le nombre de cycles modaux effectivement présents dans chaque \textit{frame} STFT, tandis que \texttt{hop\_ms} contrôle le recouvrement entre \textit{frames} successifs et donc la finesse du suivi temporel. Le paramètre \texttt{Ai\_length} détermine quant à lui le nombre de \textit{frames} agrégés pour stabiliser l'estimation de l'amplitude modale.
+\medskip
+
+Ainsi, l'espace de recherche conjoint sur \texttt{win\_length\_ms}, \texttt{hop\_ms} et \texttt{Ai\_length} ne doit pas être vu comme un simple réglage numérique, mais comme une exploration structurée du compromis entre :
+\begin{itemize}
+    \item la résolution fréquentielle de la composante modale ;
+    \item la réactivité temporelle de la détection ;
+    \item la stabilité de l'indicateur extrait ;
+    \item la robustesse vis-à-vis des fluctuations locales et des fausses alarmes.
+\end{itemize}
+\medskip
+
+Dans cette perspective, l'analyse multiobjectif permet d'identifier les combinaisons minimales de durée de fenêtre, de recouvrement et de lissage temporel assurant simultanément une séparation spectrale suffisante, une latence compatible avec l'application visée et un niveau acceptable de robustesse statistique.
+
+% ============================================
+
+\chapter{RMS-CV Parameter Definition}
+
+Table~\ref{tab:parametres_rms_cv} summarizes the parameters used in the RMS-CV pipeline.
+
+\small
+\renewcommand{\arraystretch}{1.15}
+
+\begin{longtable}{
+        >{\ttfamily\small}p{3.7cm} 
+        p{7.3cm} 
+        >{\centering\arraybackslash}p{1.5cm} 
+        >{\centering\arraybackslash}p{2.5cm} 
+        >{\centering\arraybackslash}p{1.0cm}}
+
+\caption{Paramètres du pipeline RMS--CV}
+\label{tab:parametres_rms_cv} \\
+
+\toprule
+\textbf{Paramètre} & \textbf{Description} & \textbf{Type} & \textbf{Rôle} & \textbf{Unités} \\
+\midrule
+\endfirsthead
+
+\toprule
+\textbf{Paramètre} & \textbf{Description} & \textbf{Type} & \textbf{Rôle} & \textbf{Unités} \\
+\midrule
+\endhead
+
+\midrule
+\multicolumn{5}{r}{\textit{Suite à la page suivante}} \\
+\midrule
+\endfoot
+
+\bottomrule
+\endlastfoot
+
+% t\_analysis
+% & Vecteur temporel utilisé pour le suivi en ligne.
+% & np.ndarray & Donnée d'entrée & s \\
+
+% signal\_analysis
+% & Signal vibratoire mesuré utilisé pour le calcul RMS et l'analyse CV.
+% & np.ndarray & Donnée d'entrée & -- \\
+
+% fs
+% & Fréquence d'échantillonnage du signal.
+% & float & Configuration & Hz \\
+
+samples\_per\_window
+& Nombre d'échantillons par fenêtre pour le calcul RMS (fenêtrage glissant).
+& int & Calcul RMS & échan \\
+
+overlap\_pct
+& Pourcentage de recouvrement entre fenêtres RMS successives (0–1).
+& float & Fenêtrage & -- \\
+
+detrend
+& Indique si le signal est détrendé avant le calcul RMS.
+& bool & Pré-traitement & -- \\
+
+pad\_mode
+& Mode de complétion utilisé lors du fenêtrage.
+& str & Pré-traitement & -- \\
+
+n\_max
+& Nombre maximal d'échantillons utilisés dans la fenêtre glissante pour le calcul du CV en ligne.
+& int & Surveillance CV & échan \\
+
+n\_min\_cv
+& Nombre minimal d'échantillons requis avant activation du suivi CV.
+& int & Surveillance CV & échan \\
+
+use\_unbiased\_std
+& Indique si l'écart-type est estimé avec correction de Bessel (\(N-1\)) pour le calcul du CV.
+& bool & Calcul statistique & -- \\
+
+cv\_threshold
+& Seuil d'alerte basé sur le coefficient de variation.
+& float & Seuil de détection & -- \\
+
+rms\_threshold
+& Seuil d'alerte basé sur la valeur RMS.
+& float & Seuil de détection & -- \\
+
+warmup\_ignore\_alerts
+& Indique si les alertes sont ignorées durant la phase initiale d'échauffement.
+& bool & Logique de détection & -- \\
+
+fs\_rms
+& Paramètre réservé pour la fréquence d'échantillonnage RMS (optionnel).
+& float & Configuration & Hz \\
+
+\end{longtable}
+
+
+
+% \section{Définition du \textit{window cost} et paramétrisation de l'indicateur RMS-CV}
+
+\section{Définition du \textit{window cost}}
+
+L'indicateur considéré repose sur le calcul d'une séquence glissante de valeurs RMS (\textit{Root Mean Square}) obtenues à partir de fenêtres temporelles de longueur fixe. Soit
+\begin{equation}
+N \in \mathbb{N}^{*}
+\end{equation}
+le nombre d'échantillons contenus dans une fenêtre RMS, et soit
+\begin{equation}
+f_s > 0
+\end{equation}
+la fréquence d'échantillonnage du signal. La durée d'une fenêtre RMS élémentaire est alors donnée par
+\begin{equation}
+T_{\mathrm{RMS}} = \frac{N}{f_s}.
+\label{eq:t_rms}
+\end{equation}
+
+Les fenêtres RMS successives sont construites avec un taux de recouvrement correspondant au paramètre \texttt{overlap\_pct}
+
+\begin{equation}
+\rho \in [0,1),
+\end{equation}
+où $\rho$ désigne l'\textit{overlap}. Le pas temporel séparant deux fenêtres RMS consécutives vaut donc
+\begin{equation}
+\Delta t_{\mathrm{RMS}} = T_{\mathrm{RMS}}(1-\rho).
+\label{eq:dt_rms}
+\end{equation}
+
+L'indicateur de détection ne s'appuie pas sur une seule valeur RMS, mais sur les
+\begin{equation}
+n_{\max} \in \mathbb{N}^{*}
+\end{equation}
+dernières valeurs RMS mémorisées afin de calculer un coefficient de variation, défini comme le rapport entre l'écart-type et la moyenne de cette séquence. Le \textit{window cost} correspond alors au support temporel total couvert par les $n_{\max}$ fenêtres RMS nécessaires à la première évaluation complète du moniteur. On obtient ainsi
+\begin{equation}
+T_w = T_{\mathrm{RMS}} + (n_{\max}-1,0)\,\Delta t_{\mathrm{RMS}}.
+\label{eq:tw_rms_cv_general}
+\end{equation}
+
+Comme $n_{\max}\geq 1$, cette relation s'écrit équivalemment
+\begin{equation}
+T_w = T_{\mathrm{RMS}} + (n_{\max}-1)\,\Delta t_{\mathrm{RMS}}.
+\label{eq:tw_rms_cv}
+\end{equation}
+
+En remplaçant $\Delta t_{\mathrm{RMS}}$ par son expression \eqref{eq:dt_rms}, on obtient
+\begin{equation}
+T_w = T_{\mathrm{RMS}} + (n_{\max}-1)\,\Delta t_{\mathrm{RMS}} = 
+\frac{N}{f_s}
+\bigl[1+(n_{\max}-1)(1-\rho)\bigr].
+\label{eq:rms_window_cost}
+\end{equation}
+
+La grandeur $T_w$ représente donc la durée minimale d'observation requise pour disposer d'un historique RMS suffisant afin d'évaluer le coefficient de variation sur la profondeur mémoire imposée par $n_{\max}$.
+
+\section{Justification de l'expression du \textit{window cost}}
+
+Soit $t_0$ l'instant de début de la plus récente fenêtre RMS prise en compte dans le calcul du moniteur. Cette fenêtre couvre l'intervalle
+\begin{equation}
+[t_0,\; t_0 + T_{\mathrm{RMS}}].
+\end{equation}
+
+La fenêtre immédiatement précédente commence $\Delta t_{\mathrm{RMS}}$ plus tôt et couvre donc
+\begin{equation}
+[t_0 - \Delta t_{\mathrm{RMS}},\; t_0 - \Delta t_{\mathrm{RMS}} + T_{\mathrm{RMS}}].
+\end{equation}
+
+Plus généralement, la $k$-ième fenêtre dans l'historique, en comptant à rebours depuis la plus récente, commence à l'instant
+\begin{equation}
+t_0 - (k-1)\Delta t_{\mathrm{RMS}},
+\qquad k \in \{1,\dots,n_{\max}\}.
+\end{equation}
+
+La plus ancienne fenêtre utilisée par le moniteur commence ainsi à
+\begin{equation}
+t_0 - (n_{\max}-1)\Delta t_{\mathrm{RMS}},
+\end{equation}
+tandis que la plus récente s'achève à
+\begin{equation}
+t_0 + T_{\mathrm{RMS}}.
+\end{equation}
+
+Le support temporel total couvert par l'ensemble des $n_{\max}$ fenêtres RMS s'étend donc entre ces deux instants, ce qui conduit à la durée
+\begin{equation}
+T_w
+=
+\left(t_0 + T_{\mathrm{RMS}}\right)
+-
+\left(t_0 - (n_{\max}-1)\Delta t_{\mathrm{RMS}}\right)
+=
+T_{\mathrm{RMS}} + (n_{\max}-1)\Delta t_{\mathrm{RMS}}.
+\end{equation}
+
+Cette expression justifie directement l'équation \eqref{eq:tw_rms_cv}.
+
+Deux cas particuliers permettent d'en éclairer l'interprétation :
+\begin{itemize}
+    \item si $n_{\max}=1$, alors le coefficient de variation est calculé sur une seule valeur RMS, et la fenêtre effective se réduit à
+    \begin{equation}
+    T_w = T_{\mathrm{RMS}};
+    \end{equation}
+    \item si $\rho = 0$, c'est-à-dire en absence de recouvrement entre fenêtres successives, alors
+    \begin{equation}
+    \Delta t_{\mathrm{RMS}} = T_{\mathrm{RMS}},
+    \end{equation}
+    et l'on obtient
+    \begin{equation}
+    T_w = n_{\max}T_{\mathrm{RMS}},
+    \label{eq:tw_disjoint}
+    \end{equation}
+    ce qui correspond simplement à la concaténation de $n_{\max}$ fenêtres disjointes.
+\end{itemize}
+    \medskip
+
+L'expression \eqref{eq:rms_window_cost} met en évidence le compromis suivant :
+\begin{itemize}
+    \item une augmentation de $N$ accroît la stabilité de chaque estimation RMS, mais augmente la durée élémentaire $T_{\mathrm{RMS}}$ ;
+    \item une augmentation de $n_{\max}$ stabilise le coefficient de variation en moyenne temporelle, mais accroît linéairement la mémoire temporelle du détecteur ;
+    \item une augmentation du recouvrement $\rho$ réduit le pas temporel $\Delta t_{\mathrm{RMS}}$, densifie la séquence RMS, mais modifie également l'étendue temporelle totale nécessaire à l'historique du moniteur.
+\end{itemize}
+
+\section{Paramètres intervenant dans l'indicateur RMS-CV}
+
+On résume dans la Table \ref{tab:rms_cv_parameters_2} les principaux paramètres de l'indicateur RMS-CV, leur signification et leur influence qualitative sur les performances de détection.
+
+\begin{table}[h]
+\centering
+\caption{Principaux paramètres influençant directement la fenêtre d'observation ou la latence associée de l'indicateur RMS-CV, leur définition et leur influence qualitative sur les performances de détection.}
+\label{tab:rms_cv_parameters_2}
+\begin{tabularx}{\textwidth}{|l|>{\raggedright\arraybackslash}X|>{\raggedright\arraybackslash}X|}
+\hline
+\textbf{Paramètre} & \textbf{Définition} & \textbf{Influence sur le détecteur} \\
+\hline
+\texttt{samples\_per\_window} ($N$) & Nombre d'échantillons contenus dans une fenêtre RMS élémentaire. & Une augmentation de $N$ produit des estimations RMS plus stables et moins sensibles au bruit local, mais augmente la durée $T_{\mathrm{RMS}} = N/f_s$ et donc le \textit{window cost}. \\
+\hline
+\texttt{n\_max} & Nombre de valeurs RMS conservées dans l'historique utilisé pour calculer le coefficient de variation. & Une augmentation de \texttt{n\_max} lisse davantage le moniteur CV et améliore sa robustesse statistique, mais accroît la latence totale de décision. \\
+\hline
+\texttt{overlap\_pct} ($\rho$) & Taux de recouvrement entre deux fenêtres RMS successives, compris entre $0$ et $1$. & Une augmentation de $\rho$ augmente la résolution temporelle de la séquence RMS, car davantage de points RMS sont produits par unité de temps. Le support temporel du moniteur dépend alors du compromis entre recouvrement et profondeur mémoire. \\
+\hline
+\end{tabularx}
+\end{table}
+
+\section{Pilotage en fonction du nombre de cycles d'oscillation}
+
+Afin de donner une interprétation physique à la longueur de fenêtre RMS, il est naturel de relier le nombre d'échantillons $N$ à la fréquence modale d'intérêt. Soit
+\begin{equation}
+f_{\mathrm{modal}} > 0
+\end{equation}
+la fréquence modale de référence, et soit
+\begin{equation}
+T_{\mathrm{modal}} = \frac{1}{f_{\mathrm{modal}}}
+\end{equation}
+la période associée.
+
+Si l'on souhaite qu'une fenêtre RMS contienne exactement $n_{\mathrm{cyc}}^{\mathrm{RMS}}$ cycles modaux, alors le nombre minimal d'échantillons nécessaires est donné par
+\begin{equation}
+N_{\mathrm{samples}}\!\left(n_{\mathrm{cyc}}^{\mathrm{RMS}}\right)
+=
+\left\lceil
+n_{\mathrm{cyc}}^{\mathrm{RMS}}\,\frac{f_s}{f_{\mathrm{modal}}}
+\right\rceil.
+\label{eq:nsamples_cycles}
+\end{equation}
+
+Cette expression résulte directement du fait qu'un cycle modal dure $T_{\mathrm{modal}} = 1/f_{\mathrm{modal}}$ seconde, et que le nombre d'échantillons acquis pendant cette durée vaut
+\begin{equation}
+f_s T_{\mathrm{modal}} = \frac{f_s}{f_{\mathrm{modal}}}.
+\end{equation}
+
+Ainsi, une fenêtre RMS contenant $n$ cycles modaux correspond à une durée
+\begin{equation}
+T_{\mathrm{RMS}}=
+\frac{
+\left\lceil
+n_{\mathrm{cyc}}^{\mathrm{RMS}}
+\frac{f_s}{f_{\mathrm{modal}}}
+\right\rceil}{f_s},
+\end{equation}
+
+Finalement le \textit{window cost} associé à une fenêtre couvrant au moins $n_{\mathrm{cyc}}^{\mathrm{seg}}$ cycles modaux s'écrit
+\begin{equation}
+    T_w =
+    \frac{
+    \left\lceil
+    n_{\mathrm{cyc}}^{\mathrm{RMS}}
+    \frac{f_s}{f_{\mathrm{modal}}}
+    \right\rceil
+    }{f_s} 
+    \bigl[1+(n_{\max}-1)(1-\rho)\bigr].
+    \label{eq:rms_window_cost_n_cyc}
+\end{equation}
+
+\section{Application au cas d'étude}
+
+Dans le cas considéré, on prend
+\begin{equation}
+f_{\mathrm{modal}} = 150~\mathrm{Hz},
+\end{equation}
+d'où
+\begin{equation}
+T_{\mathrm{modal}} = \frac{1}{f_{\mathrm{modal}}}
+= \frac{1}{150}~\mathrm{s}
+\approx 6.67~\mathrm{ms}.
+\end{equation}
+
+L'espace de recherche sur la taille des fenêtres RMS est construit de manière à indexer directement \texttt{samples\_per\_window} par un nombre entier de cycles modaux. Si l'on choisit une fenêtre élémentaire couvrant $n_{\mathrm{cyc}}^{\mathrm{RMS}}$ cycles, on retient
+\begin{equation}
+N = \left\lceil n_{\mathrm{cyc}}^{\mathrm{RMS}}\,\frac{f_s}{f_{\mathrm{modal}}}\right\rceil.
+\label{eq:n_case_rms}
+\end{equation}
+
+Dans le cas étudié, on fixe
+\begin{equation}
+n_{\mathrm{cyc}}^{\mathrm{RMS}} = 5.
+\end{equation}
+
+La durée physique associée à une fenêtre RMS élémentaire est donc approximativement
+\begin{equation}
+T_{\mathrm{RMS}}
+\approx 5\,T_{\mathrm{modal}}
+\approx 5 \times 6.67
+\approx 33.3~\mathrm{ms}.
+\end{equation}
+
+La durée totale effectivement couverte par le détecteur s'exprime alors, d'après \eqref{eq:rms_window_cost_n_cyc}, sous la forme
+\begin{equation}
+T_w =
+\frac{
+\left\lceil
+n_{\mathrm{cyc}}^{\mathrm{RMS}}
+\frac{f_s}{f_{\mathrm{modal}}}
+\right\rceil
+}{f_s}
+\bigl[1+(n_{\max}-1)(1-\rho)\bigr].
+\label{eq:rms_window_case}
+\end{equation}
+
+En prenant un recouvrement nul,
+\begin{equation}
+\rho = 0,
+\end{equation}
+cette expression se simplifie en
+\begin{equation}
+T_w =
+\frac{
+\left\lceil
+n_{\mathrm{cyc}}^{\mathrm{RMS}}
+\frac{f_s}{f_{\mathrm{modal}}}
+\right\rceil
+}{f_s}\,n_{\max}.
+\end{equation}
+
+Autrement dit, sans recouvrement, la fenêtre totale du détecteur correspond simplement à l'accumulation de $n_{\max}$ fenêtres RMS successives.
+
+Si, de plus, le moniteur CV conserve
+\begin{equation}
+n_{\max} = 20
+\end{equation}
+valeurs RMS, on obtient
+\begin{equation}
+T_w \approx 20 \times 33.3~\mathrm{ms}
+\approx 666.7~\mathrm{ms}.
+\end{equation}
+
+En nombre de cycles modaux, cela revient à
+\begin{equation}
+n_{\mathrm{cyc}}^{\mathrm{tot}}
+=
+n_{\max}\,n_{\mathrm{cyc}}^{\mathrm{RMS}}
+=
+20 \times 5
+=
+100.
+\end{equation}
+
+Ainsi, le détecteur évalue la variabilité du RMS sur un historique représentant environ $100$ périodes de la dynamique modale, soit environ $0.67$~s dans le cas présent.
+\medskip
+
+Cette formulation permet une lecture physique directe du compromis entre stabilité et latence : augmenter $n_{\max}$ ou augmenter $n_{\mathrm{cyc}}^{\mathrm{RMS}}$ revient à accroître le nombre total de cycles modaux intégrés dans la décision, donc à lisser davantage l'estimation, au prix d'une réactivité plus faible.
+
+\section{Implémentation associée}
+
+La durée d'une fenêtre RMS, le pas temporel entre fenêtres successives et le \textit{window cost} associé au moniteur CV sont implémentés selon les relations suivantes :
+
+% \begin{codeboxpro}
+% T_rms  = N / fs                       # s — durée d'une fenêtre RMS
+% dt_rms = T_rms * (1.0 - overlap_pct)      # s — pas temporel entre fenêtres
+% T_w    = T_rms + max(n_max - 1, 0) * dt_rms
+% return 1000.0 * T_w                   # ms
+% \end{codeboxpro}
+\begin{codeboxpro}
+T_rms  = N / fs                       # s - durée d'une fenêtre RMS
+dt_rms = T_rms * (1.0 - overlap_pct)  # s - pas temporel entre fenêtres
+T_w    = T_rms + max(n_max - 1, 0) * dt_rms
+return 1000.0 * T_w                   # ms
+\end{codeboxpro}
+
+Mathématiquement, cette implémentation correspond exactement aux équations
+\begin{equation}
+T_{\mathrm{RMS}} = \frac{N}{f_s},
+\end{equation}
+\begin{equation}
+\Delta t_{\mathrm{RMS}} = T_{\mathrm{RMS}}(1-\rho),
+\end{equation}
+et
+\begin{equation}
+T_w = T_{\mathrm{RMS}} + (n_{\max}-1,0)\,\Delta t_{\mathrm{RMS}}.
+\end{equation}
+
+De même, l'espace de recherche sur la taille des fenêtres RMS, exprimée en nombre de cycles modaux, peut être généré par
+
+\begin{codeboxpro}
+samples_per_window = [
+    math.ceil(n_cyc_rms * fs / f_modal)
+    for n_cyc_rms in range(1, 201)
+]
+\end{codeboxpro}
+
+Cette construction revient à discrétiser les tailles de fenêtre selon
+\begin{equation}
+N \in \left\{
+\left\lceil \frac{f_s}{f_{\mathrm{modal}}} \right\rceil,
+\left\lceil 2\frac{f_s}{f_{\mathrm{modal}}} \right\rceil,
+\dots,
+\left\lceil 200\frac{f_s}{f_{\mathrm{modal}}} \right\rceil
+\right\},
+\end{equation}
+de sorte que chaque valeur candidate de \texttt{samples\_per\_window} corresponde explicitement à un nombre entier de cycles de la fréquence modale.
+
+\section{Interprétation physique}
+
+Le paramétrage de l'indicateur RMS-CV peut ainsi être interprété à deux niveaux complémentaires.
+
+D'une part, le paramètre \texttt{samples\_per\_window} fixe le nombre de cycles modaux présents dans chaque estimation RMS élémentaire. Il gouverne donc directement le compromis entre sensibilité locale aux fluctuations rapides et robustesse du niveau énergétique estimé.
+\medskip
+
+D'autre part, le paramètre \texttt{n\_max} fixe la profondeur mémoire du moniteur CV. Il contrôle non pas la taille physique d'une fenêtre élémentaire, mais la quantité d'historique RMS prise en compte pour évaluer la variabilité relative de l'énergie du signal. En combinaison avec le recouvrement \texttt{overlap\_pct}, il détermine la fenêtre temporelle totale réellement observée par le détecteur avant prise de décision.
+\medskip
+
+Ainsi, l'espace de recherche conjoint sur \texttt{samples\_per\_window}, \texttt{n\_max} et \texttt{overlap\_pct} ne constitue pas un simple réglage numérique, mais une exploration structurée du compromis entre :
+\begin{itemize}
+    \item stabilité de l'estimation RMS élémentaire ;
+    \item finesse temporelle de la séquence RMS ;
+    \item profondeur mémoire du coefficient de variation ;
+    \item robustesse statistique vis-à-vis des fluctuations locales et des fausses alarmes ;
+    \item latence globale de décision.
+\end{itemize}
+\medskip
+
+Dans cette perspective, l'analyse multiobjectif permet d'identifier les combinaisons minimales de durée de fenêtre RMS, de recouvrement et de mémoire temporelle assurant simultanément une bonne sensibilité au chatter, une robustesse suffisante de l'indicateur et une latence compatible avec les contraintes de l'application.
+
+% \chapter{Synthèse}
+\begin{table}[htbp]
+\centering
+% \small
+\renewcommand{\arraystretch}{1.35}
+
+\begin{tcolorbox}[
+    enhanced,
+    colback=white,
+    colframe=azul2,
+    coltitle=white,
+    colbacktitle=azul1,
+    title={Synthèse des méthodes : définition et pilotage du \textit{window cost}},
+    fonttitle=\normalfont\bfseries,
+    arc=2mm,
+    boxrule=0.9pt,
+    drop shadow,
+    width=\textwidth
+]
+
+%=========================================================
+\begin{tcolorbox}[
+    enhanced,
+    colback=azul1b,
+    colframe=azul2,
+    coltitle=white,
+    colbacktitle=azul2,
+    title={MaxEnt--SPRT},
+    fonttitle=\normalfont\bfseries,
+    arc=1.5mm,
+    boxrule=0.7pt,
+    width=\textwidth
+]
+\begin{tabular}{>{\raggedright\arraybackslash\bfseries}p{3.7cm}
+                >{\raggedright\arraybackslash}p{10.5cm}}
+Définition du \textit{window cost} &
+\[
+T_w = N_{\mathrm{seg}}\,T_{\mathrm{rev}},
+\qquad
+T_{\mathrm{rev}}=\frac{1}{f_{\mathrm{rev}}}
+\]
+\\[0.4em]
+
+Pilotage par nombre de cycles &
+\[
+N_{\mathrm{seg}}
+=
+\left\lceil
+n_{\mathrm{cyc}}^{\mathrm{seg}}
+\frac{f_{\mathrm{rev}}}{f_{\mathrm{modal}}}
+\right\rceil
+\qquad \Rightarrow \qquad
+T_w=
+\left\lceil
+n_{\mathrm{cyc}}^{\mathrm{seg}}
+\frac{f_{\mathrm{rev}}}{f_{\mathrm{modal}}}
+\right\rceil
+T_{\mathrm{rev}}
+\]
+\\[0.4em]
+
+Paramètres liés à la fenêtre &
+$N_{\mathrm{seg}}$, $f_{\mathrm{rev}}$
+\end{tabular}
+\end{tcolorbox}
+
+\vspace{0.6em}
+
+%=========================================================
+\begin{tcolorbox}[
+    enhanced,
+    colback=azul1b,
+    colframe=azul2,
+    coltitle=white,
+    colbacktitle=azul2,
+    title={SST--SVD},
+    fonttitle=\normalfont\bfseries,
+    arc=1.5mm,
+    boxrule=0.7pt,
+    width=\textwidth
+]
+\begin{tabular}{>{\raggedright\arraybackslash\bfseries}p{3.7cm}
+                >{\raggedright\arraybackslash}p{10.5cm}}
+Définition du \textit{window cost} &
+\[
+T_w = w + (n_A-1)\,h
+\]
+\\[0.4em]
+
+Pilotage par nombre de cycles &
+\[
+w=n_{\mathrm{cyc}}^{\mathrm{STFT}}\,T_{\mathrm{modal}},
+\qquad
+h=f_h\,w
+\]
+\[
+\Rightarrow \qquad
+T_w=
+n_{\mathrm{cyc}}^{\mathrm{STFT}}T_{\mathrm{modal}}
+\left[1+(n_A-1)f_h\right]
+\]
+\\[0.4em]
+
+Paramètres liés à la fenêtre &
+\texttt{win\_length\_ms}, \texttt{hop\_ms}, \texttt{Ai\_length}
+\end{tabular}
+\end{tcolorbox}
+
+\vspace{0.6em}
+
+%=========================================================
+\begin{tcolorbox}[
+    enhanced,
+    colback=azul1b,
+    colframe=azul2,
+    coltitle=white,
+    colbacktitle=azul2,
+    title={RMS--CV},
+    fonttitle=\normalfont\bfseries,
+    arc=1.5mm,
+    boxrule=0.7pt,
+    width=\textwidth
+]
+\begin{tabular}{>{\raggedright\arraybackslash\bfseries}p{3.7cm}
+                >{\raggedright\arraybackslash}p{10.5cm}}
+Définition du \textit{window cost} &
+\[
+T_w = T_{\mathrm{RMS}} + (n_{\max}-1)\,\Delta t_{\mathrm{RMS}}
+\]
+\[
+T_{\mathrm{RMS}}=\frac{N}{f_s},
+\qquad
+\Delta t_{\mathrm{RMS}} = T_{\mathrm{RMS}}(1-\rho)
+\]
+\\[0.4em]
+
+Pilotage par nombre de cycles &
+\[
+T_{\mathrm{RMS}} \approx n_{\mathrm{cyc}}^{\mathrm{RMS}}\,T_{\mathrm{modal}}
+\]
+\[
+\Rightarrow \qquad
+T_w \approx
+n_{\mathrm{cyc}}^{\mathrm{RMS}}\,T_{\mathrm{modal}}
+\bigl[1+(n_{\max}-1)(1-\rho)\bigr]
+\]
+\\[0.4em]
+
+Paramètres liés à la fenêtre &
+\texttt{samples\_per\_window}, \texttt{overlap\_pct}, \texttt{n\_max}
+\end{tabular}
+\end{tcolorbox}
+
+\end{tcolorbox}
+
+\caption{Comparaison synthétique des trois méthodes en termes de définition du \textit{window cost}, de pilotage par nombre de cycles modaux et de paramètres impliqués dans la construction de la fenêtre d'observation.}
+\label{tab:window_cost_summary_visual}
+\end{table}
+
+%================================
+\newpage
+
+
+% \printbibliography
+
+
+
+
+
+\end{document}
+
+

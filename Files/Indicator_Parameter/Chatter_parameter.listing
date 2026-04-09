@@ -1,0 +1,4 @@
+samples_per_window = [
+    math.ceil(n_cyc_rms * fs / f_modal)
+    for n_cyc_rms in range(1, 201)
+]

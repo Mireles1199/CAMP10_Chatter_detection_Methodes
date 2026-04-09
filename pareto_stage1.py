@@ -280,7 +280,7 @@ OBJECTIVE_COLS: List[str] = [
     "delay",
     "false_alarm_rate",
     "stable_I_var",
-    "miss",
+    # "miss",
 ]
 
 def _compute_metrics(
@@ -843,7 +843,7 @@ BASE_INDICATOR_CONFIG_MAXENT = {
     "params": {                           # default parameters for this benchmark
         "rpm": 12_000.0,
         "N_seg": 10,
-        "ratio_sampling": 100.0,
+        # "ratio_sampling": 100.0,
         "t_stable_total": 5.365770208787228,
         "alpha": 0.05,
         "beta": 0.05,
@@ -910,7 +910,7 @@ sig = SignalData(
 
 f_modal = 150.0 #Hz
 T_modal = 1.0 / f_modal #s
-Num_cycles_max = 5
+Num_cycles_max = 3
 
 # ============ RMS_CV search space ===========
 samples_per_window = [math.ceil(n * fs / f_modal) for n in range(1, Num_cycles_max + 1)]
@@ -939,7 +939,7 @@ cut_end_time = t_stable + np.linspace(0.25, 1.0, Num_porcentiles + 1) * t_chatte
 SEARCH_SPACE_MAXENT = {
      "N_seg": N_seg,  # 5 to 20 inclusive
     #  "cut_start_time": cut_start_time,
-     "cut_end_time": cut_end_time,
+    #  "cut_end_time": cut_end_time,
 }
 
 # =========== SST_SVD search space with composite keys for win/hop pairs ===========
@@ -983,6 +983,10 @@ else:
     params = df_all_print["params_json"].apply(json.loads)
     df_params = params.apply(pd.Series)
 
+    window_cost_column = df_all_print["window_cost"]
+    window_cost_column_c = window_cost_column / (T_modal * 1000)  # Convert ms to number of modal periods
+    df_all_print.insert(2, "window_cost_c", window_cost_column_c)
+
     if "N_seg" in df_params.columns:
         rpm = BASE_INDICATOR_CONFIG_MAXENT["params"]["rpm"]
         f_r = rpm / 60.0
@@ -1014,6 +1018,10 @@ else:
 
     # 1) Separar TODAS las llaves del dict en columnas
     df_params = params.apply(pd.Series)   # o: pd.json_normalize(params)
+
+    window_cost_column = df_pareto_print["window_cost"]
+    window_cost_column_c = window_cost_column / (T_modal * 1000)  # Convert ms to number of modal periods
+    df_pareto_print.insert(2, "window_cost_c", window_cost_column_c)
 
     # 2) Modificar solo las llaves/columnas específicas (si existen)
     if "win_length_ms" in df_params.columns:
