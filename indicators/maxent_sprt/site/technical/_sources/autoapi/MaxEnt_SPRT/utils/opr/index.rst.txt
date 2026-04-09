@@ -1,0 +1,57 @@
+MaxEnt_SPRT.utils.opr
+=====================
+
+.. py:module:: MaxEnt_SPRT.utils.opr
+
+
+Functions
+---------
+
+.. autoapisummary::
+
+   MaxEnt_SPRT.utils.opr.sample_opr
+   MaxEnt_SPRT.utils.opr.segment_opr
+
+
+Module Contents
+---------------
+
+.. py:function:: sample_opr(y, t, fs, fr)
+
+   Perform exact once-per-revolution downsampling by integer decimation.
+
+   The function assumes the desired OPR resampling can be achieved through an
+   integer ratio ``fs / fr``. Under that assumption, it selects every ``step``
+   sample from the signal and time arrays, preserving time alignment.
+
+   :param y: One-dimensional signal samples to be resampled.
+   :param t: Time vector aligned sample-by-sample with ``y``.
+   :param fs: Original sampling frequency in Hz of the input signal.
+   :param fr: Target once-per-revolution sampling frequency in Hz.
+
+   :returns: Resampled signal array and its aligned
+             resampled time vector.
+   :rtype: Tuple[np.ndarray, np.ndarray]
+
+   :raises ValueError: If ``fs / fr`` is not an integer within numerical tolerance,
+   :raises because exact OPR decimation would not be possible.:
+
+
+.. py:function:: segment_opr(opr, opr_t, N_seg)
+
+   Split OPR data into fixed-length segments.
+
+   :param opr: One-dimensional OPR-resampled signal to partition.
+   :param opr_t: Time vector aligned with ``opr``.
+   :param N_seg: Number of OPR samples per segment.
+
+   :returns: List of OPR segments and list
+             of matching time segments, both preserving the original order.
+   :rtype: Tuple[List[np.ndarray], List[np.ndarray]]
+
+   .. rubric:: Notes
+
+   If ``len(opr)`` is not divisible by ``N_seg``, trailing samples that do
+   not complete a full segment are discarded.
+
+

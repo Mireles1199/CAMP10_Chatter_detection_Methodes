@@ -1,0 +1,148 @@
+MaxEnt_SPRT.utils.types
+=======================
+
+.. py:module:: MaxEnt_SPRT.utils.types
+
+
+Classes
+-------
+
+.. autoapisummary::
+
+   MaxEnt_SPRT.utils.types.SignalData
+   MaxEnt_SPRT.utils.types.IndicatorResult
+   MaxEnt_SPRT.utils.types.ScenarioMetadata
+
+
+Module Contents
+---------------
+
+.. py:class:: SignalData
+
+   Container for the signal array, its analysis timeline, and related metadata.
+
+   This structure is the main input type for the MaxEnt-SPRT workflow.
+   It bundles the analysis-ready signal and timeline together with source path,
+   sampling frequency, and optional context metadata so pipelines can remain
+   function-oriented without passing many independent arguments.
+
+
+   .. py:attribute:: t_analysis
+      :type:  numpy.ndarray
+
+      Time axis associated with ``signal_analysis``.
+
+
+   .. py:attribute:: signal_analysis
+      :type:  numpy.ndarray
+
+      Analysis-ready 1D signal used by OPR sampling, segmentation, entropy extraction, and sequential detection.
+
+
+   .. py:attribute:: path
+      :type:  str
+
+      Source identifier of the signal (typically a file path) used for traceability and experiment bookkeeping.
+
+
+   .. py:attribute:: fs
+      :type:  float
+
+      Sampling frequency in Hz of ``signal_analysis``.
+
+
+   .. py:attribute:: meta
+      :type:  Dict[str, Any]
+
+      Flexible metadata dictionary for optional context (machine setup, test labels, channel info, units, notes, etc.).
+
+
+.. py:class:: IndicatorResult
+
+   Result of an indicator calculation.
+
+   Stores the computed time axis, indicator history, detection time information,
+   and any additional metadata required for analysis or plotting.
+
+   The ``meta`` dictionary is intentionally flexible and can include trained
+   models, intermediate signals, thresholds, or references to detector objects
+   needed for reproducibility and debugging.
+
+
+   .. py:attribute:: name
+      :type:  str
+
+      Human-readable identifier of the indicator or method that produced this result.
+
+
+   .. py:attribute:: t
+      :type:  numpy.ndarray
+
+      Time axis for the computed indicator trajectory.
+
+
+   .. py:attribute:: I_t
+      :type:  numpy.ndarray
+
+      Indicator values evaluated along ``t``.
+
+
+   .. py:attribute:: t_d
+      :type:  Optional[float]
+      :value: None
+
+
+      Detection timestamp in seconds when available; ``None`` when no detection time is defined.
+
+
+   .. py:attribute:: meta
+      :type:  Dict[str, Any]
+
+      Auxiliary artifacts required for analysis, visualization, reproducibility, or post-hoc debugging.
+
+
+.. py:class:: ScenarioMetadata
+
+   Metadata attached to a simulated or experimental scenario.
+
+   This lightweight record keeps experimental conditions (such as spindle
+   speed and SNR) close to generated or measured signals, which simplifies
+   reporting and batch comparisons across scenarios.
+
+
+   .. py:attribute:: scenario_id
+      :type:  str
+
+      Unique scenario label used in logs, exports, and benchmark tables.
+
+
+   .. py:attribute:: ap_ramp
+      :type:  Optional[tuple[float, float]]
+      :value: None
+
+
+      Optional lower/upper range of axial depth-of-cut ramp (or analogous scalar progression).
+
+
+   .. py:attribute:: rpm
+      :type:  Optional[float]
+      :value: None
+
+
+      Spindle speed in revolutions per minute.
+
+
+   .. py:attribute:: snr_db
+      :type:  Optional[float]
+      :value: None
+
+
+      Signal-to-noise ratio in dB when known.
+
+
+   .. py:attribute:: extra
+      :type:  Dict[str, Any]
+
+      Arbitrary extension fields for experiment-specific metadata without changing the dataclass schema.
+
+

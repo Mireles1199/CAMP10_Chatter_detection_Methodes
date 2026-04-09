@@ -1,0 +1,48 @@
+MaxEnt_SPRT.lib.runner
+======================
+
+.. py:module:: MaxEnt_SPRT.lib.runner
+
+
+Attributes
+----------
+
+.. autoapisummary::
+
+   MaxEnt_SPRT.lib.runner.IndicatorFunc
+   MaxEnt_SPRT.lib.runner.logger
+
+
+Functions
+---------
+
+.. autoapisummary::
+
+   MaxEnt_SPRT.lib.runner.run_maxent_sprt
+
+
+Module Contents
+---------------
+
+.. py:data:: IndicatorFunc
+
+.. py:data:: logger
+
+.. py:function:: run_maxent_sprt(signal, INDICATOR_CONFIG)
+
+   Execute the Maximum Entropy Sequential Probability Ratio Test (MaxEnt SPRT) indicator.
+
+   This function serves as a wrapper that retrieves the appropriate analysis function
+   from the configuration and executes it with the provided signal data and parameters.
+
+   :param signal: Input signal bundle containing the analysis array, aligned time axis, sampling frequency, and optional metadata.
+   :param INDICATOR_CONFIG: Dispatcher dictionary containing the selected function under ``func`` and its keyword arguments under ``params``.
+
+   :returns: Result object returned by the selected indicator
+             function.
+   :rtype: IndicatorResult
+
+   :raises KeyError: If required keys are missing from ``INDICATOR_CONFIG``.
+   :raises TypeError: If the selected function is not callable or the signal is invalid.
+
+

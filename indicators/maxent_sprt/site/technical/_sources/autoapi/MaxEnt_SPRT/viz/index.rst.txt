@@ -1,0 +1,20 @@
+MaxEnt_SPRT.viz
+===============
+
+.. py:module:: MaxEnt_SPRT.viz
+
+.. autoapi-nested-parse::
+
+   Visualization functions.
+
+
+
+Submodules
+----------
+
+.. toctree::
+   :maxdepth: 1
+
+   /autoapi/MaxEnt_SPRT/viz/maxent_sprt_plots/index
+
+

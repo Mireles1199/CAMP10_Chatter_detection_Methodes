@@ -1,0 +1,39 @@
+MaxEnt_SPRT.lib.offline
+=======================
+
+.. py:module:: MaxEnt_SPRT.lib.offline
+
+
+Functions
+---------
+
+.. autoapisummary::
+
+   MaxEnt_SPRT.lib.offline.offline_train_maxent_sprt
+
+
+Module Contents
+---------------
+
+.. py:function:: offline_train_maxent_sprt(opr_free, opr_chat, opr_t_free, opr_t_chat, N_seg, estimator = None)
+
+   Train Maximum Entropy SPRT models on offline OPR (Operating Point Range) data.
+
+   This function segments operational data into windows, computes entropy metrics for each segment,
+   and fits maximum entropy Gaussian models to distinguish between free and chatter states.
+
+   :param opr_free: OPR signal representing the stable reference condition.
+   :param opr_chat: OPR signal representing the chatter reference condition.
+   :param opr_t_free: Time vector aligned with ``opr_free``.
+   :param opr_t_chat: Time vector aligned with ``opr_chat``.
+   :param N_seg: Number of OPR samples grouped into each training segment.
+   :param estimator: Segment-to-entropy estimator. If ``None``, the default entropy estimator is used.
+
+   :returns: Trained Gaussian models, entropy sequence for stable segments, entropy
+             sequence for chatter segments, and the midpoint timestamps for both
+             segment sets.
+   :rtype: Tuple[MaxEntModels, np.ndarray, np.ndarray, np.ndarray, np.ndarray]
+
+   :raises ValueError: If insufficient segments are generated from the input data. Check N_seg and OPR data length.
+
+

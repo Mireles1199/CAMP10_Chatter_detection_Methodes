@@ -1,0 +1,62 @@
+MaxEnt_SPRT.lib.wrappers
+========================
+
+.. py:module:: MaxEnt_SPRT.lib.wrappers
+
+
+Functions
+---------
+
+.. autoapisummary::
+
+   MaxEnt_SPRT.lib.wrappers.sprt_detect_sequence
+   MaxEnt_SPRT.lib.wrappers.online_maxent_sprt_from_signal
+
+
+Module Contents
+---------------
+
+.. py:function:: sprt_detect_sequence(H_seq, models, alpha = 0.01, beta = 0.01, reset_on_H0 = True)
+
+   Functional convenience wrapper around the object-oriented SPRT engine.
+
+   This helper is preserved for quick scripts and notebook use, but internally
+   it delegates to ``SequentialProbabilityRatioTest`` and
+   ``GaussianIndicatorLLR``.
+
+   :param H_seq: Ordered indicator sequence, typically one entropy value per segment.
+   :param models: Pair of Gaussian models used to score the sequence.
+   :param alpha: Target false-alarm probability.
+   :param beta: Target missed-detection probability.
+   :param reset_on_H0: Whether to reset the cumulative SPRT statistic after a lower-threshold crossing.
+
+   :returns: Final state, decision index,
+             cumulative statistic history, lower threshold, and upper threshold.
+   :rtype: Tuple[str, int, np.ndarray, float, float]
+
+
+.. py:function:: online_maxent_sprt_from_signal(y_online, t_online, rpm, ratio_sampling, N_seg, models, alpha = 0.01, beta = 0.01, reset_on_H0 = True, estimator = None)
+
+   Complete functional online MaxEnt-SPRT pipeline for a new signal.
+
+   The routine performs OPR resampling, fixed-length segmentation, entropy
+   extraction, and finally sequential decision-making on the resulting feature
+   sequence.
+
+   :param y_online: Raw signal samples to classify.
+   :param t_online: Time vector aligned with ``y_online``.
+   :param rpm: Spindle speed in revolutions per minute.
+   :param ratio_sampling: Number of OPR samples per revolution.
+   :param N_seg: Number of OPR samples grouped into each entropy segment.
+   :param models: Previously trained Gaussian pair used by the LLR and SPRT stages.
+   :param alpha: Target false-alarm probability.
+   :param beta: Target missed-detection probability.
+   :param reset_on_H0: Whether to reset the SPRT statistic after a stable decision.
+   :param estimator: Optional custom estimator used to convert segments into entropy values.
+
+   :returns: Final
+             state, decision index, entropy sequence, cumulative SPRT history,
+             segment midpoint times, lower threshold, and upper threshold.
+   :rtype: Tuple[str, int, np.ndarray, np.ndarray, np.ndarray, float, float]
+
+
