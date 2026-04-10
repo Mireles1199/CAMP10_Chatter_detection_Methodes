@@ -89,6 +89,8 @@ sig = SignalData(
     meta={"AP": "5mm-15mm",
             "RPM": 12_000,}
 )
+import ssq_chatter
+print(ssq_chatter.__file__)
 
 results_SST_SVD = run_sst_svd(sig, INDICATOR_CONFIG) 
 zoom_x = None

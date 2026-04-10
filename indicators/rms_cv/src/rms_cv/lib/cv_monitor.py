@@ -1,4 +1,29 @@
-# Comentario: monitor en línea de CV sobre secuencia RMS
+"""Online Coefficient of Variation (CV) monitor for RMS-based chatter detection.
+
+Provides three cooperating objects:
+
+* :class:`CVOnlineConfig` — frozen configuration (window size, thresholds,
+  timing).
+* :class:`CVOnlineState` — mutable running-statistics state updated each
+  step.
+* :class:`CVOnlineMonitor` — streaming monitor that ingests one RMS value
+  at a time and raises an alert when CV or raw RMS exceeds a threshold.
+
+Algorithm
+---------
+Statistics are maintained with O(1) running sums so that the window can be
+slid efficiently:
+
+.. math::
+
+    \\mu_n = \\frac{\\sum_{i} x_i}{n}, \\quad
+    \\sigma_n = \\sqrt{\\frac{\\sum_{i} x_i^2 - (\\sum_{i} x_i)^2 / n}{n - 1}}
+
+When the window is full the oldest sample is removed from the accumulators
+before the new value is added, keeping the update O(1) per step.
+"""
+
+# Monitor en línea de CV sobre una secuencia de valores RMS
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Deque, Dict, Any, Optional
@@ -70,41 +95,35 @@ class CVOnlineState:
 
 
 class CVOnlineMonitor:
-    """
-    CVOnlineMonitor: Online Coefficient of Variation (CV) Monitoring System
-    A real-time monitor that tracks RMS (Root Mean Square) values in a sliding window,
-    computes statistical metrics (mean, standard deviation, coefficient of variation),
-    and generates alerts based on configurable thresholds.
+    """Real-time sliding-window CV monitor.
+
+    Processes one RMS value per call to :meth:`update`.  Internally maintains
+    a :class:`~collections.deque` of the last ``n_max`` values together with
+    their running sum and sum-of-squares so that mean, standard deviation,
+    and CV are updated in O(1) time per step.
+
+    Two alert modes, controlled by :class:`CVOnlineConfig`:
+
+    * **Warmup** (``n < n_min_cv``): optionally raises an ``"rms"`` alert
+      when the raw value exceeds ``rms_threshold`` (suppressed when
+      ``warmup_ignore_alerts`` is ``True``).
+    * **Normal** (``n >= n_min_cv``): raises a ``"cv"`` alert when
+      :math:`\\sigma / |\\mu| \\geq` ``cv_threshold``.
+
     Attributes:
-        config (CVOnlineConfig): Configuration object containing monitoring parameters.
-        state (CVOnlineState): Current state tracking n, mu, sigma, cv, idx, and sums.
-        window (Deque[float]): Fixed-size sliding window of RMS values (max size: n_max).
-    Methods:
-        __init__(config: CVOnlineConfig) -> None:
-            Initialize the monitor with configuration. Validates n_max and n_min_cv >= 1.
-            Converts fs_rms (sampling frequency) to dt_rms (time step) if needed.
-        reset() -> None:
-            Clear the window and reset state to initial values.
-        update(rms_value: float) -> Dict[str, Any]:
-            Process a new RMS value, update sliding window statistics, and evaluate alerts.
-            Returns a result dictionary containing current statistics and alert status.
-            Alert logic:
-            - If n < n_min_cv: triggers alert only if rms_value exceeds rms_threshold
-              (unless warmup_ignore_alerts is True).
-            - If n >= n_min_cv: triggers alert if CV exceeds cv_threshold
-              (unless warmup_ignore_alerts is True and still in warmup phase).
-        current_state() -> CVOnlineState:
-            Return the current monitoring state without modification.
-        _result(alert: bool, reason: Optional[str]) -> Dict[str, Any]:
-            Package and return results as a dictionary containing:
-            - n: window size
-            - mu: mean of window
-            - sigma: standard deviation
-            - cv: coefficient of variation
-            - alert: boolean alert status
-            - reason: "rms" or "cv" (alert trigger reason)
-            - idx: sample index
-            - time: timestamp (if dt_rms is configured)
+        config (CVOnlineConfig): Configuration supplied at construction;
+            not modified after initialisation.
+        state (CVOnlineState): Mutable statistics updated by each
+            :meth:`update` call.  Reset by :meth:`reset`.
+        window (collections.deque): Fixed-size deque holding the raw RMS
+            values currently in the sliding window
+            (``maxlen = config.n_max``).
+
+    Args:
+        config (CVOnlineConfig): Monitor configuration.
+
+    Raises:
+        ValueError: If ``config.n_max < 1`` or ``config.n_min_cv < 1``.
     """
 
     def __init__(self, config: CVOnlineConfig) -> None:
@@ -120,10 +139,10 @@ class CVOnlineMonitor:
         self.window: Deque[float] = deque(maxlen=config.n_max)
 
     def reset(self) -> None:
-        """
-        Reset the monitor to its initial state.
-        Clears the display window and reinitializes the internal state
-        to a fresh CVOnlineState instance.
+        """Reset the monitor to its initial state.
+
+        Clears the sliding window and reinitialises :attr:`state` to a fresh
+        :class:`CVOnlineState` instance (all counters and accumulators zero).
         """
         self.window.clear()
         self.state = CVOnlineState()
@@ -201,30 +220,29 @@ class CVOnlineMonitor:
         return self._result(alert=alert, reason=reason)
 
     def current_state(self) -> CVOnlineState:
-        """
-        Get the current state of the CV monitor.
+        """Return a reference to the current monitor state without modification.
+
         Returns:
-            CVOnlineState: The current state of the CV monitor.
+            CVOnlineState: The live :attr:`state` object; modifying it
+            directly will affect subsequent :meth:`update` calls.
         """
         return self.state
 
     def _result(self, alert: bool, reason: Optional[str]) -> Dict[str, Any]:
-        """
-        Generate a result dictionary containing statistical measurements and alert information.
+        """Package the current state into the standard result dictionary.
+
+        This is an internal helper; callers should use :meth:`update`.
+
         Args:
-            alert (bool): Flag indicating whether an alert condition has been triggered.
-            reason (Optional[str]): Description of the reason for the alert, or None if no alert.
+            alert (bool): Whether an alert condition was triggered on this
+                step.
+            reason (Optional[str]): ``"rms"`` or ``"cv"`` when *alert* is
+                ``True``, otherwise ``None``.
+
         Returns:
-            Dict[str, Any]: A dictionary containing:
-                - n (int): Sample count from state.
-                - mu (float): Mean value from state.
-                - sigma (float): Standard deviation from state.
-                - cv (float): Coefficient of variation from state.
-                - alert (bool): Alert flag.
-                - reason (Optional[str]): Alert reason.
-                - idx (int): Current index (adjusted by -1).
-                - time (Optional[float]): Timestamp calculated from start_time and current index,
-                  or None if dt_rms is not configured.
+            Dict[str, Any]: Dictionary with keys ``n, mu, sigma, cv, alert,
+            reason, idx, time``.  The ``"time"`` key holds the computed
+            timestamp [s] when ``dt_rms`` is configured, otherwise ``None``.
         """
         st = self.state
         cfg = self.config

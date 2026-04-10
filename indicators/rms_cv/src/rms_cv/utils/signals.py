@@ -1,4 +1,15 @@
-# Comentario: generadores de señales sintéticas (senos, TPF + chatter)
+"""Synthetic vibration signal generators for testing the RMS-CV pipeline.
+
+Two generators are provided:
+
+* :func:`five_senos` — superposition of five fixed-frequency sinusoids with
+  optional Gaussian white noise; useful as a stable-cut baseline.
+* :func:`signal_1` — tooth-passing-frequency (TPF) harmonics plus a
+  chatter burst that grows in amplitude after a configurable onset time;
+  simulates a realistic chatter event for validation purposes.
+"""
+
+# Generadores de señales sintéticas (senos, TPF + chatter)
 from __future__ import annotations
 from typing import Optional, Tuple, List
 import numpy as np
@@ -10,12 +21,45 @@ def five_senos(
     fase_aleatoria: bool = False,
     seed: Optional[int] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Retorna (t, x) con cinco sinusoides y ruido blanco opcional.
+    """Generate a synthetic vibration signal composed of five sinusoids.
 
-    Notas
-    -----
-    - Mantiene la firma/semántica del script original.
+    Superposes five fixed-frequency components (80, 120, 160, 240, 320 Hz)
+    with amplitudes (1.5, 2.0, 1.5, 1.5, 2.0) and optional additive
+    Gaussian white noise.  This signal represents a typical stable-cut
+    vibration with multiple harmonics for testing RMS-CV baseline detection.
+
+    Args:
+        fs (float): Sampling frequency [Hz].  Must be > 0.
+        duracion (float): Signal duration [s].  Must be > 0.
+        ruido_std (float, optional): Standard deviation of the additive
+            Gaussian white noise.  Set to ``0.0`` (default) for a
+            noise-free, perfectly periodic signal.
+        fase_aleatoria (bool, optional): If ``True``, each sinusoid receives
+            an independent random initial phase drawn from
+            :math:`\\mathcal{U}[0, 2\\pi)`.  Defaults to ``False`` (all
+            phases zero).
+        seed (Optional[int], optional): Integer seed forwarded to
+            :class:`numpy.random.Generator` for reproducible random phases
+            and noise.  Defaults to ``None`` (non-deterministic).
+
+    Returns:
+        Tuple[np.ndarray, np.ndarray]: Pair ``(t, x)`` where
+
+        * **t** — uniformly spaced time vector of length
+          :math:`\\text{round}(f_s \\cdot T_{dur})` [s].
+        * **x** — composite signal, same length as *t* [a.u.].
+
+    Note:
+        The function signature and component parameters are kept identical
+        to the original exploratory script so that existing analysis
+        notebooks remain compatible.
+
+    Example:
+        >>> t, x = five_senos(fs=20_000.0, duracion=5.0, seed=42)
+        >>> len(t)
+        100000
+        >>> abs(x).max() > 0
+        True
     """
     rng = np.random.default_rng(seed) if seed is not None else np.random.default_rng()
 
@@ -49,8 +93,45 @@ def signal_1(
     t_chatter_start: float,
     noise_std: float = 0.0,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Retorna (t, x) con armónicos TPF y chatter tras un instante de inicio.
+    """Generate a synthetic machining signal with TPF harmonics and chatter burst.
+
+    Constructs a two-phase time series that mimics real machining vibration:
+
+    * **Stable phase** ``[0, T]``: five harmonics of the tooth-passing
+      frequency (TPF) modulated by a linearly growing envelope
+      :math:`0.1 + 0.6 \\cdot t/T`.
+    * **Chatter phase** ``[t_chatter_start, T]``: additional sinusoids at
+      each frequency in *chatter_freqs* (amplitude 5.0) with an independent
+      linear envelope that starts at zero and grows to 0.7 by the end of
+      the signal.
+
+    Optional Gaussian white noise is added to both phases.
+
+    Args:
+        fs (float): Sampling frequency [Hz].
+        T (float): Total signal duration [s].
+        tpf (float): Fundamental tooth-passing frequency [Hz].  The first
+            five harmonics (TPF, 2·TPF, …, 5·TPF) are included with
+            amplitude 3.5 each.
+        chatter_freqs (List[float]): Chatter frequency components [Hz].  Each
+            entry generates one sinusoid in the chatter burst.
+        t_chatter_start (float): Chatter onset time [s].  Must satisfy
+            ``0 <= t_chatter_start < T``.
+        noise_std (float, optional): Standard deviation of the additive
+            Gaussian white noise applied to the full signal.  Defaults to
+            ``0.0``.
+
+    Returns:
+        Tuple[np.ndarray, np.ndarray]: Pair ``(t, x)`` where
+
+        * **t** — time vector [s], length :math:`f_s \\cdot T`.
+        * **x** — composite signal: envelope-modulated TPF harmonics +
+          chatter burst with onset envelope + white noise.
+
+    Note:
+        The stable-component envelope grows from 0.1 to 0.7 over ``[0, T]``.
+        The chatter envelope grows from 0.1 to 0.7 over
+        ``[t_chatter_start, T]`` and is identically zero before the onset.
     """
     t = np.linspace(0.0, T, int(fs * T), endpoint=False)
 

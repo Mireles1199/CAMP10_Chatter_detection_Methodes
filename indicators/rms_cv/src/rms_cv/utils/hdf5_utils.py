@@ -1,15 +1,69 @@
 
+"""Read-only HDF5 file reader with nested path navigation.
+
+Loads an entire HDF5 file eagerly into nested Python dictionaries and
+NumPy arrays at construction time, then exposes a rich query interface
+for navigating the resulting tree.
+
+:class:`HDF5Reader` is intentionally read-only: to keep memory
+consumption manageable, arrays larger than a configurable threshold
+should be loaded lazily (a future extension).  For the current research
+use case all signals fit comfortably in RAM.
+
+Usage example::
+
+    reader = HDF5Reader("data/cono_Green_Integral_Method_results.h5")
+    times  = reader.get_element("tool_dyn/time")
+    vel    = reader.get_element("tool_dyn/Velocity")
+    print(reader.list_paths()[:5])
+"""
+
 from typing import List, Optional, Dict, Any, Union
 import h5py
 import numpy as np
 import os
 
 class HDF5Reader:
-    # Cache for all discovered paths
+    """Eager-loading, read-only HDF5 file reader.
+
+    Reads the complete HDF5 file tree into a nested ``dict`` / NumPy
+    array structure at construction time.  Once loaded the file handle is
+    closed; all subsequent operations work on the in-memory copy.
+
+    Groups become Python ``dict`` values; datasets are converted to NumPy
+    arrays (with byte-string decoding applied automatically).
+
+    Args:
+        filepath (str): Absolute or relative path to the HDF5 file.
+
+    Raises:
+        FileNotFoundError: If *filepath* does not point to an existing file.
+        OSError: If the file cannot be opened by :mod:`h5py` (corrupt,
+            wrong format, locked, etc.).
+
+    Attributes:
+        filepath (str): The resolved path as passed to the constructor.
+        data (Dict[str, Any]): Nested dictionary mirroring the HDF5 group/
+            dataset tree.  Leaf values are NumPy arrays or Python scalars.
+
+    Example::
+
+        reader = HDF5Reader("results.h5")
+        vel = reader.get_element("tool_dyn/Velocity")
+        print(vel.shape)
+    """
+
+    # Internal cache; populated lazily by list_paths()
     _all_paths_cache: Optional[List[str]]
+
     def __init__(self, filepath: str):
-        """
-        Initializes the reader and loads the entire structure into memory.
+        """Initialise the reader and eagerly load the entire HDF5 tree.
+
+        Args:
+            filepath (str): Path to the HDF5 file.
+
+        Raises:
+            FileNotFoundError: If the file does not exist at *filepath*.
         """
         if not os.path.exists(filepath):
             raise FileNotFoundError(f"File not found: {filepath}")
@@ -93,15 +147,41 @@ class HDF5Reader:
         return self.data
 
     def get_element(self, *keys: str) -> Any:
-        """
-        Access a specific element using hierarchical keys.
+        """Access a nested element using hierarchical keys or a slash-delimited path.
 
-        Usage examples:
-        - get_element('group', 'subgroup', 'dataset')
-        - get_element('group/subgroup/dataset')
-        - get_element('dataset', '0')  # index into list/np.ndarray
-        - get_element('dataset', '0:10')  # slice
-        - get_element('dataset', '1,2')  # multi-dim index for numpy arrays
+        *keys* can be passed in several equivalent forms:
+
+        * Multiple positional strings: ``get_element("group", "sub", "dataset")``
+        * A single slash-delimited path: ``get_element("group/sub/dataset")``
+        * With indexing tokens appended: ``get_element("dataset", "0:10")``
+
+        Indexing tokens (for the last key segment) support:
+
+        * **Integer index:** ``"5"`` → ``data[5]``
+        * **Slice:** ``"0:100"`` or ``"::2"`` → ``data[0:100]``
+        * **Multi-dim:** ``"0,1"`` or ``"1:5,:"`` (CSV of int/slice/list tokens)
+        * **List of indices:** ``"[0,2,4]"`` → ``data[[0,2,4]]``
+
+        If the top-level key is not found in the root ``data`` dictionary
+        the method attempts a recursive search via :meth:`find_first`.
+
+        Args:
+            *keys (str): One or more path segments (or a single slash-delimited
+                string) identifying the target node, optionally followed by an
+                indexing token.
+
+        Returns:
+            Any: The resolved node — a ``dict``, ``np.ndarray``, or scalar.
+
+        Raises:
+            KeyError: If any segment is not found or an indexing token is
+                invalid.
+
+        Example::
+
+            v    = reader.get_element("tool_dyn/Velocity")
+            clip = reader.get_element("tool_dyn", "Velocity", "0:500")
+            rows = reader.get_element("matrix", "[0,2,4]")
         """
 
         def _parse_slice(token: str):
@@ -260,8 +340,21 @@ class HDF5Reader:
         return current
 
     def list_paths(self) -> List[str]:
-        """
-        List all dataset paths available in the loaded HDF5 structure, using '/' as separator.
+        """Return all node paths in the loaded HDF5 tree.
+
+        Traverses the in-memory ``data`` dictionary recursively.
+        Results are cached after the first call so that repeated
+        invocations are O(1).
+
+        Returns:
+            List[str]: Slash-delimited paths for every group and dataset
+            node, e.g. ``["tool_dyn", "tool_dyn/time", "tool_dyn/Velocity",
+            ...]``.
+
+        Example::
+
+            paths = reader.list_paths()
+            print([p for p in paths if "Velocity" in p])
         """
         if self._all_paths_cache is not None:
             return self._all_paths_cache
@@ -287,9 +380,20 @@ class HDF5Reader:
         return paths
 
     def find_all(self, key: str) -> List[str]:
-        """
-        Find all full paths whose last segment equals the provided key.
-        Example: find_all('tool_dyn') -> ['group1/tool_dyn', 'group2/sub/tool_dyn']
+        """Find every path whose last segment matches *key*.
+
+        Args:
+            key (str): The exact final path segment to match (case-sensitive).
+
+        Returns:
+            List[str]: All matching full paths ordered by depth
+            (breadth-first insertion order from :meth:`list_paths`).
+            Returns an empty list if *key* is not found.
+
+        Example::
+
+            paths = reader.find_all("Velocity")
+            # ["tool_dyn/Velocity", "workpiece/Velocity"] (example)
         """
         matches = []
         for p in self.list_paths():
@@ -299,8 +403,23 @@ class HDF5Reader:
         return matches
 
     def find_first(self, key: str) -> Optional[str]:
-        """
-        Return the first matching path for the given key, or None if not found.
+        """Return the first path whose last segment matches *key*, or ``None``.
+
+        Calls :meth:`find_all` and returns its first element.  Intended as
+        a convenience shortcut when only one match is expected.
+
+        Args:
+            key (str): Exact segment name to search for.
+
+        Returns:
+            Optional[str]: The first matching full path, or ``None`` when
+            *key* is not present anywhere in the tree.
+
+        Example::
+
+            path = reader.find_first("Velocity")
+            if path:
+                vel = reader.get_element(path)
         """
         matches = self.find_all(key)
         return matches[0] if matches else None

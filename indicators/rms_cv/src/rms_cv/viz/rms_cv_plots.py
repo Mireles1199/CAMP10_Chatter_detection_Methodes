@@ -1,3 +1,16 @@
+"""
+Publication-quality composite figure generator for the RMS-CV indicator.
+
+Use :func:`plots_rms_cv` to produce a three-panel figure that shows:
+
+1. The raw tool-velocity signal with optional RMS-window boundaries.
+2. The windowed RMS sequence with optional CV-block boundaries.
+3. The online CV sequence with the detection threshold.
+
+All sub-plots share the same x-axis limits and styling defined by the
+:func:`configurar_estilo_global` helper.  The helper function
+:func:`fig_size` provides IEEE/Elsevier compatible figure dimensions.
+"""
 
 #%%
 # ========= Imports =========
@@ -34,10 +47,28 @@ color_CV = (r, g, b)
 
 
 def fig_size(scale=1.0, ncols=1, base_width=3.4):
-    """
-    scale: factor de escala (1 = tamaño normal)
-    ncols: 1=single, 2=double, 3=triple
-    base_width: ancho de una columna típica
+    """Return a Matplotlib-compatible figure size tuple.
+
+    Computes width and height so that figures fit the standard column widths
+    used by IEEE and Elsevier journals.  The height is always 70 % of the
+    computed width.
+
+    Args:
+        scale (float, optional): Global scaling factor applied to both
+            dimensions.  ``1.0`` gives the nominal journal column width.
+            Defaults to ``1.0``.
+        ncols (int, optional): Number of journal columns the figure should
+            span (``1`` = single-column, ``2`` = double-column).  Defaults
+            to ``1``.
+        base_width (float, optional): Width [inches] of a single journal
+            column.  Defaults to ``3.4`` (IEEE single-column).
+
+    Returns:
+        tuple[float, float]: ``(width, height)`` in inches.
+
+    Example:
+        >>> fig_size(scale=1.5, ncols=2)
+        (10.2, 7.140000000000001)
     """
     width = base_width * ncols * scale
     height = width * 0.7   # relación agradable
@@ -122,6 +153,52 @@ def plots_rms_cv(
     hlines: Optional[Sequence[float]] = None,
 
 ) -> plt.Figure:
+    """Generate the three-panel RMS-CV diagnostic figure.
+
+    Produces three independent
+    :class:`~matplotlib.figure.Figure` objects that are each displayed or
+    returned:
+
+    1. **Tool velocity** — ``signal.signal_analysis`` vs ``signal.t_analysis``
+       with optional RMS-window start-markers (*vlines* from the RMS indices).
+    2. **RMS sequence** — windowed RMS values with optional CV-block
+       boundaries drawn every *n_max* RMS frames.
+    3. **CV sequence** — online CV values with the threshold line and
+       optional user annotations.
+
+    Args:
+        signal (Optional[SignalData]): Container for the raw signal.  When
+            supplied its ``signal_analysis`` and ``t_analysis`` arrays are
+            used for panel 1.  Pass ``None`` to skip the signal panel.
+        result (IndicatorResult): Result object returned by
+            :func:`~rms_cv.lib.runner.rms_cv_pipeline`.  The ``meta``
+            dictionary must contain at least the keys ``"t_rms"``,
+            ``"rms_values"``, ``"cv_time"``, ``"cv_values"``, and
+            ``"cv_threshold"``.
+        show_signal (bool, optional): Whether to render panel 1 (tool
+            velocity).  Defaults to ``True``.
+        show (bool, optional): Call :func:`matplotlib.pyplot.show` after
+            creating all figures.  Defaults to ``True``.
+        zoom_x (Optional[tuple[float, float]], optional): Horizontal
+            x-axis limits ``(x_min, x_max)`` applied to all panels.
+            ``None`` = auto.
+        zoom_y (Optional[tuple[float, float]], optional): Vertical y-axis
+            limits applied to the CV panel.  ``None`` = auto.
+        vlines (Optional[Sequence[float]], optional): Additional vertical
+            lines [s] drawn across all panels (e.g., known chatter onset
+            times from a reference measurement).
+        hlines (Optional[Sequence[float]], optional): Horizontal reference
+            lines drawn on the CV panel only.
+
+    Returns:
+        plt.Figure: The last figure created (CV panel).  The signal and RMS
+        figures are accessible via the standard Matplotlib figure manager.
+
+    Example:
+        >>> from rms_cv import run_rms_cv, SignalData
+        >>> from rms_cv.viz.rms_cv_plots import plots_rms_cv
+        >>> fig = plots_rms_cv(signal_data, result, zoom_x=(0.5, 2.0))
+    """
 
     def _plot_rms(times: "np.ndarray", rms: "np.ndarray",
                   zoom_x: Optional[tuple[float, float]] = None,
