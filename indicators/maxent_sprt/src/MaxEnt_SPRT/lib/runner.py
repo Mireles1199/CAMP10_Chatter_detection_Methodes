@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 # ── Keys forwarded unchanged from params_physical to the native pipeline ──────
 _MAXENT_PASS_THROUGH_PARAMS: frozenset = frozenset({
     "t_stable_total", "alpha", "beta", "reset_on_H0",
-    "cut_start_time", "cut_end_time", "ratio_sampling",
+    "cut_start_time", "cut_end_time", "ratio_sampling", "step_seg", "segmentation",
 })
 
 
@@ -68,6 +68,13 @@ def _resolve_physical_params_maxent(
     }
     quantization_notes: List[str] = []
 
+    # ── segmentation mode (default "opr" for backward compat) ────────────────
+    segmentation: str = params_physical.get("segmentation", "opr")
+    if segmentation not in ("opr", "raw"):
+        raise ValueError(
+            f"segmentation must be 'opr' or 'raw', got '{segmentation}'."
+        )
+
     if param_mode == "by_revolution":
         for key in ("T_rev", "N_rev_per_seg"):
             if key not in params_physical:
@@ -87,14 +94,43 @@ def _resolve_physical_params_maxent(
         N_seg = int(N_rev_per_seg)
         t_seg = N_seg * T_rev
 
-        native_params["rpm"]   = rpm
-        native_params["N_seg"] = N_seg
+        # optional overlap: step_rev -> step_seg (in OPR samples = revolutions)
+        step_rev = params_physical.get("step_rev", None)
+        if step_rev is not None:
+            step_seg = int(step_rev)
+            if not (1 <= step_seg <= N_seg):
+                raise ValueError(
+                    f"step_rev must satisfy 1 <= step_rev <= N_rev_per_seg={N_seg}, got {step_rev}."
+                )
+        else:
+            step_seg = N_seg  # no overlap
+
+        native_params["rpm"]      = rpm
+        native_params["N_seg"]    = N_seg
+        native_params["step_seg"] = step_seg
+
+        # raw segmentation: convert revolution counts to raw sample counts
+        if segmentation == "raw":
+            samples_per_rev          = fs / rpm * 60.0           # = fs * T_rev
+            N_samples_per_seg        = int(math.ceil(N_seg * samples_per_rev))
+            step_samples             = int(math.ceil(step_seg * samples_per_rev))
+            native_params["N_samples_per_seg"] = N_samples_per_seg
+            native_params["step_seg"] = step_samples             # override: hop in raw samples
+            quantization_notes.append(
+                f"raw mode: N_samples_per_seg = ceil({N_seg} x {samples_per_rev:.1f}) = {N_samples_per_seg}"
+            )
+            quantization_notes.append(
+                f"raw mode: step_samples = ceil({step_seg} x {samples_per_rev:.1f}) = {step_samples}"
+            )
 
         quantization_notes.append(
             f"N_seg = int(N_rev_per_seg={N_rev_per_seg}) → {N_seg}"
         )
         quantization_notes.append(
             f"t_seg = {N_seg} x {T_rev:.6f} s = {t_seg:.6f} s"
+        )
+        quantization_notes.append(
+            f"step_seg = {step_seg}  (overlap = {1.0 - step_seg/N_seg:.1%})"
         )
 
     elif param_mode == "by_modal":
@@ -123,8 +159,34 @@ def _resolve_physical_params_maxent(
         quant_err_s  = t_seg_real - t_seg_target
         quant_err_pct = abs(quant_err_s) / t_seg_target * 100.0
 
-        native_params["rpm"]   = rpm_modal
-        native_params["N_seg"] = N_seg
+        # optional overlap: step_modal -> step_seg (in OPR samples = modal periods)
+        step_modal = params_physical.get("step_modal", None)
+        if step_modal is not None:
+            step_seg = int(step_modal)
+            if not (1 <= step_seg <= N_seg):
+                raise ValueError(
+                    f"step_modal must satisfy 1 <= step_modal <= N_modal_per_seg={N_seg}, got {step_modal}."
+                )
+        else:
+            step_seg = N_seg  # no overlap
+
+        native_params["rpm"]      = rpm_modal
+        native_params["N_seg"]    = N_seg
+        native_params["step_seg"] = step_seg
+
+        # raw segmentation: convert modal-period counts to raw sample counts
+        if segmentation == "raw":
+            samples_per_modal        = T_modal * fs
+            N_samples_per_seg        = int(math.ceil(N_seg * samples_per_modal))
+            step_samples             = int(math.ceil(step_seg * samples_per_modal))
+            native_params["N_samples_per_seg"] = N_samples_per_seg
+            native_params["step_seg"] = step_samples             # override: hop in raw samples
+            quantization_notes.append(
+                f"raw mode: N_samples_per_seg = ceil({N_seg} x {samples_per_modal:.1f}) = {N_samples_per_seg}"
+            )
+            quantization_notes.append(
+                f"raw mode: step_samples = ceil({step_seg} x {samples_per_modal:.1f}) = {step_samples}"
+            )
 
         quantization_notes.append(
             f"N_seg: {N_modal_per_seg} (modal)"
@@ -132,6 +194,9 @@ def _resolve_physical_params_maxent(
         quantization_notes.append(
             f"t_seg_target={t_seg_target:.6f} s | t_seg_real={t_seg_real:.6f} s"
             f" | delta={quant_err_s:+.6f} s ({quant_err_pct:.2f}%)"
+        )
+        quantization_notes.append(
+            f"step_seg = {step_seg}  (overlap = {1.0 - step_seg/N_seg:.1%})"
         )
 
     else:
@@ -143,7 +208,11 @@ def _resolve_physical_params_maxent(
     trace: Dict[str, Any] = {
         "physical_params_input":  dict(params_physical),
         "native_params_resolved": {"rpm": native_params["rpm"],
-                                   "N_seg": native_params["N_seg"]},
+                                   "N_seg": native_params["N_seg"],
+                                   "step_seg": native_params["step_seg"],
+                                   "segmentation": segmentation,
+                                   **({"N_samples_per_seg": native_params["N_samples_per_seg"]}
+                                      if "N_samples_per_seg" in native_params else {})},
         "quantization_notes":     "; ".join(quantization_notes),
     }
     return native_params, trace
@@ -238,6 +307,9 @@ def _maxent_sprt_pipeline(
     ratio_sampling: Optional[float] = None,
     cut_start_time: Optional[float] = None,
     cut_end_time: Optional[float] = None,
+    step_seg: Optional[int] = None,
+    segmentation: str = "opr",
+    N_samples_per_seg: Optional[int] = None,
 
     ) -> IndicatorResult:
     """
@@ -257,6 +329,16 @@ def _maxent_sprt_pipeline(
     :param ratio_sampling: Optional OPR sampling ratio used during online detection.
     :param cut_start_time: Optional lower time bound applied before splitting the signal into stable and chatter portions.
     :param cut_end_time: Optional upper time bound applied before splitting the signal into stable and chatter portions.
+    :param step_seg: Hop size in OPR samples between consecutive segment starts for both offline training and online
+        detection. ``None`` (default) is equivalent to ``step_seg = N_seg`` (no overlap).
+    :param segmentation: ``"opr"`` (default) – OPR decimation + ``segment_opr``;
+        ``"raw"`` – skip OPR decimation, use ``segment_signal_raw`` on the
+        full-rate signal. When ``"raw"``, entropy is estimated from
+        ``N_samples_per_seg`` raw samples per block (much larger than N_seg OPR
+        samples), yielding a lower-variance Gaussian fit.
+    :param N_samples_per_seg: Block length in raw samples used when
+        ``segmentation="raw"``.  Resolved automatically for physical modes;
+        must be provided explicitly for native mode.
 
     Returns:
         IndicatorResult: Result object with segment timestamps, SPRT statistic
@@ -292,31 +374,53 @@ def _maxent_sprt_pipeline(
     logger.info_plus("  %-24s %s", " - Duration:", f"{t_analysis[-1]-t_analysis[0]:.2f} s")
     logger.info_plus("  %-24s %s", " - Sampling freq.:", f"{fs:.1f} Hz")
     logger.info_plus("  %-24s %s", " - Rotation freq.:", f"{fr:.1f} Hz")
-    logger.info_plus("  %-24s %s", " - Segments of {N_seg} revolutions:", f"{N_seg/fr:.2f} s each")
-    logger.info_plus("  %-24s %s", " - Total segments available:", f"{int(t_total*fr/N_seg)}")
+    logger.info_plus("  %-24s %s", " - Segmentation:", segmentation)
+    if segmentation == "raw":
+        _nsamp = N_samples_per_seg or 0
+        logger.info_plus("  %-24s %s", " - N_samples_per_seg:", f"{_nsamp} raw samp  ({_nsamp/fs*1e3:.2f} ms)")
+        logger.info_plus("  %-24s %s", " - Total segments approx:", f"{int(len(signal_analysis) // (_nsamp or 1))}")
+    else:
+        logger.info_plus("  %-24s %s", f" - Segments of {N_seg} revolutions:", f"{N_seg/fr:.2f} s each")
+        logger.info_plus("  %-24s %s", " - Total segments available:", f"{int(t_total*fr/N_seg)}")
 
     logger.info_plus(_section("Generated chatter-free and chatter-included signals."))
     logger.info_plus("  %-24s %s", "Size of signal free:", f"{signal_analysis_stable.size} samples")
     logger.info_plus("  %-24s %s", "Size of signal chatter:", f"{signal_analysis_chatter.size} samples")
 
 
-    # =========== Fase Ofline : OPR Training ==========
-    opr_free, t_opr_free = sample_opr(signal_analysis_stable, t_stable, fs=fs, fr=fr)
-    opr_chat, t_opr_chat = sample_opr(signal_analysis_chatter, t_chatter, fs=fs, fr=fr)
-    logger.info_plus("  %-24s %s", "Sampled OPR:", f"{opr_free.size} samples free, {opr_chat.size} samples chatter.")
+    # =========== Fase Offline : OPR / raw segmentation training ==========
+    if segmentation == "raw":
+        # Skip OPR decimation — train directly on raw signal blocks
+        train_free, t_train_free   = signal_analysis_stable, t_stable
+        train_chat, t_train_chat   = signal_analysis_chatter, t_chatter
+        opr_free = opr_chat = t_opr_free = t_opr_chat = None
+        logger.info_plus("  %-24s %s", "Segmentation (raw):",
+                         f"N_samples_per_seg={N_samples_per_seg}, "
+                         f"free={signal_analysis_stable.size} samp, "
+                         f"chat={signal_analysis_chatter.size} samp.")
+    else:
+        opr_free, t_opr_free = sample_opr(signal_analysis_stable, t_stable, fs=fs, fr=fr)
+        opr_chat, t_opr_chat = sample_opr(signal_analysis_chatter, t_chatter, fs=fs, fr=fr)
+        train_free, t_train_free = opr_free, t_opr_free
+        train_chat, t_train_chat = opr_chat, t_opr_chat
+        logger.info_plus("  %-24s %s", "Sampled OPR:",
+                         f"{opr_free.size} samples free, {opr_chat.size} samples chatter.")
 
     # ============ Offline Phase:END-TO-END GAUSSIAN ===========
     detector_cfg = MaxEntSPRTConfig(alpha=alpha, beta=beta, reset_on_H0=reset_on_H0)
     gaussian_estimator = GaussianMaxEntEstimator()
     detector = MaxEntSPRTDetector(config=detector_cfg, estimator=gaussian_estimator)
 
-    # Offline phase: OPR Training
+    # Offline phase: OPR / raw Training
     detector.fit_offline_from_opr(
-        opr_free=opr_free,
-        opr_t_free=t_opr_free,
-        opr_chat=opr_chat,
-        opr_t_chat=t_opr_chat,
+        opr_free=train_free,
+        opr_t_free=t_train_free,
+        opr_chat=train_chat,
+        opr_t_chat=t_train_chat,
         N_seg=N_seg,
+        step=step_seg,
+        segmentation=segmentation,
+        N_samples_per_seg=N_samples_per_seg,
     )
 
     models_trained = detector._check_models()
@@ -331,6 +435,9 @@ def _maxent_sprt_pipeline(
         ratio_sampling=ratio_sampling,
         N_seg=N_seg,
         fs=fs,
+        step=step_seg,
+        segmentation=segmentation,
+        N_samples_per_seg=N_samples_per_seg,
     )
 
     #%%
@@ -354,6 +461,10 @@ def _maxent_sprt_pipeline(
             "fs": fs,
             "Rotational_Frequency_Hz": fr,
             "N_seg": N_seg,
+            "step_seg": step_seg if step_seg is not None else N_seg,
+            "overlap_pct": 1.0 - (step_seg if step_seg is not None else N_seg) / N_seg,
+            "segmentation": segmentation,
+            "N_samples_per_seg": N_samples_per_seg,
             "alpha": alpha,
             "beta": beta,
             "rpm": rpm,
@@ -361,8 +472,8 @@ def _maxent_sprt_pipeline(
             "Total_segments": int(t_total*fr/N_seg),
             "Size_signal_free": signal_analysis_stable.size,
             "Size_signal_chatter": signal_analysis_chatter.size,
-            "Sampled OPR free": opr_free.size,
-            "Sampled OPR chatter": opr_chat.size,
+            "Sampled OPR free":    opr_free.size if opr_free is not None else None,
+            "Sampled OPR chatter": opr_chat.size if opr_chat is not None else None,
             "P0_mu": models_trained.p0.mu,
             "P0_sigma": models_trained.p0.sigma,
             "P1_mu": models_trained.p1.mu,
@@ -378,9 +489,11 @@ def _maxent_sprt_pipeline(
             "t_chatter": t_chatter,
             "signal_analysis_chatter": signal_analysis_chatter,
             "t_opr_free": t_opr_free,
-            "opr_free": opr_free,
+            "opr_free":   opr_free,
             "t_opr_chat": t_opr_chat,
-            "opr_chat": opr_chat,
+            "opr_chat":   opr_chat,
+            "train_free": train_free,
+            "train_chat": train_chat,
 
         },
     )

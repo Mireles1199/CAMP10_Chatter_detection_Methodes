@@ -21,10 +21,10 @@ from MaxEnt_SPRT import INFO_PLUS_LEVEL
 from MaxEnt_SPRT.logging_setup import configure_logging
 from MaxEnt_SPRT.logging_setup import _section
 
-# _LOG_LEVEL = logging.INFO
+_LOG_LEVEL = logging.INFO
 # _LOG_LEVEL = logging.WARNING
 # _LOG_LEVEL = logging.DEBUG
-_LOG_LEVEL = INFO_PLUS_LEVEL
+# _LOG_LEVEL = INFO_PLUS_LEVEL
 
 # Configure logging for this example (application-level)
 configure_logging(level=_LOG_LEVEL)
@@ -57,9 +57,9 @@ force_N      = data.get_element("res_R_p/data")[:, 1]
 v  = tool_dyn_vel
 fs = 1.0 / (t[1] - t[0])
 
-t_cut, v_cut = _cut_signal(t, v,        (0.00, 16))
-_,     x_cut = _cut_signal(t, tool_dyn, (0.00, 16))
-_,     f_cut = _cut_signal(t, force_N,  (0.00, 16))
+t_cut, v_cut = _cut_signal(t, v,        (0.05, 16))
+_,     x_cut = _cut_signal(t, tool_dyn, (0.05, 16))
+_,     f_cut = _cut_signal(t, force_N,  (0.05, 16))
 
 # =============================================================================
 # INDICATOR_CONFIG -- tres modos de parametrizacion
@@ -83,7 +83,7 @@ _COMMON = {
     "beta":           0.05,
     "reset_on_H0":    True,
     "cut_start_time": 0.0,
-    "cut_end_time":   10.30330,
+    "cut_end_time":   10.0,
 }
 
 # -- 1. Modo nativo -----------------------------------------------------------
@@ -128,11 +128,74 @@ INDICATOR_CONFIG_by_modal = {
         **_COMMON,
     },
 }
+# -- 4. Modo by_revolution con overlap ----------------------------------------
+#   step_rev = 2  ->  hop = 2 rev  ->  overlap = 1 - 2/5 = 60 %
+INDICADOR_CONFIG_by_revolution_overlap = {
+    "id":         "MaxEnt_SPRT",
+    "func":       "Default",
+    "param_mode": "by_revolution",
+    "params_physical": {
+        "T_rev":         _T_REV,
+        "N_rev_per_seg": 5,        # -> N_seg = 5
+        "step_rev":      1,        # hop de 2 rev  =>  overlap 60 %
+        **_COMMON,
+    },
+}
 
+# -- 5. Modo by_modal con overlap --------------------------------------------
+#   step_modal = 2  ->  hop = 2 periodos modales  ->  overlap = 60 %
+INDICADOR_CONFIG_by_modal_overlap = {
+    "id":         "MaxEnt_SPRT",
+    "func":       "Default",
+    "param_mode": "by_modal",
+    "params_physical": {
+        "T_rev":           _T_REV,
+        "T_modal":         _T_MODAL,
+        "N_modal_per_seg": 5.0,    # -> N_seg = 5
+        "step_modal":      1,      # hop de 2 periodos modales  =>  overlap 60 %
+        **_COMMON,
+    },
+}
+
+# -- 6. Modo by_revolution con segmentation RAW --------------------------------
+#   En lugar de decimacion OPR (1 muestra/rev), usa todos los valores raw
+#   dentro de cada bloque de N_rev_per_seg revoluciones.
+#   N_samples_per_seg = N_rev_per_seg x round(fs / fr)  (calculado por el resolver)
+INDICADOR_CONFIG_by_revolution_raw = {
+    "id":         "MaxEnt_SPRT",
+    "func":       "Default",
+    "param_mode": "by_revolution",
+    "params_physical": {
+        "T_rev":         _T_REV,
+        "N_rev_per_seg": 5,        # -> N_seg = 5 rev  ->  N_samples = 5 x round(fs/fr)
+        "segmentation":  "raw",    # <- nueva opcion: usa senal raw sin OPR
+        "step_rev":      1,        # hop de 2 rev  =>  overlap 60 %
+        **_COMMON,
+    },
+}
+
+# -- 7. Modo by_modal con segmentation RAW -----------------------------------
+INDICADOR_CONFIG_by_modal_raw = {
+    "id":         "MaxEnt_SPRT",
+    "func":       "Default",
+    "param_mode": "by_modal",
+    "params_physical": {
+        "T_rev":           _T_REV,
+        "T_modal":         _T_MODAL,
+        "N_modal_per_seg": 5.0,    # -> N_samples = 5 x round(T_modal x fs)
+        "segmentation":    "raw",  # <- usa senal raw
+        'step_modal':      1.0,    # hop de 1 periodos modales  =>  overlap 60 %
+        **_COMMON,
+    },
+}
 # -- Selector (descomentar el modo deseado) -----------------------------------
 # INDICATOR_CONFIG = INDICATOR_CONFIG_native
 # INDICATOR_CONFIG = INDICATOR_CONFIG_by_revolution
-INDICATOR_CONFIG = INDICATOR_CONFIG_by_modal
+# INDICATOR_CONFIG = INDICATOR_CONFIG_by_modal
+# INDICATOR_CONFIG = INDICADOR_CONFIG_by_revolution_overlap
+# INDICATOR_CONFIG = INDICADOR_CONFIG_by_modal_overlap
+INDICATOR_CONFIG = INDICADOR_CONFIG_by_revolution_raw
+INDICATOR_CONFIG = INDICADOR_CONFIG_by_modal_raw
 
 # -- Senal de entrada ---------------------------------------------------------
 sig = SignalData(
@@ -197,6 +260,7 @@ if logger.isEnabledFor(logging.INFO):
     lines = [
         _kv("Indicador",      resultat_maxent_sprt.name),
         _kv("Modo",           param_mode),
+        _kv("Segmentacion",   meta.get("segmentation", "opr")),
         _sep(),
         _kv("t_stable_total", f"{_COMMON['t_stable_total']:.4f} s"),
         _kv("alpha / beta",   f"{meta['alpha']} / {meta['beta']}"),
@@ -216,14 +280,23 @@ if logger.isEnabledFor(logging.INFO):
         phys  = meta.get("physical_params_input", {})
         nat   = meta.get("native_params_resolved", {})
         quant = meta.get("quantization_notes", "")
+        step_s = nat.get("step_seg", nat.get("N_seg", 1))
+        overlap_p = 1.0 - step_s / nat.get("N_seg", 1)
+        seg_mode  = meta.get("segmentation", "opr")
         lines += [
             _kv("T_rev",         f"{phys.get('T_rev', 0)*1e3:.3f} ms"
                                  f"  (rpm = {nat.get('rpm', 0):.1f})"),
             _kv("N_rev_per_seg", f"{phys.get('N_rev_per_seg', '-')} rev/seg"),
+            _kv("step_rev",      f"{phys.get('step_rev', nat.get('N_seg', '-'))} rev  "
+                                 f"  (overlap = {overlap_p:.1%})"),
             _sep("Resultado"),
-            _kv("N_seg",  str(nat.get("N_seg", "-")), indent=1),
-            _kv("t_seg",  f"{nat.get('N_seg', 0) / fr * 1e3:.2f} ms", indent=1),
+            _kv("N_seg",     str(nat.get("N_seg", "-")), indent=1),
+            _kv("step_seg",  str(step_s), indent=1),
+            _kv("t_seg",     f"{nat.get('N_seg', 0) / fr * 1e3:.2f} ms", indent=1),
         ]
+        if seg_mode == "raw":
+            nsamp = meta.get("N_samples_per_seg") or nat.get("N_samples_per_seg", "?")
+            lines.append(_kv("N_samples_per_seg", f"{nsamp} muestras raw", indent=1))
         for part in quant.replace("|", ";").split(";"):
             if part.strip():
                 lines.append(f"    {part.strip()}")
@@ -233,16 +306,25 @@ if logger.isEnabledFor(logging.INFO):
         phys  = meta.get("physical_params_input", {})
         nat   = meta.get("native_params_resolved", {})
         quant = meta.get("quantization_notes", "")
+        step_s = nat.get("step_seg", nat.get("N_seg", 1))
+        overlap_p = 1.0 - step_s / nat.get("N_seg", 1)
+        seg_mode  = meta.get("segmentation", "opr")
         lines += [
             _kv("T_rev",           f"{phys.get('T_rev', 0)*1e3:.3f} ms"
                                    f"  (rpm = {60.0 / phys.get('T_rev', 1):.1f})"),
             _kv("T_modal",         f"{phys.get('T_modal', 0)*1e3:.3f} ms"
                                    f"  (f = {1/phys.get('T_modal', 1):.1f} Hz)"),
             _kv("N_modal_per_seg", f"{phys.get('N_modal_per_seg', '-')} periodos modales/seg"),
+            _kv("step_modal",      f"{phys.get('step_modal', nat.get('N_seg', '-'))} periodos  "
+                                   f"  (overlap = {overlap_p:.1%})"),
             _sep("Resultado"),
-            _kv("N_seg",  str(nat.get("N_seg", "-")), indent=1),
-            _kv("t_seg",  f"{nat.get('N_seg', 0) / fr * 1e3:.2f} ms", indent=1),
+            _kv("N_seg",     str(nat.get("N_seg", "-")), indent=1),
+            _kv("step_seg",  str(step_s), indent=1),
+            _kv("t_seg",     f"{nat.get('N_seg', 0) / fr * 1e3:.2f} ms", indent=1),
         ]
+        if seg_mode == "raw":
+            nsamp = meta.get("N_samples_per_seg") or nat.get("N_samples_per_seg", "?")
+            lines.append(_kv("N_samples_per_seg", f"{nsamp} muestras raw", indent=1))
         for part in quant.replace("|", ";").split(";"):
             if part.strip():
                 lines.append(f"    {part.strip()}")
@@ -260,8 +342,8 @@ if logger.isEnabledFor(logging.DEBUG):
         ("Segmentos totales",f"{meta['Total_segments']:,}"),
         ("Muestras libres",  f"{meta['Size_signal_free']:,}"),
         ("Muestras chatter", f"{meta['Size_signal_chatter']:,}"),
-        ("OPR libres",       str(meta["Sampled OPR free"])),
-        ("OPR chatter",      str(meta["Sampled OPR chatter"])),
+        ("OPR libres",       str(meta.get("Sampled OPR free",  "N/A (raw)" ))),
+        ("OPR chatter",      str(meta.get("Sampled OPR chatter","N/A (raw)" ))),
     ]
     df_sig = pd.DataFrame(rows_sig, columns=["Magnitud", "Valor"]).set_index("Magnitud")
     logger.debug("%s\n%s", _section("SENAL"), df_sig.to_string(header=False))

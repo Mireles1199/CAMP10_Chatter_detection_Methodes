@@ -8,7 +8,7 @@ from ..models.maxent import MaxEntModels
 from .llr import GaussianIndicatorLLR, LLRModel
 from .sprt import SPRTConfig, SPRTResult
 from .entropy import entropy_from_segments, EntropyEstimator, GaussianMaxEntEstimator
-from ..utils.opr import sample_opr, segment_opr
+from ..utils.opr import sample_opr, segment_opr, segment_signal_raw
 from ..lib.offline import offline_train_maxent_sprt
 
 
@@ -173,6 +173,9 @@ class MaxEntSPRTDetector:
         opr_chat: np.ndarray,
         opr_t_chat: np.ndarray,
         N_seg: int,
+        step: int | None = None,
+        segmentation: str = "opr",
+        N_samples_per_seg: int | None = None,
     ) -> "MaxEntSPRTDetector":
         """
         Fit the MaxEnt SPRT detector offline using operational deflection shape (OPR) data.
@@ -186,6 +189,13 @@ class MaxEntSPRTDetector:
         :param opr_chat: OPR-resampled signal representing the chatter reference condition.
         :param opr_t_chat: Time vector aligned with ``opr_chat``.
         :param N_seg: Number of OPR samples per segment used to build the offline training windows.
+        :param step: Hop size in OPR samples between consecutive segment starts.
+            ``None`` (default) is equivalent to ``step = N_seg`` (no overlap).
+        :param segmentation: ``"opr"`` (default) or ``"raw"``. When ``"raw"``,
+            the arrays are treated as full-rate signal and segmented without
+            OPR decimation using ``N_samples_per_seg``.
+        :param N_samples_per_seg: Block length in raw samples.  Required when
+            ``segmentation="raw"``.
 
         Returns:
             MaxEntSPRTDetector: ``self`` with trained models and diagnostic
@@ -199,6 +209,9 @@ class MaxEntSPRTDetector:
             opr_t_chat=opr_t_chat,
             N_seg=N_seg,
             estimator=self.estimator,
+            step=step,
+            segmentation=segmentation,
+            N_samples_per_seg=N_samples_per_seg,
         )
         self.models = models
         self.H_free = H_free
@@ -216,6 +229,9 @@ class MaxEntSPRTDetector:
         rpm: float,
         ratio_sampling: float,
         N_seg: int,
+        step: int | None = None,
+        segmentation: str = "opr",
+        N_samples_per_seg: int | None = None,
     ) -> "MaxEntSPRTDetector":
         """
         Fit the detector offline using raw signal data from free and chatter conditions.
@@ -231,6 +247,13 @@ class MaxEntSPRTDetector:
         :param rpm: Spindle speed in revolutions per minute used to derive the fundamental rotation frequency.
         :param ratio_sampling: Number of analysis samples per revolution, used to derive the OPR sampling frequency.
         :param N_seg: Number of OPR samples per entropy segment.
+        :param step: Hop size in OPR samples between consecutive segment starts.
+            ``None`` (default) is equivalent to ``step = N_seg`` (no overlap).
+        :param segmentation: ``"opr"`` (default) or ``"raw"``. When ``"raw"``,
+            OPR decimation is skipped and raw blocks of ``N_samples_per_seg``
+            samples are used instead.
+        :param N_samples_per_seg: Block length in raw samples. Required when
+            ``segmentation="raw"``.
 
         Returns:
             MaxEntSPRTDetector: ``self`` after OPR resampling and offline model
@@ -252,6 +275,9 @@ class MaxEntSPRTDetector:
             opr_chat=opr_chat,
             opr_t_chat=opr_t_chat,
             N_seg=N_seg,
+            step=step,
+            segmentation=segmentation,
+            N_samples_per_seg=N_samples_per_seg,
         )
 
     # ------------------ ONLINE / DETECCIÓN ------------------
@@ -288,6 +314,9 @@ class MaxEntSPRTDetector:
         ratio_sampling: float,
         N_seg: int,
         fs: Optional[float] = None,
+        step: int | None = None,
+        segmentation: str = "opr",
+        N_samples_per_seg: int | None = None,
     ) -> Tuple[SPRTResult, np.ndarray, np.ndarray]:
         """
         Detect chatter from an online signal using sequential probability ratio test (SPRT).
@@ -301,6 +330,13 @@ class MaxEntSPRTDetector:
         :param ratio_sampling: Sampling ratio used to derive the target OPR sampling frequency when ``fs`` is not explicitly provided.
         :param N_seg: Number of OPR samples grouped into each entropy segment.
         :param fs: Explicit OPR sampling frequency in Hz. If ``None``, it is computed from ``ratio_sampling`` and ``rpm``.
+        :param step: Hop size in OPR samples between consecutive segment starts.
+            ``None`` (default) is equivalent to ``step = N_seg`` (no overlap).
+        :param segmentation: ``"opr"`` (default) or ``"raw"``. When ``"raw"``,
+            OPR decimation is skipped; raw blocks of ``N_samples_per_seg``
+            samples are used.
+        :param N_samples_per_seg: Block length in raw samples. Required when
+            ``segmentation="raw"``.
 
         Returns:
             Tuple[SPRTResult, np.ndarray, np.ndarray]: Detection result, entropy
@@ -318,11 +354,21 @@ class MaxEntSPRTDetector:
         else:
             fs = fs
 
-        # 1) OPR
-        opr_online, opr_t_online = sample_opr(y_online, t_online, fs=fs, fr=fr)
+        # 1) Segmentation (OPR decimation or raw blocks)
+        if segmentation == "raw":
+            if N_samples_per_seg is None:
+                raise ValueError(
+                    "N_samples_per_seg must be provided when segmentation='raw'."
+                )
+            segments_online, segments_t_online = segment_signal_raw(
+                y_online, t_online, N_samples_per_seg=N_samples_per_seg, step=step
+            )
+        else:  # "opr"
+            opr_online, opr_t_online = sample_opr(y_online, t_online, fs=fs, fr=fr)
+            segments_online, segments_t_online = segment_opr(
+                opr_online, opr_t_online, N_seg=N_seg, step=step
+            )
 
-        # 2) Segmentation
-        segments_online, segments_t_online = segment_opr(opr_online, opr_t_online, N_seg=N_seg)
         if len(segments_online) == 0:
             raise ValueError("Insufficient segments generated from the online signal.")
 
