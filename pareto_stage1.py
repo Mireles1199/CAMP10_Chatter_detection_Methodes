@@ -78,6 +78,12 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(message)s"
 )
 
+# logging.basicConfig(
+#     level=logging.DEBUG,    # todo
+#     level=logging.INFO,     # eventos normales
+#     level=15,               # VERBOSE (info_plus)
+#     level=logging.WARNING,  # solo errores
+# )
 
 
 
@@ -892,16 +898,16 @@ BASE_INDICATOR_CONFIG_RMS_CV = {
 
 
 sig = SignalData(
-    t_cut=t_cut,
-    v_cut=v_cut,
-    x_cut = x_cut,
-    force_cut = force_cut,
-    t_original=t,
-    x_original=tool_dyn,
-    v_original=v,
+    # t_cut=t_cut,
+    # v_cut=v_cut,
+    # x_cut = x_cut,
+    # force_cut = force_cut,
+    # t_original=t,
+    # x_original=tool_dyn,
+    # v_original=v,
     t_analysis=t_cut,
     signal_analysis=v_cut,
-    force_original=force_N,
+    # force_original=force_N,
     path=data_dir,
     fs=fs,
     meta={"AP": "5mm-15mm",

@@ -150,7 +150,8 @@ class SSQ_STFT(TimeFrequencyTransform):
         Tsx, Sx, _, _, w, dWx = ssq_stft_T(x, window=w, n_fft=self.n_fft, win_len=self.win_length, hop_len=self.hop_length, fs=fs, get_dWx=True, get_w=True)
 
         # Generate time and frequency vectors based on the STFT output dimensions and sampling frequency
-        t = np.arange(Sx.shape[1]) * (self.hop_length / fs)
+        t = np.arange(Sx.shape[1]) * ((self.win_length - (self.win_length - self.hop_length))/ fs)
+        t = t + (self.win_length /fs) # Center time values on the window
         f = np.linspace(0, fs/2, Sx.shape[0], endpoint=True)
 
         return Tsx, Sx, t, f, w, dWx

@@ -328,7 +328,9 @@ class MaxEntSPRTDetector:
 
         # 3) Entropy per segment
         H_seq = entropy_from_segments(segments_online, estimator=self.estimator)
-        t_mid_segments = np.array([np.mean(seg_t) for seg_t in segments_t_online])
+        # t_mid_segments = np.array([np.mean(seg_t) for seg_t in segments_t_online])
+        # Last time in segment
+        t_mid_segments = np.array([seg_t[-1] for seg_t in segments_t_online])
 
         # 4) SPRT with OO design
         result = self.detect_from_H_seq(H_seq=H_seq)

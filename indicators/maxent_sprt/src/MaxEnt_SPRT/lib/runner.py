@@ -1,8 +1,11 @@
 from __future__ import annotations
 import logging
+import math
 from typing import Any, Callable, Dict, List, Sequence, Optional, Tuple
 
 from collections import defaultdict
+
+from MaxEnt_SPRT.logging_setup import _section
 from ..utils.types import SignalData, IndicatorResult
 from ..lib.detector import MaxEntSPRTConfig, MaxEntSPRTDetector
 from ..lib.entropy import GaussianMaxEntEstimator, EmpiricalHistogramEntropyEstimator, entropy_from_segments
@@ -12,6 +15,139 @@ import numpy as np
 
 IndicatorFunc = Callable[..., IndicatorResult]
 logger = logging.getLogger(__name__)
+
+# ── Keys forwarded unchanged from params_physical to the native pipeline ──────
+_MAXENT_PASS_THROUGH_PARAMS: frozenset = frozenset({
+    "t_stable_total", "alpha", "beta", "reset_on_H0",
+    "cut_start_time", "cut_end_time", "ratio_sampling",
+})
+
+
+def _resolve_physical_params_maxent(
+    param_mode: str,
+    params_physical: Dict[str, Any],
+    fs: float,
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """
+    Translate a physical parameter specification into native MaxEnt-SPRT parameters.
+
+    Supports two physical modes:
+
+    * ``by_revolution`` – the analysis segment spans a fixed number of spindle
+      revolutions.  ``T_rev`` (s) sets the spindle rotation period and
+      ``N_rev_per_seg`` is used directly as ``N_seg``.
+
+    * ``by_modal`` – the segment duration is expressed as a multiple of the
+      modal (chatter) period.  ``N_seg`` is derived by rounding
+      ``N_modal_per_seg * T_modal / T_rev`` to the nearest integer (min 1).
+
+    In both modes all pass-through parameters (``alpha``, ``beta``,
+    ``reset_on_H0``, ``t_stable_total``, ``cut_start_time``, ``cut_end_time``,
+    ``ratio_sampling``) are forwarded unchanged.
+
+    :param param_mode: Either ``"by_revolution"`` or ``"by_modal"``.
+    :param params_physical: Dictionary of physical parameters (mode-specific
+        keys plus optional pass-through keys).
+    :param fs: Sampling frequency of the signal.
+
+    Returns:
+        Tuple[Dict[str, Any], Dict[str, Any]]:
+            *native_params* – kwargs ready for ``_maxent_sprt_pipeline``;
+            *trace* – traceability record (physical inputs, resolved native
+            values, quantisation notes).
+
+    Raises
+    ------
+    ValueError
+        If required keys are missing or have inadmissible values.
+    """
+    # ── pass-through: copy keys the pipeline accepts directly ────────────────
+    native_params: Dict[str, Any] = {
+        k: v for k, v in params_physical.items()
+        if k in _MAXENT_PASS_THROUGH_PARAMS
+    }
+    quantization_notes: List[str] = []
+
+    if param_mode == "by_revolution":
+        for key in ("T_rev", "N_rev_per_seg"):
+            if key not in params_physical:
+                raise ValueError(
+                    f"by_revolution mode requires '{key}' in params_physical."
+                )
+
+        T_rev = float(params_physical["T_rev"])
+        N_rev_per_seg = params_physical["N_rev_per_seg"]
+
+        if T_rev <= 0.0:
+            raise ValueError(f"T_rev must be > 0, got {T_rev}.")
+        if int(N_rev_per_seg) < 1:
+            raise ValueError(f"N_rev_per_seg must be >= 1, got {N_rev_per_seg}.")
+
+        rpm   = 60.0 / T_rev
+        N_seg = int(N_rev_per_seg)
+        t_seg = N_seg * T_rev
+
+        native_params["rpm"]   = rpm
+        native_params["N_seg"] = N_seg
+
+        quantization_notes.append(
+            f"N_seg = int(N_rev_per_seg={N_rev_per_seg}) → {N_seg}"
+        )
+        quantization_notes.append(
+            f"t_seg = {N_seg} x {T_rev:.6f} s = {t_seg:.6f} s"
+        )
+
+    elif param_mode == "by_modal":
+        for key in ("T_rev", "T_modal", "N_modal_per_seg"):
+            if key not in params_physical:
+                raise ValueError(
+                    f"by_modal mode requires '{key}' in params_physical."
+                )
+
+        T_rev          = float(params_physical["T_rev"])
+        T_modal        = float(params_physical["T_modal"])
+        N_modal_per_seg = float(params_physical["N_modal_per_seg"])
+
+        if T_rev <= 0.0:
+            raise ValueError(f"T_rev must be > 0, got {T_rev}.")
+        if T_modal <= 0.0:
+            raise ValueError(f"T_modal must be > 0, got {T_modal}.")
+        if N_modal_per_seg <= 0.0:
+            raise ValueError(f"N_modal_per_seg must be > 0, got {N_modal_per_seg}.")
+
+        rpm          = 60.0 / T_rev
+        rpm_modal     = 60.0 / T_modal
+        N_seg        = int(N_modal_per_seg)
+        t_seg_target = N_seg * T_modal
+        t_seg_real   = math.ceil((t_seg_target)*fs) / fs
+        quant_err_s  = t_seg_real - t_seg_target
+        quant_err_pct = abs(quant_err_s) / t_seg_target * 100.0
+
+        native_params["rpm"]   = rpm_modal
+        native_params["N_seg"] = N_seg
+
+        quantization_notes.append(
+            f"N_seg: {N_modal_per_seg} (modal)"
+        )
+        quantization_notes.append(
+            f"t_seg_target={t_seg_target:.6f} s | t_seg_real={t_seg_real:.6f} s"
+            f" | delta={quant_err_s:+.6f} s ({quant_err_pct:.2f}%)"
+        )
+
+    else:
+        raise ValueError(
+            f"Unknown param_mode '{param_mode}'. "
+            "Valid options: 'native', 'by_revolution', 'by_modal'."
+        )
+
+    trace: Dict[str, Any] = {
+        "physical_params_input":  dict(params_physical),
+        "native_params_resolved": {"rpm": native_params["rpm"],
+                                   "N_seg": native_params["N_seg"]},
+        "quantization_notes":     "; ".join(quantization_notes),
+    }
+    return native_params, trace
+
 
 def run_maxent_sprt(signal: SignalData, INDICATOR_CONFIG: dict ) -> IndicatorResult:
     """
@@ -35,17 +171,45 @@ def run_maxent_sprt(signal: SignalData, INDICATOR_CONFIG: dict ) -> IndicatorRes
         If the selected function is not callable or the signal is invalid.
     """
 
-    results: IndicatorResult = None
+    param_mode: str = INDICATOR_CONFIG.get("param_mode", "native")
+    fs = signal.fs
 
     func: IndicatorFunc = INDICATOR_CONFIG["func"]
     if func == "Default":
         func = _maxent_sprt_pipeline
 
-    params: Dict[str, Any] = INDICATOR_CONFIG.get("params", {})
+    trace: Optional[Dict[str, Any]] = None
 
-    results = func(signal, **params)
+    if param_mode == "native":
+        params: Dict[str, Any] = INDICATOR_CONFIG.get("params", {})
+    else:
+        params_physical: Dict[str, Any] = INDICATOR_CONFIG["params_physical"]
+        params, trace = _resolve_physical_params_maxent(param_mode, params_physical, fs)
+        _phys_display = {
+            k: v for k, v in trace["physical_params_input"].items()
+            if k not in _MAXENT_PASS_THROUGH_PARAMS
+        }
+        logger.debug(
+            "Physical parametrization [%s] -> native:\n"
+            "  Physical input : %s\n"
+            "  Native resolved: %s\n"
+            "  Quantization   : %s",
+            param_mode,
+            _phys_display,
+            trace["native_params_resolved"],
+            trace["quantization_notes"],
+        )
 
-    return results
+    result: IndicatorResult = func(signal, **params)
+
+    # ── Traceability: attach mode + physical↔native mapping to meta ───────────
+    result.meta["param_mode"] = param_mode
+    if trace is not None:
+        result.meta["physical_params_input"]  = trace["physical_params_input"]
+        result.meta["native_params_resolved"] = trace["native_params_resolved"]
+        result.meta["quantization_notes"]     = trace["quantization_notes"]
+
+    return result
 
 def _cut_signal( t,x , time_range: Tuple[float, float]) -> Tuple[np.ndarray, np.ndarray]:
     """
@@ -123,23 +287,23 @@ def _maxent_sprt_pipeline(
     t_stable, signal_analysis_stable = _cut_signal( t_analysis, signal_analysis , (cut_start_time, t_stable_total) )
     t_chatter, signal_analysis_chatter = _cut_signal( t_analysis, signal_analysis , (t_stable_total, cut_end_time) )
 
-    logger.info_plus("Signal loaded:")
-    logger.info_plus(f" - Samples: {signal_analysis.size}")
-    logger.info_plus(f" - Duration: {t_analysis[-1]-t_analysis[0]:.2f} s")
-    logger.info_plus(f" - Sampling freq.: {fs:.1f} Hz")
-    logger.info_plus(f" - Rotation freq.: {fr:.1f} Hz")
-    logger.info_plus(f" - Segments of {N_seg} revolutions: {N_seg/fr:.2f} s each")
-    logger.info_plus(f" - Total segments available: {int(t_total*fr/N_seg)}")
+    logger.info_plus(_section("Signal loaded:"))
+    logger.info_plus("  %-24s %s", " - Samples:", f"{signal_analysis.size}")
+    logger.info_plus("  %-24s %s", " - Duration:", f"{t_analysis[-1]-t_analysis[0]:.2f} s")
+    logger.info_plus("  %-24s %s", " - Sampling freq.:", f"{fs:.1f} Hz")
+    logger.info_plus("  %-24s %s", " - Rotation freq.:", f"{fr:.1f} Hz")
+    logger.info_plus("  %-24s %s", " - Segments of {N_seg} revolutions:", f"{N_seg/fr:.2f} s each")
+    logger.info_plus("  %-24s %s", " - Total segments available:", f"{int(t_total*fr/N_seg)}")
 
-    logger.info_plus("Generated chatter-free and chatter-included signals.")
-    logger.info_plus(f"Size of signal free: {signal_analysis_stable.size} samples.")
-    logger.info_plus(f"Size of signal chatter: {signal_analysis_chatter.size} samples.")
+    logger.info_plus(_section("Generated chatter-free and chatter-included signals."))
+    logger.info_plus("  %-24s %s", "Size of signal free:", f"{signal_analysis_stable.size} samples")
+    logger.info_plus("  %-24s %s", "Size of signal chatter:", f"{signal_analysis_chatter.size} samples")
 
 
     # =========== Fase Ofline : OPR Training ==========
     opr_free, t_opr_free = sample_opr(signal_analysis_stable, t_stable, fs=fs, fr=fr)
     opr_chat, t_opr_chat = sample_opr(signal_analysis_chatter, t_chatter, fs=fs, fr=fr)
-    logger.info_plus(f"\n Sampled OPR: {opr_free.size} samples free, {opr_chat.size} samples chatter.")
+    logger.info_plus("  %-24s %s", "Sampled OPR:", f"{opr_free.size} samples free, {opr_chat.size} samples chatter.")
 
     # ============ Offline Phase:END-TO-END GAUSSIAN ===========
     detector_cfg = MaxEntSPRTConfig(alpha=alpha, beta=beta, reset_on_H0=reset_on_H0)
@@ -156,9 +320,9 @@ def _maxent_sprt_pipeline(
     )
 
     models_trained = detector._check_models()
-    logger.info_plus("\n OFFLINE MODEL (Gaussian MaxEnt):")
-    logger.info_plus(f"  FREE:  mu0={models_trained.p0.mu:.5f}, sigma0={models_trained.p0.sigma:.5f}")
-    logger.info_plus(f"  CHAT:  mu1={models_trained.p1.mu:.5f}, sigma1={models_trained.p1.sigma:.5f}")
+    logger.info_plus(_section("OFFLINE MODEL (Gaussian MaxEnt):"))
+    logger.info_plus("  %-24s %s", "FREE:", f"mu0={models_trained.p0.mu:.5f}, sigma0={models_trained.p0.sigma:.5f}")
+    logger.info_plus("  %-24s %s", "CHAT:", f"mu1={models_trained.p1.mu:.5f}, sigma1={models_trained.p1.sigma:.5f}")
 
     sprt_result, H_seq_online, t_mid_segments = detector.detect_online_from_signal(
         y_online=signal_analysis,
@@ -172,7 +336,7 @@ def _maxent_sprt_pipeline(
     #%%
     # ============ Online Phase: Results visualization ===========
 
-    logger.info_plus(f"ONLINE FINAL STATE: {sprt_result.final_state}, decision at segment {sprt_result.decision_index}")
+    logger.info_plus("  %-24s %s", "ONLINE FINAL STATE:", f"{sprt_result.final_state}, decision at segment {sprt_result.decision_index}")
 
     # =========== Early chatter Results - Points Chatter ==========
     mask = np.where(sprt_result.S_history >= sprt_result.b)[0]

@@ -43,16 +43,16 @@ class SignalData:
     meta : Dict[str, Any]
         Metadatos adicionales (ap(t), rpm, id de simulación, etc.).
     """
-    t_cut: np.ndarray
-    v_cut: np.ndarray
-    x_cut: np.ndarray
-    force_cut: np.ndarray
-    t_original: np.ndarray
-    x_original: np.ndarray
-    v_original: np.ndarray
+    # t_cut: np.ndarray
+    # v_cut: np.ndarray
+    # x_cut: np.ndarray
+    # force_cut: np.ndarray
+    # t_original: np.ndarray
+    # x_original: np.ndarray
+    # v_original: np.ndarray
     t_analysis: np.ndarray
     signal_analysis: np.ndarray
-    force_original: np.ndarray
+    # force_original: np.ndarray
     path: str
     fs: float
     meta: Dict[str, Any] = field(default_factory=dict)

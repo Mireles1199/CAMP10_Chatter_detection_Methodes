@@ -12,6 +12,7 @@ The heavy lifting is delegated to :func:`numpy.lib.stride_tricks.sliding_window_
 
 # Cálculo de secuencias RMS por ventanas deslizantes
 from __future__ import annotations
+import math
 from typing import Optional, Tuple, Dict, Any, Union
 import numpy as np
 
@@ -158,11 +159,11 @@ def rms_sequence(
             if not (0 <= overlap_pct < 1):
                 raise ValueError("`overlap_pct` debe estar en [0, 1).")
             step_sec_eff = (1.0 - overlap_pct) * (win / fs if N is not None else window_sec)
-            step = max(1, int(round(step_sec_eff * fs)))
+            step = max(1, int(math.ceil(step_sec_eff * fs)))
         elif step_sec is not None:
             if step_sec <= 0:
                 raise ValueError("`step_sec` debe ser > 0.")
-            step = max(1, int(round(step_sec * fs)))
+            step = max(1, int(math.ceil(step_sec * fs)))
         else:
             step = win
 
@@ -235,8 +236,8 @@ def rms_sequence(
         results["indices"] = idx
 
     if return_times:
-        centers = starts + (win / 2.0)
-        times = centers / fs
+        last = starts + (win / 1.0)
+        times = last / fs
         results["times"] = times
 
     return results

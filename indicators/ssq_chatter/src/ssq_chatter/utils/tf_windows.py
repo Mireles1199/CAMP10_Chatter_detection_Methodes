@@ -68,6 +68,8 @@ class WindowExtractor:
         A = []
         times = []
 
+        times_test = S1[:,0]  # para debug: revisar primeros K bloques para cada modo
+
         # Comentario: helper: pad seguro (sin negativos)
         def pad_block(block: np.ndarray, want_K: int, pad_left_hint: int) -> np.ndarray:
             width = block.shape[1]
@@ -85,6 +87,7 @@ class WindowExtractor:
                 pad_right = K - pad_left - 1
                 i0 = max(0, i - pad_left)
                 i1 = min(T, i + pad_right + 1)  # exclusivo
+
                 block = S1[:, i0:i1]
                 block = pad_block(block, K, pad_left_hint=pad_left)
 
@@ -100,6 +103,7 @@ class WindowExtractor:
                 left_hint = max(0, need_left)
                 block = pad_block(block, K, pad_left_hint=left_hint)
 
+
             elif mode == "forward_inclusive":
                 # Comentario: futuro incluyendo i: [i, ..., i+K-1]
                 i0 = i
@@ -108,9 +112,20 @@ class WindowExtractor:
                 # Comentario: falta por la derecha si estamos cerca del final
                 left_hint = 0  # todo el déficit va a la derecha en este modo
                 block = pad_block(block, K, pad_left_hint=left_hint)
+            elif mode == 'last':
+                # Comentario: ultimo tiempo de bloque = i, bloque de K columnas hacia atrás
+                # bloque causal que termina en i, incluyendo i,
+                # pero SOLO si está completo; si no, no inventa nada
+                if i < (K-1):
+                    continue
+
+                i0 = i - (K-1)
+                i1 = i   # exclusivo, incluye i
+                block = S1[:, i0:i1]
+
 
             else:
-                raise ValueError("mode must be 'center', 'causal_inclusive', or 'forward_inclusive'")
+                raise ValueError("mode must be 'center', 'causal_inclusive', 'forward_inclusive', or 'last'")
 
             A.append(block)
             times.append(time_vector[i] if time_vector is not None else i)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
+import math
 from typing import Tuple, Dict, Any, Optional
 import numpy as np
 
@@ -113,7 +114,7 @@ class ChatterPipeline:
 
     @timeit
     @ensure_1d_array
-    def run(self, x: np.ndarray, *, return_TF: bool = True
+    def run(self, x: np.ndarray, signal_time: np.ndarray, *, return_TF: bool = True
             ) -> Tuple[np.ndarray, np.ndarray, float, np.ndarray, np.ndarray, np.ndarray, np.ndarray, Dict[str, Any]]:
         """
         Execute the chatter detection pipeline on input signal.
@@ -125,6 +126,8 @@ class ChatterPipeline:
         ----------
         x : np.ndarray
             Input signal to analyze for chatter detection.
+        signal_time : np.ndarray
+            Time vector corresponding to the input signal samples.
         return_TF : bool, optional
             Whether to return time-frequency representations (default: True).
             Currently not used in implementation.
@@ -163,8 +166,8 @@ class ChatterPipeline:
         """
 
         fs = float(self._config.fs)
-        win_length = int(round(self._config.win_length_ms * 1e-3 * fs))
-        hop_length = int(round(self._config.hop_ms * 1e-3 * fs))
+        win_length = int((self._config.win_length_ms * 1e-3 * fs))
+        hop_length = int((self._config.hop_ms * 1e-3 * fs))
         if win_length < 3 or hop_length < 1:
             raise ValueError(": window length must be at least 3 samples and hop length must be at least 1 sample")
 
@@ -182,7 +185,8 @@ class ChatterPipeline:
 
         # Extract local windows from time-frequency representation
         A_i, t_i = WindowExtractor.extract_local_windows(S1, K=self._config.Ai_length, time_vector=t, mode=self._config.mode)
-
+        t_i = np.asarray(t_i)
+        t_i = t_i + signal_time[0]  # Adjust window time indices to match original signal time
         # SVD per window and first singular value
         U, D, Vh = WindowExtractor.compute_svd(A_i, ensure_real=True)
         d1 = D[:, 0]

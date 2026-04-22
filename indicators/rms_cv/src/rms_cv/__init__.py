@@ -1,4 +1,4 @@
-"""rms_cv — RMS/CV online chatter detection indicator.
+"""rms_cv -- RMS/CV online chatter detection indicator.
 
 This package detects machining chatter by computing Root Mean Square (RMS)
 values over a sliding window of the vibration signal, then monitoring the
@@ -46,6 +46,32 @@ Public API
     Coordinated publication figures.
 """
 
+# ── Custom log level (INFO_PLUS = 15, between DEBUG=10 and INFO=20) ───────────
+INFO_PLUS_LEVEL = 15
+
+
+def _register_info_plus_level() -> None:
+    import logging as _lg
+    if not hasattr(_lg, "INFO_PLUS"):
+        _lg.INFO_PLUS = INFO_PLUS_LEVEL  # type: ignore[attr-defined]
+    if _lg.getLevelName(INFO_PLUS_LEVEL) != "INFO_PLUS":
+        _lg.addLevelName(INFO_PLUS_LEVEL, "INFO_PLUS")
+    if not hasattr(_lg.Logger, "verbose"):
+        def _verbose(self, msg, *args, **kwargs):
+            if self.isEnabledFor(INFO_PLUS_LEVEL):
+                self._log(INFO_PLUS_LEVEL, msg, args, **kwargs)
+        _lg.Logger.verbose = _verbose  # type: ignore[attr-defined]
+    if not hasattr(_lg.Logger, "info_plus"):
+        _lg.Logger.info_plus = _lg.Logger.verbose  # type: ignore[attr-defined]
+    if not hasattr(_lg, "info_plus"):
+        def _module_info_plus(msg, *args, **kwargs):
+            _lg.log(INFO_PLUS_LEVEL, msg, *args, **kwargs)
+        _lg.info_plus = _module_info_plus  # type: ignore[attr-defined]
+
+
+_register_info_plus_level()
+del _register_info_plus_level
+
 # ── Public API exports ────────────────────────────────────────────────────────
 from .utils.signals import five_senos, signal_1
 from .utils.rms import rms_sequence
@@ -55,6 +81,7 @@ from .lib.runner import run_rms_cv
 from .utils.types import SignalData, IndicatorResult
 from .utils.hdf5_utils import HDF5Reader
 from .viz.rms_cv_plots import plots_rms_cv
+from .logging_setup import LOGGING_LEVELS
 
 __all__ = [
     # Signal generators
@@ -78,6 +105,9 @@ __all__ = [
     "plot_cv",
     # Visualisation (main)
     "plots_rms_cv",
+    # Logging
+    "INFO_PLUS_LEVEL",
+    "LOGGING_LEVELS",
 ]
 
 __version__ = "0.1.0"

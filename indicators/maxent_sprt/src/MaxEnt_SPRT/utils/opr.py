@@ -1,5 +1,6 @@
 
 from __future__ import annotations
+import math
 from typing import Tuple, List
 import numpy as np
 
@@ -27,10 +28,10 @@ def sample_opr(y: np.ndarray, t: np.ndarray, fs: float, fr: float) -> Tuple[np.n
     """
 
     ratio = fs / fr
-    if abs(ratio - round(ratio)) > 1e-9:
-        raise ValueError("fs/fr must be an integer for exact OPR sampling.")
-    step = int(round(ratio))
-    return y[::step], t[::step]
+    # if abs(ratio - round(ratio)) > 1e-9:
+    #     raise ValueError("fs/fr must be an integer for exact OPR sampling.")
+    step = int(math.ceil(ratio))
+    return y[step::step], t[step::step]
 
 def segment_opr(opr: np.ndarray, opr_t: np.ndarray, N_seg: int) -> Tuple[List[np.ndarray], List[np.ndarray]]:
     """
