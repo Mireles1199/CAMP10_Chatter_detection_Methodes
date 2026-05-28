@@ -18,6 +18,7 @@ import sys
 import pathlib
 import numpy as np
 
+
 # Allow running directly without installing (adds src/ to path)
 _here = pathlib.Path(__file__).resolve().parent.parent / "src"
 if str(_here) not in sys.path:
@@ -70,9 +71,11 @@ force_N      = data.get_element("res_R_p/data")[:, 1]
 v  = tool_dyn_vel
 fs = 1.0 / (t[1] - t[0])
 
-t_cut, v_cut  = _cut_signal(t, v,        (0.05, 16))
-_,     x_cut  = _cut_signal(t, tool_dyn, (0.05, 16))
-_,     f_cut  = _cut_signal(t, force_N,  (0.05, 16))
+_CUT_START = 0.05
+
+t_cut, v_cut  = _cut_signal(t, v,        (_CUT_START, 16))
+_,     x_cut  = _cut_signal(t, tool_dyn, (_CUT_START, 16))
+_,     f_cut  = _cut_signal(t, force_N,  (_CUT_START, 16))
 # ── Build SignalData ────────────────────────────────────────────────────────
 sig = SignalData(
     t=t_cut,
@@ -117,8 +120,8 @@ config_fixed = {
     "func": "FixedWindow",
     "params": {
         "f_modal":        200.0,   # Hz
-        "num_T":          4,       # window = 1 × T_modal
-        "dt":             0.005,    # None → non-overlapping; float [s] → custom step
+        "num_T":          16,       # window = 1 × T_modal
+        "dt":             1./200.,    # None → non-overlapping; float [s] → custom step
         "data_filtrated": True,
         "lambda_ewma":    None,     # None to disable EWMA
         "accumulate":     False,    # False/None to disable Ĝ accumulation (from t=0)
@@ -128,12 +131,15 @@ config_fixed = {
         "area_noise_eps": 1e-13,        # --- mu ± 3sigma threshold ---
         "use_area_threshold": True,
         "training_intervals": [
-            (0.05,   _T_GT, "stable"),
-            (_T_GT,  10,  "chatter"),
+                (_CUT_START,3.3,    "stable_1"),  # chatter-free training region
+                (3.3, 4.46, "stable_2"), # stable training region
+                (4.46, _T_GT, "stable_1"), #
         ],
         "z_sigma": 3.0,        "debug_level":    1,
     },
 }
+
+
 
 # ── Run indicator ───────────────────────────────────────────────────────────
 if not USE_FIXED_WINDOW:
@@ -174,7 +180,12 @@ else:
     else:
         print("t_d (area thr)  : not detected (or threshold disabled)")
 
-    plots_fixed_window(signal=sig, result=result_fw, t_gt=_T_GT)
+    plots_fixed_window(
+        signal=sig,
+        result=result_fw,
+        t_gt=_T_GT,
+        training_intervals=config_fixed["params"]["training_intervals"],
+    )
     # plots_signal_diagnostics(
     #     signal=sig,
     #     result=result_fw,

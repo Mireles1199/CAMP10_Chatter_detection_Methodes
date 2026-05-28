@@ -326,12 +326,12 @@ def _extract_training_segments(
 
     for entry in intervals:
         t0, t1, label = float(entry[0]), float(entry[1]), str(entry[2]).lower().strip()
-        if label not in ("stable", "chatter"):
+        if not (label.startswith("stable") or label.startswith("chatter")):
             raise ValueError(
-                f"training_intervals label must be 'stable' or 'chatter', got '{label}'."
+                f"training_intervals label must start with 'stable' or 'chatter', got '{label}'."
             )
         mask = (t >= t0) & (t <= t1)
-        if label == "stable":
+        if label.startswith("stable"):
             t_stable_parts.append(t[mask])
             x_stable_parts.append(x[mask])
         else:

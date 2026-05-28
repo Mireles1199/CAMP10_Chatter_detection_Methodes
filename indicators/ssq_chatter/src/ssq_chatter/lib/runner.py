@@ -17,8 +17,7 @@ logger = logging.getLogger(__name__)
 
 # ── keys forwarded unchanged to _sst_svd_pipeline ──────────────────────────
 _SSQ_PASS_THROUGH_PARAMS: frozenset = frozenset({
-    "n_fft_power", "mode", "sigma", "frac_stable", "alpha", "z", "fallback_mad",
-})
+    "n_fft_power", "mode", "sigma", "frac_stable", "alpha", "z", "fallback_mad",    "training_intervals",})
 
 
 def _resolve_physical_params_ssq(
@@ -301,6 +300,7 @@ def _sst_svd_pipeline(
     alpha: float,
     z: float,
     fallback_mad: bool,
+    training_intervals: Optional[List] = None,
 ) -> IndicatorResult:
     """
     Execute Synchrosqueezing Transform (SST) with SVD-based chatter detection pipeline.
@@ -399,6 +399,30 @@ def _sst_svd_pipeline(
     # ========= Run pipeline ============
     Tsx, Sx, fs_out, tt, A_i, t_i, D, d1, res, w, dWx = pipe.run(signal_analysis, signal_time)
 
+    # ── Override detection with training_intervals if provided ────────────────────
+    if training_intervals is not None:
+        t_i_np = np.asarray(t_i, dtype=float)
+        stable_mask = np.zeros(len(t_i_np), dtype=bool)
+        for entry in training_intervals:
+            # Acepta dos formatos:
+            #   (t0, t1, "label")       — 3-tupla plana
+            #   ((t0, t1), "label")     — tupla con sub-tupla
+            if len(entry) == 3 and not hasattr(entry[0], '__len__'):
+                t0, t1, lbl = entry
+            else:
+                (t0, t1) = entry[0]
+                lbl = str(entry[1]).lower() if len(entry) > 1 else "stable"
+            lbl = str(lbl).lower()
+            if "stable" in lbl:
+                stable_mask |= (t_i_np >= float(t0)) & (t_i_np <= float(t1))
+        idx_stable_ti = np.nonzero(stable_mask)[0]
+        if idx_stable_ti.size > 1:
+            res = detect_rule.detect(d1=d1, t=t_i_np, idx_stable=idx_stable_ti)
+        else:
+            logger.warning(
+                "training_intervals yielded < 2 stable SVD frames; falling back to frac_stable."
+            )
+
     chatter_points_mask = np.where(d1 > res['lim_sup'])[0]
     chatter_points_time = t_i[chatter_points_mask] if chatter_points_mask.size > 0 else np.array([])
     chatter_points_values = d1[chatter_points_mask] if chatter_points_mask.size > 0 else np.array([])
@@ -435,6 +459,7 @@ def _sst_svd_pipeline(
             "mu": res["mu"],
             "sigma": res["sigma"],
             "chatter": f"{100*res['mask'].mean():.2f}%",
+            "training_intervals": training_intervals,
         },
     )
 

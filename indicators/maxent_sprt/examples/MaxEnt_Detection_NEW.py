@@ -78,7 +78,7 @@ _T_REV   = 60.0 / _RPM   # 0.005 s -- periodo de una revolucion
 _T_MODAL = 1.0 / _F_MODAL  # s       -- periodo del modo de chatter (f_modal ~ 150 Hz)
 
 # alpha = beta = norm.sf(3.0) ≈ 0.00135  →  equivalent to z=3 sigma (same FAR as RMS-CV and SSQ)
-_Z3_ALPHA = 0.00135   # scipy.stats.norm.sf(3.0)
+_Z3_ALPHA = 0.00135   # scipy.stats.y si estanorm.sf(3.0)
 _T_GT = 5.365770208787228   # [s] ground-truth chatter onset
 _CUT_START = 0.05
 _CUT_END   = 10
@@ -86,11 +86,13 @@ _CUT_END   = 10
 _COMMON = {
     "t_stable_total":     _T_GT,          # legacy fallback (used if training_intervals=None)
     "training_intervals": [
-        (_CUT_START, _T_GT,    "stable"),  # chatter-free training region
-        # (_CUT_START, 3.3, "stable"), # stable training region
+        (_CUT_START,3.3,    "stable_1"),  # chatter-free training region
+        (3.3, 4.46, "stable_2"), # stable training region
+        (4.46, _T_GT, "stable_1"), # chatter training region
         # (3.3,        4.4, "chatter"), # chatter training region
         # (4.5,        _T_GT, "stable"), # transition region
-        (_T_GT,      _CUT_END, "chatter"), # chatter training region
+        (_T_GT,      10.0, "chatter"), # chatter training region
+        # (6.6,        10.0, "chatter_2"), # chatter training region
     ],
     "alpha":          _Z3_ALPHA,
     "beta":           _Z3_ALPHA,

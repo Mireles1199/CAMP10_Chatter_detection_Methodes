@@ -394,7 +394,7 @@ def plots_rms_cv(
         mask_c = t_np >= t_gt_val
         if np.any(mask_s):
             ax.hist(cv_np[mask_s], bins=40, density=True, alpha=0.55,
-                    color=color_azul, label=f"Stable  (n={int(mask_s.sum())})")
+                    color=color_azul, label=f"Stable")
             mu_s, std_s = np.mean(cv_np[mask_s]), np.std(cv_np[mask_s])
             if std_s > 0:
                 xs = np.linspace(mu_s - 4 * std_s, mu_s + 4 * std_s, 300)
@@ -409,14 +409,21 @@ def plots_rms_cv(
             ax.text(cv_threshold, 0.97, rf"  $\mu+3\sigma={cv_threshold:.4g}$",
                     rotation=90, va="top", ha="right", fontsize=16,
                     color=color_red, transform=ax.get_xaxis_transform())
-        if cv_threshold_low is not None and cv_threshold_low > 0:
-            ax.axvline(cv_threshold_low, color=color_red, ls=":", lw=1.2)
-            ax.text(cv_threshold_low, 0.97, rf"  $\mu-3\sigma={cv_threshold_low:.4g}$",
+        # mu - 3sigma: use cv_threshold_low if provided, else compute from histogram data
+        _low_val = cv_threshold_low
+        if _low_val is None and np.any(mask_s):
+            _mu_h, _std_h = np.mean(cv_np[mask_s]), np.std(cv_np[mask_s])
+            if _std_h > 0:
+                _low_val = _mu_h - 3 * _std_h
+        if _low_val is not None:
+            ax.axvline(_low_val, color=color_red, ls=":", lw=1.2)
+            ax.text(_low_val, 0.97, rf"  $\mu-3\sigma={_low_val:.4g}$",
                     rotation=90, va="top", ha="right", fontsize=16,
                     color=color_red, transform=ax.get_xaxis_transform())
+        
         ax.set_xlabel("CV")
         ax.set_ylabel("Density")
-        ax.set_title("CV Distribution — Stable vs Chatter")
+        ax.set_title("CV Distribution — Stable")
         ax.ticklabel_format(style='sci', axis='x', scilimits=(0, 0))
         ax.legend()
         ax.grid(False)
@@ -460,6 +467,31 @@ def plots_rms_cv(
             ax_sig.set_xlim(zoom_x)
         fig_sig.tight_layout()
         return (fig_mu, ax_mu), (fig_sig, ax_sig)
+
+    # ── C7: μ and σ per window — combined single figure ─────────────────────
+    def _plot_mu_sigma_combined(
+        cv_time_arr: np.ndarray, mu_arr: np.ndarray, sigma_arr: np.ndarray,
+        zoom_x=None, scale: float = 1.0,
+        vlines=None, fig_label: Optional[str] = None,
+        **kargs,
+    ) -> tuple:
+        """Single figure, shared Y axis: μ(t) (azul) and σ(t) (purple) per CV window."""
+        fig, ax = plt.subplots(figsize=fig_size(scale=scale, ncols=1), num=fig_label)
+        ax.plot(cv_time_arr, mu_arr, color=color_azul,
+                marker="o", markersize=3, linestyle="-", label=r"$\mu(t)$")
+        ax.plot(cv_time_arr, sigma_arr, color=color_purple,
+                marker="s", markersize=3, linestyle="--", label=r"$\sigma(t)$")
+        ax.set_xlabel("Time (s)")
+        ax.set_ylabel(r"RMS statistics")
+        ax.ticklabel_format(style="sci", axis="y", scilimits=(0, 0))
+        ax.set_title(r"Per-Window Mean $\mu(t)$ and Std $\sigma(t)$")
+        ax.legend(loc="upper left")
+        ax.grid(False)
+        _draw_vlines(ax, vlines)
+        if zoom_x is not None:
+            ax.set_xlim(zoom_x)
+        fig.tight_layout()
+        return fig, ax
 
     # ── C4: Signal + CV joint (2 stacked subplots) ──────────────────────────
     def _plot_signal_cv_joint(
@@ -620,8 +652,13 @@ def plots_rms_cv(
         _plot_mu_sigma_evolution(
             np.asarray(cv_time), _mu_arr, _sigma_arr,
             zoom_x=zoom_x, scale=scale, vlines=auto_vlines,
-            fig_label_mu="C5 \u2014 \u03bc per Window",
-            fig_label_sigma="C6 \u2014 \u03c3 per Window",
+            fig_label_mu="C5 — μ per Window",
+            fig_label_sigma="C6 — σ per Window",
+        )
+        _plot_mu_sigma_combined(
+            np.asarray(cv_time), _mu_arr, _sigma_arr,
+            zoom_x=zoom_x, scale=scale, vlines=auto_vlines,
+            fig_label="C7 — μ and σ per Window (combined)",
         )
 
     plt.show(block=True)

@@ -139,6 +139,7 @@ def plots_fixed_window(
     signal: SignalData,
     result: FixedWindowResult,
     t_gt: Optional[float] = None,
+    training_intervals=None,
     show: bool = True,
 ) -> None:
     """Produce the standard set of plots for a :class:`FixedWindowResult`.
@@ -154,10 +155,14 @@ def plots_fixed_window(
 
     Parameters
     ----------
-    signal : original input signal.
-    result : output of :func:`run_fixed_window`.
-    t_gt   : ground-truth chatter onset [s] (optional).
-    show   : call ``plt.show(block=True)`` after all figures.
+    signal             : original input signal.
+    result             : output of :func:`run_fixed_window`.
+    t_gt               : ground-truth chatter onset [s] (optional).
+    training_intervals : list of ``(t0, t1, label)`` tuples. Entries whose
+                         label starts with ``"stable"`` define the stable
+                         training region. Falls back to ``global_data`` or
+                         ``t < t_gt`` when not provided.
+    show               : call ``plt.show(block=True)`` after all figures.
     """
     name   = signal.name or ""
     t_wins = np.asarray(result.t_wins)
@@ -167,6 +172,15 @@ def plots_fixed_window(
     t_d    = result.t_d
     gd     = result.global_data or {}
     thr    = gd.get("area_mu_3sigma") or {}
+
+    # training_intervals: direct param overrides global_data
+    if training_intervals is None:
+        training_intervals = gd.get("training_intervals")
+    _all_stable_ranges = [
+        (_t0, _t1)
+        for _t0, _t1, _lbl in (training_intervals or [])
+        if str(_lbl).startswith("stable")
+    ]
 
     # shared event vlines
     auto_vlines = []
@@ -188,67 +202,94 @@ def plots_fixed_window(
             constrained_layout=True,
         )
         fig_c1.suptitle(f"C1 — Signal — {name}")
-        # split at t_gt (ground truth onset) when available; fall back to t_d
         _split_t = t_gt if t_gt is not None else t_d
-        if _split_t is not None:
-            mask_s = t_arr < _split_t
-            mask_c = t_arr >= _split_t
+        if _all_stable_ranges:
+            # plot each stable interval separately (avoids connecting lines)
+            for _bi, (_t0, _t1) in enumerate(_all_stable_ranges):
+                _m = (t_arr >= _t0) & (t_arr <= _t1)
+                if _m.any():
+                    ax_x.plot(t_arr[_m], q_arr[_m], color=color_azul,
+                              lw=0.8, label="Stable" if _bi == 0 else "_nolegend_")
+            if _split_t is not None:
+                _mc = t_arr >= _split_t
+                if _mc.any():
+                    ax_x.plot(t_arr[_mc], q_arr[_mc], color=color_orange,
+                              lw=0.8, label="Chatter")
         else:
-            mask_s = np.ones(len(t_arr), dtype=bool)
-            mask_c = np.zeros(len(t_arr), dtype=bool)
-        if mask_s.any():
-            ax_x.plot(t_arr[mask_s], q_arr[mask_s], color=color_azul,
-                      lw=0.8, label="Stable")
-        if mask_c.any():
-            ax_x.plot(t_arr[mask_c], q_arr[mask_c], color=color_orange,
-                      lw=0.8, label="Chatter")
+            if _split_t is not None:
+                mask_s = t_arr < _split_t
+                mask_c = t_arr >= _split_t
+            else:
+                mask_s = np.ones(len(t_arr), dtype=bool)
+                mask_c = np.zeros(len(t_arr), dtype=bool)
+            if mask_s.any():
+                ax_x.plot(t_arr[mask_s], q_arr[mask_s], color=color_azul,
+                          lw=0.8, label="Stable")
+            if mask_c.any():
+                ax_x.plot(t_arr[mask_c], q_arr[mask_c], color=color_orange,
+                          lw=0.8, label="Chatter")
         ax_x.set_ylabel("Displacement [m]")
         ax_x.legend()
         _draw_vlines(ax_x, auto_vlines)
-        if mask_s.any():
-            ax_v.plot(t_arr[mask_s], v_arr[mask_s], color=color_azul,
-                      lw=0.8, label="Stable")
-        if mask_c.any():
-            ax_v.plot(t_arr[mask_c], v_arr[mask_c], color=color_orange,
-                      lw=0.8, label="Chatter")
+        if _all_stable_ranges:
+            for _bi, (_t0, _t1) in enumerate(_all_stable_ranges):
+                _m = (t_arr >= _t0) & (t_arr <= _t1)
+                if _m.any():
+                    ax_v.plot(t_arr[_m], v_arr[_m], color=color_azul,
+                              lw=0.8, label="Stable" if _bi == 0 else "_nolegend_")
+            if _split_t is not None:
+                _mc = t_arr >= _split_t
+                if _mc.any():
+                    ax_v.plot(t_arr[_mc], v_arr[_mc], color=color_orange,
+                              lw=0.8, label="Chatter")
+        else:
+            _v_split_t = t_gt if t_gt is not None else t_d
+            if _v_split_t is not None:
+                _ms = t_arr < _v_split_t
+                _mc = t_arr >= _v_split_t
+            else:
+                _ms = np.ones(len(t_arr), dtype=bool)
+                _mc = np.zeros(len(t_arr), dtype=bool)
+            if _ms.any():
+                ax_v.plot(t_arr[_ms], v_arr[_ms], color=color_azul,
+                          lw=0.8, label="Stable")
+            if _mc.any():
+                ax_v.plot(t_arr[_mc], v_arr[_mc], color=color_orange,
+                          lw=0.8, label="Chatter")
         ax_v.set_ylabel("Velocity [m/s]")
         ax_v.set_xlabel("Time [s]")
         ax_v.legend()
         _draw_vlines(ax_v, auto_vlines)
         # constrained_layout handles spacing for 2-subplot figure
 
-    # ── C2: Areas per window (log₁₀ scale) ───────────────────────────────
+    # ── C2: Areas per window ──────────────────────────────────────────────
     fig_c2, ax_c2 = plt.subplots(figsize=fig_size(scale=3.0), layout='tight')
     ax_c2.set_title(f"C2 — Areas per Window — {name}")
     ax_c2.set_xlabel("Time [s]")
-    ax_c2.set_ylabel(r"$\log_{10}(A_k)$")
+    ax_c2.set_ylabel("Shoelace area [m·m/s]")
     valid = np.isfinite(areas) & (areas > 0)
     if valid.any():
-        ax_c2.plot(t_wins[valid], np.log10(areas[valid]), color=color_azul,
-                   lw=1.0, marker="o", markersize=2, label=r"$\log_{10}(A_k)$")
+        ax_c2.semilogy(t_wins[valid], areas[valid], color=color_azul,
+                       lw=1.0, marker="o", markersize=2, label="$A_k$")
     if thr:
-        z_lbl = f"{thr['z']:.0f}"
-        # thr already stores log10-space values (mu, upper, lower)
-        _lu = float(thr["upper"]) if "upper" in thr else None
-        _ll = float(thr["lower"]) if "lower" in thr else None
-        _lm = float(thr["mu"])    if "mu"    in thr else None
-        if _lu is not None:
-            ax_c2.axhline(_lu, color=color_red, ls="--", lw=1.4)
-            ax_c2.text(0.99, _lu,
-                       rf"$\mu+{z_lbl}\sigma={_lu:.3g}$",
-                       transform=ax_c2.get_yaxis_transform(),
-                       color=color_red, ha='right', va='bottom', fontsize=16)
-        if _ll is not None:
-            ax_c2.axhline(_ll, color=color_red, ls=":", lw=1.2)
-            ax_c2.text(0.99, _ll,
-                       rf"$\mu-{z_lbl}\sigma={_ll:.3g}$",
-                       transform=ax_c2.get_yaxis_transform(),
-                       color=color_red, ha='right', va='top', fontsize=16)
-        if _lm is not None:
-            ax_c2.axhline(_lm, color=color_verde, ls="-", lw=1.0)
-            ax_c2.text(0.99, _lm, rf"$\mu={_lm:.3g}$",
-                       transform=ax_c2.get_yaxis_transform(),
-                       color=color_verde, ha='right', va='bottom', fontsize=16)
+        z_lbl   = f"{thr['z']:.0f}"
+        y_upper = 10 ** thr["upper"]
+        y_lower = 10 ** thr["lower"]
+        y_mu    = 10 ** thr["mu"]
+        ax_c2.axhline(y_upper, color=color_red, ls="--", lw=1.4)
+        ax_c2.text(0.99, y_upper,
+                   rf"$\mu+{z_lbl}\sigma={thr['upper']:.3g}$",
+                   transform=ax_c2.get_yaxis_transform(),
+                   color=color_red, ha='right', va='bottom', fontsize=16)
+        ax_c2.axhline(y_lower, color=color_red, ls=":", lw=1.2)
+        ax_c2.text(0.99, y_lower,
+                   rf"$\mu-{z_lbl}\sigma={thr['lower']:.3g}$",
+                   transform=ax_c2.get_yaxis_transform(),
+                   color=color_red, ha='right', va='top', fontsize=16)
+        ax_c2.axhline(y_mu, color=color_verde, ls="-", lw=1.0)
+        ax_c2.text(0.99, y_mu, rf"$\mu={thr['mu']:.3g}$",
+                   transform=ax_c2.get_yaxis_transform(),
+                   color=color_verde, ha='right', va='bottom', fontsize=16)
     _draw_vlines(ax_c2, auto_vlines)
     ax_c2.legend()
 
@@ -276,12 +317,17 @@ def plots_fixed_window(
 
     # ── C4: Histogram of stable areas ─────────────────────────────────────
     N_wins = len(t_wins)
-    _stable_split = t_gt if t_gt is not None else t_d
-    if _stable_split is not None:
-        stable_mask = t_wins < _stable_split
-    else:
+    if _all_stable_ranges:
         stable_mask = np.zeros(N_wins, dtype=bool)
-        stable_mask[:max(3, int(0.30 * N_wins))] = True
+        for _t0, _t1 in _all_stable_ranges:
+            stable_mask |= (t_wins >= _t0) & (t_wins <= _t1)
+    else:
+        _stable_split = t_gt if t_gt is not None else t_d
+        if _stable_split is not None:
+            stable_mask = t_wins < _stable_split
+        else:
+            stable_mask = np.zeros(N_wins, dtype=bool)
+            stable_mask[:max(3, int(0.30 * N_wins))] = True
     stable_areas = areas[stable_mask]
     valid_sa = np.isfinite(stable_areas) & (stable_areas > 0)
     if valid_sa.sum() >= 5:
@@ -297,16 +343,15 @@ def plots_fixed_window(
         if std_h > 0:
             xs = np.linspace(mu_h - 4 * std_h, mu_h + 4 * std_h, 300)
             ax_c4.plot(xs, _scipy_norm.pdf(xs, mu_h, std_h),
-                       color=color_azul, lw=1.8, ls="-",
-                       label=rf"$\mathcal{{N}}(\mu={mu_h:.3g},\,\sigma={std_h:.3g})$")
+                       color=color_azul, lw=1.8, ls="-")
             ax_c4.axvline(mu_h, color=color_verde, ls="-", lw=1.4)
             ax_c4.text(mu_h, 0.97, rf"  $\mu={mu_h:.3g}$",
                        rotation=90, va="top", ha="right", fontsize=14,
                        color=color_verde,
                        transform=ax_c4.get_xaxis_transform())
-            if thr and "upper" in thr and "lower" in thr:
-                lo3   = float(thr["lower"])
-                hi3   = float(thr["upper"])
+            if thr and thr.get("upper", 0) > 0 and thr.get("lower", 0) > 0:
+                lo3   = np.log10(float(thr["lower"]))
+                hi3   = np.log10(float(thr["upper"]))
                 z_lbl = f"{thr['z']:.0f}"
             else:
                 lo3, hi3, z_lbl = mu_h - 3 * std_h, mu_h + 3 * std_h, "3"
@@ -320,6 +365,130 @@ def plots_fixed_window(
                        color=color_red, transform=ax_c4.get_xaxis_transform())
         ax_c4.legend()
         ax_c4.grid(False)
+
+        # times matching the log10_a array (needed for per-label D1b / D4b)
+        _t_stable = t_wins[stable_mask][valid_sa]
+
+        # ── D1: Time series — stable log₁₀(A)  [MaxEnt F1 analog] ────────
+        fig_d1, ax_d1 = plt.subplots(figsize=fig_size(scale=3.0), layout='tight',
+                                     num=f"D1 — Stable Areas — {name}")
+        ax_d1.set_title(f"D1 — Stable Areas — {name}")
+        ax_d1.set_xlabel("Time [s]")
+        ax_d1.set_ylabel(r"$\log_{10}(A_k)$")
+        if _all_stable_ranges:
+            for _bi, (_t0, _t1) in enumerate(_all_stable_ranges):
+                _m = (t_wins >= _t0) & (t_wins <= _t1) & np.isfinite(areas) & (areas > 0)
+                if _m.any():
+                    ax_d1.plot(
+                        t_wins[_m], np.log10(areas[_m]),
+                        color=color_azul, lw=1.0, marker="o", markersize=2,
+                        label="Stable" if _bi == 0 else "_nolegend_",
+                    )
+        else:
+            ax_d1.plot(_t_stable, log10_a, color=color_azul,
+                       lw=1.0, marker="o", markersize=2, label="Stable")
+        _draw_vlines(ax_d1, auto_vlines)
+        ax_d1.legend()
+
+        # ── D1b / D4b: per-label (only when ≥2 distinct stable labels) ────
+        _stable_label_groups: dict = {}
+        for _t0, _t1, _lbl in (training_intervals or []):
+            if str(_lbl).startswith("stable"):
+                _stable_label_groups.setdefault(str(_lbl), []).append((_t0, _t1))
+
+        # D1b — one figure per stable label  [MaxEnt F1b analog]
+        if len(_stable_label_groups) >= 2:
+            for _gi, (_lbl_name, _ranges) in enumerate(_stable_label_groups.items()):
+                fig_d1b, ax_d1b = plt.subplots(
+                    figsize=fig_size(scale=3.0), layout='tight',
+                    num=f"D1b.{_gi} — {_lbl_name}",
+                )
+                ax_d1b.set_title(rf"D1b — Stable Areas | {_lbl_name} — {name}")
+                ax_d1b.set_xlabel("Time [s]")
+                ax_d1b.set_ylabel(r"$\log_{10}(A_k)$")
+                # background: all stable intervals, faded (per interval, no connecting lines)
+                for _bi, (_t0b, _t1b) in enumerate(_all_stable_ranges):
+                    _mb = (t_wins >= _t0b) & (t_wins <= _t1b) & np.isfinite(areas) & (areas > 0)
+                    if _mb.any():
+                        ax_d1b.plot(
+                            t_wins[_mb], np.log10(areas[_mb]),
+                            color=color_azul, alpha=0.5, lw=0.8,
+                            marker="o", markersize=1,
+                            label="All stable" if _bi == 0 else "_nolegend_",
+                        )
+                # highlighted: specific label intervals, per interval
+                _ranges_str = ", ".join(rf"$[{r0:.2f},\,{r1:.2f}]$" for r0, r1 in _ranges)
+                for _ri, (_t0, _t1) in enumerate(_ranges):
+                    _m = (t_wins >= _t0) & (t_wins <= _t1) & np.isfinite(areas) & (areas > 0)
+                    if _m.any():
+                        ax_d1b.plot(
+                            t_wins[_m], np.log10(areas[_m]),
+                            color=color_azul, alpha=1.0, lw=1.6,
+                            marker="o", markersize=2,
+                            label=rf"{_lbl_name}  {_ranges_str} s" if _ri == 0 else "_nolegend_",
+                        )
+                if std_h > 0:
+                    _hi3_d1b = mu_h + 3 * std_h
+                    ax_d1b.axhline(_hi3_d1b, color=color_red, ls="--", lw=1.4)
+                    ax_d1b.text(0.99, _hi3_d1b, rf"  $\mu+3\sigma={_hi3_d1b:.3g}$",
+                                transform=ax_d1b.get_yaxis_transform(),
+                                color=color_red, ha='right', va='bottom', fontsize=14)
+                ax_d1b.legend()
+
+        # D4b — one figure per stable label histogram  [MaxEnt F4b analog]
+        if len(_stable_label_groups) >= 2 and std_h > 0:
+            _n_bins_d4b   = 40
+            _counts_all_d, _bin_edges_d = np.histogram(log10_a, bins=_n_bins_d4b)
+            _widths_d      = np.diff(_bin_edges_d)
+            _heights_all_d = _counts_all_d / (len(log10_a) * _widths_d)
+            for _gi, (_lbl_name, _ranges) in enumerate(_stable_label_groups.items()):
+                fig_d4b, ax_d4b = plt.subplots(
+                    figsize=fig_size(scale=3.0), layout='tight',
+                    num=f"D4b.{_gi} — {_lbl_name}",
+                )
+                ax_d4b.set_title(rf"D4b — Area PDF | {_lbl_name} — {name}")
+                ax_d4b.set_xlabel(r"$\log_{10}(A_k)$")
+                ax_d4b.set_ylabel("Density")
+                # full stable histogram (light)
+                ax_d4b.bar(
+                    _bin_edges_d[:-1], _heights_all_d, width=_widths_d,
+                    color=color_azul, alpha=0.35, align="edge",
+                    label=f"All stable",
+                )
+                # highlighted segment (same normalisation denominator)
+                _mask_seg = np.zeros(len(log10_a), dtype=bool)
+                for _t0, _t1 in _ranges:
+                    _mask_seg |= (_t_stable >= _t0) & (_t_stable <= _t1)
+                if _mask_seg.sum() >= 2:
+                    _counts_seg, _ = np.histogram(log10_a[_mask_seg], bins=_bin_edges_d)
+                    _heights_seg   = _counts_seg / (len(log10_a) * _widths_d)
+                    _ranges_str    = ", ".join(rf"$[{r0:.2f},\,{r1:.2f}]$" for r0, r1 in _ranges)
+                    ax_d4b.bar(
+                        _bin_edges_d[:-1], _heights_seg, width=_widths_d,
+                        color=color_azul, alpha=0.72, align="edge",
+                        label=rf"{_lbl_name}  {_ranges_str} s",
+                    )
+                # Gaussian PDF + μ and σ reference lines
+                _xs_d = np.linspace(mu_h - 4.5 * std_h, mu_h + 4.5 * std_h, 300)
+                ax_d4b.plot(_xs_d, _scipy_norm.pdf(_xs_d, mu_h, std_h),
+                            color=color_verde, lw=1.8,
+                            label=rf"PDF  $\mu$={mu_h:.3g}, $\sigma$={std_h:.3g}")
+                ax_d4b.axvline(mu_h, color=color_verde, ls="-", lw=1.4)
+                ax_d4b.text(mu_h, 0.97, rf"  $\mu={mu_h:.3g}$",
+                            rotation=90, va="top", ha="right", fontsize=14,
+                            color=color_verde, transform=ax_d4b.get_xaxis_transform())
+                ax_d4b.axvline(mu_h + 3 * std_h, color=color_red, ls="--", lw=1.4)
+                ax_d4b.text(mu_h + 3 * std_h, 0.97,
+                            rf"  $\mu+3\sigma={mu_h + 3 * std_h:.3g}$",
+                            rotation=90, va="top", ha="right", fontsize=14,
+                            color=color_red, transform=ax_d4b.get_xaxis_transform())
+                ax_d4b.axvline(mu_h - 3 * std_h, color=color_red, ls=":", lw=1.2)
+                ax_d4b.text(mu_h - 3 * std_h, 0.97,
+                            rf"  $\mu-3\sigma={mu_h - 3 * std_h:.3g}$",
+                            rotation=90, va="top", ha="right", fontsize=14,
+                            color=color_red, transform=ax_d4b.get_xaxis_transform())
+                ax_d4b.legend()
+                ax_d4b.grid(False)
 
     # ── Ĝ accumulator (optional) ──────────────────────────────────────────
     G = np.asarray(result.G_hat)

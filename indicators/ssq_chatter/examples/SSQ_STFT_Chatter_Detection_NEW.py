@@ -18,6 +18,8 @@ from ssq_chatter import plots_sst_svd
 from ssq_chatter import INFO_PLUS_LEVEL
 from ssq_chatter.logging_setup import configure_logging, LOGGING_LEVELS
 
+
+
 # _LOG_LEVEL = LOGGING_LEVELS["warning"]
 # _LOG_LEVEL = LOGGING_LEVELS["info"]
 _LOG_LEVEL =  INFO_PLUS_LEVEL
@@ -41,6 +43,8 @@ def _section(title: str, width: int = 54) -> str:
 
 # -- datos --------------------------------------------------------------------
 dir_cono     = r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\2DOF_Cono\1DOF_150Hz"
+work_space_5mm   = 'D:/Thesis/03-Code_Storage/02-Altintlas_Nessy2m_Storage/Chatter-Criteria/CAMP8-Ventanna_Glisante/Nessy2m_Case_Test_Explicit/1DOF_150Hz_5mm/1DOF_150Hz'
+
 dir_path_use = dir_cono
 
 data_dir = os.path.abspath(os.path.join(dir_path_use, "out.hdf5"))
@@ -64,7 +68,7 @@ _,     f_cut  = _cut_signal(t, force_N,  (0.05, 16.0))
 #
 #   native                  -> win_length_ms / hop_ms / Ai_length directos
 #   by_revolution / frames  -> ventana y hop en revoluciones, Ai_length directo
-#   by_revolution / total   -> ventana y hop en revoluciones, K_rev_svd total
+#   by_revolution / total   -> ventana y hop en revoluciones, K_rev_svd ²total
 #   by_modal      / frames  -> ventana y hop en periodos modales, Ai_length directo
 #
 # Cambiar la linea INDICATOR_CONFIG = ... al final del bloque para elegir modo.
@@ -73,12 +77,26 @@ _RPM     = 12_000.0
 _F_MODAL = 150.0
 _T_REV   = 60.0 / _RPM        # 0.005 s -- periodo de una revolucion
 _T_MODAL = 1.0 / _F_MODAL     # 0.00667 s -- periodo modal (150 Hz)
+_TGT     = 5.365770208787228   # [s] ground-truth chatter onset
+
+_CUT_START = 0.05
 
 _COMMON = {
     "n_fft_power":  3,
     "mode":         "causal_inclusive",
     "sigma":        6.0,
-    "frac_stable":  0.36052,
+    "frac_stable":  0.36052,    # fallback cuando training_intervals=None
+    # ── training_intervals: lista de ((t0, t1), "label") ────────────────────
+    # Usar "stable" como etiqueta para que el indicador use ese tramo como
+    # region de referencia (reemplaza frac_stable cuando está definido).
+    # Se pueden añadir varios intervalos con distintas etiquetas.
+    "training_intervals": [
+                (_CUT_START,3.3,    "stable_1"),  # chatter-free training region
+                (3.3, 4.46, "stable_2"), # stable training region
+                (4.46, _TGT, "stable_1"), #
+
+
+    ],
     "alpha":        0.05,
     "z":            3.0,
     "fallback_mad": False,
@@ -374,4 +392,5 @@ plots_sst_svd(
     show_signal=True, zoom_x=None, zoom_y=None,
     vlines=None, hlines=None,
     t_gt=_T_GT,
+    waterfall_lines="surface",  # "surface" | "time" | "freq" | "both" | "wire"
 )

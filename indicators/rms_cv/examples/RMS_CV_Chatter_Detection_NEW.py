@@ -149,10 +149,10 @@ INDICATOR_CONFIG_by_modal = {
     "param_mode": "by_modal",
     "params_physical": {
         "T_modal":        _T_MODAL,
-        "N_modal_window": 4,
+        "N_modal_window": 1,
         "step_modal":     1,
         "n_max_mode":     "frames",
-        "n_max_modal":    4,
+        "n_max_modal":    16,
         **_COMMON,
     },
 }
@@ -173,6 +173,7 @@ sig = SignalData(
 )
 
 # =============================================================================
+
 # EJECUCION
 # =============================================================================
 resultat_rms = run_rms_cv(sig, INDICATOR_CONFIG)

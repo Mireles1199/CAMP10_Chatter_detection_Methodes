@@ -49,7 +49,7 @@ def _select_stable_mask(
     if training_intervals is not None:
         mask = np.zeros(len(t_wins), dtype=bool)
         for t0, t1, label in training_intervals:
-            if label == "stable":
+            if str(label).startswith("stable"):
                 mask |= (t_wins >= t0) & (t_wins <= t1)
     elif stable_time is not None:
         mask = (t_wins >= stable_time[0]) & (t_wins <= stable_time[1])
@@ -350,12 +350,13 @@ def _fixed_window_pipeline(
             )
 
     global_data: Dict[str, Any] = {
-        "q_signal":      q.tolist(),
-        "q_o_signal":    q_o.tolist(),
-        "t":             t.tolist(),
-        "type_signal":   "FixedWindow",
-        "type_method":   "FixedWindow",
-        "area_mu_3sigma": area_mu_3sigma,
+        "q_signal":           q.tolist(),
+        "q_o_signal":         q_o.tolist(),
+        "t":                  t.tolist(),
+        "type_signal":        "FixedWindow",
+        "type_method":        "FixedWindow",
+        "area_mu_3sigma":     area_mu_3sigma,
+        "training_intervals": list(config.training_intervals) if config.training_intervals else None,
     }
 
     return FixedWindowResult(
