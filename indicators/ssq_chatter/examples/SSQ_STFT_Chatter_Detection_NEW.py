@@ -55,9 +55,9 @@ force_N      = data.get_element("res_R_p/data")[:, 1]
 v  = tool_dyn_vel
 fs = 1.0 / (t[1] - t[0])
 
-t_cut, v_cut  = _cut_signal(t, v,        (0.00, 16))
-_,     x_cut  = _cut_signal(t, tool_dyn, (0.00, 16))
-_,     f_cut  = _cut_signal(t, force_N,  (0.00, 16))
+t_cut, v_cut  = _cut_signal(t, v,        (0.05, 16.0))
+_,     x_cut  = _cut_signal(t, tool_dyn, (0.05, 16.0))
+_,     f_cut  = _cut_signal(t, force_N,  (0.05, 16.0))
 
 # =============================================================================
 # INDICATOR_CONFIG -- cuatro modos de parametrizacion
@@ -106,25 +106,25 @@ INDICATOR_CONFIG_by_revolution = {
     "param_mode": "by_revolution",
     "params_physical": {
         "T_rev":          _T_REV,
-        "N_rev_window":   5,
+        "N_rev_window":   4,
         "step_rev":       1,
         "Ai_length_mode": "frames",
-        "Ai_length_rev":  3,
+        "Ai_length_rev":  4,
         **_COMMON,
     },
 }
 
 # -- 3. Modo by_revolution / Ai_length_mode="total_window" -------------------
-#   K_rev_svd = N_win + (Ai-1)*step = 5 + (3-1)*5 = 15 revoluciones
-#   -> Ai_length = ceil((15 - 5) / 5 + 1) = 3
+#   K_rev_svd = N_win + (Ai-1)*step = 5 + (4-1)*5 = 20 revoluciones
+#   -> Ai_length = ceil((20 - 5) / 5 + 1) = 4
 INDICATOR_CONFIG_by_revolution_total = {
     "id":         "SST_SVD",
     "func":       "Default",
     "param_mode": "by_revolution",
     "params_physical": {
         "T_rev":          _T_REV,
-        "N_rev_window":   5,
-        "step_rev":       5,
+        "N_rev_window":   4,
+        "step_rev":       1,
         "Ai_length_mode": "total_window",
         "K_rev_svd":      14,            # -> Ai_length = 3
         **_COMMON,
@@ -132,28 +132,28 @@ INDICATOR_CONFIG_by_revolution_total = {
 }
 
 # -- 4. Modo by_modal / Ai_length_mode="frames" ------------------------------
-#   N_modal_window=5, step_modal=5
-#   win = 5 x 6.667ms = 33.335ms  |  hop = 5 x 6.667ms = 33.335ms
-#   hop/win = 5/5 = 100%  (valido: 0-100%)
+#   N_modal_window=3, step_modal=1
+#   win = 3 x 6.667ms = 20.001ms  |  hop = 1 x 6.667ms = 6.667ms
+#   hop/win = 1/3 = 33.33%  (valido: 0-100%)
 INDICATOR_CONFIG_by_modal = {
     "id":         "SST_SVD",
     "func":       "Default",
     "param_mode": "by_modal",
     "params_physical": {
         "T_modal":        _T_MODAL,
-        "N_modal_window": 5,
+        "N_modal_window": 4,
         "step_modal":     1,
         "Ai_length_mode": "frames",
-        "Ai_length_modal":3,
+        "Ai_length_modal":2,
         **_COMMON,
     },
 }
 
 # -- Selector (descomentar el modo deseado) -----------------------------------
 # INDICATOR_CONFIG = INDICATOR_CONFIG_native
-# INDICATOR_CONFIG = INDICATOR_CONFIG_by_revolution
+INDICATOR_CONFIG = INDICATOR_CONFIG_by_revolution
 # INDICATOR_CONFIG = INDICATOR_CONFIG_by_revolution_total
-INDICATOR_CONFIG = INDICATOR_CONFIG_by_modal
+# INDICATOR_CONFIG = INDICATOR_CONFIG_by_modal
 
 # -- Senal de entrada ---------------------------------------------------------
 sig = SignalData(
@@ -368,9 +368,10 @@ if logger.isEnabledFor(logging.DEBUG):
 # =============================================================================
 # GRAFICA
 # =============================================================================
-vlines = [5.365770208787228, 7.947208594272872]
-# plots_sst_svd(
-#     signal=sig, result=results_SST_SVD,
-#     show_signal=True, zoom_x=None, zoom_y=None,
-#     vlines=vlines, hlines=None,
-# )
+_T_GT = 5.365770208787228   # theoretical chatter onset time [s]
+plots_sst_svd(
+    signal=sig, result=results_SST_SVD,
+    show_signal=True, zoom_x=None, zoom_y=None,
+    vlines=None, hlines=None,
+    t_gt=_T_GT,
+)

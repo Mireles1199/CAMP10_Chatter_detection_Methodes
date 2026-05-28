@@ -102,9 +102,15 @@ SHOW_PLOTS   = True
 DEBUG_LEVEL  = 2             # 0=off, 1=info, 2=verbose, 3=debug+plots
 
 # -- Indicator base params (non-resolved parameters keep their baseline value)
+_T_GT_OPT  = 5.365770208787228   # [s] ground-truth chatter onset
+
 _BASE_MAXENT = {
     "rpm":                  RPM,
-    "t_stable_total":        5.365770208787228,
+    "t_stable_total":        _T_GT_OPT,       # legacy fallback (used if training_intervals=None)
+    "training_intervals":    [
+        (0.05,       _T_GT_OPT, "stable"),    # chatter-free training region
+        (_T_GT_OPT,  14.0,      "chatter"),   # chatter training region
+    ],
     "alpha":                 0.05,
     "beta":                  0.05,
     "reset_on_H0":           True,

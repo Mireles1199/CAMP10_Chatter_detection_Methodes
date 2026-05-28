@@ -11,6 +11,7 @@ Functions
 
    MaxEnt_SPRT.utils.opr.sample_opr
    MaxEnt_SPRT.utils.opr.segment_opr
+   MaxEnt_SPRT.utils.opr.segment_signal_raw
 
 
 Module Contents
@@ -37,13 +38,16 @@ Module Contents
    :raises because exact OPR decimation would not be possible.:
 
 
-.. py:function:: segment_opr(opr, opr_t, N_seg)
+.. py:function:: segment_opr(opr, opr_t, N_seg, step = None)
 
-   Split OPR data into fixed-length segments.
+   Split OPR data into fixed-length segments with optional overlap.
 
    :param opr: One-dimensional OPR-resampled signal to partition.
    :param opr_t: Time vector aligned with ``opr``.
    :param N_seg: Number of OPR samples per segment.
+   :param step: Hop size in OPR samples between consecutive segment starts.
+       ``None`` (default) is equivalent to ``step = N_seg`` (no overlap).
+       Values smaller than ``N_seg`` produce overlapping segments.
 
    :returns: List of OPR segments and list
              of matching time segments, both preserving the original order.
@@ -51,7 +55,31 @@ Module Contents
 
    .. rubric:: Notes
 
-   If ``len(opr)`` is not divisible by ``N_seg``, trailing samples that do
-   not complete a full segment are discarded.
+   Trailing samples that do not complete a full segment are discarded.
+
+
+.. py:function:: segment_signal_raw(y, t, N_samples_per_seg, step = None)
+
+   Split a raw (non-decimated) signal into fixed-length blocks.
+
+   Unlike :func:`segment_opr`, this function operates directly on the
+   full-rate signal without prior OPR decimation.  It is the natural
+   companion to :func:`segment_opr` for the ``segmentation="raw"`` mode.
+
+   :param y: One-dimensional signal samples.
+   :param t: Time vector aligned with ``y``.
+   :param N_samples_per_seg: Number of raw samples per block.
+   :param step: Hop size in raw samples between consecutive block starts.
+       ``None`` (default) is equivalent to ``step = N_samples_per_seg``
+       (no overlap).  Values smaller than ``N_samples_per_seg`` produce
+       overlapping blocks.
+
+   :returns: List of signal blocks and
+             list of matching time blocks, both preserving the original order.
+   :rtype: Tuple[List[np.ndarray], List[np.ndarray]]
+
+   .. rubric:: Notes
+
+   Trailing samples that do not complete a full block are discarded.
 
 

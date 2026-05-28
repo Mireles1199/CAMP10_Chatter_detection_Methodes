@@ -211,6 +211,7 @@
 <li class="toctree-l4"><a class="reference internal" href="../../../autoapi/MaxEnt_SPRT/lib/wrappers/index.html">MaxEnt_SPRT.lib.wrappers</a></li>
 </ul>
 </li>
+<li class="toctree-l3"><a class="reference internal" href="../../../autoapi/MaxEnt_SPRT/logging_setup/index.html">MaxEnt_SPRT.logging_setup</a></li>
 <li class="toctree-l3 has-children"><a class="reference internal" href="../../../autoapi/MaxEnt_SPRT/models/index.html">MaxEnt_SPRT.models</a><input aria-label="Toggle navigation of MaxEnt_SPRT.models" class="toctree-checkbox" id="toctree-checkbox-4" name="toctree-checkbox-4" role="switch" type="checkbox"/><label for="toctree-checkbox-4"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
 <li class="toctree-l4"><a class="reference internal" href="../../../autoapi/MaxEnt_SPRT/models/maxent/index.html">MaxEnt_SPRT.models.maxent</a></li>
 <li class="toctree-l4"><a class="reference internal" href="../../../autoapi/MaxEnt_SPRT/models/prob/index.html">MaxEnt_SPRT.models.prob</a></li>
@@ -266,9 +267,12 @@
           <h1>Source code for MaxEnt_SPRT.lib.runner</h1><div class="highlight"><pre>
 <span></span><span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">math</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">Sequence</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Tuple</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">collections</span><span class="w"> </span><span class="kn">import</span> <span class="n">defaultdict</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">MaxEnt_SPRT.logging_setup</span><span class="w"> </span><span class="kn">import</span> <span class="n">_section</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">..utils.types</span><span class="w"> </span><span class="kn">import</span> <span class="n">SignalData</span><span class="p">,</span> <span class="n">IndicatorResult</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">..lib.detector</span><span class="w"> </span><span class="kn">import</span> <span class="n">MaxEntSPRTConfig</span><span class="p">,</span> <span class="n">MaxEntSPRTDetector</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">..lib.entropy</span><span class="w"> </span><span class="kn">import</span> <span class="n">GaussianMaxEntEstimator</span><span class="p">,</span> <span class="n">EmpiricalHistogramEntropyEstimator</span><span class="p">,</span> <span class="n">entropy_from_segments</span>
@@ -283,6 +287,208 @@
 <div class="viewcode-block" id="logger">
 <a class="viewcode-back" href="../../../autoapi/MaxEnt_SPRT/lib/runner/index.html#MaxEnt_SPRT.lib.runner.logger">[docs]</a>
 <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span></div>
+
+
+<span class="c1"># ── Keys forwarded unchanged from params_physical to the native pipeline ──────</span>
+<span class="n">_MAXENT_PASS_THROUGH_PARAMS</span><span class="p">:</span> <span class="nb">frozenset</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">({</span>
+    <span class="s2">&quot;t_stable_total&quot;</span><span class="p">,</span> <span class="s2">&quot;alpha&quot;</span><span class="p">,</span> <span class="s2">&quot;beta&quot;</span><span class="p">,</span> <span class="s2">&quot;reset_on_H0&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;cut_start_time&quot;</span><span class="p">,</span> <span class="s2">&quot;cut_end_time&quot;</span><span class="p">,</span> <span class="s2">&quot;ratio_sampling&quot;</span><span class="p">,</span> <span class="s2">&quot;step_seg&quot;</span><span class="p">,</span> <span class="s2">&quot;segmentation&quot;</span><span class="p">,</span>
+<span class="p">})</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_resolve_physical_params_maxent</span><span class="p">(</span>
+    <span class="n">param_mode</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">params_physical</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
+    <span class="n">fs</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Translate a physical parameter specification into native MaxEnt-SPRT parameters.</span>
+
+<span class="sd">    Supports two physical modes:</span>
+
+<span class="sd">    * ``by_revolution`` – the analysis segment spans a fixed number of spindle</span>
+<span class="sd">      revolutions.  ``T_rev`` (s) sets the spindle rotation period and</span>
+<span class="sd">      ``N_rev_per_seg`` is used directly as ``N_seg``.</span>
+
+<span class="sd">    * ``by_modal`` – the segment duration is expressed as a multiple of the</span>
+<span class="sd">      modal (chatter) period.  ``N_seg`` is derived by rounding</span>
+<span class="sd">      ``N_modal_per_seg * T_modal / T_rev`` to the nearest integer (min 1).</span>
+
+<span class="sd">    In both modes all pass-through parameters (``alpha``, ``beta``,</span>
+<span class="sd">    ``reset_on_H0``, ``t_stable_total``, ``cut_start_time``, ``cut_end_time``,</span>
+<span class="sd">    ``ratio_sampling``) are forwarded unchanged.</span>
+
+<span class="sd">    :param param_mode: Either ``&quot;by_revolution&quot;`` or ``&quot;by_modal&quot;``.</span>
+<span class="sd">    :param params_physical: Dictionary of physical parameters (mode-specific</span>
+<span class="sd">        keys plus optional pass-through keys).</span>
+<span class="sd">    :param fs: Sampling frequency of the signal.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Tuple[Dict[str, Any], Dict[str, Any]]:</span>
+<span class="sd">            *native_params* – kwargs ready for ``_maxent_sprt_pipeline``;</span>
+<span class="sd">            *trace* – traceability record (physical inputs, resolved native</span>
+<span class="sd">            values, quantisation notes).</span>
+
+<span class="sd">    Raises</span>
+<span class="sd">    ------</span>
+<span class="sd">    ValueError</span>
+<span class="sd">        If required keys are missing or have inadmissible values.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># ── pass-through: copy keys the pipeline accepts directly ────────────────</span>
+    <span class="n">native_params</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="n">k</span><span class="p">:</span> <span class="n">v</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">params_physical</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">_MAXENT_PASS_THROUGH_PARAMS</span>
+    <span class="p">}</span>
+    <span class="n">quantization_notes</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="c1"># ── segmentation mode (default &quot;opr&quot; for backward compat) ────────────────</span>
+    <span class="n">segmentation</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">params_physical</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;segmentation&quot;</span><span class="p">,</span> <span class="s2">&quot;opr&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">segmentation</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;opr&quot;</span><span class="p">,</span> <span class="s2">&quot;raw&quot;</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;segmentation must be &#39;opr&#39; or &#39;raw&#39;, got &#39;</span><span class="si">{</span><span class="n">segmentation</span><span class="si">}</span><span class="s2">&#39;.&quot;</span>
+        <span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">param_mode</span> <span class="o">==</span> <span class="s2">&quot;by_revolution&quot;</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;T_rev&quot;</span><span class="p">,</span> <span class="s2">&quot;N_rev_per_seg&quot;</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">key</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">params_physical</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;by_revolution mode requires &#39;</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">&#39; in params_physical.&quot;</span>
+                <span class="p">)</span>
+
+        <span class="n">T_rev</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">params_physical</span><span class="p">[</span><span class="s2">&quot;T_rev&quot;</span><span class="p">])</span>
+        <span class="n">N_rev_per_seg</span> <span class="o">=</span> <span class="n">params_physical</span><span class="p">[</span><span class="s2">&quot;N_rev_per_seg&quot;</span><span class="p">]</span>
+
+        <span class="k">if</span> <span class="n">T_rev</span> <span class="o">&lt;=</span> <span class="mf">0.0</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;T_rev must be &gt; 0, got </span><span class="si">{</span><span class="n">T_rev</span><span class="si">}</span><span class="s2">.&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">int</span><span class="p">(</span><span class="n">N_rev_per_seg</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;N_rev_per_seg must be &gt;= 1, got </span><span class="si">{</span><span class="n">N_rev_per_seg</span><span class="si">}</span><span class="s2">.&quot;</span><span class="p">)</span>
+
+        <span class="n">rpm</span>   <span class="o">=</span> <span class="mf">60.0</span> <span class="o">/</span> <span class="n">T_rev</span>
+        <span class="n">N_seg</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">N_rev_per_seg</span><span class="p">)</span>
+        <span class="n">t_seg</span> <span class="o">=</span> <span class="n">N_seg</span> <span class="o">*</span> <span class="n">T_rev</span>
+
+        <span class="c1"># optional overlap: step_rev -&gt; step_seg (in OPR samples = revolutions)</span>
+        <span class="n">step_rev</span> <span class="o">=</span> <span class="n">params_physical</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;step_rev&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">step_rev</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">step_seg</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">step_rev</span><span class="p">)</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="p">(</span><span class="mi">1</span> <span class="o">&lt;=</span> <span class="n">step_seg</span> <span class="o">&lt;=</span> <span class="n">N_seg</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;step_rev must satisfy 1 &lt;= step_rev &lt;= N_rev_per_seg=</span><span class="si">{</span><span class="n">N_seg</span><span class="si">}</span><span class="s2">, got </span><span class="si">{</span><span class="n">step_rev</span><span class="si">}</span><span class="s2">.&quot;</span>
+                <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">step_seg</span> <span class="o">=</span> <span class="n">N_seg</span>  <span class="c1"># no overlap</span>
+
+        <span class="n">native_params</span><span class="p">[</span><span class="s2">&quot;rpm&quot;</span><span class="p">]</span>      <span class="o">=</span> <span class="n">rpm</span>
+        <span class="n">native_params</span><span class="p">[</span><span class="s2">&quot;N_seg&quot;</span><span class="p">]</span>    <span class="o">=</span> <span class="n">N_seg</span>
+        <span class="n">native_params</span><span class="p">[</span><span class="s2">&quot;step_seg&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">step_seg</span>
+
+        <span class="c1"># raw segmentation: convert revolution counts to raw sample counts</span>
+        <span class="k">if</span> <span class="n">segmentation</span> <span class="o">==</span> <span class="s2">&quot;raw&quot;</span><span class="p">:</span>
+            <span class="n">samples_per_rev</span>          <span class="o">=</span> <span class="n">fs</span> <span class="o">/</span> <span class="n">rpm</span> <span class="o">*</span> <span class="mf">60.0</span>           <span class="c1"># = fs * T_rev</span>
+            <span class="n">N_samples_per_seg</span>        <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span><span class="n">N_seg</span> <span class="o">*</span> <span class="n">samples_per_rev</span><span class="p">))</span>
+            <span class="n">step_samples</span>             <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span><span class="n">step_seg</span> <span class="o">*</span> <span class="n">samples_per_rev</span><span class="p">))</span>
+            <span class="n">native_params</span><span class="p">[</span><span class="s2">&quot;N_samples_per_seg&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">N_samples_per_seg</span>
+            <span class="n">native_params</span><span class="p">[</span><span class="s2">&quot;step_seg&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">step_samples</span>             <span class="c1"># override: hop in raw samples</span>
+            <span class="n">quantization_notes</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;raw mode: N_samples_per_seg = ceil(</span><span class="si">{</span><span class="n">N_seg</span><span class="si">}</span><span class="s2"> x </span><span class="si">{</span><span class="n">samples_per_rev</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">) = </span><span class="si">{</span><span class="n">N_samples_per_seg</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
+            <span class="n">quantization_notes</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;raw mode: step_samples = ceil(</span><span class="si">{</span><span class="n">step_seg</span><span class="si">}</span><span class="s2"> x </span><span class="si">{</span><span class="n">samples_per_rev</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">) = </span><span class="si">{</span><span class="n">step_samples</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
+
+        <span class="n">quantization_notes</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;N_seg = int(N_rev_per_seg=</span><span class="si">{</span><span class="n">N_rev_per_seg</span><span class="si">}</span><span class="s2">) → </span><span class="si">{</span><span class="n">N_seg</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
+        <span class="n">quantization_notes</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;t_seg = </span><span class="si">{</span><span class="n">N_seg</span><span class="si">}</span><span class="s2"> x </span><span class="si">{</span><span class="n">T_rev</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2"> s = </span><span class="si">{</span><span class="n">t_seg</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2"> s&quot;</span>
+        <span class="p">)</span>
+        <span class="n">quantization_notes</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;step_seg = </span><span class="si">{</span><span class="n">step_seg</span><span class="si">}</span><span class="s2">  (overlap = </span><span class="si">{</span><span class="mf">1.0</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">step_seg</span><span class="o">/</span><span class="n">N_seg</span><span class="si">:</span><span class="s2">.1%</span><span class="si">}</span><span class="s2">)&quot;</span>
+        <span class="p">)</span>
+
+    <span class="k">elif</span> <span class="n">param_mode</span> <span class="o">==</span> <span class="s2">&quot;by_modal&quot;</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;T_rev&quot;</span><span class="p">,</span> <span class="s2">&quot;T_modal&quot;</span><span class="p">,</span> <span class="s2">&quot;N_modal_per_seg&quot;</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">key</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">params_physical</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;by_modal mode requires &#39;</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">&#39; in params_physical.&quot;</span>
+                <span class="p">)</span>
+
+        <span class="n">T_rev</span>          <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">params_physical</span><span class="p">[</span><span class="s2">&quot;T_rev&quot;</span><span class="p">])</span>
+        <span class="n">T_modal</span>        <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">params_physical</span><span class="p">[</span><span class="s2">&quot;T_modal&quot;</span><span class="p">])</span>
+        <span class="n">N_modal_per_seg</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">params_physical</span><span class="p">[</span><span class="s2">&quot;N_modal_per_seg&quot;</span><span class="p">])</span>
+
+        <span class="k">if</span> <span class="n">T_rev</span> <span class="o">&lt;=</span> <span class="mf">0.0</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;T_rev must be &gt; 0, got </span><span class="si">{</span><span class="n">T_rev</span><span class="si">}</span><span class="s2">.&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">T_modal</span> <span class="o">&lt;=</span> <span class="mf">0.0</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;T_modal must be &gt; 0, got </span><span class="si">{</span><span class="n">T_modal</span><span class="si">}</span><span class="s2">.&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">N_modal_per_seg</span> <span class="o">&lt;=</span> <span class="mf">0.0</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;N_modal_per_seg must be &gt; 0, got </span><span class="si">{</span><span class="n">N_modal_per_seg</span><span class="si">}</span><span class="s2">.&quot;</span><span class="p">)</span>
+
+        <span class="n">rpm</span>          <span class="o">=</span> <span class="mf">60.0</span> <span class="o">/</span> <span class="n">T_rev</span>
+        <span class="n">rpm_modal</span>     <span class="o">=</span> <span class="mf">60.0</span> <span class="o">/</span> <span class="n">T_modal</span>
+        <span class="n">N_seg</span>        <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">N_modal_per_seg</span><span class="p">)</span>
+        <span class="n">t_seg_target</span> <span class="o">=</span> <span class="n">N_seg</span> <span class="o">*</span> <span class="n">T_modal</span>
+        <span class="n">t_seg_real</span>   <span class="o">=</span> <span class="n">math</span><span class="o">.</span><span class="n">ceil</span><span class="p">((</span><span class="n">t_seg_target</span><span class="p">)</span><span class="o">*</span><span class="n">fs</span><span class="p">)</span> <span class="o">/</span> <span class="n">fs</span>
+        <span class="n">quant_err_s</span>  <span class="o">=</span> <span class="n">t_seg_real</span> <span class="o">-</span> <span class="n">t_seg_target</span>
+        <span class="n">quant_err_pct</span> <span class="o">=</span> <span class="nb">abs</span><span class="p">(</span><span class="n">quant_err_s</span><span class="p">)</span> <span class="o">/</span> <span class="n">t_seg_target</span> <span class="o">*</span> <span class="mf">100.0</span>
+
+        <span class="c1"># optional overlap: step_modal -&gt; step_seg (in OPR samples = modal periods)</span>
+        <span class="n">step_modal</span> <span class="o">=</span> <span class="n">params_physical</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;step_modal&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">step_modal</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">step_seg</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">step_modal</span><span class="p">)</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="p">(</span><span class="mi">1</span> <span class="o">&lt;=</span> <span class="n">step_seg</span> <span class="o">&lt;=</span> <span class="n">N_seg</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;step_modal must satisfy 1 &lt;= step_modal &lt;= N_modal_per_seg=</span><span class="si">{</span><span class="n">N_seg</span><span class="si">}</span><span class="s2">, got </span><span class="si">{</span><span class="n">step_modal</span><span class="si">}</span><span class="s2">.&quot;</span>
+                <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">step_seg</span> <span class="o">=</span> <span class="n">N_seg</span>  <span class="c1"># no overlap</span>
+
+        <span class="n">native_params</span><span class="p">[</span><span class="s2">&quot;rpm&quot;</span><span class="p">]</span>      <span class="o">=</span> <span class="n">rpm_modal</span>
+        <span class="n">native_params</span><span class="p">[</span><span class="s2">&quot;N_seg&quot;</span><span class="p">]</span>    <span class="o">=</span> <span class="n">N_seg</span>
+        <span class="n">native_params</span><span class="p">[</span><span class="s2">&quot;step_seg&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">step_seg</span>
+
+        <span class="c1"># raw segmentation: convert modal-period counts to raw sample counts</span>
+        <span class="k">if</span> <span class="n">segmentation</span> <span class="o">==</span> <span class="s2">&quot;raw&quot;</span><span class="p">:</span>
+            <span class="n">samples_per_modal</span>        <span class="o">=</span> <span class="n">T_modal</span> <span class="o">*</span> <span class="n">fs</span>
+            <span class="n">N_samples_per_seg</span>        <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span><span class="n">N_seg</span> <span class="o">*</span> <span class="n">samples_per_modal</span><span class="p">))</span>
+            <span class="n">step_samples</span>             <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span><span class="n">step_seg</span> <span class="o">*</span> <span class="n">samples_per_modal</span><span class="p">))</span>
+            <span class="n">native_params</span><span class="p">[</span><span class="s2">&quot;N_samples_per_seg&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">N_samples_per_seg</span>
+            <span class="n">native_params</span><span class="p">[</span><span class="s2">&quot;step_seg&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">step_samples</span>             <span class="c1"># override: hop in raw samples</span>
+            <span class="n">quantization_notes</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;raw mode: N_samples_per_seg = ceil(</span><span class="si">{</span><span class="n">N_seg</span><span class="si">}</span><span class="s2"> x </span><span class="si">{</span><span class="n">samples_per_modal</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">) = </span><span class="si">{</span><span class="n">N_samples_per_seg</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
+            <span class="n">quantization_notes</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;raw mode: step_samples = ceil(</span><span class="si">{</span><span class="n">step_seg</span><span class="si">}</span><span class="s2"> x </span><span class="si">{</span><span class="n">samples_per_modal</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">) = </span><span class="si">{</span><span class="n">step_samples</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
+
+        <span class="n">quantization_notes</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;N_seg: </span><span class="si">{</span><span class="n">N_modal_per_seg</span><span class="si">}</span><span class="s2"> (modal)&quot;</span>
+        <span class="p">)</span>
+        <span class="n">quantization_notes</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;t_seg_target=</span><span class="si">{</span><span class="n">t_seg_target</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2"> s | t_seg_real=</span><span class="si">{</span><span class="n">t_seg_real</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2"> s&quot;</span>
+            <span class="sa">f</span><span class="s2">&quot; | delta=</span><span class="si">{</span><span class="n">quant_err_s</span><span class="si">:</span><span class="s2">+.6f</span><span class="si">}</span><span class="s2"> s (</span><span class="si">{</span><span class="n">quant_err_pct</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">%)&quot;</span>
+        <span class="p">)</span>
+        <span class="n">quantization_notes</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;step_seg = </span><span class="si">{</span><span class="n">step_seg</span><span class="si">}</span><span class="s2">  (overlap = </span><span class="si">{</span><span class="mf">1.0</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">step_seg</span><span class="o">/</span><span class="n">N_seg</span><span class="si">:</span><span class="s2">.1%</span><span class="si">}</span><span class="s2">)&quot;</span>
+        <span class="p">)</span>
+
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Unknown param_mode &#39;</span><span class="si">{</span><span class="n">param_mode</span><span class="si">}</span><span class="s2">&#39;. &quot;</span>
+            <span class="s2">&quot;Valid options: &#39;native&#39;, &#39;by_revolution&#39;, &#39;by_modal&#39;.&quot;</span>
+        <span class="p">)</span>
+
+    <span class="n">trace</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">&quot;physical_params_input&quot;</span><span class="p">:</span>  <span class="nb">dict</span><span class="p">(</span><span class="n">params_physical</span><span class="p">),</span>
+        <span class="s2">&quot;native_params_resolved&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;rpm&quot;</span><span class="p">:</span> <span class="n">native_params</span><span class="p">[</span><span class="s2">&quot;rpm&quot;</span><span class="p">],</span>
+                                   <span class="s2">&quot;N_seg&quot;</span><span class="p">:</span> <span class="n">native_params</span><span class="p">[</span><span class="s2">&quot;N_seg&quot;</span><span class="p">],</span>
+                                   <span class="s2">&quot;step_seg&quot;</span><span class="p">:</span> <span class="n">native_params</span><span class="p">[</span><span class="s2">&quot;step_seg&quot;</span><span class="p">],</span>
+                                   <span class="s2">&quot;segmentation&quot;</span><span class="p">:</span> <span class="n">segmentation</span><span class="p">,</span>
+                                   <span class="o">**</span><span class="p">({</span><span class="s2">&quot;N_samples_per_seg&quot;</span><span class="p">:</span> <span class="n">native_params</span><span class="p">[</span><span class="s2">&quot;N_samples_per_seg&quot;</span><span class="p">]}</span>
+                                      <span class="k">if</span> <span class="s2">&quot;N_samples_per_seg&quot;</span> <span class="ow">in</span> <span class="n">native_params</span> <span class="k">else</span> <span class="p">{})},</span>
+        <span class="s2">&quot;quantization_notes&quot;</span><span class="p">:</span>     <span class="s2">&quot;; &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">quantization_notes</span><span class="p">),</span>
+    <span class="p">}</span>
+    <span class="k">return</span> <span class="n">native_params</span><span class="p">,</span> <span class="n">trace</span>
 
 
 <div class="viewcode-block" id="run_maxent_sprt">
@@ -309,17 +515,45 @@
 <span class="sd">        If the selected function is not callable or the signal is invalid.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
-    <span class="n">results</span><span class="p">:</span> <span class="n">IndicatorResult</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">param_mode</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">INDICATOR_CONFIG</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;param_mode&quot;</span><span class="p">,</span> <span class="s2">&quot;native&quot;</span><span class="p">)</span>
+    <span class="n">fs</span> <span class="o">=</span> <span class="n">signal</span><span class="o">.</span><span class="n">fs</span>
 
     <span class="n">func</span><span class="p">:</span> <span class="n">IndicatorFunc</span> <span class="o">=</span> <span class="n">INDICATOR_CONFIG</span><span class="p">[</span><span class="s2">&quot;func&quot;</span><span class="p">]</span>
     <span class="k">if</span> <span class="n">func</span> <span class="o">==</span> <span class="s2">&quot;Default&quot;</span><span class="p">:</span>
         <span class="n">func</span> <span class="o">=</span> <span class="n">_maxent_sprt_pipeline</span>
 
-    <span class="n">params</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="n">INDICATOR_CONFIG</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;params&quot;</span><span class="p">,</span> <span class="p">{})</span>
+    <span class="n">trace</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span>
 
-    <span class="n">results</span> <span class="o">=</span> <span class="n">func</span><span class="p">(</span><span class="n">signal</span><span class="p">,</span> <span class="o">**</span><span class="n">params</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">param_mode</span> <span class="o">==</span> <span class="s2">&quot;native&quot;</span><span class="p">:</span>
+        <span class="n">params</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="n">INDICATOR_CONFIG</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;params&quot;</span><span class="p">,</span> <span class="p">{})</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">params_physical</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="n">INDICATOR_CONFIG</span><span class="p">[</span><span class="s2">&quot;params_physical&quot;</span><span class="p">]</span>
+        <span class="n">params</span><span class="p">,</span> <span class="n">trace</span> <span class="o">=</span> <span class="n">_resolve_physical_params_maxent</span><span class="p">(</span><span class="n">param_mode</span><span class="p">,</span> <span class="n">params_physical</span><span class="p">,</span> <span class="n">fs</span><span class="p">)</span>
+        <span class="n">_phys_display</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="n">k</span><span class="p">:</span> <span class="n">v</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">trace</span><span class="p">[</span><span class="s2">&quot;physical_params_input&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">k</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">_MAXENT_PASS_THROUGH_PARAMS</span>
+        <span class="p">}</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span>
+            <span class="s2">&quot;Physical parametrization [</span><span class="si">%s</span><span class="s2">] -&gt; native:</span><span class="se">\n</span><span class="s2">&quot;</span>
+            <span class="s2">&quot;  Physical input : </span><span class="si">%s</span><span class="se">\n</span><span class="s2">&quot;</span>
+            <span class="s2">&quot;  Native resolved: </span><span class="si">%s</span><span class="se">\n</span><span class="s2">&quot;</span>
+            <span class="s2">&quot;  Quantization   : </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="n">param_mode</span><span class="p">,</span>
+            <span class="n">_phys_display</span><span class="p">,</span>
+            <span class="n">trace</span><span class="p">[</span><span class="s2">&quot;native_params_resolved&quot;</span><span class="p">],</span>
+            <span class="n">trace</span><span class="p">[</span><span class="s2">&quot;quantization_notes&quot;</span><span class="p">],</span>
+        <span class="p">)</span>
 
-    <span class="k">return</span> <span class="n">results</span></div>
+    <span class="n">result</span><span class="p">:</span> <span class="n">IndicatorResult</span> <span class="o">=</span> <span class="n">func</span><span class="p">(</span><span class="n">signal</span><span class="p">,</span> <span class="o">**</span><span class="n">params</span><span class="p">)</span>
+
+    <span class="c1"># ── Traceability: attach mode + physical↔native mapping to meta ───────────</span>
+    <span class="n">result</span><span class="o">.</span><span class="n">meta</span><span class="p">[</span><span class="s2">&quot;param_mode&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">param_mode</span>
+    <span class="k">if</span> <span class="n">trace</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">result</span><span class="o">.</span><span class="n">meta</span><span class="p">[</span><span class="s2">&quot;physical_params_input&quot;</span><span class="p">]</span>  <span class="o">=</span> <span class="n">trace</span><span class="p">[</span><span class="s2">&quot;physical_params_input&quot;</span><span class="p">]</span>
+        <span class="n">result</span><span class="o">.</span><span class="n">meta</span><span class="p">[</span><span class="s2">&quot;native_params_resolved&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">trace</span><span class="p">[</span><span class="s2">&quot;native_params_resolved&quot;</span><span class="p">]</span>
+        <span class="n">result</span><span class="o">.</span><span class="n">meta</span><span class="p">[</span><span class="s2">&quot;quantization_notes&quot;</span><span class="p">]</span>     <span class="o">=</span> <span class="n">trace</span><span class="p">[</span><span class="s2">&quot;quantization_notes&quot;</span><span class="p">]</span>
+
+    <span class="k">return</span> <span class="n">result</span></div>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_cut_signal</span><span class="p">(</span> <span class="n">t</span><span class="p">,</span><span class="n">x</span> <span class="p">,</span> <span class="n">time_range</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">]:</span>
@@ -349,6 +583,9 @@
     <span class="n">ratio_sampling</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">cut_start_time</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">cut_end_time</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">step_seg</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">segmentation</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;opr&quot;</span><span class="p">,</span>
+    <span class="n">N_samples_per_seg</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">IndicatorResult</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
@@ -368,6 +605,16 @@
 <span class="sd">    :param ratio_sampling: Optional OPR sampling ratio used during online detection.</span>
 <span class="sd">    :param cut_start_time: Optional lower time bound applied before splitting the signal into stable and chatter portions.</span>
 <span class="sd">    :param cut_end_time: Optional upper time bound applied before splitting the signal into stable and chatter portions.</span>
+<span class="sd">    :param step_seg: Hop size in OPR samples between consecutive segment starts for both offline training and online</span>
+<span class="sd">        detection. ``None`` (default) is equivalent to ``step_seg = N_seg`` (no overlap).</span>
+<span class="sd">    :param segmentation: ``&quot;opr&quot;`` (default) – OPR decimation + ``segment_opr``;</span>
+<span class="sd">        ``&quot;raw&quot;`` – skip OPR decimation, use ``segment_signal_raw`` on the</span>
+<span class="sd">        full-rate signal. When ``&quot;raw&quot;``, entropy is estimated from</span>
+<span class="sd">        ``N_samples_per_seg`` raw samples per block (much larger than N_seg OPR</span>
+<span class="sd">        samples), yielding a lower-variance Gaussian fit.</span>
+<span class="sd">    :param N_samples_per_seg: Block length in raw samples used when</span>
+<span class="sd">        ``segmentation=&quot;raw&quot;``.  Resolved automatically for physical modes;</span>
+<span class="sd">        must be provided explicitly for native mode.</span>
 
 <span class="sd">    Returns:</span>
 <span class="sd">        IndicatorResult: Result object with segment timestamps, SPRT statistic</span>
@@ -398,42 +645,64 @@
     <span class="n">t_stable</span><span class="p">,</span> <span class="n">signal_analysis_stable</span> <span class="o">=</span> <span class="n">_cut_signal</span><span class="p">(</span> <span class="n">t_analysis</span><span class="p">,</span> <span class="n">signal_analysis</span> <span class="p">,</span> <span class="p">(</span><span class="n">cut_start_time</span><span class="p">,</span> <span class="n">t_stable_total</span><span class="p">)</span> <span class="p">)</span>
     <span class="n">t_chatter</span><span class="p">,</span> <span class="n">signal_analysis_chatter</span> <span class="o">=</span> <span class="n">_cut_signal</span><span class="p">(</span> <span class="n">t_analysis</span><span class="p">,</span> <span class="n">signal_analysis</span> <span class="p">,</span> <span class="p">(</span><span class="n">t_stable_total</span><span class="p">,</span> <span class="n">cut_end_time</span><span class="p">)</span> <span class="p">)</span>
 
-    <span class="n">logger</span><span class="o">.</span><span class="n">info_plus</span><span class="p">(</span><span class="s2">&quot;Signal loaded:&quot;</span><span class="p">)</span>
-    <span class="n">logger</span><span class="o">.</span><span class="n">info_plus</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot; - Samples: </span><span class="si">{</span><span class="n">signal_analysis</span><span class="o">.</span><span class="n">size</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-    <span class="n">logger</span><span class="o">.</span><span class="n">info_plus</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot; - Duration: </span><span class="si">{</span><span class="n">t_analysis</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">-</span><span class="n">t_analysis</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> s&quot;</span><span class="p">)</span>
-    <span class="n">logger</span><span class="o">.</span><span class="n">info_plus</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot; - Sampling freq.: </span><span class="si">{</span><span class="n">fs</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2"> Hz&quot;</span><span class="p">)</span>
-    <span class="n">logger</span><span class="o">.</span><span class="n">info_plus</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot; - Rotation freq.: </span><span class="si">{</span><span class="n">fr</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2"> Hz&quot;</span><span class="p">)</span>
-    <span class="n">logger</span><span class="o">.</span><span class="n">info_plus</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot; - Segments of </span><span class="si">{</span><span class="n">N_seg</span><span class="si">}</span><span class="s2"> revolutions: </span><span class="si">{</span><span class="n">N_seg</span><span class="o">/</span><span class="n">fr</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> s each&quot;</span><span class="p">)</span>
-    <span class="n">logger</span><span class="o">.</span><span class="n">info_plus</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot; - Total segments available: </span><span class="si">{</span><span class="nb">int</span><span class="p">(</span><span class="n">t_total</span><span class="o">*</span><span class="n">fr</span><span class="o">/</span><span class="n">N_seg</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">info_plus</span><span class="p">(</span><span class="n">_section</span><span class="p">(</span><span class="s2">&quot;Signal loaded:&quot;</span><span class="p">))</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">info_plus</span><span class="p">(</span><span class="s2">&quot;  </span><span class="si">%-24s</span><span class="s2"> </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="s2">&quot; - Samples:&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">signal_analysis</span><span class="o">.</span><span class="n">size</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">info_plus</span><span class="p">(</span><span class="s2">&quot;  </span><span class="si">%-24s</span><span class="s2"> </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="s2">&quot; - Duration:&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">t_analysis</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">-</span><span class="n">t_analysis</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> s&quot;</span><span class="p">)</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">info_plus</span><span class="p">(</span><span class="s2">&quot;  </span><span class="si">%-24s</span><span class="s2"> </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="s2">&quot; - Sampling freq.:&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">fs</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2"> Hz&quot;</span><span class="p">)</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">info_plus</span><span class="p">(</span><span class="s2">&quot;  </span><span class="si">%-24s</span><span class="s2"> </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="s2">&quot; - Rotation freq.:&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">fr</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2"> Hz&quot;</span><span class="p">)</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">info_plus</span><span class="p">(</span><span class="s2">&quot;  </span><span class="si">%-24s</span><span class="s2"> </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="s2">&quot; - Segmentation:&quot;</span><span class="p">,</span> <span class="n">segmentation</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">segmentation</span> <span class="o">==</span> <span class="s2">&quot;raw&quot;</span><span class="p">:</span>
+        <span class="n">_nsamp</span> <span class="o">=</span> <span class="n">N_samples_per_seg</span> <span class="ow">or</span> <span class="mi">0</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">info_plus</span><span class="p">(</span><span class="s2">&quot;  </span><span class="si">%-24s</span><span class="s2"> </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="s2">&quot; - N_samples_per_seg:&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">_nsamp</span><span class="si">}</span><span class="s2"> raw samp  (</span><span class="si">{</span><span class="n">_nsamp</span><span class="o">/</span><span class="n">fs</span><span class="o">*</span><span class="mf">1e3</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> ms)&quot;</span><span class="p">)</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">info_plus</span><span class="p">(</span><span class="s2">&quot;  </span><span class="si">%-24s</span><span class="s2"> </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="s2">&quot; - Total segments approx:&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="nb">int</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">signal_analysis</span><span class="p">)</span><span class="w"> </span><span class="o">//</span><span class="w"> </span><span class="p">(</span><span class="n">_nsamp</span><span class="w"> </span><span class="ow">or</span><span class="w"> </span><span class="mi">1</span><span class="p">))</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">info_plus</span><span class="p">(</span><span class="s2">&quot;  </span><span class="si">%-24s</span><span class="s2"> </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot; - Segments of </span><span class="si">{</span><span class="n">N_seg</span><span class="si">}</span><span class="s2"> revolutions:&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">N_seg</span><span class="o">/</span><span class="n">fr</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> s each&quot;</span><span class="p">)</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">info_plus</span><span class="p">(</span><span class="s2">&quot;  </span><span class="si">%-24s</span><span class="s2"> </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="s2">&quot; - Total segments available:&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="nb">int</span><span class="p">(</span><span class="n">t_total</span><span class="o">*</span><span class="n">fr</span><span class="o">/</span><span class="n">N_seg</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 
-    <span class="n">logger</span><span class="o">.</span><span class="n">info_plus</span><span class="p">(</span><span class="s2">&quot;Generated chatter-free and chatter-included signals.&quot;</span><span class="p">)</span>
-    <span class="n">logger</span><span class="o">.</span><span class="n">info_plus</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Size of signal free: </span><span class="si">{</span><span class="n">signal_analysis_stable</span><span class="o">.</span><span class="n">size</span><span class="si">}</span><span class="s2"> samples.&quot;</span><span class="p">)</span>
-    <span class="n">logger</span><span class="o">.</span><span class="n">info_plus</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Size of signal chatter: </span><span class="si">{</span><span class="n">signal_analysis_chatter</span><span class="o">.</span><span class="n">size</span><span class="si">}</span><span class="s2"> samples.&quot;</span><span class="p">)</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">info_plus</span><span class="p">(</span><span class="n">_section</span><span class="p">(</span><span class="s2">&quot;Generated chatter-free and chatter-included signals.&quot;</span><span class="p">))</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">info_plus</span><span class="p">(</span><span class="s2">&quot;  </span><span class="si">%-24s</span><span class="s2"> </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="s2">&quot;Size of signal free:&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">signal_analysis_stable</span><span class="o">.</span><span class="n">size</span><span class="si">}</span><span class="s2"> samples&quot;</span><span class="p">)</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">info_plus</span><span class="p">(</span><span class="s2">&quot;  </span><span class="si">%-24s</span><span class="s2"> </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="s2">&quot;Size of signal chatter:&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">signal_analysis_chatter</span><span class="o">.</span><span class="n">size</span><span class="si">}</span><span class="s2"> samples&quot;</span><span class="p">)</span>
 
 
-    <span class="c1"># =========== Fase Ofline : OPR Training ==========</span>
-    <span class="n">opr_free</span><span class="p">,</span> <span class="n">t_opr_free</span> <span class="o">=</span> <span class="n">sample_opr</span><span class="p">(</span><span class="n">signal_analysis_stable</span><span class="p">,</span> <span class="n">t_stable</span><span class="p">,</span> <span class="n">fs</span><span class="o">=</span><span class="n">fs</span><span class="p">,</span> <span class="n">fr</span><span class="o">=</span><span class="n">fr</span><span class="p">)</span>
-    <span class="n">opr_chat</span><span class="p">,</span> <span class="n">t_opr_chat</span> <span class="o">=</span> <span class="n">sample_opr</span><span class="p">(</span><span class="n">signal_analysis_chatter</span><span class="p">,</span> <span class="n">t_chatter</span><span class="p">,</span> <span class="n">fs</span><span class="o">=</span><span class="n">fs</span><span class="p">,</span> <span class="n">fr</span><span class="o">=</span><span class="n">fr</span><span class="p">)</span>
-    <span class="n">logger</span><span class="o">.</span><span class="n">info_plus</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2"> Sampled OPR: </span><span class="si">{</span><span class="n">opr_free</span><span class="o">.</span><span class="n">size</span><span class="si">}</span><span class="s2"> samples free, </span><span class="si">{</span><span class="n">opr_chat</span><span class="o">.</span><span class="n">size</span><span class="si">}</span><span class="s2"> samples chatter.&quot;</span><span class="p">)</span>
+    <span class="c1"># =========== Fase Offline : OPR / raw segmentation training ==========</span>
+    <span class="k">if</span> <span class="n">segmentation</span> <span class="o">==</span> <span class="s2">&quot;raw&quot;</span><span class="p">:</span>
+        <span class="c1"># Skip OPR decimation — train directly on raw signal blocks</span>
+        <span class="n">train_free</span><span class="p">,</span> <span class="n">t_train_free</span>   <span class="o">=</span> <span class="n">signal_analysis_stable</span><span class="p">,</span> <span class="n">t_stable</span>
+        <span class="n">train_chat</span><span class="p">,</span> <span class="n">t_train_chat</span>   <span class="o">=</span> <span class="n">signal_analysis_chatter</span><span class="p">,</span> <span class="n">t_chatter</span>
+        <span class="n">opr_free</span> <span class="o">=</span> <span class="n">opr_chat</span> <span class="o">=</span> <span class="n">t_opr_free</span> <span class="o">=</span> <span class="n">t_opr_chat</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">info_plus</span><span class="p">(</span><span class="s2">&quot;  </span><span class="si">%-24s</span><span class="s2"> </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="s2">&quot;Segmentation (raw):&quot;</span><span class="p">,</span>
+                         <span class="sa">f</span><span class="s2">&quot;N_samples_per_seg=</span><span class="si">{</span><span class="n">N_samples_per_seg</span><span class="si">}</span><span class="s2">, &quot;</span>
+                         <span class="sa">f</span><span class="s2">&quot;free=</span><span class="si">{</span><span class="n">signal_analysis_stable</span><span class="o">.</span><span class="n">size</span><span class="si">}</span><span class="s2"> samp, &quot;</span>
+                         <span class="sa">f</span><span class="s2">&quot;chat=</span><span class="si">{</span><span class="n">signal_analysis_chatter</span><span class="o">.</span><span class="n">size</span><span class="si">}</span><span class="s2"> samp.&quot;</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">opr_free</span><span class="p">,</span> <span class="n">t_opr_free</span> <span class="o">=</span> <span class="n">sample_opr</span><span class="p">(</span><span class="n">signal_analysis_stable</span><span class="p">,</span> <span class="n">t_stable</span><span class="p">,</span> <span class="n">fs</span><span class="o">=</span><span class="n">fs</span><span class="p">,</span> <span class="n">fr</span><span class="o">=</span><span class="n">fr</span><span class="p">)</span>
+        <span class="n">opr_chat</span><span class="p">,</span> <span class="n">t_opr_chat</span> <span class="o">=</span> <span class="n">sample_opr</span><span class="p">(</span><span class="n">signal_analysis_chatter</span><span class="p">,</span> <span class="n">t_chatter</span><span class="p">,</span> <span class="n">fs</span><span class="o">=</span><span class="n">fs</span><span class="p">,</span> <span class="n">fr</span><span class="o">=</span><span class="n">fr</span><span class="p">)</span>
+        <span class="n">train_free</span><span class="p">,</span> <span class="n">t_train_free</span> <span class="o">=</span> <span class="n">opr_free</span><span class="p">,</span> <span class="n">t_opr_free</span>
+        <span class="n">train_chat</span><span class="p">,</span> <span class="n">t_train_chat</span> <span class="o">=</span> <span class="n">opr_chat</span><span class="p">,</span> <span class="n">t_opr_chat</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">info_plus</span><span class="p">(</span><span class="s2">&quot;  </span><span class="si">%-24s</span><span class="s2"> </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="s2">&quot;Sampled OPR:&quot;</span><span class="p">,</span>
+                         <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">opr_free</span><span class="o">.</span><span class="n">size</span><span class="si">}</span><span class="s2"> samples free, </span><span class="si">{</span><span class="n">opr_chat</span><span class="o">.</span><span class="n">size</span><span class="si">}</span><span class="s2"> samples chatter.&quot;</span><span class="p">)</span>
 
     <span class="c1"># ============ Offline Phase:END-TO-END GAUSSIAN ===========</span>
     <span class="n">detector_cfg</span> <span class="o">=</span> <span class="n">MaxEntSPRTConfig</span><span class="p">(</span><span class="n">alpha</span><span class="o">=</span><span class="n">alpha</span><span class="p">,</span> <span class="n">beta</span><span class="o">=</span><span class="n">beta</span><span class="p">,</span> <span class="n">reset_on_H0</span><span class="o">=</span><span class="n">reset_on_H0</span><span class="p">)</span>
     <span class="n">gaussian_estimator</span> <span class="o">=</span> <span class="n">GaussianMaxEntEstimator</span><span class="p">()</span>
     <span class="n">detector</span> <span class="o">=</span> <span class="n">MaxEntSPRTDetector</span><span class="p">(</span><span class="n">config</span><span class="o">=</span><span class="n">detector_cfg</span><span class="p">,</span> <span class="n">estimator</span><span class="o">=</span><span class="n">gaussian_estimator</span><span class="p">)</span>
 
-    <span class="c1"># Offline phase: OPR Training</span>
+    <span class="c1"># Offline phase: OPR / raw Training</span>
     <span class="n">detector</span><span class="o">.</span><span class="n">fit_offline_from_opr</span><span class="p">(</span>
-        <span class="n">opr_free</span><span class="o">=</span><span class="n">opr_free</span><span class="p">,</span>
-        <span class="n">opr_t_free</span><span class="o">=</span><span class="n">t_opr_free</span><span class="p">,</span>
-        <span class="n">opr_chat</span><span class="o">=</span><span class="n">opr_chat</span><span class="p">,</span>
-        <span class="n">opr_t_chat</span><span class="o">=</span><span class="n">t_opr_chat</span><span class="p">,</span>
+        <span class="n">opr_free</span><span class="o">=</span><span class="n">train_free</span><span class="p">,</span>
+        <span class="n">opr_t_free</span><span class="o">=</span><span class="n">t_train_free</span><span class="p">,</span>
+        <span class="n">opr_chat</span><span class="o">=</span><span class="n">train_chat</span><span class="p">,</span>
+        <span class="n">opr_t_chat</span><span class="o">=</span><span class="n">t_train_chat</span><span class="p">,</span>
         <span class="n">N_seg</span><span class="o">=</span><span class="n">N_seg</span><span class="p">,</span>
+        <span class="n">step</span><span class="o">=</span><span class="n">step_seg</span><span class="p">,</span>
+        <span class="n">segmentation</span><span class="o">=</span><span class="n">segmentation</span><span class="p">,</span>
+        <span class="n">N_samples_per_seg</span><span class="o">=</span><span class="n">N_samples_per_seg</span><span class="p">,</span>
     <span class="p">)</span>
 
     <span class="n">models_trained</span> <span class="o">=</span> <span class="n">detector</span><span class="o">.</span><span class="n">_check_models</span><span class="p">()</span>
-    <span class="n">logger</span><span class="o">.</span><span class="n">info_plus</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2"> OFFLINE MODEL (Gaussian MaxEnt):&quot;</span><span class="p">)</span>
-    <span class="n">logger</span><span class="o">.</span><span class="n">info_plus</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  FREE:  mu0=</span><span class="si">{</span><span class="n">models_trained</span><span class="o">.</span><span class="n">p0</span><span class="o">.</span><span class="n">mu</span><span class="si">:</span><span class="s2">.5f</span><span class="si">}</span><span class="s2">, sigma0=</span><span class="si">{</span><span class="n">models_trained</span><span class="o">.</span><span class="n">p0</span><span class="o">.</span><span class="n">sigma</span><span class="si">:</span><span class="s2">.5f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-    <span class="n">logger</span><span class="o">.</span><span class="n">info_plus</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  CHAT:  mu1=</span><span class="si">{</span><span class="n">models_trained</span><span class="o">.</span><span class="n">p1</span><span class="o">.</span><span class="n">mu</span><span class="si">:</span><span class="s2">.5f</span><span class="si">}</span><span class="s2">, sigma1=</span><span class="si">{</span><span class="n">models_trained</span><span class="o">.</span><span class="n">p1</span><span class="o">.</span><span class="n">sigma</span><span class="si">:</span><span class="s2">.5f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">info_plus</span><span class="p">(</span><span class="n">_section</span><span class="p">(</span><span class="s2">&quot;OFFLINE MODEL (Gaussian MaxEnt):&quot;</span><span class="p">))</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">info_plus</span><span class="p">(</span><span class="s2">&quot;  </span><span class="si">%-24s</span><span class="s2"> </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="s2">&quot;FREE:&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;mu0=</span><span class="si">{</span><span class="n">models_trained</span><span class="o">.</span><span class="n">p0</span><span class="o">.</span><span class="n">mu</span><span class="si">:</span><span class="s2">.5f</span><span class="si">}</span><span class="s2">, sigma0=</span><span class="si">{</span><span class="n">models_trained</span><span class="o">.</span><span class="n">p0</span><span class="o">.</span><span class="n">sigma</span><span class="si">:</span><span class="s2">.5f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">info_plus</span><span class="p">(</span><span class="s2">&quot;  </span><span class="si">%-24s</span><span class="s2"> </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="s2">&quot;CHAT:&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;mu1=</span><span class="si">{</span><span class="n">models_trained</span><span class="o">.</span><span class="n">p1</span><span class="o">.</span><span class="n">mu</span><span class="si">:</span><span class="s2">.5f</span><span class="si">}</span><span class="s2">, sigma1=</span><span class="si">{</span><span class="n">models_trained</span><span class="o">.</span><span class="n">p1</span><span class="o">.</span><span class="n">sigma</span><span class="si">:</span><span class="s2">.5f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 
     <span class="n">sprt_result</span><span class="p">,</span> <span class="n">H_seq_online</span><span class="p">,</span> <span class="n">t_mid_segments</span> <span class="o">=</span> <span class="n">detector</span><span class="o">.</span><span class="n">detect_online_from_signal</span><span class="p">(</span>
         <span class="n">y_online</span><span class="o">=</span><span class="n">signal_analysis</span><span class="p">,</span>
@@ -442,12 +711,15 @@
         <span class="n">ratio_sampling</span><span class="o">=</span><span class="n">ratio_sampling</span><span class="p">,</span>
         <span class="n">N_seg</span><span class="o">=</span><span class="n">N_seg</span><span class="p">,</span>
         <span class="n">fs</span><span class="o">=</span><span class="n">fs</span><span class="p">,</span>
+        <span class="n">step</span><span class="o">=</span><span class="n">step_seg</span><span class="p">,</span>
+        <span class="n">segmentation</span><span class="o">=</span><span class="n">segmentation</span><span class="p">,</span>
+        <span class="n">N_samples_per_seg</span><span class="o">=</span><span class="n">N_samples_per_seg</span><span class="p">,</span>
     <span class="p">)</span>
 
     <span class="c1">#%%</span>
     <span class="c1"># ============ Online Phase: Results visualization ===========</span>
 
-    <span class="n">logger</span><span class="o">.</span><span class="n">info_plus</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;ONLINE FINAL STATE: </span><span class="si">{</span><span class="n">sprt_result</span><span class="o">.</span><span class="n">final_state</span><span class="si">}</span><span class="s2">, decision at segment </span><span class="si">{</span><span class="n">sprt_result</span><span class="o">.</span><span class="n">decision_index</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">info_plus</span><span class="p">(</span><span class="s2">&quot;  </span><span class="si">%-24s</span><span class="s2"> </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="s2">&quot;ONLINE FINAL STATE:&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">sprt_result</span><span class="o">.</span><span class="n">final_state</span><span class="si">}</span><span class="s2">, decision at segment </span><span class="si">{</span><span class="n">sprt_result</span><span class="o">.</span><span class="n">decision_index</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 
     <span class="c1"># =========== Early chatter Results - Points Chatter ==========</span>
     <span class="n">mask</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">sprt_result</span><span class="o">.</span><span class="n">S_history</span> <span class="o">&gt;=</span> <span class="n">sprt_result</span><span class="o">.</span><span class="n">b</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
@@ -465,6 +737,10 @@
             <span class="s2">&quot;fs&quot;</span><span class="p">:</span> <span class="n">fs</span><span class="p">,</span>
             <span class="s2">&quot;Rotational_Frequency_Hz&quot;</span><span class="p">:</span> <span class="n">fr</span><span class="p">,</span>
             <span class="s2">&quot;N_seg&quot;</span><span class="p">:</span> <span class="n">N_seg</span><span class="p">,</span>
+            <span class="s2">&quot;step_seg&quot;</span><span class="p">:</span> <span class="n">step_seg</span> <span class="k">if</span> <span class="n">step_seg</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">N_seg</span><span class="p">,</span>
+            <span class="s2">&quot;overlap_pct&quot;</span><span class="p">:</span> <span class="mf">1.0</span> <span class="o">-</span> <span class="p">(</span><span class="n">step_seg</span> <span class="k">if</span> <span class="n">step_seg</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">N_seg</span><span class="p">)</span> <span class="o">/</span> <span class="n">N_seg</span><span class="p">,</span>
+            <span class="s2">&quot;segmentation&quot;</span><span class="p">:</span> <span class="n">segmentation</span><span class="p">,</span>
+            <span class="s2">&quot;N_samples_per_seg&quot;</span><span class="p">:</span> <span class="n">N_samples_per_seg</span><span class="p">,</span>
             <span class="s2">&quot;alpha&quot;</span><span class="p">:</span> <span class="n">alpha</span><span class="p">,</span>
             <span class="s2">&quot;beta&quot;</span><span class="p">:</span> <span class="n">beta</span><span class="p">,</span>
             <span class="s2">&quot;rpm&quot;</span><span class="p">:</span> <span class="n">rpm</span><span class="p">,</span>
@@ -472,8 +748,8 @@
             <span class="s2">&quot;Total_segments&quot;</span><span class="p">:</span> <span class="nb">int</span><span class="p">(</span><span class="n">t_total</span><span class="o">*</span><span class="n">fr</span><span class="o">/</span><span class="n">N_seg</span><span class="p">),</span>
             <span class="s2">&quot;Size_signal_free&quot;</span><span class="p">:</span> <span class="n">signal_analysis_stable</span><span class="o">.</span><span class="n">size</span><span class="p">,</span>
             <span class="s2">&quot;Size_signal_chatter&quot;</span><span class="p">:</span> <span class="n">signal_analysis_chatter</span><span class="o">.</span><span class="n">size</span><span class="p">,</span>
-            <span class="s2">&quot;Sampled OPR free&quot;</span><span class="p">:</span> <span class="n">opr_free</span><span class="o">.</span><span class="n">size</span><span class="p">,</span>
-            <span class="s2">&quot;Sampled OPR chatter&quot;</span><span class="p">:</span> <span class="n">opr_chat</span><span class="o">.</span><span class="n">size</span><span class="p">,</span>
+            <span class="s2">&quot;Sampled OPR free&quot;</span><span class="p">:</span>    <span class="n">opr_free</span><span class="o">.</span><span class="n">size</span> <span class="k">if</span> <span class="n">opr_free</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+            <span class="s2">&quot;Sampled OPR chatter&quot;</span><span class="p">:</span> <span class="n">opr_chat</span><span class="o">.</span><span class="n">size</span> <span class="k">if</span> <span class="n">opr_chat</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
             <span class="s2">&quot;P0_mu&quot;</span><span class="p">:</span> <span class="n">models_trained</span><span class="o">.</span><span class="n">p0</span><span class="o">.</span><span class="n">mu</span><span class="p">,</span>
             <span class="s2">&quot;P0_sigma&quot;</span><span class="p">:</span> <span class="n">models_trained</span><span class="o">.</span><span class="n">p0</span><span class="o">.</span><span class="n">sigma</span><span class="p">,</span>
             <span class="s2">&quot;P1_mu&quot;</span><span class="p">:</span> <span class="n">models_trained</span><span class="o">.</span><span class="n">p1</span><span class="o">.</span><span class="n">mu</span><span class="p">,</span>
@@ -489,9 +765,11 @@
             <span class="s2">&quot;t_chatter&quot;</span><span class="p">:</span> <span class="n">t_chatter</span><span class="p">,</span>
             <span class="s2">&quot;signal_analysis_chatter&quot;</span><span class="p">:</span> <span class="n">signal_analysis_chatter</span><span class="p">,</span>
             <span class="s2">&quot;t_opr_free&quot;</span><span class="p">:</span> <span class="n">t_opr_free</span><span class="p">,</span>
-            <span class="s2">&quot;opr_free&quot;</span><span class="p">:</span> <span class="n">opr_free</span><span class="p">,</span>
+            <span class="s2">&quot;opr_free&quot;</span><span class="p">:</span>   <span class="n">opr_free</span><span class="p">,</span>
             <span class="s2">&quot;t_opr_chat&quot;</span><span class="p">:</span> <span class="n">t_opr_chat</span><span class="p">,</span>
-            <span class="s2">&quot;opr_chat&quot;</span><span class="p">:</span> <span class="n">opr_chat</span><span class="p">,</span>
+            <span class="s2">&quot;opr_chat&quot;</span><span class="p">:</span>   <span class="n">opr_chat</span><span class="p">,</span>
+            <span class="s2">&quot;train_free&quot;</span><span class="p">:</span> <span class="n">train_free</span><span class="p">,</span>
+            <span class="s2">&quot;train_chat&quot;</span><span class="p">:</span> <span class="n">train_chat</span><span class="p">,</span>
 
         <span class="p">},</span>
     <span class="p">)</span>

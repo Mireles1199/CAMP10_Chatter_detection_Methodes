@@ -164,7 +164,7 @@ Module Contents
       Time midpoints of the chatter training segments.
 
 
-   .. py:method:: fit_offline_from_opr(opr_free, opr_t_free, opr_chat, opr_t_chat, N_seg)
+   .. py:method:: fit_offline_from_opr(opr_free, opr_t_free, opr_chat, opr_t_chat, N_seg, step = None, segmentation = 'opr', N_samples_per_seg = None)
 
       Fit the MaxEnt SPRT detector offline using operational deflection shape (OPR) data.
 
@@ -177,6 +177,13 @@ Module Contents
       :param opr_chat: OPR-resampled signal representing the chatter reference condition.
       :param opr_t_chat: Time vector aligned with ``opr_chat``.
       :param N_seg: Number of OPR samples per segment used to build the offline training windows.
+      :param step: Hop size in OPR samples between consecutive segment starts.
+          ``None`` (default) is equivalent to ``step = N_seg`` (no overlap).
+      :param segmentation: ``"opr"`` (default) or ``"raw"``. When ``"raw"``,
+          the arrays are treated as full-rate signal and segmented without
+          OPR decimation using ``N_samples_per_seg``.
+      :param N_samples_per_seg: Block length in raw samples.  Required when
+          ``segmentation="raw"``.
 
       :returns: ``self`` with trained models and diagnostic
                 arrays populated.
@@ -184,7 +191,7 @@ Module Contents
 
 
 
-   .. py:method:: fit_offline_from_signals(y_free, t_free, y_chat, t_chat, rpm, ratio_sampling, N_seg)
+   .. py:method:: fit_offline_from_signals(y_free, t_free, y_chat, t_chat, rpm, ratio_sampling, N_seg, step = None, segmentation = 'opr', N_samples_per_seg = None)
 
       Fit the detector offline using raw signal data from free and chatter conditions.
 
@@ -199,6 +206,13 @@ Module Contents
       :param rpm: Spindle speed in revolutions per minute used to derive the fundamental rotation frequency.
       :param ratio_sampling: Number of analysis samples per revolution, used to derive the OPR sampling frequency.
       :param N_seg: Number of OPR samples per entropy segment.
+      :param step: Hop size in OPR samples between consecutive segment starts.
+          ``None`` (default) is equivalent to ``step = N_seg`` (no overlap).
+      :param segmentation: ``"opr"`` (default) or ``"raw"``. When ``"raw"``,
+          OPR decimation is skipped and raw blocks of ``N_samples_per_seg``
+          samples are used instead.
+      :param N_samples_per_seg: Block length in raw samples. Required when
+          ``segmentation="raw"``.
 
       :returns: ``self`` after OPR resampling and offline model
                 fitting.
@@ -230,7 +244,7 @@ Module Contents
 
 
 
-   .. py:method:: detect_online_from_signal(y_online, t_online, rpm, ratio_sampling, N_seg, fs = None)
+   .. py:method:: detect_online_from_signal(y_online, t_online, rpm, ratio_sampling, N_seg, fs = None, step = None, segmentation = 'opr', N_samples_per_seg = None)
 
       Detect chatter from an online signal using sequential probability ratio test (SPRT).
 
@@ -243,6 +257,13 @@ Module Contents
       :param ratio_sampling: Sampling ratio used to derive the target OPR sampling frequency when ``fs`` is not explicitly provided.
       :param N_seg: Number of OPR samples grouped into each entropy segment.
       :param fs: Explicit OPR sampling frequency in Hz. If ``None``, it is computed from ``ratio_sampling`` and ``rpm``.
+      :param step: Hop size in OPR samples between consecutive segment starts.
+          ``None`` (default) is equivalent to ``step = N_seg`` (no overlap).
+      :param segmentation: ``"opr"`` (default) or ``"raw"``. When ``"raw"``,
+          OPR decimation is skipped; raw blocks of ``N_samples_per_seg``
+          samples are used.
+      :param N_samples_per_seg: Block length in raw samples. Required when
+          ``segmentation="raw"``.
 
       :returns: Detection result, entropy
                 sequence, and segment midpoint times.

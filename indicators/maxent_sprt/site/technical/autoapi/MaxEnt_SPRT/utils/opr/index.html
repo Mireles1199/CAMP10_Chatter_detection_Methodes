@@ -212,6 +212,7 @@
 <li class="toctree-l4"><a class="reference internal" href="../../lib/wrappers/index.html">MaxEnt_SPRT.lib.wrappers</a></li>
 </ul>
 </li>
+<li class="toctree-l3"><a class="reference internal" href="../../logging_setup/index.html">MaxEnt_SPRT.logging_setup</a></li>
 <li class="toctree-l3 has-children"><a class="reference internal" href="../../models/index.html">MaxEnt_SPRT.models</a><input aria-label="Toggle navigation of MaxEnt_SPRT.models" class="toctree-checkbox" id="toctree-checkbox-4" name="toctree-checkbox-4" role="switch" type="checkbox"/><label for="toctree-checkbox-4"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
 <li class="toctree-l4"><a class="reference internal" href="../../models/maxent/index.html">MaxEnt_SPRT.models.maxent</a></li>
 <li class="toctree-l4"><a class="reference internal" href="../../models/prob/index.html">MaxEnt_SPRT.models.prob</a></li>
@@ -280,8 +281,11 @@
 <tr class="row-odd"><td><p><a class="reference internal" href="#MaxEnt_SPRT.utils.opr.sample_opr" title="MaxEnt_SPRT.utils.opr.sample_opr"><code class="xref py py-obj docutils literal notranslate"><span class="pre">sample_opr</span></code></a>(y, t, fs, fr)</p></td>
 <td><p>Perform exact once-per-revolution downsampling by integer decimation.</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="#MaxEnt_SPRT.utils.opr.segment_opr" title="MaxEnt_SPRT.utils.opr.segment_opr"><code class="xref py py-obj docutils literal notranslate"><span class="pre">segment_opr</span></code></a>(opr, opr_t, N_seg)</p></td>
-<td><p>Split OPR data into fixed-length segments.</p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="#MaxEnt_SPRT.utils.opr.segment_opr" title="MaxEnt_SPRT.utils.opr.segment_opr"><code class="xref py py-obj docutils literal notranslate"><span class="pre">segment_opr</span></code></a>(opr, opr_t, N_seg[, step])</p></td>
+<td><p>Split OPR data into fixed-length segments with optional overlap.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#MaxEnt_SPRT.utils.opr.segment_signal_raw" title="MaxEnt_SPRT.utils.opr.segment_signal_raw"><code class="xref py py-obj docutils literal notranslate"><span class="pre">segment_signal_raw</span></code></a>(y, t, N_samples_per_seg[, step])</p></td>
+<td><p>Split a raw (non-decimated) signal into fixed-length blocks.</p></td>
 </tr>
 </tbody>
 </table>
@@ -323,14 +327,17 @@ resampled time vector.</p>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="MaxEnt_SPRT.utils.opr.segment_opr">
-<span class="sig-prename descclassname"><span class="pre">MaxEnt_SPRT.utils.opr.</span></span><span class="sig-name descname"><span class="pre">segment_opr</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">opr</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">opr_t</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">N_seg</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../_modules/MaxEnt_SPRT/utils/opr.html#segment_opr"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#MaxEnt_SPRT.utils.opr.segment_opr" title="Link to this definition">¶</a></dt>
-<dd><p>Split OPR data into fixed-length segments.</p>
+<span class="sig-prename descclassname"><span class="pre">MaxEnt_SPRT.utils.opr.</span></span><span class="sig-name descname"><span class="pre">segment_opr</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">opr</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">opr_t</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">N_seg</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">step</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../_modules/MaxEnt_SPRT/utils/opr.html#segment_opr"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#MaxEnt_SPRT.utils.opr.segment_opr" title="Link to this definition">¶</a></dt>
+<dd><p>Split OPR data into fixed-length segments with optional overlap.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>opr</strong> (<a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.4)"><em>numpy.ndarray</em></a>) – One-dimensional OPR-resampled signal to partition.</p></li>
 <li><p><strong>opr_t</strong> (<a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.4)"><em>numpy.ndarray</em></a>) – Time vector aligned with <code class="docutils literal notranslate"><span class="pre">opr</span></code>.</p></li>
 <li><p><strong>N_seg</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>) – Number of OPR samples per segment.</p></li>
+<li><p><strong>step</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em> | </em><em>None</em>) – Hop size in OPR samples between consecutive segment starts.
+<code class="docutils literal notranslate"><span class="pre">None</span></code> (default) is equivalent to <code class="docutils literal notranslate"><span class="pre">step</span> <span class="pre">=</span> <span class="pre">N_seg</span></code> (no overlap).
+Values smaller than <code class="docutils literal notranslate"><span class="pre">N_seg</span></code> produce overlapping segments.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
@@ -342,8 +349,38 @@ of matching time segments, both preserving the original order.</p>
 </dd>
 </dl>
 <p class="rubric">Notes</p>
-<p>If <code class="docutils literal notranslate"><span class="pre">len(opr)</span></code> is not divisible by <code class="docutils literal notranslate"><span class="pre">N_seg</span></code>, trailing samples that do
-not complete a full segment are discarded.</p>
+<p>Trailing samples that do not complete a full segment are discarded.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="MaxEnt_SPRT.utils.opr.segment_signal_raw">
+<span class="sig-prename descclassname"><span class="pre">MaxEnt_SPRT.utils.opr.</span></span><span class="sig-name descname"><span class="pre">segment_signal_raw</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">t</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">N_samples_per_seg</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">step</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../_modules/MaxEnt_SPRT/utils/opr.html#segment_signal_raw"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#MaxEnt_SPRT.utils.opr.segment_signal_raw" title="Link to this definition">¶</a></dt>
+<dd><p>Split a raw (non-decimated) signal into fixed-length blocks.</p>
+<p>Unlike <a class="reference internal" href="#MaxEnt_SPRT.utils.opr.segment_opr" title="MaxEnt_SPRT.utils.opr.segment_opr"><code class="xref py py-func docutils literal notranslate"><span class="pre">segment_opr()</span></code></a>, this function operates directly on the
+full-rate signal without prior OPR decimation.  It is the natural
+companion to <a class="reference internal" href="#MaxEnt_SPRT.utils.opr.segment_opr" title="MaxEnt_SPRT.utils.opr.segment_opr"><code class="xref py py-func docutils literal notranslate"><span class="pre">segment_opr()</span></code></a> for the <code class="docutils literal notranslate"><span class="pre">segmentation=&quot;raw&quot;</span></code> mode.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>y</strong> (<a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.4)"><em>numpy.ndarray</em></a>) – One-dimensional signal samples.</p></li>
+<li><p><strong>t</strong> (<a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.4)"><em>numpy.ndarray</em></a>) – Time vector aligned with <code class="docutils literal notranslate"><span class="pre">y</span></code>.</p></li>
+<li><p><strong>N_samples_per_seg</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>) – Number of raw samples per block.</p></li>
+<li><p><strong>step</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em> | </em><em>None</em>) – Hop size in raw samples between consecutive block starts.
+<code class="docutils literal notranslate"><span class="pre">None</span></code> (default) is equivalent to <code class="docutils literal notranslate"><span class="pre">step</span> <span class="pre">=</span> <span class="pre">N_samples_per_seg</span></code>
+(no overlap).  Values smaller than <code class="docutils literal notranslate"><span class="pre">N_samples_per_seg</span></code> produce
+overlapping blocks.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>List of signal blocks and
+list of matching time blocks, both preserving the original order.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Tuple[List[np.ndarray], List[np.ndarray]]</p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Trailing samples that do not complete a full block are discarded.</p>
 </dd></dl>
 
 </section>
@@ -409,6 +446,7 @@ not complete a full segment are discarded.</p>
 <li><a class="reference internal" href="#module-contents">Module Contents</a><ul>
 <li><a class="reference internal" href="#MaxEnt_SPRT.utils.opr.sample_opr"><code class="docutils literal notranslate"><span class="pre">sample_opr()</span></code></a></li>
 <li><a class="reference internal" href="#MaxEnt_SPRT.utils.opr.segment_opr"><code class="docutils literal notranslate"><span class="pre">segment_opr()</span></code></a></li>
+<li><a class="reference internal" href="#MaxEnt_SPRT.utils.opr.segment_signal_raw"><code class="docutils literal notranslate"><span class="pre">segment_signal_raw()</span></code></a></li>
 </ul>
 </li>
 </ul>

@@ -211,6 +211,7 @@
 <li class="toctree-l4"><a class="reference internal" href="../../../autoapi/MaxEnt_SPRT/lib/wrappers/index.html">MaxEnt_SPRT.lib.wrappers</a></li>
 </ul>
 </li>
+<li class="toctree-l3"><a class="reference internal" href="../../../autoapi/MaxEnt_SPRT/logging_setup/index.html">MaxEnt_SPRT.logging_setup</a></li>
 <li class="toctree-l3 has-children"><a class="reference internal" href="../../../autoapi/MaxEnt_SPRT/models/index.html">MaxEnt_SPRT.models</a><input aria-label="Toggle navigation of MaxEnt_SPRT.models" class="toctree-checkbox" id="toctree-checkbox-4" name="toctree-checkbox-4" role="switch" type="checkbox"/><label for="toctree-checkbox-4"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
 <li class="toctree-l4"><a class="reference internal" href="../../../autoapi/MaxEnt_SPRT/models/maxent/index.html">MaxEnt_SPRT.models.maxent</a></li>
 <li class="toctree-l4"><a class="reference internal" href="../../../autoapi/MaxEnt_SPRT/models/prob/index.html">MaxEnt_SPRT.models.prob</a></li>
@@ -268,7 +269,7 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Tuple</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">..utils.opr</span><span class="w"> </span><span class="kn">import</span> <span class="n">segment_opr</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">..utils.opr</span><span class="w"> </span><span class="kn">import</span> <span class="n">segment_opr</span><span class="p">,</span> <span class="n">segment_signal_raw</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">.entropy</span><span class="w"> </span><span class="kn">import</span> <span class="n">entropy_from_segments</span><span class="p">,</span> <span class="n">EntropyEstimator</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">..models.maxent</span><span class="w"> </span><span class="kn">import</span> <span class="n">fit_maxent_gaussians</span><span class="p">,</span> <span class="n">MaxEntModels</span>
 
@@ -281,6 +282,9 @@
     <span class="n">opr_t_chat</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span>
     <span class="n">N_seg</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
     <span class="n">estimator</span><span class="p">:</span> <span class="n">EntropyEstimator</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">step</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">segmentation</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;opr&quot;</span><span class="p">,</span>
+    <span class="n">N_samples_per_seg</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">MaxEntModels</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Train Maximum Entropy SPRT models on offline OPR (Operating Point Range) data.</span>
@@ -292,8 +296,15 @@
 <span class="sd">    :param opr_chat: OPR signal representing the chatter reference condition.</span>
 <span class="sd">    :param opr_t_free: Time vector aligned with ``opr_free``.</span>
 <span class="sd">    :param opr_t_chat: Time vector aligned with ``opr_chat``.</span>
-<span class="sd">    :param N_seg: Number of OPR samples grouped into each training segment.</span>
+<span class="sd">    :param N_seg: Number of OPR samples grouped into each training segment (``segmentation=&quot;opr&quot;``).</span>
 <span class="sd">    :param estimator: Segment-to-entropy estimator. If ``None``, the default entropy estimator is used.</span>
+<span class="sd">    :param step: Hop size in domain samples between consecutive segment starts.</span>
+<span class="sd">        ``None`` (default) is equivalent to ``step = N_seg`` (no overlap).</span>
+<span class="sd">    :param segmentation: ``&quot;opr&quot;`` (default) – use OPR-decimated arrays with</span>
+<span class="sd">        :func:`segment_opr`; ``&quot;raw&quot;`` – use raw signal arrays directly with</span>
+<span class="sd">        :func:`segment_signal_raw` (no prior OPR decimation needed).</span>
+<span class="sd">    :param N_samples_per_seg: Length of each raw block in samples.  Required</span>
+<span class="sd">        when ``segmentation=&quot;raw&quot;``; ignored otherwise.</span>
 
 <span class="sd">    Returns:</span>
 <span class="sd">        Tuple[MaxEntModels, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:</span>
@@ -308,9 +319,21 @@
 <span class="sd">    &quot;&quot;&quot;</span>
 
 
-    <span class="c1"># 1) OPR Segmentation</span>
-    <span class="n">segments_free</span><span class="p">,</span> <span class="n">segments_t_free</span> <span class="o">=</span> <span class="n">segment_opr</span><span class="p">(</span><span class="n">opr_free</span><span class="p">,</span> <span class="n">opr_t_free</span><span class="p">,</span> <span class="n">N_seg</span><span class="o">=</span><span class="n">N_seg</span><span class="p">)</span>
-    <span class="n">segments_chat</span><span class="p">,</span> <span class="n">segments_t_chat</span> <span class="o">=</span> <span class="n">segment_opr</span><span class="p">(</span><span class="n">opr_chat</span><span class="p">,</span> <span class="n">opr_t_chat</span><span class="p">,</span> <span class="n">N_seg</span><span class="o">=</span><span class="n">N_seg</span><span class="p">)</span>
+    <span class="c1"># 1) Segmentation  (OPR or raw)</span>
+    <span class="k">if</span> <span class="n">segmentation</span> <span class="o">==</span> <span class="s2">&quot;raw&quot;</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">N_samples_per_seg</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="s2">&quot;N_samples_per_seg must be provided when segmentation=&#39;raw&#39;.&quot;</span>
+            <span class="p">)</span>
+        <span class="n">segments_free</span><span class="p">,</span> <span class="n">segments_t_free</span> <span class="o">=</span> <span class="n">segment_signal_raw</span><span class="p">(</span>
+            <span class="n">opr_free</span><span class="p">,</span> <span class="n">opr_t_free</span><span class="p">,</span> <span class="n">N_samples_per_seg</span><span class="o">=</span><span class="n">N_samples_per_seg</span><span class="p">,</span> <span class="n">step</span><span class="o">=</span><span class="n">step</span>
+        <span class="p">)</span>
+        <span class="n">segments_chat</span><span class="p">,</span> <span class="n">segments_t_chat</span> <span class="o">=</span> <span class="n">segment_signal_raw</span><span class="p">(</span>
+            <span class="n">opr_chat</span><span class="p">,</span> <span class="n">opr_t_chat</span><span class="p">,</span> <span class="n">N_samples_per_seg</span><span class="o">=</span><span class="n">N_samples_per_seg</span><span class="p">,</span> <span class="n">step</span><span class="o">=</span><span class="n">step</span>
+        <span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>  <span class="c1"># &quot;opr&quot; (default)</span>
+        <span class="n">segments_free</span><span class="p">,</span> <span class="n">segments_t_free</span> <span class="o">=</span> <span class="n">segment_opr</span><span class="p">(</span><span class="n">opr_free</span><span class="p">,</span> <span class="n">opr_t_free</span><span class="p">,</span> <span class="n">N_seg</span><span class="o">=</span><span class="n">N_seg</span><span class="p">,</span> <span class="n">step</span><span class="o">=</span><span class="n">step</span><span class="p">)</span>
+        <span class="n">segments_chat</span><span class="p">,</span> <span class="n">segments_t_chat</span> <span class="o">=</span> <span class="n">segment_opr</span><span class="p">(</span><span class="n">opr_chat</span><span class="p">,</span> <span class="n">opr_t_chat</span><span class="p">,</span> <span class="n">N_seg</span><span class="o">=</span><span class="n">N_seg</span><span class="p">,</span> <span class="n">step</span><span class="o">=</span><span class="n">step</span><span class="p">)</span>
 
     <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">segments_free</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span> <span class="ow">or</span> <span class="nb">len</span><span class="p">(</span><span class="n">segments_chat</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Insufficient segments generated for training. Check N_seg and OPR data length.&quot;</span><span class="p">)</span>

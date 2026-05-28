@@ -55,9 +55,9 @@ force_N      = data.get_element("res_R_p/data")[:, 1]
 v  = tool_dyn_vel
 fs = 1.0 / (t[1] - t[0])
 
-t_cut, v_cut  = _cut_signal(t, v,        (0.00, 15))
-_,     x_cut  = _cut_signal(t, tool_dyn, (0.00, 15))
-_,     f_cut  = _cut_signal(t, force_N,  (0.00, 15))
+t_cut, v_cut  = _cut_signal(t, v,        (0.05, 15))
+_,     x_cut  = _cut_signal(t, tool_dyn, (0.05, 15))
+_,     f_cut  = _cut_signal(t, force_N,  (0.05, 15))
 
 # =============================================================================
 # INDICATOR_CONFIG -- cuatro modos de parametrizacion
@@ -75,14 +75,21 @@ _T_REV   = 60.0 / _RPM        # 0.005 s -- periodo de una revolucion
 _T_MODAL = 1.0 / _F_MODAL     # 0.00667 s -- periodo del modo de chatter (150 Hz)
 
 _COMMON = {
-    "cv_threshold":         1.9e-2,
-    "rms_threshold":        0.9,
+    # fixed threshold (ignored when stable_time is set)
+    "cv_threshold":         None,
+    "rms_threshold":        None,
     "n_min_cv":             2,
     "warmup_ignore_alerts": False,
     "use_unbiased_std":     True,
     "eps":                  1e-12,
     "detrend":              False,
     "pad_mode":             "none",
+    # ── adaptive threshold: 3-sigma on CV of stable region ──────────────
+    "stable_time":  (0.0, 5.34),   # seconds: region known to be stable
+    "frac_stable":  0.30,         # fallback if stable_time yields no frames
+    "z":            3.0,
+    "alpha":        0.05,
+    "fallback_mad": True,
 }
 
 # -- 1. Modo nativo -----------------------------------------------------------
@@ -107,10 +114,10 @@ INDICATOR_CONFIG_by_revolution = {
     "param_mode": "by_revolution",
     "params_physical": {
         "T_rev":        _T_REV,
-        "N_rev_window": 5,
+        "N_rev_window": 4,
         "step_rev":     1,
         "n_max_mode":   "frames",
-        "n_max_rev":    28,
+        "n_max_rev":    4,
         **_COMMON,
     },
 }
@@ -142,19 +149,19 @@ INDICATOR_CONFIG_by_modal = {
     "param_mode": "by_modal",
     "params_physical": {
         "T_modal":        _T_MODAL,
-        "N_modal_window": 5,
+        "N_modal_window": 4,
         "step_modal":     1,
         "n_max_mode":     "frames",
-        "n_max_modal":    10,
+        "n_max_modal":    4,
         **_COMMON,
     },
 }
 
 # -- Selector (descomentar el modo deseado) -----------------------------------
 # INDICATOR_CONFIG = INDICATOR_CONFIG_native
-# INDICATOR_CONFIG = INDICATOR_CONFIG_by_revolution
+INDICATOR_CONFIG = INDICATOR_CONFIG_by_revolution
 # INDICATOR_CONFIG = INDICATOR_CONFIG_by_revolution_total
-INDICATOR_CONFIG = INDICATOR_CONFIG_by_modal
+# INDICATOR_CONFIG = INDICATOR_CONFIG_by_modal
 
 # -- Senal de entrada ---------------------------------------------------------
 sig = SignalData(
@@ -234,10 +241,13 @@ if logger.isEnabledFor(logging.INFO):
             _kv("overlap_pct",        f"{p['overlap_pct']:.4f}"),
             _kv("n_max",              str(p["n_max"])),
             _sep("Thresholds"),
-            _kv("cv_threshold",       str(p["cv_threshold"]),      indent=1),
-            _kv("rms_threshold",      str(p["rms_threshold"]),     indent=1),
-            _kv("n_min_cv",           str(p["n_min_cv"]),          indent=1),
-            _kv("start_time",         f"{p['start_time']:.4f} s",  indent=1),
+            _kv("cv_threshold_method", meta.get("cv_threshold_method", "-"),       indent=1),
+            _kv("cv_threshold_used",   f"{meta.get('cv_threshold_used', '-'):.6g}", indent=1),
+            _kv("metodo_umbral",       str(meta.get("metodo_umbral", "-")),         indent=1),
+            _kv("mu_stable",           f"{meta.get('mu_stable',    float('nan')):.6g}", indent=1),
+            _kv("sigma_stable",        f"{meta.get('sigma_stable', float('nan')):.6g}", indent=1),
+            _kv("normal_ok",           str(meta.get("normal_ok", "-")),             indent=1),
+            _kv("n_min_cv",            str(p["n_min_cv"]),                          indent=1),
         ]
 
     elif param_mode == "by_revolution":
@@ -279,9 +289,13 @@ if logger.isEnabledFor(logging.INFO):
                 f"  ({meta.get('K_cv_total_units', 0):.2f} rev)",
                 indent=1),
             _sep("Thresholds"),
-            _kv("cv_threshold",   str(pp["cv_threshold"]),     indent=1),
-            _kv("rms_threshold",  str(pp["rms_threshold"]),    indent=1),
-            _kv("n_min_cv",       str(pp["n_min_cv"]),         indent=1),
+            _kv("cv_threshold_method", meta.get("cv_threshold_method", "-"),       indent=1),
+            _kv("cv_threshold_used",   f"{meta.get('cv_threshold_used', '-'):.6g}", indent=1),
+            _kv("metodo_umbral",       str(meta.get("metodo_umbral", "-")),         indent=1),
+            _kv("mu_stable",           f"{meta.get('mu_stable',    float('nan')):.6g}", indent=1),
+            _kv("sigma_stable",        f"{meta.get('sigma_stable', float('nan')):.6g}", indent=1),
+            _kv("normal_ok",           str(meta.get("normal_ok", "-")),             indent=1),
+            _kv("n_min_cv",            str(pp["n_min_cv"]),                         indent=1),
         ]
 
     elif param_mode == "by_modal":
@@ -323,9 +337,13 @@ if logger.isEnabledFor(logging.INFO):
                 f"  ({meta.get('K_cv_total_units', 0):.2f} periodos)",
                 indent=1),
             _sep("Thresholds"),
-            _kv("cv_threshold",   str(pp["cv_threshold"]),     indent=1),
-            _kv("rms_threshold",  str(pp["rms_threshold"]),    indent=1),
-            _kv("n_min_cv",       str(pp["n_min_cv"]),         indent=1),
+            _kv("cv_threshold_method", meta.get("cv_threshold_method", "-"),       indent=1),
+            _kv("cv_threshold_used",   f"{meta.get('cv_threshold_used', '-'):.6g}", indent=1),
+            _kv("metodo_umbral",       str(meta.get("metodo_umbral", "-")),         indent=1),
+            _kv("mu_stable",           f"{meta.get('mu_stable',    float('nan')):.6g}", indent=1),
+            _kv("sigma_stable",        f"{meta.get('sigma_stable', float('nan')):.6g}", indent=1),
+            _kv("normal_ok",           str(meta.get("normal_ok", "-")),             indent=1),
+            _kv("n_min_cv",            str(pp["n_min_cv"]),                         indent=1),
         ]
 
     logger.info("%s\n%s", _section("CONFIGURACION DEL INDICADOR"), "\n".join(lines))
@@ -369,9 +387,10 @@ if logger.isEnabledFor(logging.DEBUG):
 # =============================================================================
 # GRAFICA
 # =============================================================================
-vlines = [5.365770208787228, 7.947208594272872]
+_T_GT = 5.365770208787228   # theoretical chatter onset time [s]
 plots_rms_cv(
     signal=sig, result=resultat_rms,
     show_signal=True, zoom_x=None, zoom_y=None,
-    vlines=vlines, hlines=None,
+    vlines=None, hlines=None,
+    t_gt=_T_GT,
 )

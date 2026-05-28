@@ -15,7 +15,7 @@ Functions
 Module Contents
 ---------------
 
-.. py:function:: offline_train_maxent_sprt(opr_free, opr_chat, opr_t_free, opr_t_chat, N_seg, estimator = None)
+.. py:function:: offline_train_maxent_sprt(opr_free, opr_chat, opr_t_free, opr_t_chat, N_seg, estimator = None, step = None, segmentation = 'opr', N_samples_per_seg = None)
 
    Train Maximum Entropy SPRT models on offline OPR (Operating Point Range) data.
 
@@ -26,8 +26,15 @@ Module Contents
    :param opr_chat: OPR signal representing the chatter reference condition.
    :param opr_t_free: Time vector aligned with ``opr_free``.
    :param opr_t_chat: Time vector aligned with ``opr_chat``.
-   :param N_seg: Number of OPR samples grouped into each training segment.
+   :param N_seg: Number of OPR samples grouped into each training segment (``segmentation="opr"``).
    :param estimator: Segment-to-entropy estimator. If ``None``, the default entropy estimator is used.
+   :param step: Hop size in domain samples between consecutive segment starts.
+       ``None`` (default) is equivalent to ``step = N_seg`` (no overlap).
+   :param segmentation: ``"opr"`` (default) – use OPR-decimated arrays with
+       :func:`segment_opr`; ``"raw"`` – use raw signal arrays directly with
+       :func:`segment_signal_raw` (no prior OPR decimation needed).
+   :param N_samples_per_seg: Length of each raw block in samples.  Required
+       when ``segmentation="raw"``; ignored otherwise.
 
    :returns: Trained Gaussian models, entropy sequence for stable segments, entropy
              sequence for chatter segments, and the midpoint timestamps for both

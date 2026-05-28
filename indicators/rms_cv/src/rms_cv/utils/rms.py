@@ -213,18 +213,18 @@ def rms_sequence(
             out["indices"] = np.empty((0, 2), dtype=int)
         return out
 
-    sw = sliding_window_view(x, window_shape=win, axis=0)  # (T_eff - win + 1, win, C)
-    windows = sw[starts]  # (F, win, C)
+    sw = sliding_window_view(x, window_shape=win, axis=0)  # (T_eff - win + 1, C, win)
+    windows = sw[starts]  # (F, C, win)
 
     if detrend:
-        mean_win = windows.mean(axis=1, keepdims=True)
+        mean_win = windows.mean(axis=2, keepdims=True)
         windows = windows - mean_win
 
     if clip is not None:
         vmin, vmax = clip
         windows = np.clip(windows, vmin, vmax)
 
-    rms = np.sqrt(np.mean(windows.astype(np.float64) ** 2, axis=1))  # (F, C)
+    rms = np.sqrt(np.mean(windows.astype(np.float64) ** 2, axis=2))  # (F, C)
 
     if np.asarray(signal).ndim == 1:
         rms = rms[:, 0]

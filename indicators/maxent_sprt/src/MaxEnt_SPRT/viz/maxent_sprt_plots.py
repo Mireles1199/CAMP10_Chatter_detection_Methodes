@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 from typing import Dict, Any, Sequence, Optional
 
 import numpy as np
+from scipy.stats import norm as _norm_dist
+import matplotlib.patches as _mpatches
 
 from ..utils.types import IndicatorResult, SignalData
 
@@ -43,7 +45,7 @@ def fig_size(scale=1.0, ncols=1, base_width=3.4):
         tuple[float, float]: Figure width and height in inches.
     """
     width = base_width * ncols * scale
-    height = width * 0.40   # relación agradable
+    height = width * 0.7   # relación agradable
     return (width, height)
 
 def configurar_estilo_global() -> None:
@@ -121,6 +123,7 @@ def plots_maxent_sprt(
     zoom_y: Optional[tuple[float, float]] = None,
     vlines: Optional[Sequence[float]] = None,
     hlines: Optional[Sequence[float]] = None,
+    t_gt: Optional[float] = None,
 
 ) -> plt.Figure:
     """
@@ -160,8 +163,8 @@ def plots_maxent_sprt(
     ) -> tuple[plt.Figure, plt.Axes]:
         fig, ax = plt.subplots(figsize=fig_size(scale=scale, ncols=1))
 
-        ax.plot(t_stable, signal_analysis_stable, label="Stable Signal", color='blue', alpha=0.7)
-        ax.plot(t_chatter, signal_analysis_chatter, label="Chatter Signal", color=color_orange, alpha=0.7)
+        ax.plot(t_stable, signal_analysis_stable, label="Stable Signal", color='blue')
+        ax.plot(t_chatter, signal_analysis_chatter, label="Chatter Signal", color=color_orange)
         plt.ticklabel_format(style='sci', axis='y', scilimits=(0,0))
 
         if zoom_x is not None:
@@ -169,9 +172,7 @@ def plots_maxent_sprt(
         if zoom_y is not None:
             ax.set_ylim(zoom_y)
 
-        if vlines is not None:
-            for vx in vlines:
-                ax.axvline(x=vx, color=color_orange, linestyle='--', alpha=0.7, linewidth=1.0)
+        _draw_vlines(ax, vlines)
 
         if hlines is not None:
             for hy in hlines:
@@ -203,19 +204,16 @@ def plots_maxent_sprt(
         else:
             fig, ax = plt.subplots(figsize=size)
 
-        ax.plot(t, v, label="Stable Signal", color=color_azul, alpha=0.99)
-        ax.scatter(t_opr, v_opr, label="OPR Sampled", color=color_red, 
-                   alpha=0.99, s=7,
-                   zorder = 5)
+        ax.plot(t, v, label="Stable Signal", color=color_azul)
+        ax.scatter(t_opr, v_opr, label="OPR Sampled", color=color_red,
+                   s=7, zorder=5)
 
         if zoom_x is not None:
             ax.set_xlim(zoom_x)
         if zoom_y is not None:
             ax.set_ylim(zoom_y)
 
-        if vlines is not None:
-            for vx in vlines:
-                ax.axvline(x=vx, color=color_orange, linestyle='--', alpha=0.99, linewidth=1.5)
+        _draw_vlines(ax, vlines)
 
         if hlines is not None:
             for hy in hlines:
@@ -250,7 +248,7 @@ def plots_maxent_sprt(
         f = 1/(np.sqrt(2*np.pi)*sigma) * np.exp(-(v-mu)**2 / (2*sigma**2))
 
         plt.figure(figsize=fig_size(scale=scale, ncols=1))
-        plt.plot(v, f, color=color_verde, lw=20)
+        plt.plot(v, f, color=color_verde)
 
         # líneas verticales
         xs = [mu,
@@ -302,19 +300,15 @@ def plots_maxent_sprt(
         pdf0 = np.exp([P0.logpdf(x) for x in xs])
         pdf1 = np.exp([P1.logpdf(x) for x in xs])
 
-        ax.plot(xs, pdf0, label=r"PDF $P_0(H)$ Stable", 
-                color=color_azul, alpha=0.99, linewidth=5.0)
-        ax.plot(xs, pdf1, label=r"PDF $P_1(H)$ Chatter", 
-                color=color_orange, alpha=0.99, linewidth=5.0)
+        ax.plot(xs, pdf0, label=r"PDF $P_0(H)$ Stable", color=color_azul)
+        ax.plot(xs, pdf1, label=r"PDF $P_1(H)$ Chatter", color=color_orange)
 
         if zoom_x is not None:
             ax.set_xlim(zoom_x)
         if zoom_y is not None:
             ax.set_ylim(zoom_y)
 
-        if vlines is not None:
-            for vx in vlines:
-                ax.axvline(x=vx, color=color_orange, linestyle='--', alpha=0.99, linewidth=1.5)
+        _draw_vlines(ax, vlines, color_orange)
 
         if hlines is not None:
             for hy in hlines:
@@ -349,18 +343,14 @@ def plots_maxent_sprt(
         )
 
         segment = np.arange(1, len(H_free)+1)
-        ax.plot(segment, H_free, label="H Stable", marker='o', 
-                color=color_azul, alpha=0.99, linewidth=5.0,
-                markersize=10)
+        ax.plot(segment, H_free, label="H Stable", marker='o', color=color_azul)
 
         if zoom_x is not None:
             ax.set_xlim(zoom_x)
         if zoom_y is not None:
             ax.set_ylim(zoom_y)
 
-        if vlines is not None:
-            for vx in vlines:
-                ax.axvline(x=vx, color=color_orange, linestyle='--', alpha=0.99, linewidth=1.5)
+        _draw_vlines(ax, vlines, color_orange)
 
         if hlines is not None:
             for hy in hlines:
@@ -382,149 +372,1220 @@ def plots_maxent_sprt(
         vlines: Optional[Sequence[float]] = None,
         hlines: Optional[Sequence[float]] = None,
         size: Optional[tuple[float, float]] = None,
+        t_det_label: Optional[float] = None,
+        fig_label: Optional[str] = None,
         **kwargs,
     ) -> tuple[plt.Figure, plt.Axes]:
         if size is None and scale is not None:
-            fig, ax = plt.subplots(figsize=fig_size(scale=scale, ncols=1))
+            fig, ax = plt.subplots(figsize=fig_size(scale=scale, ncols=1), num=fig_label)
         else:
-            fig, ax = plt.subplots(figsize=size)
+            fig, ax = plt.subplots(figsize=size, num=fig_label)
 
-        ax.plot(t_i, I, label="Indicator I_n", marker='o',
-                color=color_purple, alpha=0.99, linewidth=5.0,
-                markersize=10)
-        ax.axhline(y=lim_sup, color=color_red, linestyle='--', alpha=0.99, linewidth=3, label="Upper SPRT Limit")
+        ax.plot(t_i, I, label=r"$S_k$", marker='o', color=color_purple, markersize=1)
+        ax.axhline(y=lim_sup, color=color_red,  linestyle='--', label=r"$b$ (chatter, $\alpha$)")
+        ax.axhline(y=lim_inf, color=color_azul, linestyle='--', label=r"$a$ (stable, $\beta$)")
+        ax.axhline(y=0,       color='gray',      linestyle=':')
+        ax.text(0.99, lim_sup, f"$b = {lim_sup:.4g}$",
+                transform=ax.get_yaxis_transform(),
+                color=color_red, ha='right', va='bottom', fontsize=16)
+        ax.text(0.99, lim_inf, f"$a = {lim_inf:.4g}$",
+                transform=ax.get_yaxis_transform(),
+                color=color_azul, ha='right', va='bottom', fontsize=16)
 
         if zoom_x is not None:
             ax.set_xlim(zoom_x)
         if zoom_y is not None:
             ax.set_ylim(zoom_y)
 
-        if vlines is not None:
-            for vx in vlines:
-                ax.axvline(x=vx, color=color_orange, linestyle='--', alpha=0.99, linewidth=1.5)
+        _draw_vlines(ax, vlines)
 
         if hlines is not None:
             for hy in hlines:
                 ax.axhline(y=hy, color='gray', linestyle='--', alpha=0.7)
 
+        # ── Scientific notation on y-axis ─────────────────────────────
+        ax.ticklabel_format(style="sci", axis="y", scilimits=(0, 0))
+
+        # # ── Detection label (first detection after t_gt) ───────────────
+        # if t_det_label is not None:
+        #     ax.text(
+        #         t_det_label, 0.97,
+        #         f"  $t_d={t_det_label:.3f}$ s",
+        #         rotation=90, va="top", ha="right", fontsize=9,
+        #         color=color_red, transform=ax.get_xaxis_transform(),
+        #     )
+
         ax.set_title(title)
         ax.set_xlabel("time (s)")
         ax.set_ylabel(r"$I_{SPRT}$")
-        # ax.legend()
+        ax.legend()
 
         return fig, ax
 
+    # ──────────────────────────────────────────────────────────────────
+    # NEW SUB-FUNCTIONS
+    # ──────────────────────────────────────────────────────────────────
 
+    def _plot_H_time_segment(
+        t: np.ndarray,
+        H: np.ndarray,
+        color,
+        title: str = "Entropy",
+        zoom_x=None, zoom_y=None,
+        vlines=None, hlines=None,
+        scale: float = 1.0,
+        fig_label: Optional[str] = None,
+        **kwargs,
+    ) -> tuple[plt.Figure, plt.Axes]:
+        """Single entropy sequence vs time (for one region)."""
+        fig, ax = plt.subplots(figsize=fig_size(scale=scale, ncols=1), num=fig_label)
+        if t is not None and H is not None and len(t) > 0:
+            ax.plot(t, H, marker='o', color=color)
+        if zoom_x is not None:
+            ax.set_xlim(zoom_x)
+        if zoom_y is not None:
+            ax.set_ylim(zoom_y)
+        _draw_vlines(ax, vlines)
+        if hlines is not None:
+            for hy in hlines:
+                ax.axhline(y=hy, color='gray', linestyle='--', alpha=0.7)
+        ax.set_title(title)
+        ax.set_xlabel("Time (s)")
+        ax.set_ylabel("Entropy $H$")
+        plt.tight_layout()
+        return fig, ax
 
+    def _plot_H_time_all(
+        t: np.ndarray,
+        H,
+        t_split: Optional[float],
+        training_intervals=None,
+        title: str = "Online Entropy — Full",
+        zoom_x=None, zoom_y=None,
+        vlines=None, hlines=None,
+        scale: float = 1.0,
+        fig_label: Optional[str] = None,
+        **kwargs,
+    ) -> tuple[plt.Figure, plt.Axes]:
+        """Full online entropy coloured by training_intervals (if given) or stable (blue) before t_split / chatter (orange) after."""
+        fig, ax = plt.subplots(figsize=fig_size(scale=scale, ncols=1), num=fig_label)
+        H_arr = np.asarray(H) if H is not None else np.array([])
+        if t is not None and H_arr.size > 0:
+            if training_intervals is not None and len(training_intervals) > 0:
+                from matplotlib.lines import Line2D as _Line2D
+                for _t0, _t1, _lbl in training_intervals:
+                    _m = (t >= _t0) & (t < _t1)
+                    _c = color_azul if str(_lbl).lower() == "stable" else color_orange
+                    if np.any(_m):
+                        ax.plot(t[_m], H_arr[_m], marker='o', color=_c)
+                ax.legend(handles=[
+                    _Line2D([0], [0], color=color_azul,   marker='o', label="Stable"),
+                    _Line2D([0], [0], color=color_orange, marker='o', label="Chatter"),
+                ])
+                if t_split is not None:
+                    ax.axvline(x=t_split, color="black", linestyle=":", lw=1.2,
+                               label=f"$t_{{gt}}$ = {t_split:.3f} s")
+                    ax.text(t_split, 0.97, f"  $t_{{gt}}={t_split:.3f}$ s",
+                            rotation=90, va="top", ha="right", fontsize=8,
+                            color="black", transform=ax.get_xaxis_transform())
+            elif t_split is not None:
+                mask_s = t < t_split
+                mask_c = t >= t_split
+                if np.any(mask_s):
+                    ax.plot(t[mask_s], H_arr[mask_s], marker='o',
+                            color=color_azul, label="Stable")
+                if np.any(mask_c):
+                    ax.plot(t[mask_c], H_arr[mask_c], marker='o',
+                            color=color_orange, label="Chatter")
+                # ax.axvline(x=t_split, color="black", linestyle=":", lw=1.2,
+                #            label=f"$t_{{gt}}$ = {t_split:.3f} s")
+                # ax.text(t_split, 0.97, f"  $t_{{gt}}={t_split:.3f}$ s",
+                #         rotation=90, va="top", ha="right", fontsize=8,
+                #         color="black", transform=ax.get_xaxis_transform())
+            else:
+                ax.plot(t, H_arr, marker='o', color=color_azul)
+        if zoom_x is not None:
+            ax.set_xlim(zoom_x)
+        if zoom_y is not None:
+            ax.set_ylim(zoom_y)
+
+        _draw_vlines(ax, vlines)
+
+        if hlines is not None:
+            for hy in hlines:
+                ax.axhline(y=hy, color='gray', linestyle='--', alpha=0.7)
+        ax.set_title(title)
+        ax.set_xlabel("Time (s)")
+        ax.set_ylabel("Entropy $H$")
+        ax.legend()
+        return fig, ax
+
+    def _plot_H_offline_combined(
+        t_free: np.ndarray, H_free: np.ndarray,
+        t_chat: np.ndarray, H_chat: np.ndarray,
+        title: str = "Training Entropy — Combined",
+        zoom_x=None, zoom_y=None,
+        vlines=None, hlines=None,
+        scale: float = 1.0,
+        fig_label: Optional[str] = None,
+        **kwargs,
+    ) -> tuple[plt.Figure, tuple]:
+        """Two vertical subplots: stable (top, blue) and chatter (bottom, orange)."""
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=fig_size(scale=scale, ncols=1), num=fig_label)
+        fig.suptitle(title)
+        for ax, t_arr, H_arr, color, lbl in [
+            (ax1, t_free, H_free, color_azul,   "Stable"),
+            (ax2, t_chat, H_chat, color_orange,  "Chatter"),
+        ]:
+            if t_arr is not None and H_arr is not None and len(t_arr) > 0:
+                ax.plot(t_arr, H_arr, marker='o', color=color, label=lbl)
+            if zoom_x is not None:
+                ax.set_xlim(zoom_x)
+            if zoom_y is not None:
+                ax.set_ylim(zoom_y)
+            _draw_vlines(ax, vlines)
+            if hlines is not None:
+                for hy in hlines:
+                    ax.axhline(y=hy, color='gray', linestyle='--', alpha=0.7)
+            ax.set_xlabel("Time (s)")
+            ax.set_ylabel("Entropy $H$")
+            ax.legend()
+        plt.tight_layout()
+        return fig, (ax1, ax2)
+
+    def _plot_PDF_hist(
+        H_data: np.ndarray,
+        mu: float,
+        sigma: float,
+        color_hist,
+        color_pdf,
+        title: str = "PDF Entropy",
+        zoom_x=None, zoom_y=None,
+        vlines=None, hlines=None,
+        scale: float = 1.0,
+        fig_label: Optional[str] = None,
+        **kwargs,
+    ) -> tuple[plt.Figure, plt.Axes]:
+        """Histogram of H_data with fitted Gaussian PDF and ±1σ/±2σ/±3σ lines."""
+        fig, ax = plt.subplots(figsize=fig_size(scale=scale, ncols=1), num=fig_label)
+        if H_data is not None and len(H_data) > 0:
+            ax.hist(H_data, density=True, alpha=0.5, color=color_hist, bins=50,
+                     label="Histogram")
+        # Gaussian curve
+        x_pdf = np.linspace(mu - 4.5 * sigma, mu + 4.5 * sigma, 1000)
+        y_pdf = np.exp(-0.5 * ((x_pdf - mu) / sigma) ** 2) / (sigma * np.sqrt(2 * np.pi))
+        ax.plot(x_pdf, y_pdf, color=color_pdf,
+                label=rf"PDF  $\mu$={mu:.4f}, $\sigma$={sigma:.4f}")
+        # Vertical reference lines
+        ax.axvline(mu, color=color_red, linestyle='-', label=rf"$\mu$ = {mu:.4f}")
+        sigma_styles = [('--', 0.85), (':', 0.65), ('-.', 0.45)]
+        for k, (ls, alpha) in enumerate(sigma_styles, start=1):
+            ax.axvline(mu + k * sigma, color='gray', linestyle=ls, alpha=alpha,
+                       label=rf"$\mu\pm{k}\sigma$" if k == 1 else f"$\\pm{k}\\sigma$")
+            ax.axvline(mu - k * sigma, color='gray', linestyle=ls, alpha=alpha)
+        if zoom_x is not None:
+            ax.set_xlim(zoom_x)
+        if zoom_y is not None:
+            ax.set_ylim(zoom_y)
+        _draw_vlines(ax, vlines)
+        if hlines is not None:
+            for hy in hlines:
+                ax.axhline(y=hy, color='gray', linestyle='--', alpha=0.7)
+        ax.set_title(title)
+        ax.set_xlabel("Entropy $H$")
+        ax.set_ylabel("Probability Density")
+        ax.legend()
+        return fig, ax
+
+    def _plot_opr_dual_figure(
+        t_free, v_free, t_opr_free, opr_free,
+        t_chat, v_chat, t_opr_chat, opr_chat,
+        main_title: str = "Signal + OPR",
+        zoom_x=None, zoom_y=None,
+        vlines=None, hlines=None,
+        scale: float = 1.0,
+        fig_label: Optional[str] = None,
+        **kwargs,
+    ) -> tuple[plt.Figure, tuple]:
+        """Two stacked subplots (rows): stable signal+OPR (top) and chatter signal+OPR (bottom)."""
+        w, h = fig_size(scale=scale, ncols=1)
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(w, h * 1.0),
+                                       constrained_layout=True, num=fig_label)
+        fig.suptitle(main_title, y=1.01)
+        data_pairs = [
+            (ax1, t_free, v_free, t_opr_free, opr_free,
+             color_azul, "Stable Signal", "Stable OPR", False),
+            (ax2, t_chat, v_chat, t_opr_chat, opr_chat,
+             color_orange, "Chatter Signal", "Chatter OPR", True),
+        ]
+        for ax, t_sig, v_sig, t_opr, v_opr, col_sig, lbl_sig, lbl_opr, draw_vlines in data_pairs:
+            if t_sig is not None and v_sig is not None and len(t_sig) > 0:
+                ax.plot(t_sig, v_sig, color=col_sig, alpha=0.9, label=lbl_sig)
+            if t_opr is not None and v_opr is not None and len(t_opr) > 0:
+                ax.scatter(t_opr, v_opr, color=color_red, s=7, zorder=5, label=lbl_opr)
+            if zoom_x is not None:
+                ax.set_xlim(zoom_x)
+            if zoom_y is not None:
+                ax.set_ylim(zoom_y)
+            if draw_vlines:
+                _draw_vlines(ax, vlines)
+            if hlines is not None:
+                for hy in hlines:
+                    ax.axhline(y=hy, color='gray', linestyle='--', alpha=0.7)
+            ax.set_xlabel("Time (s)")
+            ax.set_ylabel(r"Velocity $v(t)$ [m/s]")
+            ax.legend()
+        plt.tight_layout()
+        return fig, (ax1, ax2)
+
+    # ──────────────────────────────────────────────────────────────────
+    # THEORY / DIAGNOSTIC HELPERS  (D3, D6, D7, D8, D9, H+Sk joint)
+    # ──────────────────────────────────────────────────────────────────
+
+    def _shade_intervals_local(ax, training_intervals, alpha_bg=0.06):
+        """Tint axis background by training-interval label (stable=blue, chatter=orange)."""
+        if training_intervals is None:
+            return
+        for t_lo, t_hi, lbl in training_intervals:
+            c = color_azul if str(lbl).lower() == "stable" else color_orange
+            ax.axvspan(t_lo, t_hi, alpha=alpha_bg, color=c, zorder=0)
+
+    def _draw_vlines(ax, vlines, default_color="black", default_ls="--"):
+        """Draw vertical lines with optional rotated text labels.
+
+        Each entry in *vlines* may be:
+        - a plain ``float``            → dashed line, no label
+        - ``(float, label)``           → dashed line + vertical label (default_color)
+        - ``(float, label, color)``    → dashed line + vertical label (custom color)
+        """
+        if vlines is None:
+            return
+        for entry in vlines:
+            if isinstance(entry, (list, tuple)):
+                vx    = float(entry[0])
+                label = str(entry[1]) if len(entry) > 1 else None
+                color = entry[2]       if len(entry) > 2 else default_color
+            else:
+                vx, label, color = float(entry), None, default_color
+            ax.axvline(x=vx, color=color, linestyle=default_ls, lw=1.2)
+            if label:
+                ax.text(
+                    vx, 0.97, f"  {label}",
+                    rotation=90, va="top", ha="right", fontsize=16,
+                    color=color, transform=ax.get_xaxis_transform(),
+                )
+
+    def _plot_D3_figure(
+        P0_mu, P0_sig, P1_mu, P1_sig,
+        alpha_val, beta_val, a_val, b_val,
+        scale=5.0,
+        fig_label=None,
+    ):
+        """D3 — P0/P1 separate panels with alpha and beta error fills + SPRT boundary labels."""
+        n_sigma = _norm_dist.isf(alpha_val)
+        H_thr   = P0_mu + n_sigma * P0_sig
+        beta_cl = float(_norm_dist.cdf(H_thr, P1_mu, P1_sig))
+        _FS_LBL = 14; _FS_TICK = 12; _FS_LEG = 11; _FS_AX = 13; _LW_PDF = 2.5
+        _xlim_L = (P0_mu - 4.2*P0_sig, H_thr + 1.5*P0_sig)
+        _xlim_R = (min(P1_mu - 4.2*P1_sig, H_thr - 0.5*P1_sig), P1_mu + 4.2*P1_sig)
+
+        def _grid(lo, hi, mu, sig):
+            pts = [mu - 3*sig, mu - sig, mu, mu + sig, mu + 3*sig, H_thr]
+            return np.sort(np.unique(np.concatenate([np.linspace(lo, hi, 700), pts])))
+
+        H_gL = _grid(*_xlim_L, P0_mu, P0_sig)
+        H_gR = _grid(*_xlim_R, P1_mu, P1_sig)
+        pdfL = _norm_dist.pdf(H_gL, P0_mu, P0_sig)
+        pdfR = _norm_dist.pdf(H_gR, P1_mu, P1_sig)
+        y_pk = max(pdfL.max(), pdfR.max())
+
+        fig, (axL, axR) = plt.subplots(
+            1, 2, figsize=(fig_size(scale)[0], fig_size(scale)[1]), sharey=True,
+            num=fig_label)
+        fig.suptitle(
+            rf"D3 — Erreurs $\alpha$, $\beta$ et fronti\u00e8res SPRT"
+            rf"  $b=\ln\!\frac{{1-\beta}}{{\alpha}}={b_val:.2f}$,"
+            rf"  $a=\ln\!\frac{{\beta}}{{1-\alpha}}={a_val:.2f}$",
+            fontsize=_FS_AX + 1)
+
+        for ax, H_g, pdf, mu, sig, C_body, C_tail, xlim, greek, mu_lbl, sub in [
+            (axL, H_gL, pdfL, P0_mu, P0_sig, color_azul,   color_red,   _xlim_L, "alpha", r"$\mu_0$", "0"),
+            (axR, H_gR, pdfR, P1_mu, P1_sig, color_orange, color_verde, _xlim_R, "beta",  r"$\mu_1$", "1"),
+        ]:
+            if greek == "alpha":
+                ax.fill_between(H_g, pdf, where=(H_g <= H_thr), alpha=0.22, color=C_body)
+                ax.fill_between(H_g, pdf, where=(H_g >= H_thr), alpha=0.70, color=C_tail)
+                _xt = (H_thr + P0_mu + 3.5*P0_sig) / 2
+                ax.text(_xt, _norm_dist.pdf(_xt, mu, sig) + 0.06*y_pk,
+                        rf"$\alpha = {alpha_val:.5f}$" + "\n(false alarm)",
+                        ha="center", va="bottom", fontsize=_FS_LBL, color=C_tail, fontweight="bold")
+                ax.text(mu, _norm_dist.pdf(mu, mu, sig) + 0.06*y_pk, r"$1-\alpha$",
+                        ha="center", va="bottom", fontsize=_FS_LBL + 2, color=C_body, fontweight="bold")
+                leg_h = [
+                    _mpatches.Patch(color=C_body, alpha=0.55,
+                        label=rf"$P_0$ (stable) $\mathcal{{N}}(\mu_0={P0_mu:.3f},\,\sigma_0={P0_sig:.3f})$"),
+                    _mpatches.Patch(color=C_tail, alpha=0.80,
+                        label=rf"$\alpha={alpha_val:.5f}$ - false alarm (right tail $P_0$)"),
+                    _mpatches.Patch(color=C_body, alpha=0.22,
+                        label=rf"$1-\alpha={1-alpha_val:.5f}$ - correct decision"),
+                    plt.Line2D([0],[0], color="black", ls="--", lw=2.0,
+                        label=rf"$H_{{thr}}=\mu_0+{n_sigma:.1f}\sigma_0={H_thr:.3f}$ nat"),
+                    plt.Line2D([0],[0], color=C_body, ls=":", lw=1.5,
+                        label=rf"$\mu_0\pm{n_sigma:.1f}\sigma_0$"),
+                ]
+            else:
+                ax.fill_between(H_g, pdf, where=(H_g >= H_thr), alpha=0.22, color=C_body)
+                ax.fill_between(H_g, pdf, where=(H_g <= H_thr), alpha=0.70, color=C_tail)
+                _xt = (H_thr + P1_mu - 3.5*P1_sig) / 2
+                ax.text(_xt, _norm_dist.pdf(_xt, mu, sig) + 0.06*y_pk,
+                        rf"$\beta = {beta_cl:.5f}$" + "\n(miss / non-detection)",
+                        ha="center", va="bottom", fontsize=_FS_LBL, color=C_tail, fontweight="bold")
+                ax.text(mu, _norm_dist.pdf(mu, mu, sig) + 0.06*y_pk, r"$1-\beta$",
+                        ha="center", va="bottom", fontsize=_FS_LBL + 2, color=C_body, fontweight="bold")
+                leg_h = [
+                    _mpatches.Patch(color=C_body, alpha=0.55,
+                        label=rf"$P_1$ (chatter) $\mathcal{{N}}(\mu_1={P1_mu:.3f},\,\sigma_1={P1_sig:.3f})$"),
+                    _mpatches.Patch(color=C_tail, alpha=0.80,
+                        label=rf"$\beta={beta_cl:.5f}$ - miss (left tail $P_1$)"),
+                    _mpatches.Patch(color=C_body, alpha=0.22,
+                        label=rf"$1-\beta={1-beta_cl:.5f}$ - correct detection"),
+                    plt.Line2D([0],[0], color="black", ls="--", lw=2.0,
+                        label=rf"$H_{{thr}}=\mu_0+{n_sigma:.1f}\sigma_0={H_thr:.3f}$ nat"),
+                    plt.Line2D([0],[0], color=C_body, ls=":", lw=1.5,
+                        label=rf"$\mu_1\pm{n_sigma:.1f}\sigma_1$"),
+                ]
+            ax.plot(H_g, pdf, color=C_body, lw=_LW_PDF)
+            ax.axvline(H_thr,      color="black", ls="--", lw=2.0)
+            ax.axvline(mu,         color=C_body,  ls="-",  lw=1.2, alpha=0.60)
+            ax.axvline(mu - 3*sig, color=C_body,  ls=":",  lw=1.5, alpha=0.80)
+            ax.axvline(mu + 3*sig, color=C_body,  ls=":",  lw=1.5, alpha=0.80)
+            _ya = -0.025 * y_pk
+            ax.text(mu,         _ya, mu_lbl,
+                    ha="center", va="top", fontsize=_FS_LBL, color=C_body,
+                    fontweight="bold", clip_on=False)
+            ax.text(mu - 3*sig, _ya, rf"$\mu_{sub}-3\sigma_{sub}$",
+                    ha="center", va="top", fontsize=_FS_LBL - 1, color=C_body, clip_on=False)
+            ax.text(mu + 3*sig, _ya, rf"$\mu_{sub}+3\sigma_{sub}$",
+                    ha="center", va="top", fontsize=_FS_LBL - 1, color=C_body, clip_on=False)
+            ax.text(H_thr + 0.2, _ya + 0.25, rf"$H_{{thr}}$",
+                    ha="center", va="top", fontsize=_FS_LBL - 1, color="black", clip_on=False)
+            ax.set_xlabel(r"Entropy $H$ (nat)", fontsize=_FS_AX)
+            ax.set_xlim(*xlim)
+            ax.set_ylim(bottom=-0.10 * y_pk, top=y_pk * 1.28)
+            ax.legend(handles=leg_h, fontsize=_FS_LEG, loc="upper left",
+                      framealpha=0.93, edgecolor="gray")
+            ax.tick_params(labelsize=_FS_TICK)
+        axL.set_ylabel("Probability density")
+        fig.tight_layout()
+        return fig, (axL, axR)
+
+    def _plot_D6_figure(
+        P0_mu, P0_sig, P1_mu, P1_sig,
+        alpha_val, a_val, b_val,
+        scale=5.0,
+        fig_label=None,
+    ):
+        """D6 — ln p0(H), ln p1(H) (left) and Lambda(H) (right) as static functions of H."""
+        n_sigma = _norm_dist.isf(alpha_val)
+        H_lo = min(P0_mu - 4.5*P0_sig, P1_mu - 4.5*P1_sig)
+        H_hi = max(P0_mu + 4.5*P0_sig, P1_mu + 4.5*P1_sig)
+        H_r  = np.linspace(H_lo, H_hi, 600)
+        ln_p0 = -0.5*((H_r - P0_mu)/P0_sig)**2 - np.log(P0_sig*np.sqrt(2*np.pi))
+        ln_p1 = -0.5*((H_r - P1_mu)/P1_sig)**2 - np.log(P1_sig*np.sqrt(2*np.pi))
+        Lam_H = ln_p1 - ln_p0
+        H_thr   = P0_mu + n_sigma * P0_sig
+        H_cross = H_r[np.argmin(np.abs(Lam_H))]
+
+        fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=(fig_size(scale)[0], fig_size(scale)[1]),
+                                          num=fig_label)
+        fig.suptitle(
+            r"D6 - Log-likelihoods $\ln p_0(H)$,  $\ln p_1(H)$  and  $\Lambda(H) = \ln\,p_1/p_0$",
+            fontsize=13)
+
+        ax_a.plot(H_r, ln_p0, color=color_azul,   lw=2.2, label=r"$\ln p_0(H)$  (stable)")
+        ax_a.plot(H_r, ln_p1, color=color_orange,  lw=2.2, label=r"$\ln p_1(H)$  (chatter)")
+        ax_a.fill_between(H_r, ln_p0, ln_p1, where=(ln_p1 > ln_p0), alpha=0.10, color=color_orange)
+        ax_a.fill_between(H_r, ln_p0, ln_p1, where=(ln_p1 < ln_p0), alpha=0.10, color=color_azul)
+        for _xv, _lbl, _col, _ls in [
+            (P0_mu,   rf"$\mu_0$",          color_azul,   ":"),
+            (P1_mu,   rf"$\mu_1$",          color_orange,  ":"),
+            (H_thr,   rf"$H_{{thr}}$",      "black",       "--"),
+            (H_cross, rf"$\Lambda\!=\!0$",  "gray",        ":"),
+        ]:
+            ax_a.axvline(_xv, color=_col, ls=_ls, lw=1.0, alpha=0.75)
+        for _xv, _lbl, _col, _ha in [
+            (P0_mu,   rf"$\mu_0$",          color_azul,   "right"),
+            (P1_mu,   rf"$\mu_1$",          color_orange,  "left"),
+            (H_thr,   rf"$H_{{thr}}$",      "black",       "right"),
+            (H_cross, rf"$\Lambda\!=\!0$",  "gray",        "left"),
+        ]:
+            ax_a.text(_xv, 0.97, _lbl, color=_col, fontsize=8,
+                      ha=_ha, va="top", transform=ax_a.get_xaxis_transform())
+        ax_a.set_xlabel(r"$H$  (entropy of segment)")
+        ax_a.set_ylabel(r"$\ln p(H)$")
+        ax_a.set_title(r"Log-likelihoods: parabolas centred on $\mu_0$, $\mu_1$")
+        ax_a.legend(fontsize=9, loc="lower center")
+
+        ax_b.plot(H_r, Lam_H, color=color_verde, lw=2.2,
+                  label=r"$\Lambda(H) = \ln\frac{p_1(H)}{p_0(H)}$")
+        ax_b.fill_between(H_r, Lam_H, 0, where=(Lam_H > 0), alpha=0.10, color=color_orange,
+                          label=r"$\Lambda>0 \rightarrow$    votes chatter")
+        ax_b.fill_between(H_r, Lam_H, 0, where=(Lam_H < 0), alpha=0.10, color=color_azul,
+                          label=r"$\Lambda<0 \rightarrow$    votes stable")
+        for _yh, _lbl, _col, _ls in [
+            (0,     r"$\Lambda=0$",       "gray",      ":"),
+            (b_val, rf"$b={b_val:.2f}$",  color_red,   "--"),
+            (a_val, rf"$a={a_val:.2f}$",  color_azul,  "--"),
+        ]:
+            ax_b.axhline(_yh, color=_col, ls=_ls, lw=1.2, alpha=0.8)
+            ax_b.text(0.99, _yh, f"  {_lbl}", color=_col, fontsize=8,
+                      ha="right", va="bottom", transform=ax_b.get_yaxis_transform())
+        ax_b.axvline(H_thr,  color="black", ls="--", lw=1.0, alpha=0.75)
+        ax_b.text(H_thr, 0.97, rf"$H_{{thr}}$", color="black", fontsize=8,
+                  ha="right", va="top", transform=ax_b.get_xaxis_transform())
+        ax_b.axvline(H_cross, color="gray", ls=":", lw=0.9, alpha=0.6)
+        ax_b.set_xlabel(r"$H$  (entropy of segment)", fontsize=12)
+        ax_b.set_ylabel(r"$\Lambda(H) = \ln p_1(H) - \ln p_0(H)$", fontsize=12)
+        ax_b.set_title(r"Single-segment log-likelihood ratio $\Lambda(H)$", fontsize=11)
+        ax_b.legend(fontsize=9, loc="upper left")
+
+        fig.tight_layout()
+        return fig, (ax_a, ax_b)
+
+    def _plot_D7_figure(
+        t_arr, H_arr,
+        P0_mu, P0_sig, P1_mu, P1_sig,
+        t_gt=None, training_intervals=None,
+        scale=5.0,
+        fig_label=None,
+    ):
+        """D7 — p0(H(t)) and p1(H(t)) over time (top) + likelihood ratio p1/p0 (bottom)."""
+        _p0_t  = _norm_dist.pdf(H_arr, P0_mu, P0_sig)
+        _p1_t  = _norm_dist.pdf(H_arr, P1_mu, P1_sig)
+        _ratio = np.where(_p0_t > 1e-300, _p1_t / _p0_t, np.nan)
+
+        fig, (ax_a, ax_b) = plt.subplots(2, 1, figsize=fig_size(scale, ncols=1), sharex=True,
+                                          num=fig_label)
+        fig.suptitle(r"D7 - $p_0(H(t))$ and $p_1(H(t))$ over time"
+                     "\n(which distribution is more likely at each segment?)", fontsize=12)
+
+        ax_a.plot(t_arr, _p0_t, color=color_azul,   lw=1.2,
+                  label=r"$p_0(H(t))$ - how stable-like is this segment?")
+        ax_a.plot(t_arr, _p1_t, color=color_orange,  lw=1.2,
+                  label=r"$p_1(H(t))$ - how chatter-like is this segment?")
+        ax_a.fill_between(t_arr, _p0_t, _p1_t, where=(_p1_t > _p0_t), alpha=0.15,
+                          color=color_orange, label=r"$p_1 > p_0 \rightarrow$    chatter wins")
+        ax_a.fill_between(t_arr, _p0_t, _p1_t, where=(_p1_t < _p0_t), alpha=0.15,
+                          color=color_azul,   label=r"$p_0 > p_1 \rightarrow$    stable wins")
+        if t_gt is not None:
+            ax_a.axvline(t_gt, color="black", ls="--", lw=1.2)
+            ax_a.text(t_gt, 0.98, r"  $t_{gt}$", color="black", fontsize=9,
+                      va="top", transform=ax_a.get_xaxis_transform())
+        ax_a.set_ylabel(r"$p(H(t))$", fontsize=11)
+        ax_a.set_title(r"PDF values at each segment's entropy $H(t)$", fontsize=10)
+        ax_a.legend(fontsize=8, loc="upper left")
+        _shade_intervals_local(ax_a, training_intervals)
+
+        ax_b.plot(t_arr, _ratio, color=color_verde, lw=1.2,
+                  label=r"$p_1(H(t))\,/\,p_0(H(t))$  (likelihood ratio per segment)")
+        ax_b.axhline(1.0, color="gray", ls=":", lw=0.9, label="ratio = 1  (indifferent)")
+        if t_gt is not None:
+            ax_b.axvline(t_gt, color="black", ls="--", lw=1.2)
+            ax_b.text(t_gt, 0.98, r"  $t_{gt}$", color="black", fontsize=9,
+                      va="top", transform=ax_b.get_xaxis_transform())
+        ax_b.set_xlabel("Time [s]", fontsize=11)
+        ax_b.set_ylabel(r"$p_1 / p_0$", fontsize=11)
+        ax_b.set_title(r"Likelihood ratio per segment  ($> 1$: evidence for chatter)", fontsize=10)
+        ax_b.legend(fontsize=8, loc="upper left")
+        _shade_intervals_local(ax_b, training_intervals)
+
+        fig.tight_layout()
+        return fig, (ax_a, ax_b)
+
+    def _plot_D8_figure(
+        t_arr, H_arr,
+        P0_mu, P0_sig, P1_mu, P1_sig,
+        t_gt=None, training_intervals=None,
+        scale=5.0,
+        fig_label=None,
+    ):
+        """D8 — ln p0(H(t)) and ln p1(H(t)) over time (top) + Lambda_k increments (bottom)."""
+        _p0_t  = _norm_dist.pdf(H_arr, P0_mu, P0_sig)
+        _p1_t  = _norm_dist.pdf(H_arr, P1_mu, P1_sig)
+        _lp0_t = np.log(np.maximum(_p0_t, 1e-300))
+        _lp1_t = np.log(np.maximum(_p1_t, 1e-300))
+        _Lk_t  = _lp1_t - _lp0_t
+
+        fig, (ax_a, ax_b) = plt.subplots(2, 1, figsize=fig_size(scale, ncols=1), sharex=True,
+                                          num=fig_label)
+        fig.suptitle(r"D8 - $\ln p_0(H(t))$ and $\ln p_1(H(t))$ over time"
+                     "\n(log-likelihoods and their difference = $\Lambda_k$)", fontsize=12)
+
+        ax_a.plot(t_arr, _lp0_t, color=color_azul,  lw=1.2,
+                  label=r"$\ln p_0(H(t))$  (log-prob stable)")
+        ax_a.plot(t_arr, _lp1_t, color=color_orange, lw=1.2,
+                  label=r"$\ln p_1(H(t))$  (log-prob chatter)")
+        ax_a.fill_between(t_arr, _lp0_t, _lp1_t, where=(_lp1_t > _lp0_t), alpha=0.12,
+                          color=color_orange, label=r"$\ln p_1 > \ln p_0 \rightarrow$    chatter more likely")
+        ax_a.fill_between(t_arr, _lp0_t, _lp1_t, where=(_lp1_t < _lp0_t), alpha=0.12,
+                          color=color_azul,   label=r"$\ln p_0 > \ln p_1 \rightarrow$    stable more likely")
+        if t_gt is not None:
+            ax_a.axvline(t_gt, color="black", ls="--", lw=1.2)
+            ax_a.text(t_gt, 0.98, r"  $t_{gt}$", color="black", fontsize=9,
+                      va="top", transform=ax_a.get_xaxis_transform())
+        ax_a.set_ylabel(r"$\ln p(H(t))$", fontsize=11)
+        ax_a.set_title(r"Log-likelihoods at each segment  (gap = $\Lambda_k$)", fontsize=10)
+        ax_a.legend(fontsize=8, loc="lower left")
+        _shade_intervals_local(ax_a, training_intervals)
+
+        ax_b.plot(t_arr, _Lk_t, color=color_verde, lw=1.0, alpha=0.8,
+                  label=r"$\Lambda_k = \ln p_1(H(t)) - \ln p_0(H(t))$  \u2190 fed into $S_k$")
+        ax_b.axhline(0, color="gray", ls=":", lw=0.9)
+        ax_b.fill_between(t_arr, _Lk_t, 0, where=(_Lk_t > 0), alpha=0.15, color=color_orange,
+                          label=r"$\Lambda_k > 0$: pushes $S_k$ toward chatter")
+        ax_b.fill_between(t_arr, _Lk_t, 0, where=(_Lk_t < 0), alpha=0.15, color=color_azul,
+                          label=r"$\Lambda_k < 0$: pushes $S_k$ toward stable")
+        if t_gt is not None:
+            ax_b.axvline(t_gt, color="black", ls="--", lw=1.2)
+            ax_b.text(t_gt, 0.98, r"  $t_{gt}$", color="black", fontsize=9,
+                      va="top", transform=ax_b.get_xaxis_transform())
+        ax_b.set_xlabel("Time [s]", fontsize=11)
+        ax_b.set_ylabel(r"$\Lambda_k$", fontsize=11)
+        ax_b.set_title(r"$\Lambda_k$ per segment over time  (increments of $S_k$)", fontsize=10)
+        ax_b.legend(fontsize=8, loc="upper left")
+        _shade_intervals_local(ax_b, training_intervals)
+
+        fig.tight_layout()
+        return fig, (ax_a, ax_b)
+
+    def _plot_D9_figure(
+        t_arr, H_online,
+        H_stable_train, H_chatter_train,
+        P0_mu, P0_sig, P1_mu, P1_sig,
+        alpha_val, training_intervals=None,
+        scale=5.0,
+        fig_label=None,
+    ):
+        """D9 — Analytical PDFs with alpha/beta fills (left) + real histogram + fit (right)."""
+        H_lo = P0_mu - 4.5 * P0_sig
+        H_hi = P1_mu + 4.5 * P1_sig
+        H_ax = np.linspace(H_lo, H_hi, 800)
+        pdf0 = _norm_dist.pdf(H_ax, P0_mu, P0_sig)
+        pdf1 = _norm_dist.pdf(H_ax, P1_mu, P1_sig)
+        _H_thr  = P0_mu + _norm_dist.isf(alpha_val) * P0_sig
+        _a_real = float(_norm_dist.sf(_H_thr,  P0_mu, P0_sig))
+        _b_real = float(_norm_dist.cdf(_H_thr, P1_mu, P1_sig))
+        _lam    = _norm_dist.logpdf(H_ax, P1_mu, P1_sig) - _norm_dist.logpdf(H_ax, P0_mu, P0_sig)
+        _cross  = float(H_ax[np.argmin(np.abs(_lam))])
+        _y_top  = max(pdf0.max(), pdf1.max())
+
+        # Split H_online by training labels (same regions used to fit P0/P1)
+        if training_intervals is not None and t_arr is not None and H_online is not None and len(H_online) > 0:
+            _ms = np.zeros(len(t_arr), dtype=bool)
+            _mc = np.zeros(len(t_arr), dtype=bool)
+            for _t0, _t1, _lbl in training_intervals:
+                _mm = (np.asarray(t_arr) >= _t0) & (np.asarray(t_arr) < _t1)
+                if str(_lbl).lower() == "stable":
+                    _ms |= _mm
+                else:
+                    _mc |= _mm
+            _H_s = np.asarray(H_online)[_ms]
+            _H_c = np.asarray(H_online)[_mc]
+        else:
+            _H_s = H_stable_train  if H_stable_train  is not None else np.array([])
+            _H_c = H_chatter_train if H_chatter_train is not None else np.array([])
+
+        fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=(fig_size(scale)[0], fig_size(scale)[1]),
+                                          num=fig_label)
+        fig.suptitle(
+            r"D9 - Both distributions $P_0$ (stable) and $P_1$ (chatter): "
+            "theory and measured $H$ values", fontsize=13)
+
+        # Left: analytical PDFs with alpha/beta fills
+        ax_a.plot(H_ax, pdf0, color=color_azul,   lw=2.2,
+                  label=rf"$p_0(H)\;\sim\mathcal{{N}}(\mu_0={P0_mu:.3f},\;\sigma_0={P0_sig:.3f})$ nat")
+        ax_a.plot(H_ax, pdf1, color=color_orange,  lw=2.2,
+                  label=rf"$p_1(H)\;\sim\mathcal{{N}}(\mu_1={P1_mu:.3f},\;\sigma_1={P1_sig:.3f})$ nat")
+        ax_a.fill_between(H_ax, pdf0, where=(H_ax >= _H_thr), alpha=0.35, color=color_red,
+                          label=rf"$\alpha$ (false alarm) $= {_a_real:.5f}$")
+        ax_a.fill_between(H_ax, pdf1, where=(H_ax <= _H_thr), alpha=0.25, color=color_verde,
+                          label=rf"$\beta$ (miss rate) $= {_b_real:.4f}$")
+        ax_a.fill_between(H_ax, np.minimum(pdf0, pdf1), alpha=0.10, color="gray",
+                          label="Overlap region")
+        for _xv, _lbl, _col, _ha in [
+            (P0_mu,  rf"$\mu_0={P0_mu:.2f}$",        color_azul,   "right"),
+            (P1_mu,  rf"$\mu_1={P1_mu:.2f}$",        color_orange,  "left"),
+            (_H_thr, rf"$H_{{thr}}={_H_thr:.2f}$",   color_red,     "right"),
+            (_cross, r"$\Lambda\!=\!0$",              "gray",        "left"),
+        ]:
+            ax_a.axvline(_xv, color=_col, ls="--", lw=1.0, alpha=0.75)
+            ax_a.text(_xv, 0.97, f"  {_lbl}", color=_col, fontsize=8,
+                      ha=_ha, va="top", transform=ax_a.get_xaxis_transform())
+        for _mu, _sig, _col in [(P0_mu, P0_sig, color_azul), (P1_mu, P1_sig, color_orange)]:
+            ax_a.annotate("", xy=(_mu + 3*_sig, -0.008*_y_top),
+                          xytext=(_mu - 3*_sig, -0.008*_y_top),
+                          arrowprops=dict(arrowstyle="<->", color=_col, lw=1.2),
+                          annotation_clip=False)
+            ax_a.text(_mu, -0.03*_y_top, r"$\pm3\sigma$",
+                      ha="center", va="top", fontsize=7, color=_col, clip_on=False)
+        ax_a.set_xlabel(r"Segment entropy $H$  [nat]", fontsize=11)
+        ax_a.set_ylabel(r"Probability density  [nat$^{-1}$]", fontsize=11)
+        ax_a.set_title(r"Analytical $P_0$ / $P_1$ with error regions $\alpha$, $\beta$", fontsize=10)
+        ax_a.set_xlim(H_lo, H_hi)
+        ax_a.set_ylim(bottom=-0.06 * _y_top)
+        ax_a.legend(fontsize=8, loc="upper right", framealpha=0.93)
+
+        # Right: real histogram + fitted PDFs
+        if len(_H_s) > 0:
+            ax_b.hist(_H_s, bins=50, density=True, color=color_azul,   alpha=0.45,
+                      label=f"Training stable  ($n={len(_H_s)}$ seg.)")
+        if len(_H_c) > 0:
+            ax_b.hist(_H_c, bins=50, density=True, color=color_orange,  alpha=0.45,
+                      label=f"Training chatter ($n={len(_H_c)}$ seg.)")
+        ax_b.plot(H_ax, pdf0, color=color_azul,   lw=2.2, ls="-", label=r"Fitted $p_0(H)$")
+        ax_b.plot(H_ax, pdf1, color=color_orange,  lw=2.2, ls="-", label=r"Fitted $p_1(H)$")
+        ax_b.axvline(_H_thr, color=color_red, ls="--", lw=1.2)
+        ax_b.axvline(_cross,  color="gray",   ls=":",  lw=0.9)
+        ax_b.text(_H_thr, 0.97, rf"$H_{{thr}}$", color=color_red, fontsize=8,
+                  ha="right", va="top", transform=ax_b.get_xaxis_transform())
+        ax_b.text(_cross,  0.97, r"  $\Lambda\!=\!0$", color="gray", fontsize=8,
+                  ha="left",  va="top", transform=ax_b.get_xaxis_transform())
+        if len(_H_s) > 0 and len(_H_c) > 0:
+            _mu0m = float(np.mean(_H_s));  _s0m = float(np.std(_H_s))
+            _mu1m = float(np.mean(_H_c));  _s1m = float(np.std(_H_c))
+            _txt = (
+                "Training segs. vs fitted\n"
+                rf"$\mu_0$:  {_mu0m:.3f}  (fit {P0_mu:.3f})" "\n"
+                rf"$\sigma_0$: {_s0m:.3f}  (fit {P0_sig:.3f})" "\n"
+                rf"$\mu_1$:  {_mu1m:.3f}  (fit {P1_mu:.3f})" "\n"
+                rf"$\sigma_1$: {_s1m:.3f}  (fit {P1_sig:.3f})"
+            )
+            ax_b.text(0.02, 0.97, _txt, transform=ax_b.transAxes, fontsize=7.5,
+                      va="top", ha="left",
+                      bbox=dict(boxstyle="round,pad=0.4", fc="white", ec="gray", alpha=0.85))
+        ax_b.set_xlabel(r"Segment entropy $H$  [nat]", fontsize=11)
+        ax_b.set_ylabel("Density (normalised histogram)", fontsize=11)
+        ax_b.set_title(r"Real signal: histogram of $H$ values vs fitted Gaussians", fontsize=10)
+        ax_b.set_xlim(H_lo, H_hi)
+        ax_b.legend(fontsize=8, loc="upper right", framealpha=0.93)
+
+        fig.tight_layout()
+        return fig, (ax_a, ax_b)
+
+    def _plot_D4_figure(
+        t_arr, H_arr, Sk_arr,
+        P0_mu, P0_sig,
+        b_val, a_val,
+        t_gt=None, training_intervals=None,
+        t_det_sprt=None,
+        scale=5.0,
+        fig_label=None,
+    ):
+        """D4 — Classic μ±3σ threshold on H(t)  vs  MaxEnt-SPRT S_k(t) side-by-side."""
+        # ── stable / chatter masks (by t_gt, consistent with online perspective) ──
+        t_arr = np.asarray(t_arr)
+        if t_gt is not None:
+            mask_s = t_arr < t_gt
+            mask_c = t_arr >= t_gt
+        else:
+            mask_s = np.ones(len(t_arr), dtype=bool)
+            mask_c = np.zeros(len(t_arr), dtype=bool)
+
+        H_stable = H_arr[mask_s]
+        if H_stable.size == 0:
+            H_stable = H_arr           # fallback: no stable data, use all
+
+        mu_cl  = float(H_stable.mean())
+        sig_cl = float(H_stable.std(ddof=1)) if H_stable.size > 1 else float(P0_sig)
+        thr_hi = mu_cl + 3.0 * sig_cl
+        thr_lo = mu_cl - 3.0 * sig_cl
+
+        # False alarms: stable segments exceeding upper threshold
+        fa_mask = mask_s & (H_arr > thr_hi)
+        # Classic first detection: first chatter segment above upper threshold
+        det_mask = mask_c & (H_arr > thr_hi)
+        td_classic = float(t_arr[det_mask][0]) if det_mask.any() else None
+
+        fig_lbl_L = (fig_label + " — Classic")  if fig_label else "D4a — Classic mu±3sigma"
+        fig_lbl_R = (fig_label + " — SPRT")    if fig_label else "D4b — MaxEnt-SPRT Sk"
+        fig_L, ax_L = plt.subplots(figsize=fig_size(scale), num=fig_lbl_L)
+        fig_L.suptitle(r"D4a — Classique $\mu_0 \pm 3\sigma_0$ sur $H(t)$")
+        fig_R, ax_R = plt.subplots(figsize=fig_size(scale), num=fig_lbl_R)
+        fig_R.suptitle(r"D4b — MaxEnt-SPRT : $S_k$ accumulé")
+
+        # ── Left panel: H(t) + classic threshold ──────────────────────────────
+        ax_L.plot(t_arr[mask_s], H_arr[mask_s], color=color_azul,   lw=1.0, marker=".",
+                  ms=3, label=r"$H(t)$ — stable")
+        ax_L.plot(t_arr[mask_c], H_arr[mask_c], color=color_orange, lw=1.0, marker=".",
+                  ms=3, label=r"$H(t)$ — chatter")
+        ax_L.axhline(thr_hi, color=color_red, ls="--", lw=1.4,
+                     label=rf"$\mu_0+3\sigma_0 = {thr_hi:.4f}$")
+        ax_L.axhline(thr_lo, color=color_red, ls=":",  lw=1.2,
+                     label=rf"$\mu_0-3\sigma_0 = {thr_lo:.4f}$")
+        ax_L.axhline(mu_cl,  color=color_verde, ls="--", lw=1.0,
+                     label=rf"$\mu_0 = {mu_cl:.4f}$")
+        ax_L.fill_between(t_arr, thr_lo, thr_hi,
+                          alpha=0.07, color=color_verde, label=r"$\pm 3\sigma_0$ band")
+        if fa_mask.any():
+            ax_L.scatter(t_arr[fa_mask], H_arr[fa_mask],
+                         color=color_red, s=25, zorder=5,
+                         label=f"False alarms ({int(fa_mask.sum())})")
+        if t_gt is not None:
+            ax_L.axvline(t_gt, color="black", ls="--", lw=1.2)
+            ax_L.text(t_gt, 0.97, f"  $t_{{gt}}={t_gt:.3f}$ s",
+                      rotation=90, va="top", ha="right", fontsize=16,
+                      color="black", transform=ax_L.get_xaxis_transform())
+        if td_classic is not None:
+            ax_L.axvline(td_classic, color=color_red, ls="-.", lw=1.3)
+            ax_L.text(td_classic, 0.97, f"  $t_d^{{\\rm cl}}={td_classic:.3f}$ s",
+                      rotation=90, va="top", ha="right", fontsize=16,
+                      color=color_red, transform=ax_L.get_xaxis_transform())
+        ax_L.text(0.99, thr_hi, rf"${thr_hi:.4f}$",
+                  transform=ax_L.get_yaxis_transform(),
+                  color=color_red, ha='right', va='bottom', fontsize=16)
+        ax_L.text(0.99, thr_lo, rf"${thr_lo:.4f}$",
+                  transform=ax_L.get_yaxis_transform(),
+                  color=color_red, ha='right', va='bottom', fontsize=16)
+        _shade_intervals_local(ax_L, training_intervals)
+        ax_L.set_title(r"Classique: seuil ponctuel $\mu_0 \pm 3\sigma_0$ sur $H$")
+        ax_L.set_xlabel("Time [s]")
+        ax_L.set_ylabel(r"Entropy $H$ ")
+        ax_L.legend(loc="best", fontsize=12)
+        fig_L.tight_layout()
+
+        # ── Figure D4b: S_k(t) + SPRT thresholds ─────────────────────────────
+        ax_R.plot(t_arr, Sk_arr, color=color_orange, lw=1.0, marker=".", ms=3,
+                  label=r"$S_k$ (SPRT)")
+        ax_R.axhline(b_val, color=color_red,  ls="--", lw=1.4,
+                     label=rf"$b = {b_val:.2f}$")
+        ax_R.axhline(a_val, color=color_verde, ls="--", lw=1.0,
+                     label=rf"$a = {a_val:.2f}$")
+        ax_R.axhline(0, color="gray", ls=":", lw=0.8)
+        ax_R.ticklabel_format(style="sci", axis="y", scilimits=(0, 0))
+        if t_gt is not None:
+            ax_R.axvline(t_gt, color="black", ls="--", lw=1.2)
+            ax_R.text(t_gt, 0.97, f"  $t_{{gt}}={t_gt:.3f}$ s",
+                      rotation=90, va="top", ha="right", fontsize=16,
+                      color="black", transform=ax_R.get_xaxis_transform())
+        if t_det_sprt is not None:
+            ax_R.axvline(t_det_sprt, color=color_red, ls="-.", lw=1.3)
+            ax_R.text(t_det_sprt, 0.97, f"  $t_d={t_det_sprt:.3f}$ s",
+                      rotation=90, va="top", ha="right", fontsize=16,
+                      color=color_red, transform=ax_R.get_xaxis_transform())
+        ax_R.text(0.99, b_val, rf"$b={b_val:.2f}$",
+                  transform=ax_R.get_yaxis_transform(),
+                  color=color_red, ha='right', va='bottom', fontsize=16)
+        ax_R.text(0.99, a_val, rf"$a={a_val:.2f}$",
+                  transform=ax_R.get_yaxis_transform(),
+                  color=color_verde, ha='right', va='top', fontsize=16)
+        _shade_intervals_local(ax_R, training_intervals)
+        ax_R.set_title(r"MaxEnt-SPRT : $S_k$ accumulé")
+        ax_R.set_xlabel("Time [s]")
+        ax_R.set_ylabel(r"$S_k$")
+        ax_R.legend(loc="best", fontsize=12)
+
+        fig_R.tight_layout()
+        return (fig_L, ax_L), (fig_R, ax_R)
+
+    def _plot_H_Sk_joint(
+        t_arr, H_arr, Sk_arr,
+        lim_sup, lim_inf,
+        t_gt=None, training_intervals=None,
+        t_d=None, scale=5.0,
+        fig_label=None,
+    ):
+        """H(t) + Sk(t) joint diagnostic: H(t) on top subplot, Sk(t) on bottom (shared x-axis)."""
+        from matplotlib.lines import Line2D as _L2D
+        fig, (ax_h, ax_s) = plt.subplots(2, 1, figsize=fig_size(scale, ncols=1), sharex=True,
+                                          num=fig_label)
+        fig.suptitle(r"Entropy $H(t)$ and SPRT statistic $S_k(t)$  - joint diagnostic")
+        
+        _td_arr = np.asarray(t_d) if t_d is not None else np.array([])
+
+        # Top: H(t) coloured by training intervals
+        if training_intervals is not None and len(training_intervals) > 0:
+            _t_np = np.asarray(t_arr)
+            _H_np = np.asarray(H_arr)
+            _mask_cov = np.zeros(len(_t_np), dtype=bool)
+            for _t0, _t1, _lbl in training_intervals:
+                _m = (_t_np >= _t0) & (_t_np < _t1)
+                _c = color_azul if str(_lbl).lower() == "stable" else color_orange
+                if np.any(_m):
+                    ax_h.plot(_t_np[_m], _H_np[_m], marker='.', color=_c, lw=0.8)
+                _mask_cov |= _m
+            # Points outside training intervals (online detection phase) → split by t_gt
+            _mask_uncov = ~_mask_cov
+            if np.any(_mask_uncov):
+                if t_gt is not None:
+                    _ms = _mask_uncov & (_t_np < t_gt)
+                    _mc = _mask_uncov & (_t_np >= t_gt)
+                    if np.any(_ms):
+                        ax_h.plot(_t_np[_ms], _H_np[_ms], marker='.', color=color_azul, lw=0.8)
+                    if np.any(_mc):
+                        ax_h.plot(_t_np[_mc], _H_np[_mc], marker='.', color=color_orange, lw=0.8)
+                else:
+                    ax_h.plot(_t_np[_mask_uncov], _H_np[_mask_uncov],
+                              marker='.', color='gray', lw=0.8)
+            ax_h.legend(handles=[
+                _L2D([0],[0], color=color_azul,   marker='.', label="Stable"),
+                _L2D([0],[0], color=color_orange, marker='.', label="Chatter"),
+            ], fontsize=8, loc="upper left")
+        else:
+            ax_h.plot(t_arr, H_arr, color=color_azul, marker='.', lw=0.8)
+        if t_gt is not None:
+            ax_h.axvline(t_gt, color="black", ls="--", lw=1.2)
+            ax_h.text(t_gt, 0.97, f"  $t_{{gt}}={t_gt:.3f}$ s", color="black", fontsize=16,
+                      va="top", ha="right", rotation=90, transform=ax_h.get_xaxis_transform())
+
+        if t_gt is not None and _td_arr.size > 0 and np.any(_td_arr > t_gt):
+            _td1 = float(_td_arr[_td_arr > t_gt][0])
+            ax_h.axvline(_td1, color=color_red, ls="-.", lw=1.5)
+            ax_h.text(_td1, 0.97, f"  $t_d={_td1:.3f}$ s",
+                      rotation=90, va="top", ha="right", fontsize=16,
+                      color=color_red, transform=ax_h.get_xaxis_transform())
+            
+        ax_h.set_ylabel(r"Entropy $H(t)$ [nat]", fontsize=11)
+        ax_h.set_title(r"Online entropy $H(t)$  (coloured by training label)", fontsize=10)
+        _shade_intervals_local(ax_h, training_intervals)
+
+        # Bottom: Sk(t)
+        ax_s.plot(np.asarray(t_arr), np.asarray(Sk_arr), color=color_purple,
+                  marker='.', lw=0.8, label=r"$S_k$")
+        ax_s.axhline(lim_sup, color=color_red,  ls="--", lw=1.5,
+                     label=rf"$b = {lim_sup:.2f}$ (chatter, $\alpha$)")
+        ax_s.axhline(lim_inf, color=color_azul, ls="--", lw=1.5,
+                     label=rf"$a = {lim_inf:.2f}$ (stable, $\beta$)")
+        ax_s.axhline(0, color="gray", ls=":", lw=0.9)
+        ax_s.ticklabel_format(style="sci", axis="y", scilimits=(0, 0))
+        if t_gt is not None:
+            ax_s.axvline(t_gt, color="black", ls="--", lw=1.2)
+            ax_s.text(t_gt, 0.97, f"  $t_{{gt}}={t_gt:.3f}$ s", color="black", fontsize=16,
+                      va="top", ha="right", rotation=90, transform=ax_s.get_xaxis_transform())
+        
+        if t_gt is not None and _td_arr.size > 0 and np.any(_td_arr > t_gt):
+            _td1 = float(_td_arr[_td_arr > t_gt][0])
+            ax_s.axvline(_td1, color=color_red, ls="-.", lw=1.5)
+            _yl = ax_s.get_ylim()
+            # ax_s.annotate(rf"$t_d = {_td1:.3f}$ s",
+            #               xy=(_td1, _yl[0] + 0.85 * (_yl[1] - _yl[0])),
+            #               xytext=(5, 0), textcoords="offset points",
+            #               color=color_red, fontsize=9, ha="left", va="center")
+            ax_s.text(_td1, 0.97, f"  $t_d={_td1:.3f}$ s",
+                      rotation=90, va="top", ha="right", fontsize=16,
+                      color=color_red, transform=ax_s.get_xaxis_transform())
+        _shade_intervals_local(ax_s, training_intervals)
+        ax_s.set_xlabel("Time [s]", fontsize=11)
+        ax_s.set_ylabel(r"$S_k$", fontsize=11)
+        ax_s.set_title(r"SPRT statistic $S_k$  (accumulates $\Lambda_k$ increments)", fontsize=10)
+        ax_s.legend(fontsize=8, loc="upper left")
+        fig.tight_layout()
+        return fig, (ax_h, ax_s)
+
+    def _plot_signal_full_online(
+        t_sig, v_sig,
+        training_intervals=None,
+        t_gt=None,
+        opr_t_stable=None, opr_v_stable=None,
+        opr_t_chatter=None, opr_v_chatter=None,
+        title="O4 — Signal + OPR Sampling (Online — full signal)",
+        zoom_x=None, zoom_y=None,
+        scale=1.0,
+        fig_label=None,
+    ):
+        """Single panel: full analysis signal with training-interval shading and OPR marks."""
+        fig, ax = plt.subplots(figsize=fig_size(scale=scale, ncols=1), num=fig_label)
+        if t_sig is not None and v_sig is not None and len(t_sig) > 0:
+            ax.plot(t_sig, v_sig, color="gray", lw=0.7, alpha=0.85, label="Signal")
+        if opr_t_stable is not None and opr_v_stable is not None and len(opr_t_stable) > 0:
+            ax.scatter(opr_t_stable, opr_v_stable, color=color_azul, s=7, zorder=5,
+                       label="OPR — stable training")
+        if opr_t_chatter is not None and opr_v_chatter is not None and len(opr_t_chatter) > 0:
+            ax.scatter(opr_t_chatter, opr_v_chatter, color=color_orange, s=7, zorder=5,
+                       label="OPR — chatter training")
+        if t_gt is not None:
+            ax.axvline(t_gt, color="black", ls="--", lw=1.2,
+                       label=f"$t_{{gt}} = {t_gt:.3f}$ s")
+            ax.text(t_gt, 0.97, f"  $t_{{gt}}={t_gt:.3f}$ s",
+                    rotation=90, va="top", ha="right",
+                    color="black", transform=ax.get_xaxis_transform())
+        _shade_intervals_local(ax, training_intervals)
+        if zoom_x is not None:
+            ax.set_xlim(zoom_x)
+        if zoom_y is not None:
+            ax.set_ylim(zoom_y)
+        ax.set_title(title)
+        ax.set_xlabel("Time (s)")
+        ax.set_ylabel(r"$v(t)$")
+        ax.legend()
+        return fig, ax
+
+    # ──────────────────────────────────────────────────────────────────
 
     configurar_estilo_global()
 
     meta = result.meta or {}
-    t = signal.t_analysis
-    x = signal.signal_analysis
-    fs = signal.fs
 
-    t_stable = meta.get("t_stable", None)
-    signal_analysis_stable = meta.get("signal_analysis_stable", None)
-    t_chatter = meta.get("t_chatter", None)
+    # ── Signal and OPR data ───────────────────────────────────────────
+    t_stable                = meta.get("t_stable", None)
+    signal_analysis_stable  = meta.get("signal_analysis_stable", None)
+    t_chatter               = meta.get("t_chatter", None)
     signal_analysis_chatter = meta.get("signal_analysis_chatter", None)
+    t_opr_free              = meta.get("t_opr_free", None)
+    opr_free                = meta.get("opr_free", None)
+    t_opr_chat              = meta.get("t_opr_chat", None)
+    opr_chat                = meta.get("opr_chat", None)
 
-    t_opr_free = meta.get("t_opr_free", None)
-    opr_free = meta.get("opr_free", None)
-    t_opr_chat = meta.get("t_opr_chat", None)
-    opr_chat = meta.get("opr_chat", None)
+    # ── Offline training entropy ──────────────────────────────────────
+    detector   = meta.get("detector", None)
+    H_free     = detector.H_free     if detector is not None else None
+    H_chat     = detector.H_chat     if detector is not None else None
+    t_mid_free = detector.t_mid_free if detector is not None else None
+    t_mid_chat = detector.t_mid_chat if detector is not None else None
 
-    t_i = result.t
-    I = result.I_t
+    # ── Model parameters ─────────────────────────────────────────────
+    P0_mu    = meta.get("P0_mu",    0.0)
+    P0_sigma = meta.get("P0_sigma", 1.0)
+    P1_mu    = meta.get("P1_mu",    0.0)
+    P1_sigma = meta.get("P1_sigma", 1.0)
 
-    lim_sup = meta.get("sprt_result", None).b
-    lim_inf = meta.get("sprt_result", None).a
+    # ── Online indicator history ──────────────────────────────────────
+    t_i          = result.t
+    I            = result.I_t
+    H_seq_online = np.asarray(meta.get("H_seq_online", [])) if meta.get("H_seq_online") is not None else np.array([])
+    lim_sup      = meta.get("sprt_result").b
+    lim_inf      = meta.get("sprt_result").a
 
-    scale = 5.0
-    kargs = {
-    "vlines_2": vlines
-    }
+    # ── Auto vertical lines ───────────────────────────────────────────
+    _t_d = np.asarray(result.t_d) if result.t_d is not None and len(result.t_d) > 0 else np.array([])
+    _t_first_det       = float(_t_d[0])              if _t_d.size > 0 else None
+    _t_first_det_after = float(_t_d[_t_d > t_gt][0]) if (t_gt is not None and _t_d.size > 0 and np.any(_t_d > t_gt)) else None
+    _avl = []
+    if t_gt is not None:
+        _avl.append((t_gt,             f"$t_{{gt}}={t_gt:.3f}$ s",           "black"))
+    if _t_first_det is not None:
+        _avl.append((_t_first_det,     f"$t_d={_t_first_det:.3f}$ s",         color_orange))
+    if _t_first_det_after is not None and _t_first_det_after != _t_first_det:
+        _avl.append((_t_first_det_after, f"$t_d^+={_t_first_det_after:.3f}$ s", color_orange))
+    auto_vlines = _avl if _avl else None
 
+    # ── Online entropy split: purely by t_gt (online monitoring perspective) ──
+    # O figures colour by ground-truth boundary only; _ti_meta kept for F/D figures.
+    _ti_meta = meta.get("training_intervals", None)
+    if t_gt is not None and H_seq_online.size > 0 and t_i is not None and len(t_i) > 0:
+        _t_arr = np.asarray(t_i)
+        mask_s = _t_arr < t_gt
+        mask_c = _t_arr >= t_gt
+        t_on_s, H_on_s = t_i[mask_s], H_seq_online[mask_s]
+        t_on_c, H_on_c = t_i[mask_c], H_seq_online[mask_c]
+    else:
+        t_on_s, H_on_s = t_i, H_seq_online
+        t_on_c, H_on_c = np.array([]), np.array([])
 
+    scale = 3.0
+    kw = dict(zoom_x=zoom_x, zoom_y=zoom_y, vlines=vlines, hlines=hlines, scale=scale)
+    kw_auto = dict(zoom_x=zoom_x, zoom_y=zoom_y, vlines=auto_vlines, hlines=hlines, scale=scale)
 
-    fig_sigal, axes_signal = _plot_signal(t_stable, signal_analysis_stable,
-                                  t_chatter, signal_analysis_chatter, scale=scale,
-                                  zoom_x=zoom_x, zoom_y=zoom_y,
-                                  vlines=None, hlines=hlines,
-                                  **kargs)
+    # ══════════════════════════════════════════════════════════════════
+    # ONLINE FIGURES (O1–O4)
+    # ══════════════════════════════════════════════════════════════════
 
-    fig_opr_free, axes_opr_free = _plot_opr(t_opr_free, opr_free,
-                                  t_stable, signal_analysis_stable, scale=scale,
-                                    zoom_x=zoom_x, zoom_y=zoom_y,
-                                    vlines=vlines, hlines=hlines,
-                                    title="Tool Velocity - OPR Sampled (Stable)",
-                                    # fig_size=,
-                                    **kargs)
-
-    fig_opr_chat, axes_opr_chat = _plot_opr(t_opr_chat, opr_chat,
-                                  t_chatter, signal_analysis_chatter, scale=scale,
-                                    zoom_x=zoom_x, zoom_y=zoom_y,
-                                    vlines=vlines, hlines=hlines,
-                                    title="Tool Velocity - OPR Sampled (Chatter)",
-                                    # fig_size=(6,4),
-                                    **kargs)
-
-    _plot_pdf(
-        mu=meta.get("P0_mu", 0.0),
-        sigma=meta.get("P0_sigma", 1.0),
-        scale=scale,
-        title="PDF Estimated - Stable Signal",
-        zoom_x=zoom_x,
-        zoom_y=zoom_y,
-        vlines=vlines,
-        hlines=hlines,
-        size=(7,4),
+    # O1 — Online entropy: stable segment
+    fig_O1, ax_O1 = _plot_H_time_segment(
+        t_on_s, H_on_s, color=color_azul,
+        title="Online Entropy — Stable Segments",
+        fig_label="O1 — Online Entropy: Stable Segments",
+        **kw,
     )
 
-    p0 = meta.get("models_trained", None).p0
-    p1 = meta.get("models_trained", None).p1
-    H_free = meta.get("detector", None).H_free
-    H_chat = meta.get("detector", None).H_chat
-
-    fig_pdf_models, axes_pdf_models = _plot_PDF_model(
-        P0=p0,
-        P1=p1,
-        H_free=H_free,
-        H_chat=H_chat,
-        scale=scale,
-        title="MaxEnt PDF Models Estimated - Stable vs Chatter",
-        zoom_x=zoom_x,
-        zoom_y=zoom_y,
-        vlines=None,
-        hlines=hlines,
-        # size=(7,4),
+    # O2 — Online entropy: chatter segment
+    fig_O2, ax_O2 = _plot_H_time_segment(
+        t_on_c, H_on_c, color=color_orange,
+        title="Online Entropy — Chatter Segments",
+        fig_label="O2 — Online Entropy: Chatter Segments",
+        **kw,
     )
 
-    fig_H, axes_H = _plot_H(
-        H_free=H_free,
-        H_chat=H_chat,
-        scale=scale,
-        title="Entropy H Sequence - Stable",
-        zoom_x=zoom_x,
-        zoom_y=zoom_y,
-        vlines=None,
-        hlines=hlines,
-        # size=(7,4),
+    # O3 — Online entropy: full signal coloured by region (only t_gt vline)
+    fig_O3, ax_O3 = _plot_H_time_all(
+        t_i, H_seq_online, t_split=t_gt,
+        training_intervals=None,
+        title="Online Entropy — Full Evolution",
+        fig_label="O3 — Online Entropy: Full Evolution",
+        zoom_x=zoom_x, zoom_y=zoom_y,
+        vlines=[(t_gt, f"$t_{{gt}}={t_gt:.3f}$ s")] if t_gt is not None else None,
+        hlines=hlines, scale=scale,
     )
 
-    fig_S_n, axes_S_n = _plot_S_n(
+    # O4 — Full online signal + training OPR marks (single panel)
+    fig_O4, ax_O4 = _plot_signal_full_online(
+        signal.t_analysis if signal is not None else None,
+        signal.signal_analysis if signal is not None else None,
+        training_intervals=_ti_meta,
+        t_gt=t_gt,
+        opr_t_stable=t_opr_free, opr_v_stable=opr_free,
+        opr_t_chatter=t_opr_chat, opr_v_chatter=opr_chat,
+        title="O4 — Signal + OPR Sampling (Online — full signal)",
+        zoom_x=zoom_x, zoom_y=zoom_y, scale=scale,
+        fig_label="O4 — Signal + OPR Sampling (Online)",
+    )
+
+    # ══════════════════════════════════════════════════════════════════
+    # OFFLINE / TRAINING FIGURES (F1–F6)
+    # ══════════════════════════════════════════════════════════════════
+
+    # F1 — Training entropy: stable
+    fig_F1, ax_F1 = _plot_H_time_segment(
+        t_mid_free, H_free, color=color_azul,
+        title="Training Entropy — Stable Segments",
+        fig_label="F1 — Training Entropy: Stable Segments",
+        **kw,
+    )
+
+    # F2 — Training entropy: chatter
+    fig_F2, ax_F2 = _plot_H_time_segment(
+        t_mid_chat, H_chat, color=color_orange,
+        title="Training Entropy — Chatter Segments",
+        fig_label="F2 — Training Entropy: Chatter Segments",
+        **kw,
+    )
+
+    # F3 — Training entropy: combined (stable above, chatter below)
+    fig_F3, axes_F3 = _plot_H_offline_combined(
+        t_mid_free, H_free, t_mid_chat, H_chat,
+        title="Training Entropy — Combined",
+        fig_label="F3 — Training Entropy: Combined",
+        **kw,
+    )
+
+    # F4 — PDF: stable entropy histogram + P0 Gaussian + sigma lines
+    fig_F4, ax_F4 = _plot_PDF_hist(
+        H_free, mu=P0_mu, sigma=P0_sigma,
+        color_hist=color_azul, color_pdf=color_verde,
+        title=r"Training PDF — Stable Entropy ($P_0$)",
+        fig_label="F4 — Training PDF: Stable (P0)",
+        **kw,
+    )
+
+    # F5 — PDF: chatter entropy histogram + P1 Gaussian + sigma lines
+    fig_F5, ax_F5 = _plot_PDF_hist(
+        H_chat, mu=P1_mu, sigma=P1_sigma,
+        color_hist=color_orange, color_pdf=color_red,
+        title=r"Training PDF — Chatter Entropy ($P_1$)",
+        fig_label="F5 — Training PDF: Chatter (P1)",
+        **kw,
+    )
+
+    # F6 — Training signal + OPR (stable | chatter side by side)
+    fig_F6, axes_F6 = _plot_opr_dual_figure(
+        t_stable, signal_analysis_stable, t_opr_free, opr_free,
+        t_chatter, signal_analysis_chatter, t_opr_chat, opr_chat,
+        main_title="F6 — Signal + OPR Sampling (Training)",
+        fig_label="F6 — Signal + OPR Sampling (Training)",
+        **kw_auto,
+    )
+
+    # ══════════════════════════════════════════════════════════════════
+    # SPRT FIGURE (S1)
+    # ══════════════════════════════════════════════════════════════════
+
+    fig_S1, ax_S1 = _plot_S_n(
         t_i=t_i,
         I=I,
         lim_sup=lim_sup,
         lim_inf=lim_inf,
         scale=scale,
-        title=R"MaxEnt SPRT  $I_{SPRT}$ Sequence",
+        title=r"S1 — MaxEnt-SPRT Detection Statistic $S_k(t)$",
         zoom_x=zoom_x,
         zoom_y=zoom_y,
-        vlines=None,
+        vlines=auto_vlines,
         hlines=hlines,
-        # size=(7,4),
+        t_det_label=_t_first_det_after,
+        fig_label="S1 — MaxEnt-SPRT Detection Statistic Sk",
     )
+
+    # ── alpha / beta from meta ────────────────────────────────────────
+    alpha_val = float(meta.get("alpha", 0.00135))
+    beta_val  = float(meta.get("beta",  0.00135))
+
+    # ══════════════════════════════════════════════════════════════════
+    # THEORY FIGURES (D3, D6, D7, D8, D9, H+Sk joint)
+    # ══════════════════════════════════════════════════════════════════
+
+    # D3 — P0/P1 separate panels with alpha and beta error fills
+    fig_D3, axes_D3 = _plot_D3_figure(
+        P0_mu=P0_mu, P0_sig=P0_sigma,
+        P1_mu=P1_mu, P1_sig=P1_sigma,
+        alpha_val=alpha_val, beta_val=beta_val,
+        a_val=lim_inf, b_val=lim_sup,
+        scale=scale,
+        fig_label="D3 — Error Regions alpha, beta and SPRT Boundaries",
+    )
+
+    # D6 — Log-likelihoods and Lambda(H) as static functions of H
+    fig_D6, axes_D6 = _plot_D6_figure(
+        P0_mu=P0_mu, P0_sig=P0_sigma,
+        P1_mu=P1_mu, P1_sig=P1_sigma,
+        alpha_val=alpha_val, a_val=lim_inf, b_val=lim_sup,
+        scale=scale,
+        fig_label="D6 — Log-Likelihoods and Lambda(H) Static",
+    )
+
+    # D7, D8, D9 and H+Sk require the full online H sequence
+    if H_seq_online.size > 0 and t_i is not None and len(t_i) > 0:
+        _H_arr = H_seq_online
+        _t_arr = np.asarray(t_i)
+
+        # D4 — Classic μ±3σ (D4a) and MaxEnt-SPRT Sk (D4b) as separate windows
+        (fig_D4a, ax_D4a), (fig_D4b, ax_D4b) = _plot_D4_figure(
+            t_arr=_t_arr, H_arr=_H_arr, Sk_arr=np.asarray(I),
+            P0_mu=P0_mu, P0_sig=P0_sigma,
+            b_val=lim_sup, a_val=lim_inf,
+            t_gt=t_gt, training_intervals=_ti_meta,
+            t_det_sprt=_t_first_det_after,
+            scale=scale,
+            fig_label="D4 — Classic mu±3sigma vs MaxEnt-SPRT",
+        )
+
+        # D7 — p0(H(t)), p1(H(t)) over time + likelihood ratio
+        fig_D7, axes_D7 = _plot_D7_figure(
+            t_arr=_t_arr, H_arr=_H_arr,
+            P0_mu=P0_mu, P0_sig=P0_sigma,
+            P1_mu=P1_mu, P1_sig=P1_sigma,
+            t_gt=t_gt, training_intervals=_ti_meta,
+            scale=scale,
+            fig_label="D7 — Likelihoods over Time p0/p1(H(t))",
+        )
+
+        # D8 — ln p0(H(t)), ln p1(H(t)) + Lambda_k increments over time
+        fig_D8, axes_D8 = _plot_D8_figure(
+            t_arr=_t_arr, H_arr=_H_arr,
+            P0_mu=P0_mu, P0_sig=P0_sigma,
+            P1_mu=P1_mu, P1_sig=P1_sigma,
+            t_gt=t_gt, training_intervals=_ti_meta,
+            scale=scale,
+            fig_label="D8 — Log-Likelihoods + Lambda_k over Time",
+        )
+
+        # D9 — Analytical PDFs + real histogram validation
+        fig_D9, axes_D9 = _plot_D9_figure(
+            t_arr=_t_arr, H_online=_H_arr,
+            H_stable_train=H_free, H_chatter_train=H_chat,
+            P0_mu=P0_mu, P0_sig=P0_sigma,
+            P1_mu=P1_mu, P1_sig=P1_sigma,
+            alpha_val=alpha_val,
+            training_intervals=_ti_meta,
+            scale=scale,
+            fig_label="D9 — PDF Validation: Theory vs Measured",
+        )
+
+        # D_JOINT — H(t) + Sk(t) joint diagnostic
+        fig_D_JOINT, axes_D_JOINT = _plot_H_Sk_joint(
+            t_arr=_t_arr, H_arr=_H_arr, Sk_arr=np.asarray(I),
+            lim_sup=lim_sup, lim_inf=lim_inf,
+            t_gt=t_gt, training_intervals=_ti_meta,
+            t_d=_t_d, scale=scale,
+            fig_label="D_JOINT — H(t) + Sk(t) Joint Diagnostic",
+        )
 
     plt.tight_layout()
     plt.show()

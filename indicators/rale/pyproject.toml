@@ -1,0 +1,9 @@
+[project]
+name = "rale"
+version = "0.1.0"
+description = "RALE indicator (packaged from Areas_Indicator_V1.py)"
+authors = [ { name = "Auto-generated" } ]
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"

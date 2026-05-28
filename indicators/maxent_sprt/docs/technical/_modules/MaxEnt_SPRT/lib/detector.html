@@ -211,6 +211,7 @@
 <li class="toctree-l4"><a class="reference internal" href="../../../autoapi/MaxEnt_SPRT/lib/wrappers/index.html">MaxEnt_SPRT.lib.wrappers</a></li>
 </ul>
 </li>
+<li class="toctree-l3"><a class="reference internal" href="../../../autoapi/MaxEnt_SPRT/logging_setup/index.html">MaxEnt_SPRT.logging_setup</a></li>
 <li class="toctree-l3 has-children"><a class="reference internal" href="../../../autoapi/MaxEnt_SPRT/models/index.html">MaxEnt_SPRT.models</a><input aria-label="Toggle navigation of MaxEnt_SPRT.models" class="toctree-checkbox" id="toctree-checkbox-4" name="toctree-checkbox-4" role="switch" type="checkbox"/><label for="toctree-checkbox-4"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
 <li class="toctree-l4"><a class="reference internal" href="../../../autoapi/MaxEnt_SPRT/models/maxent/index.html">MaxEnt_SPRT.models.maxent</a></li>
 <li class="toctree-l4"><a class="reference internal" href="../../../autoapi/MaxEnt_SPRT/models/prob/index.html">MaxEnt_SPRT.models.prob</a></li>
@@ -274,7 +275,7 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">.llr</span><span class="w"> </span><span class="kn">import</span> <span class="n">GaussianIndicatorLLR</span><span class="p">,</span> <span class="n">LLRModel</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">.sprt</span><span class="w"> </span><span class="kn">import</span> <span class="n">SPRTConfig</span><span class="p">,</span> <span class="n">SPRTResult</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">.entropy</span><span class="w"> </span><span class="kn">import</span> <span class="n">entropy_from_segments</span><span class="p">,</span> <span class="n">EntropyEstimator</span><span class="p">,</span> <span class="n">GaussianMaxEntEstimator</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">..utils.opr</span><span class="w"> </span><span class="kn">import</span> <span class="n">sample_opr</span><span class="p">,</span> <span class="n">segment_opr</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">..utils.opr</span><span class="w"> </span><span class="kn">import</span> <span class="n">sample_opr</span><span class="p">,</span> <span class="n">segment_opr</span><span class="p">,</span> <span class="n">segment_signal_raw</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">..lib.offline</span><span class="w"> </span><span class="kn">import</span> <span class="n">offline_train_maxent_sprt</span>
 
 
@@ -488,6 +489,9 @@
         <span class="n">opr_chat</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span>
         <span class="n">opr_t_chat</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span>
         <span class="n">N_seg</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">step</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">segmentation</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;opr&quot;</span><span class="p">,</span>
+        <span class="n">N_samples_per_seg</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;MaxEntSPRTDetector&quot;</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Fit the MaxEnt SPRT detector offline using operational deflection shape (OPR) data.</span>
@@ -501,6 +505,13 @@
 <span class="sd">        :param opr_chat: OPR-resampled signal representing the chatter reference condition.</span>
 <span class="sd">        :param opr_t_chat: Time vector aligned with ``opr_chat``.</span>
 <span class="sd">        :param N_seg: Number of OPR samples per segment used to build the offline training windows.</span>
+<span class="sd">        :param step: Hop size in OPR samples between consecutive segment starts.</span>
+<span class="sd">            ``None`` (default) is equivalent to ``step = N_seg`` (no overlap).</span>
+<span class="sd">        :param segmentation: ``&quot;opr&quot;`` (default) or ``&quot;raw&quot;``. When ``&quot;raw&quot;``,</span>
+<span class="sd">            the arrays are treated as full-rate signal and segmented without</span>
+<span class="sd">            OPR decimation using ``N_samples_per_seg``.</span>
+<span class="sd">        :param N_samples_per_seg: Block length in raw samples.  Required when</span>
+<span class="sd">            ``segmentation=&quot;raw&quot;``.</span>
 
 <span class="sd">        Returns:</span>
 <span class="sd">            MaxEntSPRTDetector: ``self`` with trained models and diagnostic</span>
@@ -514,6 +525,9 @@
             <span class="n">opr_t_chat</span><span class="o">=</span><span class="n">opr_t_chat</span><span class="p">,</span>
             <span class="n">N_seg</span><span class="o">=</span><span class="n">N_seg</span><span class="p">,</span>
             <span class="n">estimator</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">estimator</span><span class="p">,</span>
+            <span class="n">step</span><span class="o">=</span><span class="n">step</span><span class="p">,</span>
+            <span class="n">segmentation</span><span class="o">=</span><span class="n">segmentation</span><span class="p">,</span>
+            <span class="n">N_samples_per_seg</span><span class="o">=</span><span class="n">N_samples_per_seg</span><span class="p">,</span>
         <span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">models</span> <span class="o">=</span> <span class="n">models</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">H_free</span> <span class="o">=</span> <span class="n">H_free</span>
@@ -534,6 +548,9 @@
         <span class="n">rpm</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
         <span class="n">ratio_sampling</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
         <span class="n">N_seg</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">step</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">segmentation</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;opr&quot;</span><span class="p">,</span>
+        <span class="n">N_samples_per_seg</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;MaxEntSPRTDetector&quot;</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Fit the detector offline using raw signal data from free and chatter conditions.</span>
@@ -549,6 +566,13 @@
 <span class="sd">        :param rpm: Spindle speed in revolutions per minute used to derive the fundamental rotation frequency.</span>
 <span class="sd">        :param ratio_sampling: Number of analysis samples per revolution, used to derive the OPR sampling frequency.</span>
 <span class="sd">        :param N_seg: Number of OPR samples per entropy segment.</span>
+<span class="sd">        :param step: Hop size in OPR samples between consecutive segment starts.</span>
+<span class="sd">            ``None`` (default) is equivalent to ``step = N_seg`` (no overlap).</span>
+<span class="sd">        :param segmentation: ``&quot;opr&quot;`` (default) or ``&quot;raw&quot;``. When ``&quot;raw&quot;``,</span>
+<span class="sd">            OPR decimation is skipped and raw blocks of ``N_samples_per_seg``</span>
+<span class="sd">            samples are used instead.</span>
+<span class="sd">        :param N_samples_per_seg: Block length in raw samples. Required when</span>
+<span class="sd">            ``segmentation=&quot;raw&quot;``.</span>
 
 <span class="sd">        Returns:</span>
 <span class="sd">            MaxEntSPRTDetector: ``self`` after OPR resampling and offline model</span>
@@ -570,6 +594,9 @@
             <span class="n">opr_chat</span><span class="o">=</span><span class="n">opr_chat</span><span class="p">,</span>
             <span class="n">opr_t_chat</span><span class="o">=</span><span class="n">opr_t_chat</span><span class="p">,</span>
             <span class="n">N_seg</span><span class="o">=</span><span class="n">N_seg</span><span class="p">,</span>
+            <span class="n">step</span><span class="o">=</span><span class="n">step</span><span class="p">,</span>
+            <span class="n">segmentation</span><span class="o">=</span><span class="n">segmentation</span><span class="p">,</span>
+            <span class="n">N_samples_per_seg</span><span class="o">=</span><span class="n">N_samples_per_seg</span><span class="p">,</span>
         <span class="p">)</span></div>
 
 
@@ -612,6 +639,9 @@
         <span class="n">ratio_sampling</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
         <span class="n">N_seg</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
         <span class="n">fs</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">step</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">segmentation</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;opr&quot;</span><span class="p">,</span>
+        <span class="n">N_samples_per_seg</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">SPRTResult</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Detect chatter from an online signal using sequential probability ratio test (SPRT).</span>
@@ -625,6 +655,13 @@
 <span class="sd">        :param ratio_sampling: Sampling ratio used to derive the target OPR sampling frequency when ``fs`` is not explicitly provided.</span>
 <span class="sd">        :param N_seg: Number of OPR samples grouped into each entropy segment.</span>
 <span class="sd">        :param fs: Explicit OPR sampling frequency in Hz. If ``None``, it is computed from ``ratio_sampling`` and ``rpm``.</span>
+<span class="sd">        :param step: Hop size in OPR samples between consecutive segment starts.</span>
+<span class="sd">            ``None`` (default) is equivalent to ``step = N_seg`` (no overlap).</span>
+<span class="sd">        :param segmentation: ``&quot;opr&quot;`` (default) or ``&quot;raw&quot;``. When ``&quot;raw&quot;``,</span>
+<span class="sd">            OPR decimation is skipped; raw blocks of ``N_samples_per_seg``</span>
+<span class="sd">            samples are used.</span>
+<span class="sd">        :param N_samples_per_seg: Block length in raw samples. Required when</span>
+<span class="sd">            ``segmentation=&quot;raw&quot;``.</span>
 
 <span class="sd">        Returns:</span>
 <span class="sd">            Tuple[SPRTResult, np.ndarray, np.ndarray]: Detection result, entropy</span>
@@ -642,17 +679,29 @@
         <span class="k">else</span><span class="p">:</span>
             <span class="n">fs</span> <span class="o">=</span> <span class="n">fs</span>
 
-        <span class="c1"># 1) OPR</span>
-        <span class="n">opr_online</span><span class="p">,</span> <span class="n">opr_t_online</span> <span class="o">=</span> <span class="n">sample_opr</span><span class="p">(</span><span class="n">y_online</span><span class="p">,</span> <span class="n">t_online</span><span class="p">,</span> <span class="n">fs</span><span class="o">=</span><span class="n">fs</span><span class="p">,</span> <span class="n">fr</span><span class="o">=</span><span class="n">fr</span><span class="p">)</span>
+        <span class="c1"># 1) Segmentation (OPR decimation or raw blocks)</span>
+        <span class="k">if</span> <span class="n">segmentation</span> <span class="o">==</span> <span class="s2">&quot;raw&quot;</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">N_samples_per_seg</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                    <span class="s2">&quot;N_samples_per_seg must be provided when segmentation=&#39;raw&#39;.&quot;</span>
+                <span class="p">)</span>
+            <span class="n">segments_online</span><span class="p">,</span> <span class="n">segments_t_online</span> <span class="o">=</span> <span class="n">segment_signal_raw</span><span class="p">(</span>
+                <span class="n">y_online</span><span class="p">,</span> <span class="n">t_online</span><span class="p">,</span> <span class="n">N_samples_per_seg</span><span class="o">=</span><span class="n">N_samples_per_seg</span><span class="p">,</span> <span class="n">step</span><span class="o">=</span><span class="n">step</span>
+            <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>  <span class="c1"># &quot;opr&quot;</span>
+            <span class="n">opr_online</span><span class="p">,</span> <span class="n">opr_t_online</span> <span class="o">=</span> <span class="n">sample_opr</span><span class="p">(</span><span class="n">y_online</span><span class="p">,</span> <span class="n">t_online</span><span class="p">,</span> <span class="n">fs</span><span class="o">=</span><span class="n">fs</span><span class="p">,</span> <span class="n">fr</span><span class="o">=</span><span class="n">fr</span><span class="p">)</span>
+            <span class="n">segments_online</span><span class="p">,</span> <span class="n">segments_t_online</span> <span class="o">=</span> <span class="n">segment_opr</span><span class="p">(</span>
+                <span class="n">opr_online</span><span class="p">,</span> <span class="n">opr_t_online</span><span class="p">,</span> <span class="n">N_seg</span><span class="o">=</span><span class="n">N_seg</span><span class="p">,</span> <span class="n">step</span><span class="o">=</span><span class="n">step</span>
+            <span class="p">)</span>
 
-        <span class="c1"># 2) Segmentation</span>
-        <span class="n">segments_online</span><span class="p">,</span> <span class="n">segments_t_online</span> <span class="o">=</span> <span class="n">segment_opr</span><span class="p">(</span><span class="n">opr_online</span><span class="p">,</span> <span class="n">opr_t_online</span><span class="p">,</span> <span class="n">N_seg</span><span class="o">=</span><span class="n">N_seg</span><span class="p">)</span>
         <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">segments_online</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Insufficient segments generated from the online signal.&quot;</span><span class="p">)</span>
 
         <span class="c1"># 3) Entropy per segment</span>
         <span class="n">H_seq</span> <span class="o">=</span> <span class="n">entropy_from_segments</span><span class="p">(</span><span class="n">segments_online</span><span class="p">,</span> <span class="n">estimator</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">estimator</span><span class="p">)</span>
-        <span class="n">t_mid_segments</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">seg_t</span><span class="p">)</span> <span class="k">for</span> <span class="n">seg_t</span> <span class="ow">in</span> <span class="n">segments_t_online</span><span class="p">])</span>
+        <span class="c1"># t_mid_segments = np.array([np.mean(seg_t) for seg_t in segments_t_online])</span>
+        <span class="c1"># Last time in segment</span>
+        <span class="n">t_mid_segments</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">seg_t</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="k">for</span> <span class="n">seg_t</span> <span class="ow">in</span> <span class="n">segments_t_online</span><span class="p">])</span>
 
         <span class="c1"># 4) SPRT with OO design</span>
         <span class="n">result</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">detect_from_H_seq</span><span class="p">(</span><span class="n">H_seq</span><span class="o">=</span><span class="n">H_seq</span><span class="p">)</span>

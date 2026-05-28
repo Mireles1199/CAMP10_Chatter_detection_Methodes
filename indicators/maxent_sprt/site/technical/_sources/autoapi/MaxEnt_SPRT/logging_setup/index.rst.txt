@@ -1,0 +1,59 @@
+MaxEnt_SPRT.logging_setup
+=========================
+
+.. py:module:: MaxEnt_SPRT.logging_setup
+
+.. autoapi-nested-parse::
+
+   Logging helper for MaxEnt_SPRT.
+
+   This module provides a small helper that application scripts can call to
+   configure logging consistently -- from examples and from external scripts.
+
+   Levels (ascending severity, less messages as you go up):
+       DEBUG     (10) -- todo: detalle interno de la libreria
+       INFO_PLUS (15) -- progreso del pipeline  [por defecto]
+       INFO      (20) -- resumen de configuracion del indicador
+       WARNING   (30) -- solo resultado critico (primera deteccion)
+
+   Uso tipico
+   ----------
+       from MaxEnt_SPRT.logging_setup import configure_logging, LOGGING_LEVELS
+       configure_logging(level=LOGGING_LEVELS["info_plus"])  # o "debug", "info", "warning"
+
+
+
+Attributes
+----------
+
+.. autoapisummary::
+
+   MaxEnt_SPRT.logging_setup.LOGGING_LEVELS
+
+
+Functions
+---------
+
+.. autoapisummary::
+
+   MaxEnt_SPRT.logging_setup.configure_logging
+
+
+Module Contents
+---------------
+
+.. py:data:: LOGGING_LEVELS
+   :type:  dict
+
+.. py:function:: configure_logging(level = None, fmt = '%(levelname)-8s | %(message)s')
+
+   Configura el nivel de logging para el ejemplo o script externo.
+
+   El nivel se aplica al root logger y se propaga automaticamente a todos
+   los loggers del paquete (MaxEnt_SPRT.*) via la jerarquia de Python.
+
+   :param level: Nivel numerico. Si es None, usa INFO_PLUS_LEVEL (15).
+                 Usa LOGGING_LEVELS["info_plus"] etc. para no recordar numeros.
+   :param fmt: Formato de los mensajes. Solo se usa si no habia handlers previos.
+
+

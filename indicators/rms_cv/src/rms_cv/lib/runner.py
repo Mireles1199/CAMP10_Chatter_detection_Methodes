@@ -34,6 +34,7 @@ import numpy as np
 
 from rms_cv.utils.types import SignalData, IndicatorResult
 from rms_cv import rms_sequence, CVOnlineConfig, CVOnlineMonitor
+from rms_cv.lib.cv_monitor import CVStableRegionDetector
 
 
 IndicatorFunc = Callable[..., IndicatorResult]
@@ -43,6 +44,8 @@ logger = logging.getLogger(__name__)
 _RMSCV_PASS_THROUGH_PARAMS: frozenset = frozenset({
     "cv_threshold", "rms_threshold", "n_min_cv", "warmup_ignore_alerts",
     "use_unbiased_std", "eps", "detrend", "pad_mode", "start_time", "fs_rms",
+    # stable-region adaptive threshold
+    "stable_time", "stable_index", "frac_stable", "z", "alpha", "fallback_mad",
 })
 
 
@@ -292,7 +295,7 @@ def run_rms_cv(signal: SignalData, INDICATOR_CONFIG: dict ) -> IndicatorResult:
             k: v for k, v in trace["physical_params_input"].items()
             if k not in _RMSCV_PASS_THROUGH_PARAMS
         }
-        logger.info(
+        logger.info_plus(
             "Physical parametrization [%s] -> native:\n"
             "  Physical input : %s\n"
             "  Native resolved: %s\n"
@@ -344,6 +347,13 @@ def rms_cv_pipeline(
 
     fs_rms: Optional[float] = None,
 
+    # ── stable-region adaptive threshold (replaces fixed cv_threshold) ──
+    stable_time: Optional[Any] = None,
+    stable_index: Optional[Any] = None,
+    frac_stable: float = 0.30,
+    z: float = 3.0,
+    alpha: float = 0.05,
+    fallback_mad: bool = True,
 
 ) -> IndicatorResult:
     """Run the default RMS-CV chatter detection pipeline on a signal.
@@ -448,21 +458,47 @@ def rms_cv_pipeline(
         for k, v in res.items():
             results[k].append(v)
 
-    # ── Stage 3: extract detection instants (frames where CV ≥ threshold) ───
-    # mask selects the frames that crossed the CV threshold
-    mask = np.where(np.asarray(results["cv"]) >= cfg.cv_threshold)[0]
-    chatter_points_time = np.array(results["time"])[mask]
-    chatter_points_cv = np.array(results["cv"])[mask]
+    # ── Stage 3: threshold — adaptive (stable region) or fixed ─────────────
+    _use_stable = (stable_time is not None) or (stable_index is not None) or (frac_stable > 0)
+    cv_array    = np.asarray(results["cv"])
+    t_array     = np.array(results["time"], dtype=float)
 
+    stable_det_meta: dict = {}
+    if _use_stable:
+        det = CVStableRegionDetector(
+            frac_stable=frac_stable,
+            z=z,
+            alpha=alpha,
+            fallback_mad=fallback_mad,
+            stable_time=stable_time,
+            stable_index=stable_index,
+        )
+        det_res            = det.detect(cv_array, t=t_array)
+        cv_threshold_used  = float(det_res["threshold"])
+        cv_threshold_method = "stable_region"
+        stable_det_meta = {
+            "mu_stable":          det_res["mu"],
+            "sigma_stable":       det_res["sigma"],
+            "normal_ok":          det_res["normal_ok"],
+            "p_value":            det_res["p_value"],
+            "metodo_umbral":      det_res["metodo_umbral"],
+            "idx_estable_usados": det_res["idx_estable_usados"],
+        }
+    else:
+        cv_threshold_used   = float(cv_threshold) if cv_threshold is not None else 0.0
+        cv_threshold_method = "fixed"
+
+    mask                = np.where(cv_array > cv_threshold_used)[0]
+    chatter_points_time = t_array[mask]
+    chatter_points_cv   = cv_array[mask]
 
     # ======================
     # Package the result
     # ======================
     result = IndicatorResult(
-        name="RMS_CV",  # nombre del indicador (pon el que quieras)
+        name="RMS_CV",
         t=results["time"],
         I_t=results["cv"],
-        # t_d=results["idx"],
         t_d=chatter_points_time,
         meta={
             "n" : results["n"],
@@ -470,7 +506,9 @@ def rms_cv_pipeline(
             "sigma" : results["sigma"],
             "alert" : results["alert"],
             "reason" : results["reason"],
-            "cv_threshold": cv_threshold,
+            "cv_threshold":        cv_threshold,
+            "cv_threshold_used":   cv_threshold_used,
+            "cv_threshold_method": cv_threshold_method,
             "rms_threshold": rms_threshold,
             "n_max": n_max,
             "use_unbiased_std": use_unbiased_std,
@@ -486,6 +524,7 @@ def rms_cv_pipeline(
             "cv_values": results["cv"],
             "window_sec": window_sec,
             "idx_rms_windows": out["indices"],
+            **stable_det_meta,
         },
     )
 

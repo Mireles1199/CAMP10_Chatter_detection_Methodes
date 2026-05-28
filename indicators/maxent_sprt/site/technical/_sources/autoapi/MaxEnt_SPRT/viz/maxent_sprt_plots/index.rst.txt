@@ -59,7 +59,7 @@ Module Contents
    :rtype: None
 
 
-.. py:function:: plots_maxent_sprt(signal, result, show_signal = True, show = True, zoom_x = None, zoom_y = None, vlines = None, hlines = None)
+.. py:function:: plots_maxent_sprt(signal, result, show_signal = True, show = True, zoom_x = None, zoom_y = None, vlines = None, hlines = None, t_gt = None)
 
    Generate the standard diagnostic figure set for a MaxEnt-SPRT run.
 

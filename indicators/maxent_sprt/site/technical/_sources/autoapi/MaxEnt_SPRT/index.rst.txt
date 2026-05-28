@@ -11,8 +11,24 @@ Submodules
    :maxdepth: 1
 
    /autoapi/MaxEnt_SPRT/lib/index
+   /autoapi/MaxEnt_SPRT/logging_setup/index
    /autoapi/MaxEnt_SPRT/models/index
    /autoapi/MaxEnt_SPRT/utils/index
    /autoapi/MaxEnt_SPRT/viz/index
+
+
+Attributes
+----------
+
+.. autoapisummary::
+
+   MaxEnt_SPRT.INFO_PLUS_LEVEL
+
+
+Package Contents
+----------------
+
+.. py:data:: INFO_PLUS_LEVEL
+   :value: 15
 
 

@@ -26,8 +26,13 @@ before the new value is added, keeping the update O(1) per step.
 # Monitor en línea de CV sobre una secuencia de valores RMS
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Deque, Dict, Any, Optional
+from typing import Deque, Dict, Any, Optional, Sequence, Tuple, Union
 from collections import deque
+import numpy as np
+from statsmodels.stats.diagnostic import lilliefors
+
+IndexRange = Union[int, Tuple[int, int]]
+TimeRange  = Union[float, Tuple[float, float]]
 
 @dataclass
 class CVOnlineConfig:
@@ -259,4 +264,198 @@ class CVOnlineMonitor:
             "reason": reason,
             "idx": st.idx - 1,
             "time": time_val,
+        }
+
+
+class CVStableRegionDetector:
+    """Compute an adaptive CV threshold from a user-specified stable region.
+
+    Mirrors the logic of ``ThreeSigmaWithLilliefors`` used by the SSQ
+    indicator, but operates on the **CV series** rather than the first
+    singular value.  The threshold is:
+
+    * ``mu + z * sigma``  if the stable-region CV values are normally
+      distributed (Lilliefors test, significance ``alpha``).
+    * ``median + z * 1.4826 * MAD``  otherwise (when ``fallback_mad=True``).
+
+    Only the **upper** limit matters because CV is always non-negative and
+    chatter is declared when CV *rises*.
+
+    Priority for choosing the stable region (highest first):
+
+    1. ``idx_stable`` argument passed to :meth:`detect`
+    2. ``stable_index`` constructor parameter
+    3. ``stable_time``  constructor parameter (requires ``t`` in :meth:`detect`)
+    4. ``frac_stable`` fraction of the first *n* frames
+
+    Parameters
+    ----------
+    frac_stable : float
+        Fallback fraction (0 < frac_stable <= 1) when no explicit range is
+        given.
+    z : float, optional
+        Multiplier for sigma / MAD.  Defaults to ``3.0`` (three-sigma rule).
+    alpha : float, optional
+        Significance level for the Lilliefors normality test.  Default ``0.05``.
+    fallback_mad : bool, optional
+        Switch to MAD-based threshold when normality is rejected.  Default ``True``.
+    stable_time : float or (float, float), optional
+        Time range ``[t0, t1]`` (inclusive) defining the stable region.
+    stable_index : int or (int, int), optional
+        Index range ``[i0, i1]`` (inclusive) defining the stable region.
+    """
+
+    def __init__(
+        self,
+        frac_stable: float,
+        z: float = 3.0,
+        alpha: float = 0.05,
+        fallback_mad: bool = True,
+        stable_time: Optional[TimeRange] = None,
+        stable_index: Optional[IndexRange] = None,
+    ) -> None:
+        self.frac_stable  = float(frac_stable)
+        self.z            = float(z)
+        self.alpha        = float(alpha)
+        self.fallback_mad = bool(fallback_mad)
+        self.stable_time  = stable_time
+        self.stable_index = stable_index
+
+        if stable_time is not None and stable_index is not None:
+            self.stable_time = None  # stable_index wins
+
+    def _build_idx_from_ranges(
+        self,
+        n: int,
+        *,
+        t: Optional[np.ndarray],
+        stable_index: Optional[IndexRange],
+        stable_time: Optional[TimeRange],
+    ) -> Optional[np.ndarray]:
+        if stable_index is not None:
+            if isinstance(stable_index, int):
+                i0, i1 = 0, int(stable_index)
+            else:
+                i0, i1 = int(stable_index[0]), int(stable_index[1])
+            i0 = max(0, i0)
+            i1 = min(n - 1, i1)
+            if i1 < i0:
+                raise ValueError("stable_index produces empty range")
+            return np.arange(i0, i1 + 1, dtype=int)
+
+        if stable_time is not None:
+            if t is None:
+                raise ValueError("stable_time requires the time vector t")
+            tt = np.asarray(t, dtype=float)
+            if isinstance(stable_time, (float, int)):
+                t0, t1 = float(np.min(tt)), float(stable_time)
+            else:
+                t0, t1 = float(stable_time[0]), float(stable_time[1])
+            if t1 < t0:
+                raise ValueError("stable_time invalid: t1 < t0")
+            idx = np.nonzero((tt >= t0) & (tt <= t1))[0]
+            if idx.size == 0:
+                raise ValueError("stable_time produces an empty index range")
+            return idx.astype(int)
+
+        return None
+
+    def detect(
+        self,
+        cv_series: np.ndarray,
+        t: Optional[np.ndarray] = None,
+        idx_stable: Optional[Sequence[int]] = None,
+    ) -> Dict[str, Any]:
+        """Compute adaptive threshold and chatter mask for a CV series.
+
+        Parameters
+        ----------
+        cv_series : np.ndarray
+            1-D array of CV values (output of ``CVOnlineMonitor``).
+        t : np.ndarray, optional
+            Time vector aligned with *cv_series*.  Required when
+            ``stable_time`` is used.
+        idx_stable : sequence of int, optional
+            Explicit stable-region indices (highest priority).
+
+        Returns
+        -------
+        dict with keys:
+
+        * ``mask``            — int array (1 = chatter, 0 = normal)
+        * ``threshold``       — computed upper threshold
+        * ``mu``              — mean / median of stable CV
+        * ``sigma``           — sigma / robust-sigma of stable CV
+        * ``normal_ok``       — True if Lilliefors test passed
+        * ``p_value``         — Lilliefors p-value
+        * ``metodo_umbral``   — ``"sigma"`` or ``"MAD"``
+        * ``idx_estable_usados`` — list of indices used for estimation
+        """
+        cv = np.asarray(cv_series, dtype=float)
+        if cv.ndim != 1:
+            raise ValueError("cv_series must be 1-D")
+        n = cv.size
+
+        # ── resolve stable region ───────────────────────────────────────────
+        if idx_stable is not None:
+            idx_est = np.asarray(list(idx_stable), dtype=int)
+        else:
+            built = self._build_idx_from_ranges(
+                n, t=t,
+                stable_index=self.stable_index,
+                stable_time=self.stable_time,
+            )
+            if built is not None:
+                idx_est = built
+            else:
+                m = max(1, int(self.frac_stable * n))
+                idx_est = np.arange(0, m, dtype=int)
+
+        idx_est = idx_est[(idx_est >= 0) & (idx_est < n)]
+        if idx_est.size == 0:
+            raise ValueError("stable region is empty after index validation")
+
+        d_est = cv[idx_est]
+
+        mu    = float(np.mean(d_est))
+        sigma = float(np.std(d_est, ddof=1)) if d_est.size > 1 else 0.0
+
+        # ── normality test ─────────────────────────────────────────────────
+        try:
+            _, p_value = lilliefors(d_est, dist="norm")
+            normal_ok  = bool(p_value >= self.alpha)
+        except Exception:
+            p_value   = 0.0
+            normal_ok = False
+
+        z = self.z
+        if sigma == 0.0:
+            eps = 1e-12 if mu == 0 else 1e-6 * abs(mu)
+            threshold = mu + z * eps
+        else:
+            threshold = mu + z * sigma
+
+        metodo = "sigma"
+        if self.fallback_mad and not normal_ok:
+            med       = float(np.median(d_est))
+            mad       = float(np.median(np.abs(d_est - med)))
+            sigma_rob = 1.4826 * mad
+            if sigma_rob == 0.0:
+                eps       = 1e-12 if med == 0 else 1e-6 * abs(med)
+                threshold = med + z * eps
+            else:
+                threshold = med + z * sigma_rob
+            mu, sigma = med, sigma_rob
+            metodo    = "MAD"
+
+        mask = (cv > threshold).astype(int)
+        return {
+            "mask":               mask,
+            "threshold":          threshold,
+            "mu":                 mu,
+            "sigma":              sigma,
+            "normal_ok":          normal_ok,
+            "p_value":            float(p_value),
+            "metodo_umbral":      metodo,
+            "idx_estable_usados": idx_est.tolist(),
         }

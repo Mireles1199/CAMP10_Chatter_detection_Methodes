@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 _MAXENT_PASS_THROUGH_PARAMS: frozenset = frozenset({
     "t_stable_total", "alpha", "beta", "reset_on_H0",
     "cut_start_time", "cut_end_time", "ratio_sampling", "step_seg", "segmentation",
+    "use_sprt", "H_threshold", "training_intervals",
 })
 
 
@@ -97,11 +98,12 @@ def _resolve_physical_params_maxent(
         # optional overlap: step_rev -> step_seg (in OPR samples = revolutions)
         step_rev = params_physical.get("step_rev", None)
         if step_rev is not None:
-            step_seg = int(step_rev)
-            if not (1 <= step_seg <= N_seg):
-                raise ValueError(
-                    f"step_rev must satisfy 1 <= step_rev <= N_rev_per_seg={N_seg}, got {step_rev}."
-                )
+            step_seg = step_rev
+            # step_seg = int(step_rev)
+            # if not (1 <= step_seg <= N_seg):
+            #     raise ValueError(
+            #         f"step_rev must satisfy 1 <= step_rev <= N_rev_per_seg={N_seg}, got {step_rev}."
+            #     )
         else:
             step_seg = N_seg  # no overlap
 
@@ -162,11 +164,13 @@ def _resolve_physical_params_maxent(
         # optional overlap: step_modal -> step_seg (in OPR samples = modal periods)
         step_modal = params_physical.get("step_modal", None)
         if step_modal is not None:
-            step_seg = int(step_modal)
-            if not (1 <= step_seg <= N_seg):
-                raise ValueError(
-                    f"step_modal must satisfy 1 <= step_modal <= N_modal_per_seg={N_seg}, got {step_modal}."
-                )
+            pass
+            # step_seg = int(step_modal)
+            step_seg = step_modal
+            # if not (1 <= step_seg <= N_seg):
+            #     raise ValueError(
+            #         f"step_modal must satisfy 1 <= step_modal <= N_modal_per_seg={N_seg}, got {step_modal}."
+            #     )
         else:
             step_seg = N_seg  # no overlap
 
@@ -296,6 +300,52 @@ def _cut_signal( t,x , time_range: Tuple[float, float]) -> Tuple[np.ndarray, np.
     mask = (t >= start_time) & (t <= end_time)
     return t[mask], x[mask]
 
+
+def _extract_training_segments(
+    t: np.ndarray,
+    x: np.ndarray,
+    intervals,
+):
+    """
+    Extract and concatenate training segments from a signal given a list of
+    labelled time intervals.
+
+    :param t: Full time axis of the signal.
+    :param x: Full signal values aligned with ``t``.
+    :param intervals: Sequence of ``(t_start, t_end, label)`` tuples where
+        ``label`` is either ``"stable"`` or ``"chatter"``.
+        Multiple intervals with the same label are concatenated in order.
+
+    Returns:
+        ``(t_stable, signal_stable, t_chatter, signal_chatter)``.
+    """
+    t_stable_parts:  list = []
+    x_stable_parts:  list = []
+    t_chatter_parts: list = []
+    x_chatter_parts: list = []
+
+    for entry in intervals:
+        t0, t1, label = float(entry[0]), float(entry[1]), str(entry[2]).lower().strip()
+        if label not in ("stable", "chatter"):
+            raise ValueError(
+                f"training_intervals label must be 'stable' or 'chatter', got '{label}'."
+            )
+        mask = (t >= t0) & (t <= t1)
+        if label == "stable":
+            t_stable_parts.append(t[mask])
+            x_stable_parts.append(x[mask])
+        else:
+            t_chatter_parts.append(t[mask])
+            x_chatter_parts.append(x[mask])
+
+    t_stable_out  = np.concatenate(t_stable_parts)  if t_stable_parts  else np.array([])
+    x_stable_out  = np.concatenate(x_stable_parts)  if x_stable_parts  else np.array([])
+    t_chatter_out = np.concatenate(t_chatter_parts) if t_chatter_parts else np.array([])
+    x_chatter_out = np.concatenate(x_chatter_parts) if x_chatter_parts else np.array([])
+
+    return t_stable_out, x_stable_out, t_chatter_out, x_chatter_out
+
+
 def _maxent_sprt_pipeline(
     signal: SignalData,
     rpm: float,
@@ -310,6 +360,9 @@ def _maxent_sprt_pipeline(
     step_seg: Optional[int] = None,
     segmentation: str = "opr",
     N_samples_per_seg: Optional[int] = None,
+    use_sprt: bool = True,
+    H_threshold: Optional[float] = None,
+    training_intervals = None,
 
     ) -> IndicatorResult:
     """
@@ -363,11 +416,20 @@ def _maxent_sprt_pipeline(
     fr: float = rpm / 60.0       # Hz, frequency of rotation
     t_total = t_analysis[-1]-t_analysis[0]
 
-    t_stable_total = t_stable_total  # seconds to consider stable
-    t_chatter_total = t_analysis[-1] - t_stable_total
-
-    t_stable, signal_analysis_stable = _cut_signal( t_analysis, signal_analysis , (cut_start_time, t_stable_total) )
-    t_chatter, signal_analysis_chatter = _cut_signal( t_analysis, signal_analysis , (t_stable_total, cut_end_time) )
+    # ── Training signal split ─────────────────────────────────────────────────
+    if training_intervals is not None:
+        # General mode: arbitrary list of [(t0, t1, "stable"|"chatter"), ...]
+        t_stable, signal_analysis_stable, t_chatter, signal_analysis_chatter = \
+            _extract_training_segments(t_analysis, signal_analysis, training_intervals)
+    else:
+        # Legacy mode: [cut_start_time, t_stable_total] = stable
+        #              [t_stable_total, cut_end_time]   = chatter
+        t_stable, signal_analysis_stable = _cut_signal(
+            t_analysis, signal_analysis, (cut_start_time, t_stable_total)
+        )
+        t_chatter, signal_analysis_chatter = _cut_signal(
+            t_analysis, signal_analysis, (t_stable_total, cut_end_time)
+        )
 
     logger.info_plus(_section("Signal loaded:"))
     logger.info_plus("  %-24s %s", " - Samples:", f"{signal_analysis.size}")
@@ -428,7 +490,7 @@ def _maxent_sprt_pipeline(
     logger.info_plus("  %-24s %s", "FREE:", f"mu0={models_trained.p0.mu:.5f}, sigma0={models_trained.p0.sigma:.5f}")
     logger.info_plus("  %-24s %s", "CHAT:", f"mu1={models_trained.p1.mu:.5f}, sigma1={models_trained.p1.sigma:.5f}")
 
-    sprt_result, H_seq_online, t_mid_segments = detector.detect_online_from_signal(
+    sprt_result_raw, H_seq_online, t_mid_segments = detector.detect_online_from_signal(
         y_online=signal_analysis,
         t_online=t_analysis,
         rpm=rpm,
@@ -440,20 +502,54 @@ def _maxent_sprt_pipeline(
         N_samples_per_seg=N_samples_per_seg,
     )
 
+    H_arr = np.asarray(H_seq_online)
+
+    # =========== Decision strategy: SPRT vs per-segment threshold ==========
+    if use_sprt:
+        # ── Standard SPRT accumulation ──────────────────────────────────────
+        sprt_result     = sprt_result_raw
+        I_t_result      = sprt_result.S_history
+        _H_thr_used     = None
+        name_result     = "MaxEnt_SPRT"
+        mask = np.where(sprt_result.S_history >= sprt_result.b)[0]
+        chatter_points_time   = t_mid_segments[mask] if mask.size > 0 else np.array([])
+        chatter_points_values = sprt_result.S_history[mask] if mask.size > 0 else np.array([])
+        logger.info_plus("  %-24s %s", "ONLINE FINAL STATE:",
+                         f"{sprt_result.final_state}, decision at segment {sprt_result.decision_index}")
+
+    else:
+        # ── Per-segment threshold on H  (no memory / no accumulation) ───────
+        # Auto-threshold = Bayes-optimal midpoint between P0 and P1 means
+        _H_thr_used = H_threshold if H_threshold is not None \
+                      else (models_trained.p0.mu + models_trained.p1.mu) / 2.0
+
+        class _SegThresholdResult:
+            """Minimal SPRT-compatible container for per-segment threshold mode."""
+            S_history      = H_arr
+            b              = _H_thr_used
+            a              = -np.inf
+            final_state    = "threshold"
+            decision_index = int(np.where(H_arr >= _H_thr_used)[0][0]) \
+                             if np.any(H_arr >= _H_thr_used) else None
+
+        sprt_result       = _SegThresholdResult()
+        I_t_result        = H_arr
+        name_result       = "MaxEnt_threshold"
+        _thr_mask         = H_arr >= _H_thr_used
+        chatter_points_time   = t_mid_segments[_thr_mask]
+        chatter_points_values = H_arr[_thr_mask]
+        logger.info_plus("  %-24s %s", "ONLINE MODE (no SPRT):",
+                         f"per-segment threshold  H_thr = {_H_thr_used:.5f}")
+        logger.info_plus("  %-24s %s", "DETECTIONS:",
+                         f"{_thr_mask.sum()} / {len(H_arr)} segments above threshold")
+
     #%%
     # ============ Online Phase: Results visualization ===========
 
-    logger.info_plus("  %-24s %s", "ONLINE FINAL STATE:", f"{sprt_result.final_state}, decision at segment {sprt_result.decision_index}")
-
-    # =========== Early chatter Results - Points Chatter ==========
-    mask = np.where(sprt_result.S_history >= sprt_result.b)[0]
-    chatter_points_time = t_mid_segments[mask] if mask.size > 0 else np.array([])
-    chatter_points_values = sprt_result.S_history[mask] if mask.size > 0 else np.array([])
-
     result = IndicatorResult(
-        name="MaxEnt_SPRT",
+        name=name_result,
         t=t_mid_segments,
-        I_t=sprt_result.S_history,
+        I_t=I_t_result,
         t_d=chatter_points_time,
         meta={
             "Samples": signal_analysis.size,
@@ -469,6 +565,8 @@ def _maxent_sprt_pipeline(
             "beta": beta,
             "rpm": rpm,
             "ratio_sampling": ratio_sampling,
+            "use_sprt": use_sprt,
+            "H_threshold_used": _H_thr_used,
             "Total_segments": int(t_total*fr/N_seg),
             "Size_signal_free": signal_analysis_stable.size,
             "Size_signal_chatter": signal_analysis_chatter.size,
@@ -494,6 +592,7 @@ def _maxent_sprt_pipeline(
             "opr_chat":   opr_chat,
             "train_free": train_free,
             "train_chat": train_chat,
+            "training_intervals": training_intervals,
 
         },
     )

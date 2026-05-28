@@ -1,0 +1,69 @@
+Metadata-Version: 2.4
+Name: green-integral
+Version: 0.1.0
+Summary: Green's integral (phase-space area) method for chatter detection
+Author-email: Enrique Mireles <enrique.mireles-hernandez@ensam.eu>
+License: MIT
+Classifier: Programming Language :: Python :: 3
+Classifier: Operating System :: OS Independent
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+Requires-Dist: numpy<3,>=1.24
+Requires-Dist: scipy>=1.10
+Requires-Dist: matplotlib>=3.6
+Requires-Dist: scikit-learn>=1.0
+Requires-Dist: h5py>=3.0
+
+# green_integral
+
+Detector de chatter basado en el **método de la integral de Green** (área en el espacio de fases).
+
+## Principio
+
+Para cada ventana temporal se calculan las áreas de los ciclos en el plano desplazamiento–velocidad
+mediante la integral de línea de Green:
+
+$$A_n = \frac{1}{2}\left|\oint (x\,dv - v\,dx)\right|$$
+
+El indicador $\delta_n$ mide la tasa de crecimiento log-relativa entre ciclos consecutivos:
+
+$$\delta_n = -\text{LOG\_CTC} \cdot \text{median}\bigl(\ln A_{n+1} - \ln A_n\bigr)$$
+
+Un valor $\delta_n < 0$ indica crecimiento de amplitud → **inestabilidad / chatter**.
+
+## Instalación
+
+```bash
+cd indicators/green_integral
+pip install -e .
+```
+
+## Uso rápido
+
+```python
+from green_integral import SignalData, GreenIntegralConfig, run_green_integral, plots_green_integral
+from green_integral.logging_setup import configure_logging, LOGGING_LEVELS
+
+configure_logging(level=LOGGING_LEVELS["info"])
+
+sig = SignalData(
+    t=t, displacement=x, velocity=v, fs=fs, name="mi_senal"
+)
+config = GreenIntegralConfig(
+    f_modal=150.0,
+    num_T=6,
+    dt=1e-2,
+    data_filtrated=True,
+)
+result = run_green_integral(sig, config)
+plots_green_integral(signal=sig, result=result)
+```
+
+## Niveles de logging
+
+| Nivel      | Contenido                                    |
+|------------|----------------------------------------------|
+| `warning`  | solo resultado crítico                        |
+| `info`     | resultado + configuración del indicador       |
+| `info_plus`| + progreso por ventana (cada 100)            |
+| `debug`    | + detalle interno por ventana (áreas, r_n…)  |

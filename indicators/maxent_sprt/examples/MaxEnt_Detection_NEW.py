@@ -77,13 +77,26 @@ _F_MODAL = 150.0
 _T_REV   = 60.0 / _RPM   # 0.005 s -- periodo de una revolucion
 _T_MODAL = 1.0 / _F_MODAL  # s       -- periodo del modo de chatter (f_modal ~ 150 Hz)
 
+# alpha = beta = norm.sf(3.0) ≈ 0.00135  →  equivalent to z=3 sigma (same FAR as RMS-CV and SSQ)
+_Z3_ALPHA = 0.00135   # scipy.stats.norm.sf(3.0)
+_T_GT = 5.365770208787228   # [s] ground-truth chatter onset
+_CUT_START = 0.05
+_CUT_END   = 10
+
 _COMMON = {
-    "t_stable_total": 5.365770208787228,
-    "alpha":          0.05,
-    "beta":           0.05,
+    "t_stable_total":     _T_GT,          # legacy fallback (used if training_intervals=None)
+    "training_intervals": [
+        (_CUT_START, _T_GT,    "stable"),  # chatter-free training region
+        # (_CUT_START, 3.3, "stable"), # stable training region
+        # (3.3,        4.4, "chatter"), # chatter training region
+        # (4.5,        _T_GT, "stable"), # transition region
+        (_T_GT,      _CUT_END, "chatter"), # chatter training region
+    ],
+    "alpha":          _Z3_ALPHA,
+    "beta":           _Z3_ALPHA,
     "reset_on_H0":    True,
-    "cut_start_time": 0.0,
-    "cut_end_time":   10.0,
+    "cut_start_time": _CUT_START,
+    "cut_end_time":   _CUT_END,
 }
 
 # -- 1. Modo nativo -----------------------------------------------------------
@@ -98,36 +111,6 @@ INDICATOR_CONFIG_native = {
     },
 }
 
-# -- 2. Modo by_revolution ----------------------------------------------------
-#   rpm   = 60 / T_rev
-#   N_seg = N_rev_per_seg  (directo)
-#   t_seg = N_rev_per_seg x T_rev = 5 x 0.005 = 0.025 s
-INDICATOR_CONFIG_by_revolution = {
-    "id":         "MaxEnt_SPRT",
-    "func":       "Default",
-    "param_mode": "by_revolution",
-    "params_physical": {
-        "T_rev":         _T_REV,
-        "N_rev_per_seg": 5,       # -> N_seg = 5
-        **_COMMON,
-    },
-}
-
-# -- 3. Modo by_modal ---------------------------------------------------------
-#   rpm   = 60 / T_rev
-#   N_seg = round(N_modal_per_seg x T_modal / T_rev)
-#         = round(1.0 x 0.025 / 0.005) = 5
-INDICATOR_CONFIG_by_modal = {
-    "id":         "MaxEnt_SPRT",
-    "func":       "Default",
-    "param_mode": "by_modal",
-    "params_physical": {
-        "T_rev":           _T_REV,
-        "T_modal":         _T_MODAL,
-        "N_modal_per_seg": 5.0,    # -> N_seg = 5
-        **_COMMON,
-    },
-}
 # -- 4. Modo by_revolution con overlap ----------------------------------------
 #   step_rev = 2  ->  hop = 2 rev  ->  overlap = 1 - 2/5 = 60 %
 INDICADOR_CONFIG_by_revolution_overlap = {
@@ -138,6 +121,7 @@ INDICADOR_CONFIG_by_revolution_overlap = {
         "T_rev":         _T_REV,
         "N_rev_per_seg": 5,        # -> N_seg = 5
         "step_rev":      1,        # hop de 2 rev  =>  overlap 60 %
+        "segmentation":  "opr",
         **_COMMON,
     },
 }
@@ -151,7 +135,7 @@ INDICADOR_CONFIG_by_modal_overlap = {
     "params_physical": {
         "T_rev":           _T_REV,
         "T_modal":         _T_MODAL,
-        "N_modal_per_seg": 5.0,    # -> N_seg = 5
+        "N_modal_per_seg": 2.0,    # -> N_seg = 5
         "step_modal":      1,      # hop de 2 periodos modales  =>  overlap 60 %
         **_COMMON,
     },
@@ -167,9 +151,10 @@ INDICADOR_CONFIG_by_revolution_raw = {
     "param_mode": "by_revolution",
     "params_physical": {
         "T_rev":         _T_REV,
-        "N_rev_per_seg": 5,        # -> N_seg = 5 rev  ->  N_samples = 5 x round(fs/fr)
+        "N_rev_per_seg": 16,        # -> N_seg = 5 rev  ->  N_samples = 5 x round(fs/fr)
         "segmentation":  "raw",    # <- nueva opcion: usa senal raw sin OPR
         "step_rev":      1,        # hop de 2 rev  =>  overlap 60 %
+        "use_sprt":      True,      # ←  SPRT
         **_COMMON,
     },
 }
@@ -182,9 +167,10 @@ INDICADOR_CONFIG_by_modal_raw = {
     "params_physical": {
         "T_rev":           _T_REV,
         "T_modal":         _T_MODAL,
-        "N_modal_per_seg": 5.0,    # -> N_samples = 5 x round(T_modal x fs)
+        "N_modal_per_seg": 3.0,    # -> N_samples = 5 x round(T_modal x fs)
         "segmentation":    "raw",  # <- usa senal raw
         'step_modal':      1.0,    # hop de 1 periodos modales  =>  overlap 60 %
+        'use_sprt':      False,    # <- SPRT
         **_COMMON,
     },
 }
@@ -192,10 +178,10 @@ INDICADOR_CONFIG_by_modal_raw = {
 # INDICATOR_CONFIG = INDICATOR_CONFIG_native
 # INDICATOR_CONFIG = INDICATOR_CONFIG_by_revolution
 # INDICATOR_CONFIG = INDICATOR_CONFIG_by_modal
-# INDICATOR_CONFIG = INDICADOR_CONFIG_by_revolution_overlap
+INDICATOR_CONFIG = INDICADOR_CONFIG_by_revolution_overlap
 # INDICATOR_CONFIG = INDICADOR_CONFIG_by_modal_overlap
 INDICATOR_CONFIG = INDICADOR_CONFIG_by_revolution_raw
-INDICATOR_CONFIG = INDICADOR_CONFIG_by_modal_raw
+# INDICATOR_CONFIG = INDICADOR_CONFIG_by_modal_raw
 
 # -- Senal de entrada ---------------------------------------------------------
 sig = SignalData(
@@ -209,6 +195,7 @@ sig = SignalData(
 # =============================================================================
 # EJECUCION
 # =============================================================================
+
 resultat_maxent_sprt = run_maxent_sprt(sig, INDICATOR_CONFIG)
 
 # =============================================================================
@@ -234,7 +221,7 @@ if t_d.size > 0:
     logger.info(_section("RESULTADO  --  CHATTER DETECTADO"))
     logger.info("  %-24s %s",     "Indicador:",         resultat_maxent_sprt.name)
     logger.info("  %-24s %s",     "Modo config:",       param_mode)
-    logger.info("  %-24s %.5f s", "Primera deteccion:", t_d[0])
+    logger.info("  %-24s %.3f s", "Primera deteccion:", t_d[0])
     logger.info("  %-24s %d",     "Total detecciones:", t_d.size)
     logger.info("  %-24s %.4f, %.4f ms", "Tiempo I[0], I[1]:", t_i[0]*1000, t_i[1]*1000)
     logger.info("  %-24s %.4f, %.4f ms", "Hop[0], H[1] ", t_i[1]*1000 - t_i[0]*1000, t_i[2]*1000 - t_i[1]*1000 )
@@ -377,12 +364,14 @@ if logger.isEnabledFor(logging.DEBUG):
 # =============================================================================
 # GRAFICA
 # =============================================================================
-# plots_maxent_sprt(
-#     signal=sig,
-#     result=resultat_maxent_sprt,
-#     show_signal=True,
-#     zoom_x=None,
-#     zoom_y=None,
-#     vlines=None,
-#     hlines=None,
-# )
+_T_GT = 5.365770208787228   # theoretical chatter onset time [s]
+plots_maxent_sprt(
+    signal=sig,
+    result=resultat_maxent_sprt,
+    show_signal=True,
+    zoom_x=None,
+    zoom_y=None,
+    vlines=None,
+    hlines=None,
+    t_gt=_T_GT,
+)
