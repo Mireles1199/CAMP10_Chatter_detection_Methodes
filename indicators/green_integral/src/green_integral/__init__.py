@@ -32,13 +32,13 @@ _logging.addLevelName(INFO_PLUS_LEVEL, "INFO_PLUS")
 
 
 def _add_verbose_method(level: int) -> None:
-    """Monkey-patch ``Logger.verbose()`` that logs at *level*."""
-    def verbose(self, msg, *args, **kwargs):  # type: ignore[override]
+    """Monkey-patch ``Logger.info_plus()`` that logs at *level*."""
+    def info_plus(self, msg, *args, **kwargs):  # type: ignore[override]
         if self.isEnabledFor(level):
             self._log(level, msg, args, **kwargs)
 
-    if not hasattr(_logging.Logger, "verbose"):
-        _logging.Logger.verbose = verbose  # type: ignore[attr-defined]
+    if not hasattr(_logging.Logger, "info_plus"):
+        _logging.Logger.info_plus = info_plus  # type: ignore[attr-defined]
 
 
 _add_verbose_method(INFO_PLUS_LEVEL)
@@ -48,14 +48,17 @@ _add_verbose_method(INFO_PLUS_LEVEL)
 # -----------------------------------------------------------------------
 from .utils.types import (  # noqa: E402
     SignalData,
+    StdSignalData,
     GreenIntegralConfig,
     GreenIntegralResult,
     FixedWindowConfig,
     FixedWindowResult,
+    IndicatorResult,
 )
 from .utils.hdf5_utils import HDF5Reader  # noqa: E402
 from .lib.runner import run_green_integral, INDICATOR_CONFIG  # noqa: E402
 from .lib.runner_fixed import run_fixed_window, FIXED_WINDOW_CONFIG  # noqa: E402
+from .lib.runner_std import run_green_std  # noqa: E402
 from .viz.green_integral_plots import plots_green_integral, plots_fixed_window, plots_signal_diagnostics  # noqa: E402
 
 __version__: str = "0.1.0"

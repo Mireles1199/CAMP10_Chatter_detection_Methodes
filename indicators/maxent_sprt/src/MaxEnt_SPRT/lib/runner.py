@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 _MAXENT_PASS_THROUGH_PARAMS: frozenset = frozenset({
     "t_stable_total", "alpha", "beta", "reset_on_H0",
     "cut_start_time", "cut_end_time", "ratio_sampling", "step_seg", "segmentation",
-    "use_sprt", "H_threshold", "training_intervals",
+    "use_sprt", "H_threshold", "training_intervals", "t_theorical",  # for debug/plots, not used in detection
 })
 
 
@@ -275,12 +275,66 @@ def run_maxent_sprt(signal: SignalData, INDICATOR_CONFIG: dict ) -> IndicatorRes
 
     result: IndicatorResult = func(signal, **params)
 
+    if params_physical.get("T_rev", None) is not None:
+        f_cycle = 1 / (params_physical.get("T_rev", "n/a"))
+    else:
+        f_cycle = 1 / (params_physical.get("T_modal", "n/a"))
+    if params_physical.get("step_rev", None) is not None:
+        step = params_physical.get("step_rev", "n/a")
+    else:
+        step = params_physical.get("step_modal", "n/a")
+
     # ── Traceability: attach mode + physical↔native mapping to meta ───────────
     result.meta["param_mode"] = param_mode
+    result.meta["f_cycle"] = f_cycle
+    result.meta["step_cycles"] = step
+    result.meta["reset_on_H0"] = params_physical.get("reset_on_H0", "n/a")
+    result.meta ["Total_window"] = result.meta["N_seg"]
+
     if trace is not None:
         result.meta["physical_params_input"]  = trace["physical_params_input"]
         result.meta["native_params_resolved"] = trace["native_params_resolved"]
         result.meta["quantization_notes"]     = trace["quantization_notes"]
+
+
+    if result.t_d.size > 0:
+        logger.info(_section("CHATTER INDICATOR - MaxEnt-SPRT"))
+        logger.info("  %-24s %s",     "Indicador:",         result.name)
+        logger.info("  %-24s %s",     "Modo config:",       result.meta["param_mode"])
+        logger.info("  %-24s %s",     "Segmentation:",       result.meta.get("segmentation", "n/a"))
+        logger.info("  %-24s %.3f Hz",   "Frecuency Cycle:", result.meta["f_cycle"])
+        logger.info("  %-24s %d",     "Entropie Windows:", result.meta.get("N_seg", "n/a"))
+        logger.info("  %-24s %d",      "Total Windows",           result.meta["Total_window"])
+
+        logger.info("  %-24s %.3f",   "Step:", result.meta["step_cycles"])
+        logger.info("  %-24s %s",     "ON SPRT:",         result.meta.get("use_sprt", "n/a"))
+        logger.info("  %-24s %s",     "Reset on H0:",         result.meta.get("reset_on_H0", "n/a"))
+        logger.info(
+            "  %-24s mu: %.3f, sigma: %.3f",
+            "Training P0:",
+            result.meta.get("P0_mu", float("nan")),
+            result.meta.get("P0_sigma", float("nan")),
+        )
+
+        logger.info(
+            "  %-24s mu: %.3f, sigma: %.3f",
+            "Training P1:",
+            result.meta.get("P1_mu", float("nan")),
+            result.meta.get("P1_sigma", float("nan")),
+        )
+        logger.info("  %-24s %.10f", "A:",     result.meta["sprt_result"].a)
+        logger.info("  %-24s %.10f", "B:",      result.meta["sprt_result"].b)
+
+        logger.info("  %-24s %.3f s", "Primera deteccion:", result.t_d[0])
+        logger.info("  %-24s %.3f s", "Primera Detecion Non Far:",  result.t_d_no_FAR[0])
+        logger.info("  %-24s %d",     "Total detecciones:", result.t_d.size)
+        logger.info("  %-24s %.4f, %.4f ms", "Tiempo I[0], I[1]:", result.t[0]*1000, result.t[1]*1000)
+        logger.info("  %-24s %.4f, %.4f ms", "Hop[0], H[1] ", result.t[1]*1000 - result.t[0]*1000, result.t[2]*1000 - result.t[1]*1000 )
+    else:
+        logger.info(_section("CHATTER INDICATOR - MaxEnt-SPRT"))
+        logger.info("  Indicador: %s  |  Modo: %s",
+                    result.name, param_mode)
+
 
     return result
 
@@ -363,6 +417,7 @@ def _maxent_sprt_pipeline(
     use_sprt: bool = True,
     H_threshold: Optional[float] = None,
     training_intervals = None,
+    t_theorical: Optional[float] = None,  # for debug/plots, not used in detection  
 
     ) -> IndicatorResult:
     """
@@ -513,6 +568,10 @@ def _maxent_sprt_pipeline(
         name_result     = "MaxEnt_SPRT"
         mask = np.where(sprt_result.S_history >= sprt_result.b)[0]
         chatter_points_time   = t_mid_segments[mask] if mask.size > 0 else np.array([])
+
+        t_d_no_FAR_idx = np.where(chatter_points_time > t_theorical)[0]
+        t_d_no_FAR = chatter_points_time[t_d_no_FAR_idx] if t_d_no_FAR_idx.size > 0 else np.array([])
+
         chatter_points_values = sprt_result.S_history[mask] if mask.size > 0 else np.array([])
         logger.info_plus("  %-24s %s", "ONLINE FINAL STATE:",
                          f"{sprt_result.final_state}, decision at segment {sprt_result.decision_index}")
@@ -538,10 +597,15 @@ def _maxent_sprt_pipeline(
         _thr_mask         = H_arr >= _H_thr_used
         chatter_points_time   = t_mid_segments[_thr_mask]
         chatter_points_values = H_arr[_thr_mask]
+
+        t_d_no_FAR_idx = np.where(chatter_points_time > t_theorical)[0]
+        t_d_no_FAR = chatter_points_time[t_d_no_FAR_idx] if t_d_no_FAR_idx.size > 0 else np.array([])
+        
         logger.info_plus("  %-24s %s", "ONLINE MODE (no SPRT):",
                          f"per-segment threshold  H_thr = {_H_thr_used:.5f}")
         logger.info_plus("  %-24s %s", "DETECTIONS:",
                          f"{_thr_mask.sum()} / {len(H_arr)} segments above threshold")
+    
 
     #%%
     # ============ Online Phase: Results visualization ===========
@@ -551,6 +615,7 @@ def _maxent_sprt_pipeline(
         t=t_mid_segments,
         I_t=I_t_result,
         t_d=chatter_points_time,
+        t_d_no_FAR=t_d_no_FAR,
         meta={
             "Samples": signal_analysis.size,
             "Duration": t_total,

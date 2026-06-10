@@ -65,6 +65,8 @@ class IndicatorResult:
     """Indicator values evaluated along ``t``."""
     t_d: Optional[float] = None
     """Detection timestamp in seconds when available; ``None`` when no detection time is defined."""
+    t_d_no_FAR: Optional[np.ndarray] = None
+    """Detection timestamps in seconds when available and above the theoretical threshold; ``None`` when no detection time is defined."""
     meta: Dict[str, Any] = field(default_factory=dict)
     """Auxiliary artifacts required for analysis, visualization, reproducibility, or post-hoc debugging."""
 

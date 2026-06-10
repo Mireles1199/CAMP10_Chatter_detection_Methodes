@@ -190,6 +190,8 @@ class FixedWindowConfig:
     # --- debug ---
     debug_level: int = 0
 
+    t_theorical: Optional[float] = None  # for debug/plots, not used in detection
+
     def __post_init__(self) -> None:
         self.T_modal: float = 1.0 / self.f_modal
         self.T_window: float = self.num_T * self.T_modal
@@ -222,3 +224,55 @@ class FixedWindowResult:
     global_data: Dict[str, Any]
     Name: str
     t_d: Optional[float] = None
+    t_d_no_FAR: Optional[float] = None
+    mu_log: Optional[float] = None
+    sigma_log: Optional[float] = None
+    upper_log: Optional[float] = None
+    lower_log: Optional[float] = None
+
+
+# ---------------------------------------------------------------------------
+# Standard interface (compatible with other CAMP10 indicators)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class StdSignalData:
+    """Standard signal container compatible with other CAMP10 indicators.
+
+    This mirrors the ``SignalData`` of MaxEnt-SPRT so that ``run_green_std``
+    can be driven by the same input objects used for maxent, rms_cv, and ssq.
+
+    ``signal_analysis`` is interpreted as the **displacement** signal.
+    Velocity is taken from ``meta["velocity"]`` when supplied; otherwise it is
+    estimated via central-difference differentiation.
+    """
+    t_analysis: np.ndarray
+    signal_analysis: np.ndarray
+    path: str
+    fs: float
+    meta: Dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        self.t_analysis = np.asarray(self.t_analysis, dtype=float)
+        self.signal_analysis = np.asarray(self.signal_analysis, dtype=float)
+
+
+@dataclass
+class IndicatorResult:
+    """Standard result compatible with other CAMP10 indicators.
+
+    Mirrors the ``IndicatorResult`` of MaxEnt-SPRT so downstream analysis
+    (``doe_noise_indicators.py``, plotters) can handle all indicators uniformly.
+    """
+    name: str
+    """Human-readable identifier of the indicator/variant that produced this result."""
+    t: np.ndarray
+    """Time axis for the indicator trajectory."""
+    I_t: np.ndarray
+    """Indicator values along ``t``."""
+    t_d: Optional[float] = None
+    """Detection time [s]; ``None`` when not detected."""
+    t_d_no_FAR: Optional[float] = None
+    """Detection time without false alarms [s]; ``None`` when not detected."""
+    meta: Dict[str, Any] = field(default_factory=dict)
+    """Auxiliary artifacts (raw result, resolved config, resolver trace, etc.)."""

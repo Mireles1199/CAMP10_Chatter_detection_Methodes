@@ -42,24 +42,52 @@ def _cut_signal(t, x, time_range: Tuple[float, float]) -> Tuple[np.ndarray, np.n
 
 
 # -- datos --------------------------------------------------------------------
-dir_cono     = r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\2DOF_Cono\1DOF_150Hz"
-dir_path_use = dir_cono
+cono_doe_control =  (
+    r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
+    r"\2DOF_Cone_DOE\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_200"
+    r"\3\1DOF_150Hz\out.hdf5"
+)
 
-data_dir = os.path.abspath(os.path.join(dir_path_use, "out.hdf5"))
+cono_doe_control_sensor =  (
+    r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
+    r"\2DOF_Cone_DOE\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_200"
+    r"\3\1DOF_150Hz\sens_out.hdf5"
+)
+
+
+
+dir_custome     = r"D:\\Thesis\\03-Code_Storage\\02-Altintlas_Nessy2m_Storage\\2DOF_Cone_DOE\\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_180\\12\\1DOF_150Hz\\sens_out.hdf5"
+data_dir = cono_doe_control_sensor
+
+# data_dir = os.path.abspath(os.path.join(dir_path_use, "out.hdf5"))
 data     = HDF5Reader(data_dir)
 
-tool_dyn     = data.get_element("tool_dyn/data")
+# disp_path_hdf5 = "tool_dyn/data"
+# vel_path_hdf5  = "tool_dyn_o/data"
+
+disp_path_hdf5 = "Axial_disp/data"
+vel_path_hdf5  = "Axial_vel/data"
+
+
+tool_dyn     = data.get_element(disp_path_hdf5)
 t            = tool_dyn[:, 0]
 tool_dyn     = tool_dyn[:, 1]
-tool_dyn_vel = data.get_element("tool_dyn_o/data")[:, 1]
-force_N      = data.get_element("res_R_p/data")[:, 1]
+tool_dyn_vel = data.get_element(vel_path_hdf5)[:, 1]
+
+try:
+    force_N = data.get_element("force_N/data")[:, 1]
+except KeyError:
+    force_N = np.zeros_like(t)
 
 v  = tool_dyn_vel
 fs = 1.0 / (t[1] - t[0])
 
-t_cut, v_cut = _cut_signal(t, v,        (0.05, 16))
-_,     x_cut = _cut_signal(t, tool_dyn, (0.05, 16))
-_,     f_cut = _cut_signal(t, force_N,  (0.05, 16))
+_CUT_START = 0.0
+_CUT_END   = 16
+
+t_cut, v_cut = _cut_signal(t, v,        (_CUT_START, _CUT_END))
+_,     x_cut = _cut_signal(t, tool_dyn, (_CUT_START, _CUT_END))
+_,     f_cut = _cut_signal(t, force_N,  (_CUT_START, _CUT_END))
 
 # =============================================================================
 # INDICATOR_CONFIG -- tres modos de parametrizacion
@@ -80,25 +108,30 @@ _T_MODAL = 1.0 / _F_MODAL  # s       -- periodo del modo de chatter (f_modal ~ 1
 # alpha = beta = norm.sf(3.0) ≈ 0.00135  →  equivalent to z=3 sigma (same FAR as RMS-CV and SSQ)
 _Z3_ALPHA = 0.00135   # scipy.stats.y si estanorm.sf(3.0)
 _T_GT = 5.365770208787228   # [s] ground-truth chatter onset
-_CUT_START = 0.05
-_CUT_END   = 10
+# _T_GT = 1.07  # [s] ground-truth chatter onset
+
+
 
 _COMMON = {
     "t_stable_total":     _T_GT,          # legacy fallback (used if training_intervals=None)
     "training_intervals": [
-        (_CUT_START,3.3,    "stable_1"),  # chatter-free training region
-        (3.3, 4.46, "stable_2"), # stable training region
-        (4.46, _T_GT, "stable_1"), # chatter training region
-        # (3.3,        4.4, "chatter"), # chatter training region
-        # (4.5,        _T_GT, "stable"), # transition region
-        (_T_GT,      10.0, "chatter"), # chatter training region
-        # (6.6,        10.0, "chatter_2"), # chatter training region
+        # (_CUT_START,3.3,    "stable_1"),  # chatter-free training region
+        # (3.3, 4.46, "stable_2"), # stable training region
+        # (4.46, _T_GT, "stable_1"), # chatter training region
+        # # (3.3,        4.4, "chatter"), # chatter training region
+        # # (4.5,        _T_GT, "stable"), # transition region
+        # (_T_GT,      10.0, "chatter"), # chatter training region
+        # # (6.6,        10.0, "chatter_2"), # chatter training region
+
+        (_CUT_START, _T_GT,  "stable"),  # chatter-free training region
+        (_T_GT,       10, "chatter"), # chatter training region
     ],
     "alpha":          _Z3_ALPHA,
     "beta":           _Z3_ALPHA,
     "reset_on_H0":    True,
     "cut_start_time": _CUT_START,
     "cut_end_time":   _CUT_END,
+    "t_theorical":   _T_GT,  # for debug/plots, not used in detection
 }
 
 # -- 1. Modo nativo -----------------------------------------------------------
@@ -153,7 +186,7 @@ INDICADOR_CONFIG_by_revolution_raw = {
     "param_mode": "by_revolution",
     "params_physical": {
         "T_rev":         _T_REV,
-        "N_rev_per_seg": 16,        # -> N_seg = 5 rev  ->  N_samples = 5 x round(fs/fr)
+        "N_rev_per_seg": 4,        # -> N_seg = 5 rev  ->  N_samples = 5 x round(fs/fr)
         "segmentation":  "raw",    # <- nueva opcion: usa senal raw sin OPR
         "step_rev":      1,        # hop de 2 rev  =>  overlap 60 %
         "use_sprt":      True,      # ←  SPRT
@@ -169,10 +202,10 @@ INDICADOR_CONFIG_by_modal_raw = {
     "params_physical": {
         "T_rev":           _T_REV,
         "T_modal":         _T_MODAL,
-        "N_modal_per_seg": 3.0,    # -> N_samples = 5 x round(T_modal x fs)
+        "N_modal_per_seg": 4.0,    # -> N_samples = 5 x round(T_modal x fs)
         "segmentation":    "raw",  # <- usa senal raw
         'step_modal':      1.0,    # hop de 1 periodos modales  =>  overlap 60 %
-        'use_sprt':      False,    # <- SPRT
+        'use_sprt':      True,    # <- SPRT
         **_COMMON,
     },
 }
@@ -217,20 +250,6 @@ S_vals     = meta.get("chatter_points_values", np.array([]))
 pd.set_option("display.max_colwidth", None)
 pd.set_option("display.width", 100)
 
-
-# ---------- WARNING: resultado critico ---------------------------------------
-if t_d.size > 0:
-    logger.info(_section("RESULTADO  --  CHATTER DETECTADO"))
-    logger.info("  %-24s %s",     "Indicador:",         resultat_maxent_sprt.name)
-    logger.info("  %-24s %s",     "Modo config:",       param_mode)
-    logger.info("  %-24s %.3f s", "Primera deteccion:", t_d[0])
-    logger.info("  %-24s %d",     "Total detecciones:", t_d.size)
-    logger.info("  %-24s %.4f, %.4f ms", "Tiempo I[0], I[1]:", t_i[0]*1000, t_i[1]*1000)
-    logger.info("  %-24s %.4f, %.4f ms", "Hop[0], H[1] ", t_i[1]*1000 - t_i[0]*1000, t_i[2]*1000 - t_i[1]*1000 )
-else:
-    logger.info(_section("RESULTADO  --  sin deteccion de chatter"))
-    logger.info("  Indicador: %s  |  Modo: %s",
-                resultat_maxent_sprt.name, param_mode)
 
 
 # ---------- INFO: configuracion del indicador --------------------------------
@@ -366,7 +385,7 @@ if logger.isEnabledFor(logging.DEBUG):
 # =============================================================================
 # GRAFICA
 # =============================================================================
-_T_GT = 5.365770208787228   # theoretical chatter onset time [s]
+  # theoretical chatter onset time [s]
 plots_maxent_sprt(
     signal=sig,
     result=resultat_maxent_sprt,

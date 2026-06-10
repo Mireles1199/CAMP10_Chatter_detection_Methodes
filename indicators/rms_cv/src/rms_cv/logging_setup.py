@@ -57,3 +57,7 @@ def configure_logging(
 
 
 __all__ = ["configure_logging", "LOGGING_LEVELS"]
+
+def _section(title: str, width: int = 54) -> str:
+    bar = "=" * width
+    return f"\n{bar}\n  {title}\n{bar}"

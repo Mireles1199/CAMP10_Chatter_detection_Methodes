@@ -40,24 +40,51 @@ def _section(title: str, width: int = 54) -> str:
 
 
 # -- datos --------------------------------------------------------------------
-dir_cono     = r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\2DOF_Cono\1DOF_150Hz"
-dir_path_use = dir_cono
+cono_doe_control =  (
+    r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
+    r"\2DOF_Cone_DOE\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_180"
+    r"\3\1DOF_150Hz\out.hdf5"
+)
 
-data_dir = os.path.abspath(os.path.join(dir_path_use, "out.hdf5"))
+cono_doe_control_sensor =  (
+    r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
+    r"\2DOF_Cone_DOE\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_180"
+    r"\12\1DOF_150Hz\sens_out.hdf5"
+)
+
+dir_custome     = r"D:\\Thesis\\03-Code_Storage\\02-Altintlas_Nessy2m_Storage\\2DOF_Cone_DOE\\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_180\\12\\1DOF_150Hz\\sens_out.hdf5"
+
+data_dir = cono_doe_control_sensor 
+
+
+# data_dir = os.path.abspath(os.path.join(dir_path_use, "out.hdf5"))
 data     = HDF5Reader(data_dir)
 
-tool_dyn     = data.get_element("tool_dyn/data")
+# disp_path_hdf5 = "tool_dyn/data"
+# vel_path_hdf5  = "tool_dyn_o/data"
+
+disp_path_hdf5 = "Axial_disp/data"
+vel_path_hdf5  = "Axial_vel/data"
+
+
+tool_dyn     = data.get_element(disp_path_hdf5)
 t            = tool_dyn[:, 0]
 tool_dyn     = tool_dyn[:, 1]
-tool_dyn_vel = data.get_element("tool_dyn_o/data")[:, 1]
-force_N      = data.get_element("res_R_p/data")[:, 1]
+tool_dyn_vel = data.get_element(vel_path_hdf5)[:, 1]
+
+try:
+    force_N = data.get_element("force_N/data")[:, 1]
+except KeyError:
+    force_N = np.zeros_like(t)
+
+
 
 v  = tool_dyn_vel
 fs = 1.0 / (t[1] - t[0])
 
-t_cut, v_cut  = _cut_signal(t, v,        (0.05, 15))
-_,     x_cut  = _cut_signal(t, tool_dyn, (0.05, 15))
-_,     f_cut  = _cut_signal(t, force_N,  (0.05, 15))
+t_cut, v_cut  = _cut_signal(t, v,        (0.00, 15))
+_,     x_cut  = _cut_signal(t, tool_dyn, (0.00, 15))
+_,     f_cut  = _cut_signal(t, force_N,  (0.00, 15))
 
 # =============================================================================
 # INDICATOR_CONFIG -- cuatro modos de parametrizacion
@@ -73,7 +100,7 @@ _RPM     = 12_000.0
 _F_MODAL = 150.0
 _T_REV   = 60.0 / _RPM        # 0.005 s -- periodo de una revolucion
 _T_MODAL = 1.0 / _F_MODAL     # 0.00667 s -- periodo del modo de chatter (150 Hz)
-
+_T_GT  = 5.365770208787228   # [s] ground-truth chatter onset
 _COMMON = {
     # fixed threshold (ignored when stable_time is set)
     "cv_threshold":         None,
@@ -85,11 +112,12 @@ _COMMON = {
     "detrend":              False,
     "pad_mode":             "none",
     # ── adaptive threshold: 3-sigma on CV of stable region ──────────────
-    "stable_time":  (0.0, 5.34),   # seconds: region known to be stable
-    "frac_stable":  0.30,         # fallback if stable_time yields no frames
+    "stable_time":  (0.0, _T_GT),   # seconds: region known to be stable
+    "frac_stable":  0.3610633440512648,         # fallback if stable_time yields no frames
     "z":            3.0,
     "alpha":        0.05,
     "fallback_mad": True,
+    "t_theorical":   _T_GT,  # for debug/plots, not used in detection
 }
 
 # -- 1. Modo nativo -----------------------------------------------------------
@@ -166,7 +194,7 @@ INDICATOR_CONFIG = INDICATOR_CONFIG_by_revolution
 # -- Senal de entrada ---------------------------------------------------------
 sig = SignalData(
     t_analysis=t_cut,
-    signal_analysis=x_cut,
+    signal_analysis=v_cut,
     path=data_dir,
     fs=fs,
     meta={"AP": "5mm-15mm", "RPM": 12_000},
@@ -195,22 +223,6 @@ _n_rms_frames = len(t_rms) if t_rms is not None else 0
 chatter_pct   = (len(t_d) / _n_rms_frames * 100.0) if _n_rms_frames > 0 and t_d is not None and len(t_d) > 0 else 0.0
 
 
-# ---------- resultado critico ------------------------------------------------
-if t_d is not None and len(t_d) > 0:
-    # Chatter detectado -> INFO (igual que SSQ_STFT, dato util siempre visible)
-    logger.info(_section("RESULTADO  --  CHATTER DETECTADO"))
-    logger.info("  %-24s %s",      "Indicador:",         resultat_rms.name)
-    logger.info("  %-24s %s",      "Modo config:",       param_mode)
-    logger.info("  %-24s %.5f s",  "Primera deteccion:", t_d[0])
-    logger.info("  %-24s %d",      "Total detecciones:", len(t_d))
-    logger.info("  %-24s %.2f %%", "% chatter:",         chatter_pct)
-    if t_rms is not None and len(t_rms) >= 2:
-        logger.info("  %-24s %.4f ms",  "t_rms[0]:",  t_rms[0]  * 1e3)
-        logger.info("  %-24s %.4f ms",  "t_rms[1]:",  t_rms[1]  * 1e3)
-        logger.info("  %-24s %.4f ms",  "step frames real:", (t_rms[1] - t_rms[0]) * 1e3)
-else:
-    logger.warning(_section("RESULTADO  --  sin deteccion de chatter"))
-    logger.warning("  Indicador: %s  |  Modo: %s", resultat_rms.name, param_mode)
 
 
 # ---------- INFO: configuracion del indicador ---------------------------------

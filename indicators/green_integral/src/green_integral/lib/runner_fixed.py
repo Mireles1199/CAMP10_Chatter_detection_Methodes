@@ -33,6 +33,7 @@ except ImportError:
 
 from ..utils.types import SignalData, FixedWindowConfig, FixedWindowResult
 from ..utils.signal_filter import savgol_filter_window
+from ..logging_setup import LOGGING_LEVELS, configure_logging
 
 
 # ---------------------------------------------------------------------------
@@ -76,6 +77,14 @@ def _shoelace(x: np.ndarray, v: np.ndarray) -> float:
     return 0.5 * abs(float(
         np.dot(x, np.roll(v, -1)) - np.dot(v, np.roll(x, -1))
     ))
+
+def _shoelace_oriented(x: np.ndarray, v: np.ndarray) -> float:
+    if len(x) < 3:
+        return np.nan
+
+    return 0.5 * float(
+        np.dot(x, np.roll(v, -1)) - np.dot(v, np.roll(x, -1))
+    )
 
 
 def _estimate_sigma(
@@ -222,8 +231,10 @@ def _fixed_window_pipeline(
     q_o = np.asarray(signal.velocity,     dtype=float)
 
     T_win  = config.T_window
+    T_cycle = 1.0 / config.f_modal
     dt_sig = float(t[1] - t[0])
-    N_win  = max(3, int(round(T_win / dt_sig)))  # samples per window
+    N_win  = max(2, int(round(T_win / dt_sig)))  # samples per window
+    N_win_cycle  = max(2, int(round(T_cycle / dt_sig)))  # samples per window
 
     # step between window starts
     if config.dt is None:
@@ -231,24 +242,29 @@ def _fixed_window_pipeline(
     else:
         step = max(1, int(round(config.dt / dt_sig)))
 
-    logger.info("=" * 60)
-    logger.info("Fixed-Window Indicator  |  signal: %s", signal.name)
-    logger.info("  f_modal   = %.2f Hz  |  T_modal = %.4e s", config.f_modal, config.T_modal)
-    logger.info("  num_T     = %d  |  T_window = %.4e s", config.num_T, T_win)
-    logger.info("  N_win     = %d samples  |  step = %d samples", N_win, step)
-    logger.info(
-        "  filtered  = %s  |  lambda_ewma = %s  |  accumulate = %s",
-        config.data_filtrated, config.lambda_ewma, config.accumulate,
-    )
-    logger.info("  sigma_method = %s", config.sigma_method)
-    logger.info("=" * 60)
 
     # ---- 1. Build windows and compute areas --------------------------------
     areas_list: list  = []
+    areas_list_subwin: list = []
+    areas_list_subwin_oriented: list = []
+    areas_list_oriented: list = []
     t_wins_list: list = []
-
+    error_list: list = []
     i = 0
     while i + N_win <= len(t):
+
+        # t_win = t[i:i + N_win]
+        # q_win = q[i:i + N_win]
+        # v_win = q_o[i:i + N_win]
+
+        # if config.data_filtrated and len(q_win) >= 7:
+        #     q_win = savgol_filter_window(q_win)
+        #     v_win = savgol_filter_window(v_win)
+
+        # areas_list.append(_shoelace(q_win, v_win))
+        # t_wins_list.append(float(t_win[-1]))
+        # i += step
+
         t_win = t[i:i + N_win]
         q_win = q[i:i + N_win]
         v_win = q_o[i:i + N_win]
@@ -257,8 +273,35 @@ def _fixed_window_pipeline(
             q_win = savgol_filter_window(q_win)
             v_win = savgol_filter_window(v_win)
 
+        j = 0
+        areas_cycle = []
+        areas_cycle_oriented = []
+        t_cycle_list = []
+        while j + N_win_cycle <= len(t_win) + 1:
+            t_subwin = t_win[j:j + N_win_cycle]
+            q_subwin = q_win[j:j + N_win_cycle]
+            v_subwin = v_win[j:j + N_win_cycle]
+
+            area_subwin = _shoelace(q_subwin, v_subwin)
+            area_subwin_oriented = _shoelace_oriented(q_subwin, v_subwin)
+            areas_cycle.append(area_subwin)
+            areas_cycle_oriented.append(area_subwin_oriented)
+
+            t_cycle_list.append(float(t_subwin[-1]))
+            j += N_win_cycle
+
+        areas_list_subwin.append(float(np.sum(areas_cycle)))
+        areas_list_subwin_oriented.append(float(np.sum(areas_cycle_oriented)))
+
         areas_list.append(_shoelace(q_win, v_win))
-        t_wins_list.append(float(t_win[0]))
+        areas_list_oriented.append(_shoelace_oriented(q_win, v_win))
+        t_wins_list.append(float(t_win[-1]))
+
+        # ========= Debug ===========
+        area_beta = _shoelace(q_win, v_win)
+        area_alpha = float(np.sum(areas_cycle))
+        error = (area_beta - area_alpha) / area_beta * 100 if area_beta != 0 else 0.0
+        error_list.append(error)
         i += step
 
     areas  = np.array(areas_list,  dtype=float)
@@ -270,7 +313,7 @@ def _fixed_window_pipeline(
     areas[below_floor] = np.nan
 
     n_valid = int(np.sum(np.isfinite(areas)))
-    logger.info(
+    logger.info_plus(
         "Fixed-Window: %d windows computed, %d valid (area > eps=%.2e)",
         len(areas), n_valid, config.area_noise_eps,
     )
@@ -286,14 +329,14 @@ def _fixed_window_pipeline(
     # ---- 3. Optional EWMA smoothing ----------------------------------------
     if config.lambda_ewma is not None:
         sigma_ewma = _apply_ewma(sigma, float(config.lambda_ewma))
-        logger.info("Fixed-Window: EWMA applied (λ=%.3f).", config.lambda_ewma)
+        logger.info_plus("Fixed-Window: EWMA applied (λ=%.3f).", config.lambda_ewma)
     else:
         sigma_ewma = sigma.copy()
 
     # ---- 4a. Optional Ĝ accumulation (from t=0) ----------------------------
     if config.accumulate:
         G_hat = _integrate_G(sigma_ewma, t_wins)
-        logger.info(
+        logger.info_plus(
             "Fixed-Window: Ĝ_final = %.4f  (%s)",
             float(G_hat[-1]) if len(G_hat) else float("nan"),
             "CHATTER" if len(G_hat) and G_hat[-1] > 0 else "stable",
@@ -304,7 +347,7 @@ def _fixed_window_pipeline(
     # ---- 4b. Optional sliding-window Ĝ -------------------------------------
     if config.G_memory is not None:
         G_hat_sliding = _integrate_G_sliding(sigma_ewma, t_wins, float(config.G_memory))
-        logger.info(
+        logger.info_plus(
             "Fixed-Window: Ĝ_sliding_final = %.4f  (T_memory=%.3f s, %s)",
             float(G_hat_sliding[-1]) if len(G_hat_sliding) else float("nan"),
             float(config.G_memory),
@@ -316,8 +359,15 @@ def _fixed_window_pipeline(
     # ---- 5. Pack result ----------------------------------------------------
     area_mu_3sigma: Dict[str, Any] = {}
     t_d_detected: Optional[float] = None
+    mu_log    = None
+    sigma_log = None
+    upper_log = None
+    lower_log = None
 
-    if config.use_area_threshold:
+    # Only compute μ±zσ area threshold when the user explicitly enabled
+    # `use_area_threshold` AND provided `training_intervals`. Skip automatic
+    # fallback selection of stable windows when training_intervals is None.
+    if config.use_area_threshold and config.training_intervals is not None:
         stab = _select_stable_mask(
             t_wins, config.training_intervals,
             config.stable_time, config.frac_stable,
@@ -331,17 +381,26 @@ def _fixed_window_pipeline(
             sigma_log = float(np.std(log10_stab, ddof=1))
             upper_log = mu_log + config.z_sigma * sigma_log
             lower_log = mu_log - config.z_sigma * sigma_log
+
+            # log10_stab = areas[stab_valid]
+            # mu_log    = float(np.mean(log10_stab))
+            # sigma_log = float(np.std(log10_stab, ddof=1))
+            # upper_log = mu_log + config.z_sigma * sigma_log
+            # lower_log = mu_log - config.z_sigma * sigma_log
+
+
             area_mu_3sigma = {
                 "mu": mu_log, "sigma": sigma_log,
                 "upper": upper_log, "lower": lower_log, "z": config.z_sigma,
             }
             # detection in linear space: area > 10^upper_log
             det_idx = np.where(~stab & valid_mask & (areas > 10 ** upper_log))[0]
+            # det_idx = np.where(~stab & valid_mask & (areas > upper_log))[0]
             if det_idx.size > 0:
-                t_d_detected = float(t_wins[det_idx[0]])
-            logger.info(
-                "Fixed-Window area threshold (log10): mu=%.4g, sigma=%.4g, upper=%.4g | t_d=%s",
-                mu_log, sigma_log, upper_log, t_d_detected,
+                t_d_detected = np.float64(t_wins[det_idx])
+            logger.info_plus(
+                "Fixed-Window area threshold (log10): mu=%.4g, sigma=%.4g, upper=%.4g",
+                mu_log, sigma_log, upper_log,
             )
         else:
             logger.warning(
@@ -357,7 +416,12 @@ def _fixed_window_pipeline(
         "type_method":        "FixedWindow",
         "area_mu_3sigma":     area_mu_3sigma,
         "training_intervals": list(config.training_intervals) if config.training_intervals else None,
+        "use_area_threshold": bool(config.use_area_threshold),
     }
+    t_d_detected_no_FAR_idx =  np.where(t_d_detected >= config.t_theorical)[0] if t_d_detected is not None else np.array([], dtype=int)
+    td_detected_no_FAR = t_d_detected[t_d_detected_no_FAR_idx] if t_d_detected is not None else None
+
+
 
     return FixedWindowResult(
         t_wins=t_wins,
@@ -369,6 +433,11 @@ def _fixed_window_pipeline(
         global_data=global_data,
         Name=signal.name,
         t_d=t_d_detected,
+        t_d_no_FAR=td_detected_no_FAR,
+        mu_log=mu_log,
+        sigma_log=sigma_log,
+        upper_log=upper_log,
+        lower_log=lower_log,
     )
 
 
@@ -392,6 +461,7 @@ _DEFAULT_FW_PARAMS: Dict[str, Any] = {
     "stable_time":        None,
     "z_sigma":            3.0,
     "debug_level":        0,
+    "t_theorical":       None,
 }
 
 FIXED_WINDOW_CONFIG: Dict[str, Any] = {

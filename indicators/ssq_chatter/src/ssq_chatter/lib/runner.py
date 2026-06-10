@@ -5,6 +5,8 @@ from collections import defaultdict
 import math
 import logging
 
+from ..logging_setup import _section
+
 from ..utils.types import SignalData, IndicatorResult
 from ..lib.pipeline_chatter import ChatterPipeline, PipelineConfig
 from ..lib.tf_transformers import SSQ_STFT, STFT
@@ -17,7 +19,9 @@ logger = logging.getLogger(__name__)
 
 # ── keys forwarded unchanged to _sst_svd_pipeline ──────────────────────────
 _SSQ_PASS_THROUGH_PARAMS: frozenset = frozenset({
-    "n_fft_power", "mode", "sigma", "frac_stable", "alpha", "z", "fallback_mad",    "training_intervals",})
+    "n_fft_power", "mode", "sigma", "frac_stable",
+      "alpha", "z", "fallback_mad",    "training_intervals",
+      "t_theorical",})
 
 
 def _resolve_physical_params_ssq(
@@ -268,8 +272,14 @@ def run_sst_svd(signal: SignalData, INDICATOR_CONFIG: dict ) -> IndicatorResult:
 
     result: IndicatorResult = func(signal, **params)
 
+    if params_physical.get("T_rev", None) is not None:
+        f_cycle = 1 / (params_physical.get("T_rev", "n/a"))
+    else:
+        f_cycle = 1 / (params_physical.get("T_modal", "n/a"))
+
     # ── traceability in meta ────────────────────────────────────────────────
     result.meta["param_mode"] = param_mode
+    result.meta["f_cycle"] = f_cycle
     if trace is not None:
         result.meta["physical_params_input"]  = trace["physical_params_input"]
         result.meta["native_params_resolved"] = trace["native_params_resolved"]
@@ -284,6 +294,41 @@ def run_sst_svd(signal: SignalData, INDICATOR_CONFIG: dict ) -> IndicatorResult:
         result.meta["t_win_efectivo_ms"]          = trace["t_win_efectivo_ms"]
         result.meta["t_hop_exact_ms"]         = trace["t_hop_exact_ms"]
         result.meta["t_hop_efectivo_ms"]          = trace["t_hop_efectivo_ms"]
+        result.meta["N_cycles"]                 = trace["N_win"]
+        result.meta["step_cycles"]              = trace["step"]
+        result.meta["Total_window"] =  result.meta["N_cycles"] + (result.meta["Ai_length"] - 1) * result.meta["step_cycles"]
+
+# ---------- WARNING: resultado critico ----------------------------------------
+    if result.t_d.size > 0:
+        logger.info(_section("CHATTER INDICATOR - SST-SVD"))
+        logger.info("  %-24s %s",     "Indicador:",         result.name)
+        logger.info("  %-24s %s",     "Modo config:",        result.meta["param_mode"])
+        logger.info("  %-24s %.3f Hz",   "Frecuency Cycle:", result.meta["f_cycle"])
+        logger.info("  %-24s %d",      "SST Windows",       result.meta["N_cycles"])
+        logger.info("  %-24s %d",      "SVD Windows",             result.meta["Ai_length"])
+        logger.info("  %-24s %d",      "Total Windows",           result.meta["Total_window"])
+        logger.info("  %-24s %.3f",    "Step:",             result.meta["step_cycles"])
+        logger.info("  %-24s %.10f",    "SVD Threshold:",         result.meta["lim_sup"])
+
+        logger.info(
+            "  %-24s mu: %.10f, sigma: %.10f",
+            "Training :",
+            result.meta.get("training_mu", float("nan")),
+            result.meta.get("training_sigma", float("nan")),
+        )
+
+        logger.info("  %-24s %.3f s", "Primera deteccion:", result.t_d[0])        
+        logger.info("  %-24s %.3f s", "Primera Detecion Non Far:",  result.t_d_no_FAR[0])
+        logger.info("  %-24s %d",     "Total detecciones:", result.t_d.size)
+        logger.info("  %-24s %.4f, %.4f ms", "Tiempo I[0], I[1]:", result.t[0]*1000, result.t[1]*1000)
+        logger.info("  %-24s %.4f, %.4f ms", "Hop[0], H[1] ", result.t[1]*1000 - result.t[0]*1000, result.t[2]*1000 - result.t[1]*1000 )
+
+    else:
+        logger.warning(_section("RESULTADO  --  sin deteccion de chatter"))
+        logger.warning("  Indicador: %s  |  Modo: %s",
+                    result.name, param_mode)
+
+
 
     return result
 
@@ -301,6 +346,7 @@ def _sst_svd_pipeline(
     z: float,
     fallback_mad: bool,
     training_intervals: Optional[List] = None,
+    t_theorical: Optional[float] = None,
 ) -> IndicatorResult:
     """
     Execute Synchrosqueezing Transform (SST) with SVD-based chatter detection pipeline.
@@ -425,6 +471,10 @@ def _sst_svd_pipeline(
 
     chatter_points_mask = np.where(d1 > res['lim_sup'])[0]
     chatter_points_time = t_i[chatter_points_mask] if chatter_points_mask.size > 0 else np.array([])
+    t_d_no_FAR_idx = np.where(chatter_points_time > t_theorical)[0]
+    t_d_no_FAR = chatter_points_time[t_d_no_FAR_idx] if t_d_no_FAR_idx.size > 0 else np.array([])
+
+    
     chatter_points_values = d1[chatter_points_mask] if chatter_points_mask.size > 0 else np.array([])
 
     result = IndicatorResult(
@@ -432,6 +482,7 @@ def _sst_svd_pipeline(
         t=t_i,
         I_t=d1,
         t_d=chatter_points_time,
+        t_d_no_FAR=t_d_no_FAR,
         meta={
             "fs_out": fs_out,
             "n_fft_power": n_fft_power,
@@ -456,8 +507,8 @@ def _sst_svd_pipeline(
             "metodo_umbral": res["metodo_umbral"],
             "normal_ok": res["normal_ok"],
             "p_value": res["p_value"],
-            "mu": res["mu"],
-            "sigma": res["sigma"],
+            "training_mu": res["mu"],
+            "training_sigma": res["sigma"],
             "chatter": f"{100*res['mask'].mean():.2f}%",
             "training_intervals": training_intervals,
         },

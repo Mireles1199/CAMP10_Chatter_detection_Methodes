@@ -128,11 +128,16 @@ def _green_integral_pipeline(
         "t": t.tolist(),
         "type_signal": "Area",
         "type_method": "GreenIntegral",
+        "use_area_threshold": bool(config.use_area_threshold),
     }
 
     # ---- mu +- 3*sigma area threshold (optional) --------------------------
     t_d_detected: Optional[float] = None
-    if config.use_area_threshold and len(windows_results) >= 3:
+    # Only compute μ±zσ area threshold when the user explicitly enabled
+    # `use_area_threshold` AND provided `training_intervals`.  If
+    # `training_intervals` is omitted we skip the area-threshold branch to
+    # avoid inferring a training region automatically.
+    if config.use_area_threshold and config.training_intervals is not None and len(windows_results) >= 3:
         raw_areas = np.array(
             [dw.get("center_area_value") or dw.get("median_area") or np.nan
              for dw in windows_results],

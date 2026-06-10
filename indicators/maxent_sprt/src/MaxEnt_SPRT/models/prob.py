@@ -57,7 +57,7 @@ class GaussianPDF:
         return 0.5 * math.log(2.0 * math.pi * math.e * (self.sigma ** 2))
 
     @staticmethod
-    def from_samples(samples: Iterable[float], eps: float = 1e-12) -> "GaussianPDF":
+    def from_samples(samples: Iterable[float], eps: float = 1e-30) -> "GaussianPDF":
         """
         Create a GaussianPDF instance from a collection of sample data.
 
@@ -84,5 +84,7 @@ class GaussianPDF:
             raise ValueError("Se requieren al menos 2 muestras para estimar sigma.")
         mu = float(np.mean(x))
         var = float(np.var(x, ddof=1))
+        if var <= eps:
+            print("Advertencia: varianza muy pequeña, aplicando floor para evitar sigma=0.")
         sigma = math.sqrt(max(var, eps))
         return GaussianPDF(mu=mu, sigma=sigma)

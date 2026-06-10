@@ -1,0 +1,377 @@
+Sea una trayectoria discreta en el plano fase:
+
+$$
+\beta = (P_0,P_1,\ldots,P_M),
+$$
+
+donde cada punto es
+
+$$
+P_j=(x_j,y_j).
+$$
+
+En tu caso $y$ puede ser $v$, pero matemáticamente escribimos $y$ para simplificar.
+
+Definimos el producto cruzado plano como
+
+$$
+P_i \times P_j = x_i y_j - y_i x_j.
+$$
+
+---
+
+## 1. Contribución abierta
+
+La contribución abierta de una trayectoria $\gamma=(P_a,\ldots,P_b)$ es
+
+$$
+C(\gamma)=
+\frac{1}{2}
+\sum_{j=a}^{b-1}
+P_j \times P_{j+1}.
+$$
+
+Esta cantidad **no cierra** la curva. Solo suma los segmentos reales de la trayectoria.
+
+---
+
+## 2. Contribución de cierre
+
+Si queremos convertir la trayectoria abierta $\gamma=(P_a,\ldots,P_b)$ en una curva cerrada, agregamos el segmento artificial
+
+$$
+P_b \rightarrow P_a.
+$$
+
+La contribución de ese cierre es
+
+$$
+K(\gamma)=
+\frac{1}{2}
+P_b \times P_a.
+$$
+
+---
+
+## 3. Área cerrada
+
+Entonces el área orientada cerrada de $\gamma$ es
+
+$$
+A(\gamma)=
+C(\gamma)+K(\gamma).
+$$
+
+Es decir,
+
+$$
+A(\gamma)=
+\frac{1}{2}
+\sum_{j=a}^{b-1}
+P_j \times P_{j+1}
++
+\frac{1}{2}
+P_b \times P_a.
+$$
+
+Esto es exactamente la fórmula shoelace con cierre automático.
+
+---
+
+## 4. Partición de beta
+
+Supón que beta se divide en subtrayectorias consecutivas:
+
+$$
+\beta = \gamma_1+\gamma_2+\cdots+\gamma_N.
+$$
+
+Por ejemplo,
+
+$$
+\gamma_1=(P_{i_0},\ldots,P_{i_1}),
+$$
+
+$$
+\gamma_2=(P_{i_1},\ldots,P_{i_2}),
+$$
+
+$$
+\ldots
+$$
+
+$$
+\gamma_N=(P_{i_{N-1}},\ldots,P_{i_N}),
+$$
+
+con
+
+$$
+i_0=0,\qquad i_N=M.
+$$
+
+Aquí las $\gamma_i$ pueden ser alphas y residuos. Lo importante es que juntas reconstruyen toda beta como trayectoria.
+
+---
+
+## 5. Aditividad de la contribución abierta
+
+La contribución abierta de beta es
+
+$$
+C(\beta)=
+\frac{1}{2}
+\sum_{j=0}^{M-1}
+P_j \times P_{j+1}.
+$$
+
+Como los intervalos
+
+$$
+[i_0,i_1], [i_1,i_2], \ldots, [i_{N-1},i_N]
+$$
+
+parten la trayectoria completa, entonces
+
+$$
+C(\beta)=
+\sum_{m=1}^{N} C(\gamma_m).
+$$
+
+Esta igualdad es exacta porque estamos sumando los mismos segmentos reales, sin agregar cierres.
+
+---
+
+## 6. Comparación de áreas cerradas
+
+El área cerrada global de beta es
+
+$$
+A(\beta)=
+C(\beta)+K(\beta),
+$$
+
+donde
+
+$$
+K(\beta)=
+\frac{1}{2}P_M \times P_0.
+$$
+
+La suma de áreas cerradas localmente es
+
+$$
+\sum_{m=1}^{N} A(\gamma_m)=
+\sum_{m=1}^{N}
+\left[
+C(\gamma_m)+K(\gamma_m)
+\right].
+$$
+
+Entonces
+
+$$
+\sum_{m=1}^{N} A(\gamma_m)=
+\sum_{m=1}^{N} C(\gamma_m)
++
+\sum_{m=1}^{N} K(\gamma_m).
+$$
+
+Usando la aditividad de $C$,
+
+$$
+\sum_{m=1}^{N} C(\gamma_m)=
+C(\beta).
+$$
+
+Por tanto,
+
+$$
+\sum_{m=1}^{N} A(\gamma_m)=
+C(\beta)
++
+\sum_{m=1}^{N} K(\gamma_m).
+$$
+
+Ahora restamos esta expresión al área global de beta:
+
+$$
+A(\beta)
+-
+\sum_{m=1}^{N} A(\gamma_m)
+=
+\left[
+C(\beta)+K(\beta)
+\right]
+-
+\left[
+C(\beta)+\sum_{m=1}^{N}K(\gamma_m)
+\right].
+$$
+
+Se cancela $C(\beta)$:
+
+$$
+A(\beta)
+-
+\sum_{m=1}^{N} A(\gamma_m)
+=
+K(\beta)
+-
+\sum_{m=1}^{N}K(\gamma_m).
+$$
+
+Por tanto,
+
+$$
+\boxed{
+A(\beta)
+-
+\sum_{m=1}^{N} A(\gamma_m)
+=
+K(\beta)
+-
+\sum_{m=1}^{N}K(\gamma_m)
+}
+$$
+
+Esta es la identidad rigurosa principal.
+
+---
+
+## 7. Interpretación
+
+La diferencia entre el área de beta cerrada globalmente y la suma de áreas de sus partes cerradas localmente **no viene de la trayectoria original**, porque la trayectoria original sí es aditiva.
+
+La diferencia viene únicamente de los cierres:
+
+$$
+\boxed{
+\text{diferencia de áreas}
+=
+\text{diferencia de cierres}
+}
+$$
+
+---
+
+## 8. Caso particular: cuándo coinciden
+
+Las áreas coinciden si y solo si
+
+$$
+K(\beta)=
+\sum_{m=1}^{N}K(\gamma_m).
+$$
+
+Es decir,
+
+$$
+\frac{1}{2}P_M \times P_0
+=
+\sum_{m=1}^{N}
+\frac{1}{2}
+P_{i_m} \times P_{i_{m-1}}.
+$$
+
+Equivalente a
+
+$$
+P_M \times P_0
+=
+\sum_{m=1}^{N}
+P_{i_m} \times P_{i_{m-1}}.
+$$
+
+En particular, si cada subtrayectoria $\gamma_m$ es cerrada por sí misma, entonces
+
+$$
+P_{i_m}=P_{i_{m-1}},
+$$
+
+y por tanto
+
+$$
+K(\gamma_m)
+=
+\frac{1}{2}P_{i_m}\times P_{i_{m-1}}
+=
+0.
+$$
+
+Si además beta también es cerrada,
+
+$$
+P_M=P_0,
+$$
+
+entonces
+
+$$
+K(\beta)=0.
+$$
+
+En ese caso,
+
+$$
+A(\beta)=\sum_{m=1}^{N}A(\gamma_m).
+$$
+
+Pero si las subtrayectorias no cierran naturalmente, o si beta se cierra con un segmento global distinto de los cierres locales, entonces en general
+
+$$
+A(\beta)\neq \sum_{m=1}^{N}A(\gamma_m).
+$$
+
+---
+
+## 9. Con alpha y residuos
+
+Si beta no empieza ni termina exactamente en cortes de ciclo, entonces la partición completa es
+
+$$
+\beta
+=
+R_{\text{inicio}}
++
+\alpha_1+\cdots+\alpha_N
++
+R_{\text{final}}.
+$$
+
+Llamando
+
+$$
+\{\gamma_m\}
+=
+\{R_{\text{inicio}},\alpha_1,\ldots,\alpha_N,R_{\text{final}}\},
+$$
+
+la identidad anterior aplica exactamente:
+
+$$
+\boxed{
+A(\beta)
+-
+\left(
+A(R_{\text{inicio}})
++
+\sum_i A(\alpha_i)
++
+A(R_{\text{final}})
+
+\right)
+=
+K(\beta)
+-
+\left(
+K(R_{\text{inicio}})
++
+\sum_i K(\alpha_i)
++
+K(R_{\text{final}})
+\right)
+}
+$$
+
+Esta es la forma rigurosa para tu caso con ventana temporal arbitraria.

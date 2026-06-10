@@ -47,3 +47,8 @@ def configure_logging(
         logging.root.setLevel(lvl)
         for handler in logging.root.handlers:
             handler.setLevel(lvl)
+
+def _section(title: str, width: int = 54) -> str:
+    bar = "=" * width
+    return f"\n{bar}\n  {title}\n{bar}"
+

@@ -85,6 +85,7 @@ class IndicatorResult:
     t: np.ndarray
     I_t: np.ndarray
     t_d: Optional[float] = None
+    t_d_no_FAR: Optional[float] = None
     meta: Dict[str, Any] = field(default_factory=dict)
 
 

@@ -32,6 +32,7 @@ import logging
 
 import numpy as np
 
+from MaxEnt_SPRT.logging_setup import _section
 from rms_cv.utils.types import SignalData, IndicatorResult
 from rms_cv import rms_sequence, CVOnlineConfig, CVOnlineMonitor
 from rms_cv.lib.cv_monitor import CVStableRegionDetector
@@ -46,6 +47,7 @@ _RMSCV_PASS_THROUGH_PARAMS: frozenset = frozenset({
     "use_unbiased_std", "eps", "detrend", "pad_mode", "start_time", "fs_rms",
     # stable-region adaptive threshold
     "stable_time", "stable_index", "frac_stable", "z", "alpha", "fallback_mad",
+    "t_theorical",
 })
 
 
@@ -306,10 +308,19 @@ def run_rms_cv(signal: SignalData, INDICATOR_CONFIG: dict ) -> IndicatorResult:
             trace["quantization_notes"],
         )
 
+    # print(params)  # debug rápido de parámetros nativos
     result: IndicatorResult = func(signal, **params)
+
+    if params_physical.get("T_rev", None) is not None:
+        f_cycle = 1 / (params_physical.get("T_rev", "n/a"))
+    else:
+        f_cycle = 1 / (params_physical.get("T_modal", "n/a"))
+
 
     # ── traceability in meta ────────────────────────────────────────────────
     result.meta["param_mode"] = param_mode
+    result.meta["f_cycle"] = f_cycle
+
     if trace is not None:
         result.meta["physical_params_input"]  = trace["physical_params_input"]
         result.meta["native_params_resolved"] = trace["native_params_resolved"]
@@ -324,6 +335,43 @@ def run_rms_cv(signal: SignalData, INDICATOR_CONFIG: dict ) -> IndicatorResult:
         result.meta["K_cv_total_units"]         = trace["K_cv_total_units"]
         result.meta["unit_name"]                = trace["unit_name"]
         result.meta["T_unit"]                   = trace["T_unit"]
+        result.meta["N_cycles"]                 = trace["N_win"]
+        result.meta["step_cycles"]              = trace["step"]
+        result.meta["Total_window"] =  result.meta["N_cycles"] + ( result.meta["n_max"] - 1) * result.meta["step_cycles"]
+
+
+
+
+    # ---------- resultado critico ------------------------------------------------
+    if result.t_d is not None and len(result.t_d) > 0:
+        # Chatter detectado -> INFO (igual que SSQ_STFT, dato util siempre visible)
+        logger.info(_section("CHATTER INDICATOR - RMS-CV"))
+        logger.info("  %-24s %s",      "Indicador:",         result.name)
+        logger.info("  %-24s %s",      "Modo config:",       param_mode)
+        logger.info("  %-24s %.3f Hz",   "Frecuency Cycle:", result.meta["f_cycle"])
+        logger.info("  %-24s %d",      "RMS Windows",        result.meta["N_cycles"])
+        logger.info("  %-24s %d",      "CV Windows",             result.meta["n_max"])
+        logger.info("  %-24s %d",      "Total Windows",           result.meta["Total_window"])
+
+        logger.info("  %-24s %.3f",    "Step:",             result.meta["step_cycles"])
+        logger.info("  %-24s %.10f",    "CV Threshold:",         result.meta["cv_threshold_used"])
+
+        logger.info(
+            "  %-24s mu: %.10f, sigma: %.10f",
+            "Training :",
+            result.meta.get("mu_stable", float("nan")),
+            result.meta.get("sigma_stable", float("nan")),
+        ) 
+
+        logger.info("  %-24s %.5f s",  "Primera deteccion:", result.t_d[0])
+        logger.info("  %-24s %.3f s", "Primera Detecion Non Far:",  result.t_d_no_FAR[0])
+        logger.info("  %-24s %d",      "Total detecciones:", len(result.t_d))
+        logger.info("  %-24s %.4f, %.4f ms", "Tiempo I[0], I[1]:", result.t[0]*1000, result.t[1]*1000)
+        logger.info("  %-24s %.4f, %.4f ms", "Hop[0], H[1] ", result.t[1]*1000 - result.t[0]*1000, result.t[2]*1000 - result.t[1]*1000 )
+        # logger.info("  %-24s %.2f %%", "% chatter:",         chatter_pct)
+    else:
+        logger.warning(_section("CHATTER INDICATOR - RMS-CV"))
+        logger.warning("  Indicador: %s  |  Modo: %s", result.name, param_mode)
 
     return result
 
@@ -354,6 +402,7 @@ def rms_cv_pipeline(
     z: float = 3.0,
     alpha: float = 0.05,
     fallback_mad: bool = True,
+    t_theorical: Optional[float] = None,
 
 ) -> IndicatorResult:
     """Run the default RMS-CV chatter detection pipeline on a signal.
@@ -418,7 +467,6 @@ def rms_cv_pipeline(
           intermediate results (RMS values, CV values, window indices, etc.)
           for diagnostics and plotting.
     """
-
     t = signal.t_analysis
     signal_analysis = signal.signal_analysis
     fs = signal.fs
@@ -490,7 +538,12 @@ def rms_cv_pipeline(
 
     mask                = np.where(cv_array > cv_threshold_used)[0]
     chatter_points_time = t_array[mask]
-    chatter_points_cv   = cv_array[mask]
+
+    t_d_no_FAR_idx = np.where(chatter_points_time > t_theorical)[0]
+    t_d_no_FAR = chatter_points_time[t_d_no_FAR_idx] if t_d_no_FAR_idx.size > 0 else np.array([])
+
+    
+
 
     # ======================
     # Package the result
@@ -500,6 +553,7 @@ def rms_cv_pipeline(
         t=results["time"],
         I_t=results["cv"],
         t_d=chatter_points_time,
+        t_d_no_FAR=t_d_no_FAR,
         meta={
             "n" : results["n"],
             "mu" : results["mu"],

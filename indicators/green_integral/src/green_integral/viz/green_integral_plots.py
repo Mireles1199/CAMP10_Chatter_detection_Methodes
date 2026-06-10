@@ -172,10 +172,17 @@ def plots_fixed_window(
     t_d    = result.t_d
     gd     = result.global_data or {}
     thr    = gd.get("area_mu_3sigma") or {}
+    area_threshold_enabled = bool(gd.get("use_area_threshold", False))
 
     # training_intervals: direct param overrides global_data
     if training_intervals is None:
         training_intervals = gd.get("training_intervals")
+    # If training_intervals was not explicitly provided (None), treat it as
+    # "no explicit training" and avoid plotting histograms / Gaussian PDFs
+    # that rely on a user-defined stable training region. This prevents
+    # showing μ±3σ curves when no training intervals were supplied.
+    explicit_training_provided = training_intervals is not None
+
     _all_stable_ranges = [
         (_t0, _t1)
         for _t0, _t1, _lbl in (training_intervals or [])
@@ -187,7 +194,7 @@ def plots_fixed_window(
     if t_gt is not None:
         auto_vlines.append((t_gt, rf"$t_{{gt}}={t_gt:.3f}$ s", "black"))
     if t_d is not None:
-        _td_val = float(t_d)
+        _td_val = float(t_d[0]) if len(t_d) > 0 else float("nan")
         _td_valid = (t_gt is None) or (_td_val > t_gt)
         _td_lbl = rf"$t_d^+={_td_val:.3f}$ s" if _td_valid else rf"$t_d={_td_val:.3f}$ s"
         auto_vlines.append((_td_val, _td_lbl, color_orange))
@@ -269,13 +276,19 @@ def plots_fixed_window(
     ax_c2.set_ylabel("Shoelace area [m·m/s]")
     valid = np.isfinite(areas) & (areas > 0)
     if valid.any():
-        ax_c2.semilogy(t_wins[valid], areas[valid], color=color_azul,
-                       lw=1.0, marker="o", markersize=2, label="$A_k$")
-    if thr:
+        # ax_c2.semilogy(t_wins[valid], areas[valid], color=color_azul,
+        #                lw=1.0, marker="o", markersize=2, label="$A_k$")
+        ax_c2.plot(t_wins[valid], areas[valid], color=color_azul,
+                   lw=1.0, marker="o", markersize=2, label="$A_k$")
+        ax_c2.set_yscale("log")
+    if thr and explicit_training_provided and area_threshold_enabled:
         z_lbl   = f"{thr['z']:.0f}"
         y_upper = 10 ** thr["upper"]
         y_lower = 10 ** thr["lower"]
         y_mu    = 10 ** thr["mu"]
+        # y_upper = thr["upper"]
+        # y_lower = thr["lower"]
+        # y_mu    = thr["mu"]
         ax_c2.axhline(y_upper, color=color_red, ls="--", lw=1.4)
         ax_c2.text(0.99, y_upper,
                    rf"$\mu+{z_lbl}\sigma={thr['upper']:.3g}$",
@@ -330,7 +343,10 @@ def plots_fixed_window(
             stable_mask[:max(3, int(0.30 * N_wins))] = True
     stable_areas = areas[stable_mask]
     valid_sa = np.isfinite(stable_areas) & (stable_areas > 0)
-    if valid_sa.sum() >= 5:
+    # Only show stable-area histogram / Gaussian fit if the user provided
+    # explicit training intervals (otherwise we assume no training-based
+    # thresholding / annotation is desired).
+    if valid_sa.sum() >= 5 and explicit_training_provided and area_threshold_enabled:
         log10_a = np.log10(stable_areas[valid_sa])
         fig_c4, ax_c4 = plt.subplots(figsize=fig_size(scale=3.0), layout='tight')
         ax_c4.set_title(f"C4 — Stable Area Distribution — {name}")

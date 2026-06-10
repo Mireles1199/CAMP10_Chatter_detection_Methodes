@@ -55,5 +55,11 @@ def configure_logging(
     # NOTSET -> hereda del root; permite ver los logger.info_plus() de la libreria
     logging.getLogger("ssq_chatter").setLevel(logging.NOTSET)
 
+def _section(title: str, width: int = 54) -> str:
+    bar = "=" * width
+    return f"\n{bar}\n  {title}\n{bar}"
+
+
+
 
 __all__ = ["configure_logging", "LOGGING_LEVELS"]
