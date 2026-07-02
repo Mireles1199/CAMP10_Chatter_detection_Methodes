@@ -1,5 +1,6 @@
 # Ignorar archivos de simulaciones y datos pesados
 *.hdf5
+*.h5
 **/db/
 **/out/
 **/p/
@@ -12,3 +13,11 @@ MaxEnt_SPRT/MaxEnt_SPRT/docs/technical/
 MaxEnt_SPRT/MaxEnt_SPRT/sphinx_docs/build/
 *.pkl
 *.csv
+TDA/tda_chatter/results/
+TDA/tda_chatter/summary/
+TDA/tda_chatter/plots/
+TDA/tda_chatter
+Convergency_Simulation/1_Detection_Limite_Lobes
+Convergency_Simulation/0_Cinematique
+Convergency_Simulation/2_Sensitivity_Dexels
+Convergency_Simulation/3_Sensitivity_dt

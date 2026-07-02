@@ -33,7 +33,7 @@ def time_series_to_diagram(y):
         if threshold:
             # noise filter (along the diagram diagonal)
             dgm0 = dgm0[dgm0[:, 1]-dgm0[:, 0] > threshold, :]
-        if len(dgm0) > 1:
+        if len(dgm0) >= 1:
             # Remove point at infinite
             dgm0 = dgm0[:-1]
         return dgm0
@@ -48,13 +48,22 @@ def diagram_to_image(dgm):
         pixels = 20
         lifetime = np.concatenate([dgm[:, [0]], np.diff(dgm)], axis=1)
         birth_range = (lifetime.min(), lifetime.max())
-        pixel_size = np.diff(birth_range)[0] / pixels
+        birth_span = np.diff(birth_range)[0]
+        if birth_span == 0:
+            return np.zeros((pixels, pixels))
+        pixel_size = birth_span / pixels
         sigma = np.diff(dgm).std() * pixel_size / 2
-        if sigma == 0:
+        if sigma == 0 or not np.isfinite(sigma):
             sigma = np.eye(2) * (np.diff(dgm).mean() * pixel_size / 2)
-        pimgr = PersistenceImager(birth_range=birth_range, pers_range=birth_range, pixel_size=pixel_size, kernel_params=dict(sigma=sigma))
-        img = pimgr.transform(dgm)
-        img = np.rot90(img)
+        if np.isscalar(sigma) and (sigma == 0 or not np.isfinite(sigma)):
+            return np.zeros((pixels, pixels))
+        try:
+            pimgr = PersistenceImager(birth_range=birth_range, pers_range=birth_range, pixel_size=pixel_size, kernel_params=dict(sigma=sigma))
+            img = pimgr.transform(dgm)
+            img = np.rot90(img)
+        except Exception as e:
+            print(f"Error creating persistence image: {e} pixels={pixels}, birth_range={birth_range}, pixel_size={pixel_size}, sigma={sigma}")
+            img = np.zeros((pixels, pixels))
     else:
         img = np.zeros((20, 20))
     return img
@@ -66,8 +75,9 @@ def plot(t, y, dgm0, img):
     axs['Time Series'].plot(t, y)
     plot_diagrams(dgm0, ax=axs['Persistence Diagram'])
     plot_diagrams(dgm0, ax=axs['Lifetime Diagram'], lifetime=True)
-    axs['Persistence Image'].imshow(img)
+    im = axs['Persistence Image'].imshow(img)
     axs['Persistence Image'].axis('off')
+    plt.colorbar(im, ax=axs['Persistence Image'], fraction=0.046, pad=0.04)
 
 
 def main():

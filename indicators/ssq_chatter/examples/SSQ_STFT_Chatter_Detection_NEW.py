@@ -54,37 +54,68 @@ cono_doe_control_sensor =  (
     r"\3\1DOF_150Hz\sens_out.hdf5"
 )
 
+custome =  (
+    r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
+    r"\2DOF_Cone_DOE\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_200\doe_noise_results.h5"
+)
+
 work_space_5mm   = 'D:/Thesis/03-Code_Storage/02-Altintlas_Nessy2m_Storage/Chatter-Criteria/CAMP8-Ventanna_Glisante/Nessy2m_Case_Test_Explicit/1DOF_150Hz_5mm/1DOF_150Hz/out.hdf5'
 
-dir_path_use = cono_doe_control_sensor
+dir_path_use = custome
+
+# Caso a probar dentro del HDF5.
+# None -> usa las rutas globales Axial_disp/data y Axial_vel/data.
+# Ejemplo: "case_000" -> busca case_000/Axial_disp/data y case_000/Axial_vel/data.
+
+data     = HDF5Reader(dir_path_use)
 
 # disp_path_hdf5 = "tool_dyn/data"
 # vel_path_hdf5  = "tool_dyn_o/data"
 
-disp_path_hdf5 = "Axial_disp/data"
-vel_path_hdf5  = "Axial_vel/data"
-
-data     = HDF5Reader(dir_path_use)
+# disp_path_hdf5 = "Axial_disp/data"
+# vel_path_hdf5  = "Axial_vel/data"
 
 
-tool_dyn     = data.get_element(disp_path_hdf5)
-t            = tool_dyn[:, 0]
-tool_dyn     = tool_dyn[:, 1]
-tool_dyn_vel = data.get_element(vel_path_hdf5)[:, 1]
 
-try:
-    force_N = data.get_element("force_N/data")[:, 1]
-except KeyError:
-    force_N = np.zeros_like(t)
+CASE_NAME = "snr_005.00"
 
-v  = tool_dyn_vel
-fs = 1.0 / (t[1] - t[0])
+
+if CASE_NAME is not None:
+
+
+    case_prefix = f"{CASE_NAME}/" if CASE_NAME else ""
+    disp_path_hdf5 = f"{case_prefix}Axial_disp/values"
+    vel_path_hdf5  = f"{case_prefix}Axial_vel/values"
+    time_path_hdf5 = f"{case_prefix}Axial_disp/time"
+
+    tool_dyn     = data.get_element(disp_path_hdf5)
+    t            = data.get_element(time_path_hdf5)
+    v            = data.get_element(vel_path_hdf5)
+
+else:
+    disp_path_hdf5 = f"Axial_disp/data"
+    vel_path_hdf5  = f"Axial_vel/data"
+
+
+    tool_dyn     = data.get_element(disp_path_hdf5)
+    t            = tool_dyn[:, 0]
+    tool_dyn     = tool_dyn[:, 1]
+    v            = data.get_element(vel_path_hdf5)[:, 1]
+
+    try:
+        force_N = data.get_element("force_N/data")[:, 1]
+    except KeyError:
+        force_N = np.zeros_like(t)
+
+    
+
 
 _CUT_START = 0.1
-
 t_cut, v_cut = _cut_signal(t, v,        (_CUT_START, 16))
 _,     x_cut = _cut_signal(t, tool_dyn, (_CUT_START, 16))
-_,     f_cut = _cut_signal(t, force_N,  (_CUT_START, 16))
+# _,     f_cut = _cut_signal(t, force_N,  (_CUT_START, 16))
+
+fs = 1.0 / (t[1] - t[0])
 # =============================================================================
 # INDICATOR_CONFIG -- cuatro modos de parametrizacion
 #

@@ -47,7 +47,7 @@ def shoelace_closed_area(x, y):
 N_cycles_alpha = 5
 points_par_cycle = 1000
 
-scenario = "spirale"
+scenario = "cercles_compatibles"
 # Options :
 # scenario = "cercles_compatibles"
 # scenario = "spirale"
@@ -84,7 +84,7 @@ mode_coupure_alpha = "per_cycle_offset"
 # Si mode_coupure_alpha == "per_cycle_offset", cette liste donne
 # la phase de coupure de chaque cycle (en degrés).
 # Elle est répétée / tronquée si besoin.
-phases_coupure_alpha_grados = [0, 45, 30, 87, 45]
+phases_coupure_alpha_grados = [0, 0, 0, 0, 0]
 
 
 # ============================================================
@@ -188,17 +188,17 @@ print("==================================================")
 print("DIAGNOSTIC CYCLE CUTS")
 print("==================================================")
 print(f"Mode de coupure alpha : {mode_coupure_alpha}")
-print(f"Phase de référence (aligned_v0) : {fase_corte_alpha_grados}°")
-print(f"Phases par cycle (per_cycle_offset) : {phases_coupure_alpha_grados}")
-print(f"Nombre de coups détectées : {len(theta_coupures)}")
+print(f"Phase de référence (aligned_v0) : {fase_corte_alpha_grados:.3e}°")
+print(f"Phases par cycle (per_cycle_offset) : {[f'{p:.3e}' for p in phases_coupure_alpha_grados]}")
+print(f"Nombre de coups détectées : {len(theta_coupures):.3e}")
 print("theta_coupures (rad) :")
 for i, th in enumerate(theta_coupures, start=1):
-    print(f"  {i:>2d}: {th:.6f}")
+    print(f"  {i:>2d}: {th:.6e}")
 print("indices_coupures :")
 print(" ", indices_coupures)
 print("theta_coupures (deg) :")
 for i, th in enumerate(theta_coupures, start=1):
-    print(f"  {i:>2d}: {np.rad2deg(th):.3f}°")
+    print(f"  {i:>2d}: {np.rad2deg(th):.6e}°")
 print("==================================================")
 
 
@@ -729,14 +729,14 @@ print("==================================================")
 print("RÉSULTATS")
 print("==================================================")
 print(f"Scénario : {scenario}")
-print(f"Cycles alpha complets demandés : {N_cycles_alpha}")
-print(f"Points par cycle : {points_par_cycle}")
-print(f"Début bêta en degrés : {fase_inicio_beta_grados}")
-print(f"Fin bêta en degrés : {fase_final_beta_grados}")
-print(f"Phase de coupure alpha en degrés : {fase_corte_alpha_grados}")
-print(f"Nombre de coupures trouvées : {len(indices_coupures)}")
-print(f"Nombre d'alphas complets : {len(alphas)}")
-print(f"Nombre de résidus : {len(residus)}")
+print(f"Cycles alpha complets demandés : {N_cycles_alpha:.3e}")
+print(f"Points par cycle : {points_par_cycle:.3e}")
+print(f"Début bêta en degrés : {fase_inicio_beta_grados:.3e}")
+print(f"Fin bêta en degrés : {fase_final_beta_grados:.3e}")
+print(f"Phase de coupure alpha en degrés : {fase_corte_alpha_grados:.3e}")
+print(f"Nombre de coupures trouvées : {len(indices_coupures):.3e}")
+print(f"Nombre d'alphas complets : {len(alphas):.3e}")
+print(f"Nombre de résidus : {len(residus):.3e}")
 print("--------------------------------------------------")
 print("RECONSTRUCTION DE LA TRAJECTOIRE")
 print("--------------------------------------------------")
@@ -746,34 +746,34 @@ print("Interprétation : résidus + alpha reconstruisent bêta comme trajectoire
 print("--------------------------------------------------")
 print("CONTRIBUTIONS OUVERTES")
 print("--------------------------------------------------")
-print(f"C_beta ouverte :                  {C_beta:.10f}")
-print(f"Somme C_alpha ouvertes :          {C_alpha_sum:.10f}")
-print(f"Somme C_résidus ouvertes :        {C_residus_sum:.10f}")
-print(f"Somme C_partition complète :      {C_partition_sum:.10f}")
-print(f"C_beta - C_partition :            {difference_ouverte_partition:.10e}")
+print(f"C_beta ouverte :                  {C_beta:.6e}")
+print(f"Somme C_alpha ouvertes :          {C_alpha_sum:.6e}")
+print(f"Somme C_résidus ouvertes :        {C_residus_sum:.6e}")
+print(f"Somme C_partition complète :      {C_partition_sum:.6e}")
+print(f"C_beta - C_partition :            {difference_ouverte_partition:.6e}")
 print("--------------------------------------------------")
 print("AIRES FERMÉES")
 print("--------------------------------------------------")
-print(f"A_beta fermée globale :           {A_beta:.10f}")
-print(f"Somme A_alpha fermées :           {A_alpha_sum:.10f}")
-print(f"Somme A_résidus fermés :          {A_residus_sum:.10f}")
-print(f"Somme A_partition fermée locale : {A_partition_closed_sum:.10f}")
-print(f"A_beta - Somme A_alpha :          {difference_fermee_alpha_only:.10f}")
-print(f"A_beta - Somme A_partition :      {difference_fermee_partition:.10f}")
+print(f"A_beta fermée globale :           {A_beta:.6e}")
+print(f"Somme A_alpha fermées :           {A_alpha_sum:.6e}")
+print(f"Somme A_résidus fermés :          {A_residus_sum:.6e}")
+print(f"Somme A_partition fermée locale : {A_partition_closed_sum:.6e}")
+print(f"A_beta - Somme A_alpha :          {difference_fermee_alpha_only:.6e}")
+print(f"A_beta - Somme A_partition :      {difference_fermee_partition:.6e}")
 print("--------------------------------------------------")
 print("CONTRIBUTIONS DES FERMETURES")
 print("--------------------------------------------------")
-print(f"K_beta fermeture globale :        {K_beta:.10f}")
-print(f"Somme K_alpha fermetures :        {K_alpha_sum:.10f}")
-print(f"Somme K_résidus fermetures :      {K_residus_sum:.10f}")
-print(f"Somme K_partition fermetures :    {K_partition_sum:.10f}")
-print(f"K_beta - K_partition :            {difference_fermetures_partition:.10f}")
+print(f"K_beta fermeture globale :        {K_beta:.6e}")
+print(f"Somme K_alpha fermetures :        {K_alpha_sum:.6e}")
+print(f"Somme K_résidus fermetures :      {K_residus_sum:.6e}")
+print(f"Somme K_partition fermetures :    {K_partition_sum:.6e}")
+print(f"K_beta - K_partition :            {difference_fermetures_partition:.6e}")
 print("--------------------------------------------------")
 print("VÉRIFICATION CLÉ")
 print("--------------------------------------------------")
 print(
     "Différence fermée partition - différence fermetures : "
-    f"{difference_fermee_partition - difference_fermetures_partition:.10e}"
+    f"{difference_fermee_partition - difference_fermetures_partition:.6e}"
 )
 print("==================================================")
 print("INTERPRÉTATION")

@@ -69,6 +69,8 @@ _GREEN_PASS_THROUGH: frozenset = frozenset({
     # FixedWindow extras
     "lambda_ewma", "accumulate", "G_memory", "sigma_method", "sigma_local_n",
     "area_noise_eps"," z_sigma",
+    "use_beta_from_cycles", "use_zero_crossing_cycles", "zc_detrend", "v_cycle_mode",
+    "cycle_area_norm", "center_win"
 })
 
 # ── Keys specific to the physical resolver (never forwarded to config) ────────
@@ -270,6 +272,7 @@ def run_green_std(
         else:
             # I_t = σ̂_ewma (exponente de Lyapunov; positivo → chatter)
             I_t_out = np.asarray(raw_result.sigma_ewma, dtype=float)
+            
         t_d = raw_result.t_d
         t_d_no_FAR = raw_result.t_d_no_FAR
 

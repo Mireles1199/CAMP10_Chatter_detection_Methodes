@@ -187,8 +187,55 @@ class FixedWindowConfig:
     stable_time: Optional[Tuple[float, float]] = None
     z_sigma: float = 3.0
 
+    # --- cycle extraction ---
+    use_zero_crossing_cycles: bool = True
+    """Extract complete cycles via v=0 zero-crossings (auto-debounce).
+    When False, divide each window into sub-cycles of length T_modal
+    using f_modal + num_T (no frequency input needed at call site)."""
+    use_beta_from_cycles: bool = True
+    """Define β as the union of complete cycles (True) or the full window (False).
+    Has no effect when use_zero_crossing_cycles is False."""
+    zc_detrend: bool = True
+    """Remove a linear trend from v_win before detecting v=0 crossings
+    (polyfit degree 1). Has no effect when False."""
+    v_cycle_mode: str = "zero"
+    """Controls how v values are stored in the returned cycle arrays.
+    Only relevant when zc_detrend is True.
+
+    "zero"      → Opción 1: endpoints hardcoded to 0.0; interior = v_win original.
+                  Equivalent to the pre-detrend behaviour. K contribution = 0.
+    "original"  → Opción 2: endpoints = v_win interpolated (v ≠ 0 when DC offset);
+                  interior = v_win. Trayectoria continua; K contribution ≈ offset×Δq.
+    "detrended" → Opción 3: endpoints = v_detrended ≈ 0; interior = v_detrended.
+                  Ciclo cierra exactamente en v=0; K contribution = 0.
+    Has no effect when zc_detrend is False (always behaves as "zero")."""
+
+    # --- area normalization ---
+    cycle_area_norm: str = "none"
+    """Normalize the per-window area by the number of complete cycles.
+    Only applied when use_zero_crossing_cycles is True and cycles were found.
+
+    "none"   → A_beta as-is (sum over all cycles). More cycles → larger area.
+    "mean"   → A_beta / N_cycles  (mean area per cycle).
+    "median" → median of individual cycle areas {A_1, ..., A_N}.
+                More robust to partial/atypical cycles at window edges.
+    """
+
+    # --- phase-space diagnostics (debug only) ---
+    center_win: int = 0
+    """Half-width [samples] of the smoothing window used to estimate the slow
+    centre (cx, cv) of the phase-space trajectory inside each debug window.
+    0  → global mean of the window (default, fast, no scipy needed).
+    >0 → moving average of width 2*center_win+1 (uses scipy if available).
+    Only used when debug_level >= 2 to generate the centred portrait and
+    local-phase (phi, dphi) diagnostic plots."""
+
     # --- debug ---
     debug_level: int = 0
+    debug_window_range: Tuple[float, Optional[float]] = (0.0, None)
+    """(t_start, t_end) time range [s] for debug plots.
+    Windows whose start time t_win[0] falls in [t_start, t_end) are shown.
+    t_end=None → no upper limit.  Only active when debug_level >= 2."""
 
     t_theorical: Optional[float] = None  # for debug/plots, not used in detection
 
@@ -217,6 +264,8 @@ class FixedWindowResult:
     """
     t_wins: np.ndarray
     areas: np.ndarray
+    trayectory_C: np.ndarray
+    trayectory_K: np.ndarray
     sigma: np.ndarray
     sigma_ewma: np.ndarray
     G_hat: np.ndarray

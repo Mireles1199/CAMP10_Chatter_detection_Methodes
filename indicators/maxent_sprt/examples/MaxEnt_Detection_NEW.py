@@ -55,9 +55,16 @@ cono_doe_control_sensor =  (
 )
 
 
+custome =  (
+    r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
+    r"\2DOF_Cone_DOE\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_200"
+    r"\0\1DOF_150Hz\sens_out.hdf5"
+)
+
+
 
 dir_custome     = r"D:\\Thesis\\03-Code_Storage\\02-Altintlas_Nessy2m_Storage\\2DOF_Cone_DOE\\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_180\\12\\1DOF_150Hz\\sens_out.hdf5"
-data_dir = cono_doe_control_sensor
+data_dir = custome
 
 # data_dir = os.path.abspath(os.path.join(dir_path_use, "out.hdf5"))
 data     = HDF5Reader(data_dir)
@@ -65,21 +72,41 @@ data     = HDF5Reader(data_dir)
 # disp_path_hdf5 = "tool_dyn/data"
 # vel_path_hdf5  = "tool_dyn_o/data"
 
-disp_path_hdf5 = "Axial_disp/data"
-vel_path_hdf5  = "Axial_vel/data"
+# disp_path_hdf5 = "Axial_disp/data"
+# vel_path_hdf5  = "Axial_vel/data"
 
 
-tool_dyn     = data.get_element(disp_path_hdf5)
-t            = tool_dyn[:, 0]
-tool_dyn     = tool_dyn[:, 1]
-tool_dyn_vel = data.get_element(vel_path_hdf5)[:, 1]
 
-try:
-    force_N = data.get_element("force_N/data")[:, 1]
-except KeyError:
-    force_N = np.zeros_like(t)
+CASE_NAME = None
 
-v  = tool_dyn_vel
+if CASE_NAME is not None:
+
+
+    case_prefix = f"{CASE_NAME}/" if CASE_NAME else ""
+    disp_path_hdf5 = f"{case_prefix}Axial_disp/values"
+    vel_path_hdf5  = f"{case_prefix}Axial_vel/values"
+    time_path_hdf5 = f"{case_prefix}Axial_disp/time"
+
+    tool_dyn     = data.get_element(disp_path_hdf5)
+    t            = data.get_element(time_path_hdf5)
+    v            = data.get_element(vel_path_hdf5)
+
+else:
+    disp_path_hdf5 = f"Axial_disp/data"
+    vel_path_hdf5  = f"Axial_vel/data"
+
+
+    tool_dyn     = data.get_element(disp_path_hdf5)
+    t            = tool_dyn[:, 0]
+    tool_dyn     = tool_dyn[:, 1]
+    v            = data.get_element(vel_path_hdf5)[:, 1]
+
+    try:
+        force_N = data.get_element("force_N/data")[:, 1]
+    except KeyError:
+        force_N = np.zeros_like(t)
+
+    
 fs = 1.0 / (t[1] - t[0])
 
 _CUT_START = 0.0

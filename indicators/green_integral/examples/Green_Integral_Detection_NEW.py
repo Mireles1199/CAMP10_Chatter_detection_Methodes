@@ -103,7 +103,7 @@ _CASES = {
         "signal_source": {"disp_path": "Axial_disp/data", "vel_path": "Axial_vel/data"},
 
         "name":               "cono",
-        "t_range":            (0.0, 16.0),
+        "t_range":            (0.05,16.0),
         "t_gt":               _T_GT,
         "f_modal":            _F_MODAL,  # 150 Hz
         "T_REV":              _T_REV,  # example value, adjust as needed
@@ -111,7 +111,7 @@ _CASES = {
         "num_T":              4,
         "use_area_threshold": True,
         "training_intervals": [
-            (2.0, _T_GT, "stable_1"),
+            (0.05, _T_GT, "stable_1"),
             # (3.3,  4.46,    "stable_2"),   # tighter stable sub-band
             # (_T_GT, 10, "stable_1"),
         ],
@@ -141,7 +141,7 @@ _CASES = {
         "f_modal":            _F_MODAL,
         "T_REV":              _T_REV,      # example value, adjust as needed
         "F_REV":              _F_REV,      # example value, adjust as needed
-        "num_T":              1,
+        "num_T":              4,
         "use_area_threshold": False,
 
     },
@@ -154,7 +154,7 @@ _CASES = {
         # signal_source para sens_out.hdf5:
         "signal_source": {"disp_path": "Axial_disp/data", "vel_path": "Axial_vel/data"},
         "name":               "custom",
-        "t_range":            (0.00, 16.0),    # adjust
+        "t_range":            (0.05, 16.0),    # adjust
         "t_gt":               _T_GT,           # set if known
         "f_modal":            _F_MODAL,          # adjust based on modal analysis  
         "T_REV":              _T_REV,       # example value, adjust as needed
@@ -254,7 +254,7 @@ config_std = {
         "z_sigma":              3.0,
         # --- debug ---
         "debug_level":          2,
-        "debug_window_range":   (10, 15),
+        "debug_window_range":   (8, 15),
         "save_figures_windows": False,
         "work_space":           None,
     },
@@ -266,23 +266,30 @@ config_std_fixed = {
     "param_mode": "by_revolution",
     "params_physical": {
         "f_modal":          _F_MODAL,  # Hz — filtro bandpass y ciclo modal
-        "f_cycle":          _F_MODAL,  # Hz — ventana por periodo modal
+        "f_cycle":          _F_REV,  # Hz — ventana por periodo modal
         # "f_cycle":        1.0/_T_REV, # ← si quieres ventana por revolución
         "N_cycles_per_seg": _NUM_T,    # ciclos por ventana
         "step_cycles":      1.0,       # step = 1 ciclo
         "data_filtrated":       True,
         "lambda_ewma":          None, # EWMA para suavizar σ̂ entre ventanas (0 = no suavizado, 1 = suavizado total)
-        "accumulate":           True, # acumula áreas de ventanas anteriores para detección (similar a integral acumulada)
-        "G_memory":             _T_REV*50, #
+        "accumulate":           False, # acumula áreas de ventanas anteriores para detección (similar a integral acumulada)
+        "G_memory":             _T_REV*10, #
         "sigma_method":         "ratio", # frozen_time or ratio
-        "sigma_local_n":        5,
+        "sigma_local_n":        10,
         "area_noise_eps":       1e-30,
         "use_area_threshold":   _USE_THR, 
         "training_intervals":   _TRAIN_IV,
         "z_sigma":              3.0,
         "debug_level":          1,
-        "debug_window_range":   (10, 15),
+        "debug_window_range":   (3.92, 16),
         "t_theorical":         _T_GT,  # para plots, no afecta la detección
+
+        "use_zero_crossing_cycles": True, # alpha cycles
+        "use_beta_from_cycles": False, # Creat beta from alpha cycles
+        "zc_detrend": True,
+        "v_cycle_mode": "zero",  # "zero - 1" | "original - dentrend for v=0 , poyecion a Trayectoria Original" | 
+                                #  "detrended - detren for v=0 , trayectoria detrend"
+        "cycle_area_norm": "none",  # "none" | "mean" | "median"
     },
 }
 

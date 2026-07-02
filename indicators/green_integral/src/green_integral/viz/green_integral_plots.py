@@ -62,6 +62,34 @@ def configurar_estilo_global() -> None:
 configurar_estilo_global()
 
 
+def _add_hline_label(ax, y_data, text, **kwargs):
+    """Add a text label next to an axhline that auto-hides when y is out of view."""
+    txt = ax.text(0.99, y_data, text, transform=ax.get_yaxis_transform(), **kwargs)
+
+    def _update(ax_ref):
+        ylo, yhi = ax_ref.get_ylim()
+        txt.set_visible(ylo <= y_data <= yhi)
+
+    ax.callbacks.connect('ylim_changed', _update)
+    _update(ax)
+    return txt
+
+
+def _add_vline_label(ax, x_data, text, y_frac=0.97, **kwargs):
+    """Add a rotated text label next to an axvline that auto-hides when x is out of view."""
+    txt = ax.text(x_data, y_frac, f"  {text}",
+                  rotation=90, va='top', ha='right',
+                  transform=ax.get_xaxis_transform(), **kwargs)
+
+    def _update(ax_ref):
+        xlo, xhi = ax_ref.get_xlim()
+        txt.set_visible(xlo <= x_data <= xhi)
+
+    ax.callbacks.connect('xlim_changed', _update)
+    _update(ax)
+    return txt
+
+
 def _draw_vlines(ax, vlines, default_color="black", default_ls="--"):
     """Draw vertical lines with optional rotated text labels.
 
@@ -78,15 +106,11 @@ def _draw_vlines(ax, vlines, default_color="black", default_ls="--"):
         elif len(entry) == 2:
             x, label = entry
             ax.axvline(x, color=default_color, ls=default_ls, lw=1.2)
-            ax.text(x, 0.97, f"  {label}",
-                    rotation=90, va="top", ha="right", fontsize=16,
-                    color=default_color, transform=ax.get_xaxis_transform())
+            _add_vline_label(ax, x, label, fontsize=16, color=default_color)
         else:
             x, label, col = entry[0], entry[1], entry[2]
             ax.axvline(x, color=col, ls=default_ls, lw=1.2)
-            ax.text(x, 0.97, f"  {label}",
-                    rotation=90, va="top", ha="right", fontsize=16,
-                    color=col, transform=ax.get_xaxis_transform())
+            _add_vline_label(ax, x, label, fontsize=16, color=col)
 
 
 def plots_green_integral(
@@ -167,6 +191,8 @@ def plots_fixed_window(
     name   = signal.name or ""
     t_wins = np.asarray(result.t_wins)
     areas  = np.asarray(result.areas)
+    trayectory_C = np.asarray(result.trayectory_C)
+    trayectory_K = np.asarray(result.trayectory_K)
     sigma  = np.asarray(result.sigma)
     s_ewma = np.asarray(result.sigma_ewma)
     t_d    = result.t_d
@@ -270,11 +296,11 @@ def plots_fixed_window(
         # constrained_layout handles spacing for 2-subplot figure
 
     # ── C2: Areas per window ──────────────────────────────────────────────
-    fig_c2, ax_c2 = plt.subplots(figsize=fig_size(scale=3.0), layout='tight')
+    fig_c2, ax_c2 = plt.subplots(figsize=fig_size(scale=3.0))
     ax_c2.set_title(f"C2 — Areas per Window — {name}")
     ax_c2.set_xlabel("Time [s]")
     ax_c2.set_ylabel("Shoelace area [m·m/s]")
-    valid = np.isfinite(areas) & (areas > 0)
+    valid = np.isfinite(areas)
     if valid.any():
         # ax_c2.semilogy(t_wins[valid], areas[valid], color=color_azul,
         #                lw=1.0, marker="o", markersize=2, label="$A_k$")
@@ -290,21 +316,58 @@ def plots_fixed_window(
         # y_lower = thr["lower"]
         # y_mu    = thr["mu"]
         ax_c2.axhline(y_upper, color=color_red, ls="--", lw=1.4)
-        ax_c2.text(0.99, y_upper,
-                   rf"$\mu+{z_lbl}\sigma={thr['upper']:.3g}$",
-                   transform=ax_c2.get_yaxis_transform(),
-                   color=color_red, ha='right', va='bottom', fontsize=16)
+        _add_hline_label(ax_c2, y_upper, rf"$\mu+{z_lbl}\sigma={thr['upper']:.3g}$",
+                         color=color_red, ha='right', va='bottom', fontsize=16)
         ax_c2.axhline(y_lower, color=color_red, ls=":", lw=1.2)
-        ax_c2.text(0.99, y_lower,
-                   rf"$\mu-{z_lbl}\sigma={thr['lower']:.3g}$",
-                   transform=ax_c2.get_yaxis_transform(),
-                   color=color_red, ha='right', va='top', fontsize=16)
+        _add_hline_label(ax_c2, y_lower, rf"$\mu-{z_lbl}\sigma={thr['lower']:.3g}$",
+                         color=color_red, ha='right', va='top', fontsize=16)
         ax_c2.axhline(y_mu, color=color_verde, ls="-", lw=1.0)
-        ax_c2.text(0.99, y_mu, rf"$\mu={thr['mu']:.3g}$",
-                   transform=ax_c2.get_yaxis_transform(),
-                   color=color_verde, ha='right', va='bottom', fontsize=16)
+        _add_hline_label(ax_c2, y_mu, rf"$\mu={thr['mu']:.3g}$",
+                         color=color_verde, ha='right', va='bottom', fontsize=16)
     _draw_vlines(ax_c2, auto_vlines)
     ax_c2.legend()
+
+    # ── C2-b: Trajectory per window ──────────────────────────────────────────────
+    fig_c2b, ax_c2b = plt.subplots(figsize=fig_size(scale=3.0))
+    ax_c2b.set_title(f"C2-b — Trajectory per Window — {name}")
+    ax_c2b.set_xlabel("Time [s]")
+    ax_c2b.set_ylabel("Shoelace area [m·m/s]")
+    valid = np.isfinite(trayectory_C)
+    trayectory_K = abs(trayectory_K)
+
+    area_c_k = trayectory_C + trayectory_K
+    if valid.any():
+        # ax_c2.semilogy(t_wins[valid], areas[valid], color=color_azul,
+        #                lw=1.0, marker="o", markersize=2, label="$A_k$")
+        ax_c2b.plot(t_wins[valid], trayectory_C[valid], color=color_azul,
+                   lw=1.0, marker="o", markersize=2, label="$C_k$")
+        ax_c2b.plot(t_wins[valid], trayectory_K[valid], color=color_orange,
+                   lw=1.0, marker="o", markersize=2, label="$K_k$")
+        ax_c2b.plot(t_wins[valid], areas[valid], color=color_verde,
+                   lw=1.0, marker="o", markersize=2, label="$A_k$")
+        ax_c2b.plot(t_wins[valid], area_c_k[valid], color=color_purple,
+                   lw=1.0, marker="o", markersize=2, label="$C_k+K_k$") 
+        ax_c2b.set_yscale("linear")
+    if thr and explicit_training_provided and area_threshold_enabled:
+        z_lbl   = f"{thr['z']:.0f}"
+        y_upper = 10 ** thr["upper"]
+        y_lower = 10 ** thr["lower"]
+        y_mu    = 10 ** thr["mu"]
+        # y_upper = thr["upper"]
+        # y_lower = thr["lower"]
+        # y_mu    = thr["mu"]
+        ax_c2b.axhline(y_upper, color=color_red, ls="--", lw=1.4)
+        _add_hline_label(ax_c2b, y_upper, rf"$\mu+{z_lbl}\sigma={thr['upper']:.3g}$",
+                         color=color_red, ha='right', va='bottom', fontsize=16)
+        ax_c2b.axhline(y_lower, color=color_red, ls=":", lw=1.2)
+        _add_hline_label(ax_c2b, y_lower, rf"$\mu-{z_lbl}\sigma={thr['lower']:.3g}$",
+                         color=color_red, ha='right', va='top', fontsize=16)
+        ax_c2b.axhline(y_mu, color=color_verde, ls="-", lw=1.0)
+        _add_hline_label(ax_c2b, y_mu, rf"$\mu={thr['mu']:.3g}$",
+                         color=color_verde, ha='right', va='bottom', fontsize=16)
+    _draw_vlines(ax_c2b, auto_vlines)
+    ax_c2b.legend()
+
 
     # ── C3: Lyapunov exponent σ̂ ──────────────────────────────────────────
     fig_c3, ax_c3 = plt.subplots(figsize=fig_size(scale=3.0), layout='tight')
@@ -361,10 +424,7 @@ def plots_fixed_window(
             ax_c4.plot(xs, _scipy_norm.pdf(xs, mu_h, std_h),
                        color=color_azul, lw=1.8, ls="-")
             ax_c4.axvline(mu_h, color=color_verde, ls="-", lw=1.4)
-            ax_c4.text(mu_h, 0.97, rf"  $\mu={mu_h:.3g}$",
-                       rotation=90, va="top", ha="right", fontsize=14,
-                       color=color_verde,
-                       transform=ax_c4.get_xaxis_transform())
+            _add_vline_label(ax_c4, mu_h, rf"$\mu={mu_h:.3g}$", fontsize=14, color=color_verde)
             if thr and thr.get("upper", 0) > 0 and thr.get("lower", 0) > 0:
                 lo3   = np.log10(float(thr["lower"]))
                 hi3   = np.log10(float(thr["upper"]))
@@ -372,13 +432,9 @@ def plots_fixed_window(
             else:
                 lo3, hi3, z_lbl = mu_h - 3 * std_h, mu_h + 3 * std_h, "3"
             ax_c4.axvline(hi3, color=color_red, ls="--", lw=1.4)
-            ax_c4.text(hi3, 0.97, rf"  $\mu+{z_lbl}\sigma={hi3:.3g}$",
-                       rotation=90, va="top", ha="right", fontsize=14,
-                       color=color_red, transform=ax_c4.get_xaxis_transform())
+            _add_vline_label(ax_c4, hi3, rf"$\mu+{z_lbl}\sigma={hi3:.3g}$", fontsize=14, color=color_red)
             ax_c4.axvline(lo3, color=color_red, ls=":", lw=1.2)
-            ax_c4.text(lo3, 0.97, rf"  $\mu-{z_lbl}\sigma={lo3:.3g}$",
-                       rotation=90, va="top", ha="right", fontsize=14,
-                       color=color_red, transform=ax_c4.get_xaxis_transform())
+            _add_vline_label(ax_c4, lo3, rf"$\mu-{z_lbl}\sigma={lo3:.3g}$", fontsize=14, color=color_red)
         ax_c4.legend()
         ax_c4.grid(False)
 
@@ -446,9 +502,8 @@ def plots_fixed_window(
                 if std_h > 0:
                     _hi3_d1b = mu_h + 3 * std_h
                     ax_d1b.axhline(_hi3_d1b, color=color_red, ls="--", lw=1.4)
-                    ax_d1b.text(0.99, _hi3_d1b, rf"  $\mu+3\sigma={_hi3_d1b:.3g}$",
-                                transform=ax_d1b.get_yaxis_transform(),
-                                color=color_red, ha='right', va='bottom', fontsize=14)
+                    _add_hline_label(ax_d1b, _hi3_d1b, rf"$\mu+3\sigma={_hi3_d1b:.3g}$",
+                                     color=color_red, ha='right', va='bottom', fontsize=14)
                 ax_d1b.legend()
 
         # D4b — one figure per stable label histogram  [MaxEnt F4b analog]
@@ -490,19 +545,13 @@ def plots_fixed_window(
                             color=color_verde, lw=1.8,
                             label=rf"PDF  $\mu$={mu_h:.3g}, $\sigma$={std_h:.3g}")
                 ax_d4b.axvline(mu_h, color=color_verde, ls="-", lw=1.4)
-                ax_d4b.text(mu_h, 0.97, rf"  $\mu={mu_h:.3g}$",
-                            rotation=90, va="top", ha="right", fontsize=14,
-                            color=color_verde, transform=ax_d4b.get_xaxis_transform())
+                _add_vline_label(ax_d4b, mu_h, rf"$\mu={mu_h:.3g}$", fontsize=14, color=color_verde)
                 ax_d4b.axvline(mu_h + 3 * std_h, color=color_red, ls="--", lw=1.4)
-                ax_d4b.text(mu_h + 3 * std_h, 0.97,
-                            rf"  $\mu+3\sigma={mu_h + 3 * std_h:.3g}$",
-                            rotation=90, va="top", ha="right", fontsize=14,
-                            color=color_red, transform=ax_d4b.get_xaxis_transform())
+                _add_vline_label(ax_d4b, mu_h + 3 * std_h, rf"$\mu+3\sigma={mu_h + 3 * std_h:.3g}$",
+                                 fontsize=14, color=color_red)
                 ax_d4b.axvline(mu_h - 3 * std_h, color=color_red, ls=":", lw=1.2)
-                ax_d4b.text(mu_h - 3 * std_h, 0.97,
-                            rf"  $\mu-3\sigma={mu_h - 3 * std_h:.3g}$",
-                            rotation=90, va="top", ha="right", fontsize=14,
-                            color=color_red, transform=ax_d4b.get_xaxis_transform())
+                _add_vline_label(ax_d4b, mu_h - 3 * std_h, rf"$\mu-3\sigma={mu_h - 3 * std_h:.3g}$",
+                                 fontsize=14, color=color_red)
                 ax_d4b.legend()
                 ax_d4b.grid(False)
 
