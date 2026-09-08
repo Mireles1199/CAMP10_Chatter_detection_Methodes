@@ -2,6 +2,7 @@ LICENCE.txt
 README.md
 pyproject.toml
 src/ssq_chatter/__init__.py
+src/ssq_chatter/logging_setup.py
 src/ssq_chatter/ruido.py
 src/ssq_chatter.egg-info/PKG-INFO
 src/ssq_chatter.egg-info/SOURCES.txt

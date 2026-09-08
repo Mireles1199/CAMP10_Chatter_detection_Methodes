@@ -10,8 +10,10 @@ src/green_integral.egg-info/top_level.txt
 src/green_integral/lib/__init__.py
 src/green_integral/lib/cycle_groups.py
 src/green_integral/lib/delta_n.py
+src/green_integral/lib/diagnostics.py
 src/green_integral/lib/runner.py
 src/green_integral/lib/runner_fixed.py
+src/green_integral/lib/runner_std.py
 src/green_integral/lib/window_processor.py
 src/green_integral/utils/__init__.py
 src/green_integral/utils/contour_area.py

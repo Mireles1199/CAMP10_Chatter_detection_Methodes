@@ -1,0 +1,2420 @@
+\documentclass[
+    11pt,
+    a4paper
+]{article}
+
+% =========================================================
+% IDIOMA, CODIFICACIÓN Y TIPOGRAFÍA
+% =========================================================
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{csquotes}
+\usepackage[french]{babel}
+\usepackage{lmodern}
+\usepackage{microtype}
+
+% =========================================================
+% GEOMETRÍA DE LA PÁGINA
+% =========================================================
+
+\usepackage[
+    top=2.5cm,
+    bottom=2.5cm,
+    left=2.8cm,
+    right=2.8cm
+]{geometry}
+
+% =========================================================
+% MATEMÁTICAS
+% =========================================================
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsfonts}
+\usepackage{mathtools}
+\usepackage{bm}
+
+% =========================================================
+% UNIDADES Y NOTACIÓN CIENTÍFICA
+% =========================================================
+
+\usepackage{siunitx}
+
+\sisetup{
+    output-decimal-marker={,},
+    separate-uncertainty=true,
+    per-mode=symbol
+}
+
+% =========================================================
+% FIGURAS
+% =========================================================
+
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{subcaption}
+\usepackage{placeins}
+
+% Carpeta en la que se almacenarán las figuras
+\graphicspath{{figures/}}
+
+% =========================================================
+% TABLAS
+% =========================================================
+
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{longtable}
+
+% =========================================================
+% COLORES
+% =========================================================
+
+\usepackage{xcolor}
+
+\definecolor{linkcolor}{RGB}{0,70,140}
+\definecolor{citecolor}{RGB}{0,100,70}
+\definecolor{urlcolor}{RGB}{120,40,120}
+
+% =========================================================
+% CÓDIGO
+% =========================================================
+
+\usepackage{listings}
+
+\lstdefinestyle{pythonstyle}{
+    language=Python,
+    basicstyle=\ttfamily\small,
+    numbers=left,
+    numberstyle=\tiny,
+    stepnumber=1,
+    numbersep=8pt,
+    frame=single,
+    breaklines=true,
+    showstringspaces=false,
+    tabsize=4,
+    captionpos=b
+}
+
+\lstset{style=pythonstyle}
+
+% =========================================================
+% HIPERVÍNCULOS Y REFERENCIAS CRUZADAS
+% =========================================================
+
+\usepackage[
+    colorlinks=true,
+    linkcolor=linkcolor,
+    citecolor=citecolor,
+    urlcolor=urlcolor,
+    bookmarksopen=true,
+    bookmarksnumbered=true
+]{hyperref}
+
+\usepackage[nameinlink, noabbrev]{cleveref}
+
+% Nombres utilizados por cleveref
+\crefname{equation}{ecuación}{ecuaciones}
+\Crefname{equation}{Ecuación}{Ecuaciones}
+
+\crefname{figure}{figura}{figuras}
+\Crefname{figure}{Figura}{Figuras}
+
+\crefname{table}{tabla}{tablas}
+\Crefname{table}{Tabla}{Tablas}
+
+\crefname{section}{sección}{secciones}
+\Crefname{section}{Sección}{Secciones}
+
+\crefname{subsection}{subsección}{subsecciones}
+\Crefname{subsection}{Subsección}{Subsecciones}
+
+% =========================================================
+% ENCABEZADOS Y PIES DE PÁGINA
+% =========================================================
+
+\usepackage{fancyhdr}
+
+\pagestyle{fancy}
+\fancyhf{}
+
+\fancyhead[L]{Demostración del efecto del tamaño de dexel}
+\fancyhead[R]{\thepage}
+\setlength{\headheight}{13.6pt}
+
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\footrulewidth}{0pt}
+
+% =========================================================
+% FORMATO DE TÍTULOS
+% =========================================================
+
+\usepackage{titlesec}
+
+\titleformat{\section}
+    {\Large\bfseries}
+    {\thesection.}
+    {0.5em}
+    {}
+
+\titleformat{\subsection}
+    {\large\bfseries}
+    {\thesubsection.}
+    {0.5em}
+    {}
+
+% =========================================================
+% ESPACIADO
+% =========================================================
+
+\usepackage{setspace}
+
+\setstretch{1.15}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.6em}
+
+% =========================================================
+% BIBLIOGRAFÍA
+% =========================================================
+
+\usepackage[
+    backend=biber,
+    style=numeric,
+    sorting=none
+]{biblatex}
+
+\addbibresource{references.bib}
+
+% =========================================================
+% COMANDOS PERSONALIZADOS
+% =========================================================
+
+\newcommand{\ap}{a_p}
+\newcommand{\Aref}{A_{\mathrm{ref}}}
+\newcommand{\dtlag}{\Delta t}
+\newcommand{\dxl}{h_d}
+\newcommand{\RMS}{\operatorname{RMS}}
+\newcommand{\Real}{\operatorname{Re}}
+
+% =========================================================
+% INFORMACIÓN DEL DOCUMENTO
+% =========================================================
+
+\title{
+    \textbf{Análisis del efecto del tamaño de dexel sobre el crecimiento del chatter}
+}
+
+\author{
+    Enrique Mireles
+}
+
+\date{\today}
+
+% =========================================================
+% INICIO DEL DOCUMENTO
+% =========================================================
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+
+En este documento se presenta el procedimiento teórico y numérico utilizado
+para estudiar el efecto del tamaño de dexel sobre la aparición y el crecimiento
+del chatter en simulaciones de mecanizado. El análisis se basa en el ajuste
+exponencial de señales dinámicas, la comparación de sus tasas de crecimiento
+y la descomposición del retraso temporal observado entre diferentes casos.
+
+\end{abstract}
+
+\tableofcontents
+
+\newpage
+
+
+\section{Introduction}
+\label{sec:introduction}
+
+Dans les simulations étudiées, la géométrie de la pièce est représentée par une
+discrétisation en dexels. La taille de dexel, notée \(h_d\), définit la résolution
+spatiale du modèle : plus \(h_d\) est faible, plus la discrétisation est fine.
+
+Une différence systématique est observée entre les simulations. Lorsque la taille
+de dexel diminue, la partie exponentielle de la réponse dynamique est décalée vers
+des temps plus élevés. Autrement dit, le raffinement de la discrétisation semble
+retarder le développement exponentiel de la réponse.
+
+Cette observation peut être résumée par
+
+\begin{equation}
+    h_{d,j} < h_{d,i}
+    \quad\Longrightarrow\quad
+    t_{\mathrm{exp},j} > t_{\mathrm{exp},i},
+    \label{eq:observation_dexel}
+\end{equation}
+
+où \(t_{\mathrm{exp},i}\) désigne l'instant associé à la partie exponentielle du
+cas \(i\). Cette relation décrit uniquement l'observation numérique et ne permet
+pas encore d'en identifier la cause.
+
+L'objectif de cette étude est de comprendre l'origine de ce décalage temporel.
+Deux effets seront examinés :
+
+\begin{enumerate}
+    \item une différence du niveau initial de perturbation entre les
+    discrétisations ;
+    \item une différence du taux de croissance exponentielle.
+\end{enumerate}
+
+Le décalage mesuré directement entre deux courbes sera noté
+
+\begin{equation}
+    \Delta t_{ij}^{\mathrm{mes}}
+    =
+    t_j^{\mathrm{mes}}-t_i^{\mathrm{mes}}.
+    \label{eq:dt_mes}
+\end{equation}
+
+La convention adoptée est donc
+
+\begin{equation}
+    \Delta t_{ij}^{\mathrm{mes}}>0
+    \quad\Longrightarrow\quad
+    \text{le cas \(j\) est retardé par rapport au cas \(i\)}.
+\end{equation}
+
+Ce décalage sera ensuite comparé à deux estimations : une première obtenue à
+partir des ajustements exponentiels, notée
+\(\Delta t_{ij}^{\mathrm{fit}}\), et une seconde obtenue en utilisant la force
+comme proxy de la perturbation, notée \(\Delta t_{ij}^{F}\).
+
+
+% ==============================================
+% ======== Seccion 2 ==========================
+% ==============================================
+
+
+\section{Configuration numérique et modèle dynamique}
+\label{sec:configuration}
+
+\subsection{Géométrie et profondeur de coupe variable}
+\label{subsec:geometrie}
+
+La pièce étudiée est un cône tronqué. Pendant l'usinage, la profondeur de coupe
+augmente linéairement de \(a_{p,0}\) à \(a_{p,1}\) :
+
+\begin{equation}
+    a_p(t)
+    =
+    a_{p,0}
+    +
+    \left(a_{p,1}-a_{p,0}\right)
+    \frac{t}{t_{\mathrm{rampe}}},
+    \qquad
+    0 \leq t \leq t_{\mathrm{rampe}}.
+    \label{eq:rampe_ap}
+\end{equation}
+
+Dans cette expression, \(a_{p,0}\) et \(a_{p,1}\) sont les profondeurs de coupe
+initiale et finale, tandis que \(t_{\mathrm{rampe}}\) est la durée de la rampe.
+
+Dans les simulations considérées, la profondeur de coupe initiale est \(a_{p,0}=\SI{5}{\milli\metre}\) et la profondeur de coupe finale est \(a_{p,1}=\SI{15}{\milli\metre}\).
+
+% Figure à ajouter :
+% Schéma du cône tronqué avec la direction d'usinage,
+% a_{p,0}, a_{p,1} et la longueur de la zone conique.
+
+\begin{figure}[H]
+    \centering
+    \fbox{
+        \parbox[c][5cm][c]{0.85\textwidth}{
+            \centering
+            \textbf{Figure à ajouter}\\[0.3cm]
+            Schéma du cône tronqué avec la direction d'usinage,
+            $a_{p,0}$, $a_{p,1}$ et la longueur de la zone conique.
+        }
+    }
+    \caption{Géométrie de la pièce et évolution de la profondeur de coupe.}
+    \label{fig:geometrie_cone}
+\end{figure}
+
+% Figure à générer depuis le code :
+% Courbe a_p(t) entre 5 mm et 15 mm.
+
+\begin{figure}[H]
+    \centering
+    \fbox{
+        \parbox[c][4.5cm][c]{0.85\textwidth}{
+            \centering
+            \textbf{Figure à générer depuis le code}\\[0.3cm]
+            Courbe $a_p(t)$ entre \SI{5}{\milli\metre}
+            et \SI{15}{\milli\metre}.
+        }
+    }
+    \caption{Évolution temporelle de la profondeur de coupe.}
+    \label{fig:rampe_ap}
+\end{figure}
+
+\subsection{Modèle dynamique}
+\label{subsec:modele-dynamique}
+
+La dynamique de l'outil est représentée par un modèle modal à deux degrés de
+liberté. Le déplacement de l'outil est projeté selon les directions modales du
+système, tandis que l'analyse présentée dans ce document est effectuée sur la
+direction axiale.
+
+Pour une direction modale, l'équation du mouvement peut s'écrire sous la forme
+
+\begin{equation}
+    m\ddot{x}(t)
+    +
+    c\dot{x}(t)
+    +
+    kx(t)
+    =
+    F_{\mathrm{dyn}}(t),
+    \label{eq:modele-dynamique}
+\end{equation}
+
+où \(m\), \(c\) et \(k\) représentent respectivement la masse modale,
+l'amortissement modal et la rigidité modale. La variable \(x(t)\) désigne le
+déplacement dynamique dans la direction étudiée.
+
+% Figure à ajouter :
+% Schéma des deux degrés de liberté, directions modales,
+% direction de coupe et projection dans la direction axiale.
+
+\begin{figure}[H]
+    \centering
+    \fbox{
+        \parbox[c][5cm][c]{0.85\textwidth}{
+            \centering
+            \textbf{Figure à ajouter}\\[0.3cm]
+            Schéma du modèle à deux degrés de liberté et des directions modales.
+        }
+    }
+    \caption{Modèle dynamique et directions modales considérées.}
+    \label{fig:modele_2ddl}
+\end{figure}
+
+
+% \subsection{Modèle régénératif}
+% \label{subsec:modele-regeneratif}
+
+L'épaisseur instantanée dépend de la surface laissée au passage précédent :
+
+\begin{equation}
+    h(t)=h_0+x(t-T)-x(t),
+    \label{eq:epaisseur-regenerative}
+\end{equation}
+
+où \(h_0\) est l'épaisseur nominale et \(T\) la période de révolution. La
+contribution régénérative est donc donnée par \(x(t-T)-x(t)\).
+
+En supposant une loi de force linéaire, la force dynamique s'écrit
+
+\begin{equation}
+    F_{\mathrm{dyn}}(t)
+    =
+    K_f a_p(t)\left[x(t-T)-x(t)\right],
+    \label{eq:force-regenerative}
+\end{equation}
+
+où \(K_f\) est le coefficient de force. Le modèle dynamique devient alors
+
+\begin{equation}
+    m\ddot{x}(t)+c\dot{x}(t)+kx(t)
+    =
+    K_f a_p(t)\left[x(t-T)-x(t)\right].
+    \label{eq:equation-regenerative}
+\end{equation}
+
+
+\subsection{Position par rapport à la limite de stabilité}
+\label{subsec:stabilite}
+
+Pour la vitesse de rotation considérée, le diagramme de stabilité fournit une
+profondeur critique \(a_{p,\mathrm{crit}}\).
+
+La rampe étudiée traverse cette limite :
+
+\begin{equation}
+    a_{p,0}
+    <
+    a_{p,\mathrm{crit}}
+    <
+    a_{p,1}.
+    \label{eq:traversee-limite}
+\end{equation}
+
+Le système évolue ainsi d'une région située sous la limite théorique vers une
+région située au-dessus de celle-ci.
+
+% Figure à ajouter :
+% Diagramme des lobes de stabilité avec :
+% - la vitesse de rotation étudiée ;
+% - la profondeur critique a_{p,crit} ;
+% - la trajectoire verticale de 5 mm à 15 mm.
+
+\begin{figure}[H]
+    \centering
+    \fbox{
+        \parbox[c][5cm][c]{0.85\textwidth}{
+            \centering
+            \textbf{Figure à ajouter}\\[0.3cm]
+            Diagramme des lobes de stabilité avec la vitesse de rotation,
+            la profondeur critique $a_{p,\mathrm{crit}}$ et la rampe de 5 mm à 15 mm.
+        }
+    }
+    \caption{Position de la rampe de profondeur de coupe dans le diagramme de stabilité.}
+    \label{fig:lobes_stabilite}
+\end{figure}
+
+\subsection{Signaux analysés}
+\label{subsec:signaux}
+
+Pour chaque taille de dexel \(h_{d,i}\), les signaux suivants sont analysés :
+
+\begin{description}
+    \item[\(x_i(t)\)] déplacement axial du cas \(i\);
+    \item[\(\dot{x}_i(t)\)] vitesse axiale du cas \(i\);
+    \item[\(F_i(t)\)] force projetée dans la direction étudiée.
+\end{description}
+
+% Figure à générer depuis le code :
+% Signaux complets de déplacement, vitesse et force
+% pour les différentes tailles de dexel.
+
+\begin{figure}[H]
+    \centering
+    \fbox{
+        \parbox[c][5cm][c]{0.85\textwidth}{
+            \centering
+            \textbf{Figure à ajouter}\\[0.3cm]
+            Signaux complets de déplacement, vitesse et force pour les différentes tailles de dexel.
+        }
+    }
+    \caption{Signaux extraits pour les différentes tailles de dexel.}
+    \label{fig:signaux_complets}
+\end{figure}
+
+\subsection{Paramètres principaux}
+\label{subsec:parametres}
+
+Les principaux paramètres sont regroupés dans la
+Tableau~\ref{tab:parametres_simulation}.
+
+
+\begin{table}[H]
+    \centering
+    \caption{Principaux paramètres du modèle numérique.}
+    \label{tab:parametres_simulation}
+    \begin{tabular}{llll}
+        \toprule
+        Paramètre & Symbole & Valeur & Unité \\
+        \midrule
+
+        Vitesse de rotation
+        & \(n\)
+        & \(12094.28\)
+        & \(\si{\per\minute}\) \\
+
+        Avance nominale
+        & \(f_z\)
+        & \(0.05\)
+        & \(\si{\milli\metre}\) \\
+
+        Coefficient de force
+        & \(K_f\)
+        & \(1.0\times10^{9}\)
+        & \(\si{\newton\per\metre\squared}\) \\
+
+        Profondeur initiale
+        & \(a_{p,0}\)
+        & \(5\)
+        & \(\si{\milli\metre}\) \\
+
+        Profondeur finale
+        & \(a_{p,1}\)
+        & \(15\)
+        & \(\si{\milli\metre}\) \\
+
+        Longueur de la zone conique
+        & \(L\)
+        & \(150\)
+        & \(\si{\milli\metre}\) \\
+
+        Rigidité modale
+        & \(k\)
+        & \(2.13\times10^{8}\)
+        & \(\si{\newton\per\metre}\) \\
+
+        Fréquence propre
+        & \(f_n\)
+        & \(150\)
+        & \(\si{\hertz}\) \\
+
+        Pulsation propre
+        & \(\omega_n=2\pi f_n\)
+        & \(942.48\)
+        & \(\si{\radian\per\second}\) \\
+
+        Pulsation propre au carré
+        & \(\omega_n^2=k/m\)
+        & \(8.8826\times10^{5}\)
+        & \(\si{\per\second\squared}\) \\
+
+        Masse modale
+        & \(m=k/\omega_n^2\)
+        & \(239.79\)
+        & \(\si{\kilogram}\) \\
+
+        Angle de projection
+        & \(\theta\)
+        & \(135\)
+        & \(\si{\degree}\) \\
+
+        Coefficient de projection modale
+        & \(\phi=\sin(\theta)/\sqrt{m}\)
+        & \(4.5663\times10^{-2}\)
+        & \(\si{\per\sqrt{\kilogram}}\) \\
+
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+
+
+
+
+
+% ==============================================
+% ======== Seccion 3 ==========================
+% ==============================================
+\section{Prétraitement des signaux}
+\label{sec:pretraitement}
+
+La variation de la profondeur de coupe introduit une évolution déterministe dans
+la force, le déplacement et la vitesse. Ces contributions sont retirées avant
+l'analyse afin de conserver principalement la réponse dynamique.
+
+\subsection{Force nominale et force résiduelle}
+\label{subsec:force-residuelle}
+
+La force nominale associée à la profondeur de coupe variable est définie par
+
+\begin{equation}
+    F_{\mathrm{nom}}(t)
+    =
+    K_f\,a_p(t)\,f_z,
+    \label{eq:force-nominale}
+\end{equation}
+
+avec :
+
+\begin{description}
+    \item[\(K_f\)] coefficient de force de coupe ;
+    \item[\(a_p(t)\)] profondeur de coupe instantanée ;
+    \item[\(f_z\)] avance nominale utilisée dans la simulation.
+\end{description}
+
+Cette expression représente l'évolution attendue de la force due uniquement à
+la rampe de profondeur de coupe. La force résiduelle du cas \(i\) est alors
+obtenue par
+
+\begin{equation}
+    \delta F_i(t)
+    =
+    F_i(t)-F_{\mathrm{nom}}(t),
+    \label{eq:force-residuelle}
+\end{equation}
+
+où \(F_i(t)\) est la force simulée pour la taille de dexel \(h_{d,i}\).
+La quantité \(\delta F_i(t)\) contient les variations qui ne sont pas décrites
+par le modèle nominal.
+
+\begin{figure}[H]
+    \centering
+    \fbox{
+        \parbox[c][5cm][c]{0.85\textwidth}{
+            \centering
+            \textbf{Figure à ajouter}\\[0.3cm]
+            Force simulée, force nominale théorique et force résiduelle pour les différentes tailles de dexel.
+        }
+    }
+    \caption{Décomposition de la force simulée en composante nominale et composante résiduelle.}
+    \label{fig:force-residuelle}
+\end{figure}
+
+\subsection{Correction du déplacement}
+\label{subsec:correction-deplacement}
+
+L'augmentation de la force nominale produit une déflexion quasi statique de
+l'outil. Dans la formulation modale utilisée, cette déflexion est donnée par
+
+\begin{equation}
+    \delta_{\mathrm{stat}}(t)
+    =
+    \frac{\phi^{2}}{\omega_2}\,
+    F_{\mathrm{nom}}(t),
+    \label{eq:deflexion-statique}
+\end{equation}
+
+avec :
+
+\begin{description}
+    \item[\(\phi\)] coefficient de projection modale dans la direction étudiée ;
+    \item[\(\omega_2\)] pulsation modale au carré, avec
+    \(\omega_2=k/m\).
+\end{description}
+
+En substituant la \ref{eq:force-nominale} dans la
+\ref{eq:deflexion-statique}, on obtient
+
+\begin{equation}
+    \delta_{\mathrm{stat}}(t)
+    =
+    \frac{\phi^{2}}{\omega_2}\,
+    K_f\,a_p(t)\,f_z.
+    \label{eq:deflexion-statique-developpee}
+\end{equation}
+
+Le déplacement dynamique est ensuite défini par
+
+\begin{equation}
+    x_{i,\mathrm{dyn}}(t)
+    =
+    x_i(t)-\delta_{\mathrm{stat}}(t).
+    \label{eq:deplacement-corrige}
+\end{equation}
+
+Cette correction retire la tendance imposée par l'augmentation de la force
+nominale.
+
+\begin{figure}[H]
+    \centering
+    \fbox{
+        \parbox[c][5cm][c]{0.85\textwidth}{
+            \centering
+            \textbf{Figure à ajouter}\\[0.3cm]
+            Déplacement simulé, déflexion quasi statique théorique et déplacement corrigé pour les différentes tailles de dexel.
+        }
+    }
+    \caption{Correction de la composante quasi statique du déplacement.}
+    \label{fig:deplacement-corrige}
+\end{figure}
+
+\subsection{Correction de la vitesse}
+\label{subsec:correction-vitesse}
+
+La composante déterministe de la vitesse est obtenue en dérivant la déflexion
+statique :
+
+\begin{equation}
+    \dot{\delta}_{\mathrm{stat}}(t)
+    =
+    \frac{d\delta_{\mathrm{stat}}(t)}{dt}.
+    \label{eq:vitesse-statique}
+\end{equation}
+
+À partir de la \ref{eq:deflexion-statique-developpee}, il vient
+
+\begin{equation}
+    \dot{\delta}_{\mathrm{stat}}(t)
+    =
+    \frac{\phi^{2}}{\omega_2}\,
+    K_f\,f_z\,
+    \frac{da_p(t)}{dt}.
+    \label{eq:vitesse-statique-developpee}
+\end{equation}
+
+Comme \(a_p(t)\) est linéaire pendant la rampe,
+
+\begin{equation}
+    \frac{da_p(t)}{dt}
+    =
+    \frac{a_{p,1}-a_{p,0}}{t_{\mathrm{rampe}}},
+    \qquad
+    0\leq t\leq t_{\mathrm{rampe}}.
+    \label{eq:derivee-ap}
+\end{equation}
+
+La vitesse dynamique corrigée est alors
+
+\begin{equation}
+    \dot{x}_{i,\mathrm{dyn}}(t)
+    =
+    \dot{x}_i(t)-\dot{\delta}_{\mathrm{stat}}(t).
+    \label{eq:vitesse-corrigee}
+\end{equation}
+
+\begin{figure}[H]
+    \centering
+    \fbox{
+        \parbox[c][5cm][c]{0.85\textwidth}{
+            \centering
+            \textbf{Figure à ajouter}\\[0.3cm]
+            Vitesse simulée, vitesse associée à la déflexion statique et vitesse corrigée pour les différentes tailles de dexel.
+        }
+    }
+    \caption{Correction de la composante déterministe de la vitesse.}
+    \label{fig:vitesse-corrigee}
+\end{figure}
+
+\subsection{Normalisation de la force résiduelle}
+\label{subsec:normalisation-force}
+
+D'après le modèle régénératif, la force dynamique contient directement le
+facteur \(a_p(t)\) :
+
+\begin{equation}
+    \delta F_i(t)
+    \approx
+    K_f\,a_p(t)
+    \left[
+        x_i(t-T)-x_i(t)
+    \right].
+    \label{eq:force-residuelle-regenerative}
+\end{equation}
+
+Deux perturbations évaluées à des instants différents peuvent donc présenter
+des amplitudes différentes uniquement parce que la profondeur de coupe a
+évolué. Pour supprimer cet effet direct, la force résiduelle est normalisée par
+\(a_p(t)\) :
+
+\begin{equation}
+    \delta F_{i,\mathrm{norm}}(t)
+    =
+    \frac{\delta F_i(t)}{a_p(t)}.
+    \label{eq:force-normalisee}
+\end{equation}
+
+En utilisant la \ref{eq:force-residuelle-regenerative}, on obtient
+
+\begin{equation}
+    \delta F_{i,\mathrm{norm}}(t)
+    \approx
+    K_f
+    \left[
+        x_i(t-T)-x_i(t)
+    \right].
+    \label{eq:force-normalisee-regenerative}
+\end{equation}
+
+La normalisation retire ainsi la dépendance directe à \(a_p(t)\). Cette quantité
+sera utilisée plus loin comme proxy de la perturbation associée à la
+discrétisation.
+
+\begin{figure}[H]
+    \centering
+    \fbox{
+        \parbox[c][5cm][c]{0.85\textwidth}{
+            \centering
+            \textbf{Figure à ajouter}\\[0.3cm]
+            Comparaison de la force résiduelle et de la force résiduelle normalisée pour les différentes tailles de dexel.
+        }
+    }
+    \caption{Effet de la normalisation de la force résiduelle par la profondeur de coupe.}
+    \label{fig:force-normalisee}
+\end{figure}
+
+
+%==============================================
+% ======= ===== Seccion 4 ==========================
+%==============================================
+
+\section{Construction de la grandeur d'amplitude}
+\label{sec:amplitude}
+
+L'analyse porte sur l'évolution de l'amplitude des signaux corrigés. Afin de
+réduire les oscillations rapides tout en conservant leur évolution globale, une
+valeur efficace glissante est calculée.
+
+\subsection{RMS glissant}
+\label{subsec:rms-glissant}
+
+Pour un signal corrigé \(z_i(t)\), le RMS glissant est défini par
+
+\begin{equation}
+    R_i(t)
+    =
+    \sqrt{
+        \frac{1}{T_w}
+        \int_{t-T_w/2}^{t+T_w/2}
+        z_i^2(\tau)\,d\tau
+    },
+    \label{eq:rms-continu}
+\end{equation}
+
+avec :
+
+\begin{description}
+    \item[\(R_i(t)\)] amplitude RMS du cas \(i\) ;
+    \item[\(z_i(t)\)] signal corrigé analysé ;
+    \item[\(T_w\)] durée de la fenêtre glissante.
+\end{description}
+
+Dans la mise en œuvre numérique, cette expression est approchée par
+
+\begin{equation}
+    R_i(t_k)
+    =
+    \sqrt{
+        \frac{1}{N_w}
+        \sum_{n\in\mathcal{W}_k}
+        z_i^2(t_n)
+    },
+    \label{eq:rms-discret}
+\end{equation}
+
+où \(N_w\) est le nombre d'échantillons contenus dans la fenêtre
+\(\mathcal{W}_k\).
+
+La fenêtre utilisée couvre plusieurs périodes de la réponse dominante :
+
+\begin{equation}
+    T_w
+    =
+    \frac{5}{f_n},
+    \label{eq:fenetre-rms}
+\end{equation}
+
+où \(f_n=\SI{150}{\hertz}\) est la fréquence propre considérée. Ce choix permet
+d'obtenir une enveloppe suffisamment lisse sans supprimer l'évolution
+temporelle du signal.
+
+\begin{figure}[H]
+    \centering
+    \fbox{
+        \parbox[c][5cm][c]{0.85\textwidth}{
+            \centering
+            \textbf{Figure à ajouter}\\[0.3cm]
+            Signal corrigé et RMS glissant pour une taille de dexel représentative.
+        }
+    }
+    \caption{Construction de l'amplitude RMS à partir du signal corrigé.}
+    \label{fig:rms-construction}
+\end{figure}
+
+\subsection{Représentation logarithmique}
+\label{subsec:representation-log}
+
+Dans un intervalle où la réponse suit une évolution exponentielle,
+
+\begin{equation}
+    R_i(t)
+    =
+    P_i\,\exp\left(\beta_i t\right),
+    \label{eq:rms-exponentiel}
+\end{equation}
+
+le logarithme naturel transforme cette relation en une droite :
+
+\begin{align}
+    \ln R_i(t)
+    &=
+    \ln\left[
+        P_i\,\exp\left(\beta_i t\right)
+    \right],\\
+    \ln R_i(t)
+    &=
+    \ln P_i+\beta_i t.
+    \label{eq:passage-log}
+\end{align}
+
+En posant
+
+\begin{equation}
+    c_i=\ln P_i,
+    \label{eq:def-c}
+\end{equation}
+
+le modèle ajusté devient
+
+\begin{equation}
+    \ln R_i(t)
+    =
+    c_i+\beta_i t.
+    \label{eq:modele-log}
+\end{equation}
+
+Toutes les courbes utilisées dans la suite sont donc étudiées en échelle
+logarithmique naturelle.
+
+\begin{description}
+    \item[\(c_i\)] ordonnée à l'origine de la droite ajustée ;
+    \item[\(P_i=\exp(c_i)\)] amplitude extrapolée au temps \(t=0\) ;
+    \item[\(\beta_i\)] taux de croissance exponentielle, en
+    \(\si{\per\second}\).
+\end{description}
+
+\subsection{Sélection des intervalles d'étude}
+\label{subsec:intervalles-etude}
+
+Chaque taille de dexel possède son propre intervalle d'étude,
+\(I_i=[t_{a,i},t_{b,i}]\). Cet intervalle est choisi dans la zone où
+\(\ln R_i(t)\) présente un comportement approximativement linéaire.
+
+L'ajustement est réalisé uniquement dans cet intervalle :
+
+\begin{equation}
+    \ln R_i(t)
+    \approx
+    c_i+\beta_i t,
+    \qquad
+    t\in I_i.
+    \label{eq:fit-intervalle}
+\end{equation}
+
+Ainsi, le modèle exponentiel n'est pas supposé valable sur toute la simulation,
+mais seulement dans la région étudiée.
+
+\begin{figure}[H]
+    \centering
+    \fbox{
+        \parbox[c][5cm][c]{0.85\textwidth}{
+            \centering
+            \textbf{Figure à ajouter}\\[0.3cm]
+            Courbes \(\ln R_i(t)\) pour les différentes tailles de dexel,
+            avec les intervalles d'ajustement propres à chaque cas.
+        }
+    }
+    \caption{Sélection des intervalles présentant un comportement log-linéaire.}
+    \label{fig:intervalles-log}
+\end{figure}
+
+\subsection{Qualité de l'ajustement}
+\label{subsec:qualite-ajustement}
+
+La qualité de l'ajustement linéaire est évaluée avec le coefficient de
+détermination \(R_i^2\). Pour les valeurs observées
+\(y_k=\ln R_i(t_k)\) et les valeurs ajustées
+\(\widehat{y}_k=c_i+\beta_i t_k\), il est défini par
+
+\begin{equation}
+    R_i^2
+    =
+    1-
+    \frac{
+        \displaystyle\sum_k
+        \left(y_k-\widehat{y}_k\right)^2
+    }{
+        \displaystyle\sum_k
+        \left(y_k-\overline{y}\right)^2
+    },
+    \label{eq:r2}
+\end{equation}
+
+où \(\overline{y}\) est la moyenne des valeurs observées.
+
+Un coefficient \(R_i^2\) proche de l'un indique que l'évolution de
+\(\ln R_i(t)\) est correctement représentée par une droite dans l'intervalle
+sélectionné. Il constitue un critère de qualité de l'ajustement, sans démontrer
+à lui seul la validité physique du modèle exponentiel.
+
+\begin{figure}[H]
+    \centering
+    \fbox{
+        \parbox[c][5cm][c]{0.85\textwidth}{
+            \centering
+            \textbf{Figure à ajouter}\\[0.3cm]
+            Courbes \(\ln R_i(t)\), droites ajustées, valeurs de \(\beta_i\)
+            et coefficients \(R_i^2\).
+        }
+    }
+    \caption{Ajustements linéaires des amplitudes en échelle logarithmique.}
+    \label{fig:fits-log}
+\end{figure}
+
+
+
+% =============================================
+% === seccion 5 ==========================
+% =============================================
+\section{Niveau de référence et définition des décalages temporels}
+\label{sec:niveau-reference}
+
+L'objectif est de comparer les différentes courbes à un même niveau
+d'amplitude. Un niveau de référence \(A_{\mathrm{ref}}\) est donc choisi de
+manière à être atteint par toutes les courbes dans leurs intervalles d'étude
+respectifs.
+
+En échelle logarithmique, cette condition s'écrit
+
+\begin{equation}
+    \ln A_{\mathrm{ref}}
+    \in
+    \bigcap_{i=1}^{N}
+    \left[
+        \min_{t\in I_i}\ln R_i(t),
+        \max_{t\in I_i}\ln R_i(t)
+    \right].
+    \label{eq:condition-Aref}
+\end{equation}
+
+Le niveau \(A_{\mathrm{ref}}\) n'est pas un seuil physique. Il sert uniquement
+à définir une référence commune pour mesurer les décalages temporels.
+
+\begin{figure}[H]
+    \centering
+    \fbox{
+        \parbox[c][5cm][c]{0.85\textwidth}{
+            \centering
+            \textbf{Figure à ajouter}\\[0.3cm]
+            Courbes \(\ln R_i(t)\) pour les différentes tailles de dexel,
+            avec la droite horizontale \(\ln A_{\mathrm{ref}}\) et les temps de croisement.
+        }
+    }
+    \caption{Définition du niveau de référence commun.}
+    \label{fig:niveau-reference}
+\end{figure}
+
+\subsection{Décalage mesuré directement}
+\label{subsec:decalage-mesure}
+
+Pour chaque cas \(i\), le temps \(t_i^{\mathrm{mes}}\) est défini comme
+l'instant où la courbe mesurée atteint \(A_{\mathrm{ref}}\) :
+
+\begin{equation}
+    R_i\!\left(t_i^{\mathrm{mes}}\right)
+    =
+    A_{\mathrm{ref}}.
+    \label{eq:temps-mesure}
+\end{equation}
+
+Pour deux cas \(i\) et \(j\), le décalage mesuré est
+
+\begin{equation}
+    \Delta t_{ij}^{\mathrm{mes}}
+    =
+    t_j^{\mathrm{mes}}
+    -
+    t_i^{\mathrm{mes}}.
+    \label{eq:decalage-mesure}
+\end{equation}
+
+La convention de signe adoptée est la suivante :
+
+\begin{description}
+    \item[\(\Delta t_{ij}^{\mathrm{mes}}>0\)] le cas \(j\) atteint
+    \(A_{\mathrm{ref}}\) après le cas \(i\) ;
+    \item[\(\Delta t_{ij}^{\mathrm{mes}}<0\)] le cas \(j\) atteint
+    \(A_{\mathrm{ref}}\) avant le cas \(i\).
+\end{description}
+
+Dans l'implémentation numérique, \(t_i^{\mathrm{mes}}\) est obtenu à partir du
+premier croisement de la courbe RMS avec \(A_{\mathrm{ref}}\).
+
+
+\subsection{Décalage obtenu par l’ajustement}
+\label{subsec:decalage-fit}
+
+Dans l’intervalle d’étude \(I_i\), la courbe logarithmique est décrite par
+
+\begin{equation}
+    \ln R_i(t)
+    =
+    c_i+\beta_i t
+    =
+    \ln P_i+\beta_i t,
+    \label{eq:modele-log-fit}
+\end{equation}
+
+où \(P_i=\exp(c_i)\) est l’amplitude initiale extrapolée à \(t=0\) à partir de
+l’ajustement.
+
+Le temps auquel la droite ajustée atteint le niveau \(A_{\mathrm{ref}}\) vérifie
+
+\begin{equation}
+    \ln A_{\mathrm{ref}}
+    =
+    c_i^{\mathrm{fit}}+\beta_i^{\mathrm{fit}} t_i^{\mathrm{fit}}
+    =
+    \ln P_i^{\mathrm{fit}}+\beta_i^{\mathrm{fit}} t_i^{\mathrm{fit}}.
+    \label{eq:condition-fit-Aref}
+\end{equation}
+
+En isolant \(t_i^{\mathrm{fit}}\), on obtient
+
+\begin{align}
+    t_i^{\mathrm{fit}}
+    &=
+    \frac{\ln A_{\mathrm{ref}}-c_i^{\mathrm{fit}}}{\beta_i^{\mathrm{fit}}},
+    \nonumber\\
+    &=
+    \frac{\ln A_{\mathrm{ref}}-\ln P_i^{\mathrm{fit}}}{\beta_i^{\mathrm{fit}}},
+    \nonumber\\
+    &=
+    \ln\left(
+        \frac{1}{\beta_i^{\mathrm{fit}}}
+        \frac{A_{\mathrm{ref}}}{P_i^{\mathrm{fit}}}
+    \right).
+    \label{eq:temps-fit}
+\end{align}
+
+Pour deux cas \(i\) et \(j\), le décalage prédit par les ajustements est défini
+par
+
+\begin{equation}
+    \Delta t_{ij}^{\mathrm{fit}}
+    =
+    t_j^{\mathrm{fit}}
+    -
+    t_i^{\mathrm{fit}}.
+    \label{eq:decalage-fit}
+\end{equation}
+
+En substituant la \ref{eq:temps-fit}, il vient
+
+\begin{align}
+    \Delta t_{ij}^{\mathrm{fit}}
+    &=
+    \frac{\ln A_{\mathrm{ref}}-c_j^{\mathrm{fit}}}{\beta_j^{\mathrm{fit}}}
+    -
+    \frac{\ln A_{\mathrm{ref}}-c_i^{\mathrm{fit}}}{\beta_i^{\mathrm{fit}}},
+    \nonumber\\
+    &=
+    \frac{\ln A_{\mathrm{ref}}-\ln P_j^{\mathrm{fit}}}{\beta_j^{\mathrm{fit}}}
+    -
+    \frac{\ln A_{\mathrm{ref}}-\ln P_i^{\mathrm{fit}}}{\beta_i^{\mathrm{fit}}},
+    \nonumber\\
+    &=
+    \frac{1}{\beta_j^{\mathrm{fit}}}
+    \ln\left(
+        \frac{A_{\mathrm{ref}}}{P_j^{\mathrm{fit}}}
+    \right)
+    -
+    \frac{1}{\beta_i^{\mathrm{fit}}}
+    \ln\left(
+        \frac{A_{\mathrm{ref}}}{P_i^{\mathrm{fit}}}
+    \right).
+    \label{eq:decalage-fit-general}
+\end{align}
+
+
+\subsection{Décalage estimé à partir de la force}
+\label{subsec:decalage-force}
+
+L’amplitude \(P_i^{\mathrm{fit}}=\exp(c_i^{\mathrm{fit}})\) obtenue par l’ajustement est une valeur extrapolée
+à \(t=0\). Afin d’estimer cette amplitude indépendamment du fitting, la force
+résiduelle normalisée est utilisée comme proxy de la perturbation associée à la
+discrétisation.
+
+
+\subsubsection{Définition du proxy de perturbation}
+\label{subsubsec:relation-proxy-amplitude}
+
+La force résiduelle normalisée du cas \(i\) est donnée par l'équation \ref{eq:force-normalisee-regenerative}. Le proxy de perturbation est défini comme la valeur RMS locale de cette force
+à l’instant \(t_{s,i}\) :
+
+\begin{equation}
+    P_{h,i}
+    =
+    \operatorname{RMS}
+    \left[
+        \delta F_{i,\mathrm{norm}}(t)
+    \right]_{t=t_{s,i}}.
+    \label{eq:definition-proxy-force}
+\end{equation}
+
+En substituant la \ref{eq:force-normalisee-regenerative}, on obtient
+
+\begin{equation}
+    P_{h,i}
+    =
+    K_f
+    \operatorname{RMS}
+    \left[
+        x_i(t-T)-x_i(t)
+    \right]_{t=t_{s,i}}.
+    \label{eq:proxy-difference-regenerative}
+\end{equation}
+
+Dans l’intervalle d’ajustement, le déplacement est supposé dominé par une
+réponse oscillatoire dont l’enveloppe évolue exponentiellement. Le déplacement
+\(x_i(t)\) et sa version retardée \(x_i(t-T)\) possèdent donc le même taux de
+croissance \(\beta_i\). Leur différence conserve également cette enveloppe
+exponentielle.
+
+La valeur RMS de la différence régénérative peut alors être écrite sous la
+forme
+
+\begin{equation}
+    \operatorname{RMS}
+    \left[
+        x_i(t-T)-x_i(t)
+    \right]
+    \approx
+    C_i R_i^{\mathrm{F}}(t),
+    \label{eq:proportion-difference-deplacement}
+\end{equation}
+
+où \(C_i\) est un facteur de proportionnalité qui dépend principalement du
+retard \(T\), de la fréquence dominante et de la relation de phase entre
+\(x_i(t-T)\) et \(x_i(t)\).
+
+Le proxy de force devient donc
+
+\begin{equation}
+    P_{h,i}
+    \approx
+    K_f C_i R_i^{\mathrm{F}}(t_{s,i}).
+    \label{eq:proxy-amplitude-simplifie}
+\end{equation}
+
+Cette relation ne signifie pas que la force normalisée est égale au
+déplacement. Elle indique uniquement que, dans l’intervalle exponentiel, les
+deux grandeurs possèdent la même évolution d’amplitude, à un facteur
+multiplicatif près.
+
+Pour comparer directement les amplitudes initiales entre plusieurs tailles de
+dexel, le facteur \(C_i\) doit rester identique ou suffisamment proche entre les
+cas étudiés. Cette hypothèse pourra être vérifiée à partir de la fréquence
+dominante des signaux.
+
+\subsubsection{Expression analytique de \(C_i\)}
+\label{subsubsec:expression-analytique-Ci}
+
+Le facteur \(C_i\) peut être calculé explicitement à partir des paramètres du
+système. Dans la zone de croissance exponentielle, le déplacement dynamique est
+de la forme
+
+\begin{equation}
+    x_i(t) = A_i\,e^{\beta_i t}\sin(\omega_i t + \varphi_i),
+    \label{eq:signal-exponentiel-sinusoidal}
+\end{equation}
+
+où \(\omega_i\) est la pulsation dominante du chatter et \(\varphi_i\) une phase
+initiale. Le signal retardé s'écrit
+
+\begin{equation}
+    x_i(t-T) = A_i\,e^{\beta_i(t-T)}\sin(\omega_i t - \omega_i T + \varphi_i).
+\end{equation}
+
+La différence régénérative est alors
+
+\begin{equation}
+    x_i(t-T) - x_i(t)
+    =
+    A_i\,e^{\beta_i t}
+    \bigl[
+        e^{-\beta_i T}\sin(\omega_i t - \omega_i T + \varphi_i)
+        -
+        \sin(\omega_i t + \varphi_i)
+    \bigr].
+\end{equation}
+
+En calculant la valeur RMS de cette expression sur plusieurs cycles (en
+supposant \(\beta_i T \ll 1\), ce qui est généralement satisfait près de la
+limite de stabilité), on obtient
+
+\begin{equation}
+    \operatorname{RMS}\left[x_i(t-T)-x_i(t)\right]
+    \approx
+    \frac{A_i\,e^{\beta_i t}}{\sqrt{2}}
+    \sqrt{1 + e^{-2\beta_i T} - 2\,e^{-\beta_i T}\cos(\omega_i T)},
+\end{equation}
+
+et comme \(\operatorname{RMS}[x_i(t)] = A_i e^{\beta_i t}/\sqrt{2}\), le
+facteur de proportionnalité s'exprime sous la forme
+
+\begin{equation}
+    \boxed{
+        C_i
+        =
+        \sqrt{1 + e^{-2\beta_i T} - 2\,e^{-\beta_i T}\cos(\omega_i T)}.
+    }
+    \label{eq:Ci-analytique}
+\end{equation}
+
+Ce facteur dépend uniquement du retard régénératif \(T\), du taux de croissance
+\(\beta_i\) et de la pulsation dominante \(\omega_i\).
+
+\paragraph{Évaluation numérique.}
+Dans les simulations considérées, la vitesse de rotation est telle que
+\(T = 60/(n_{\mathrm{rpm}}\cdot N_z)\) avec \(N_z=1\) dent. La pulsation de
+chatter est proche de la pulsation modale \(\omega_i \approx 2\pi\times
+\SI{150}{\hertz}\). Puisque \(\beta_i T \ll 1\) (le taux de croissance est de
+l'ordre de quelques \(\si{\per\second}\) et \(T\) de l'ordre de la
+milliseconde), le terme \(e^{-\beta_i T}\approx 1\) et l'expression se
+simplifie en
+
+\begin{equation}
+    C_i
+    \approx
+    \sqrt{2\bigl(1 - \cos(\omega_i T)\bigr)}
+    =
+    2\left|\sin\!\left(\frac{\omega_i T}{2}\right)\right|.
+    \label{eq:Ci-approx}
+\end{equation}
+
+Comme \(\omega_i\) est très proche d'une pulsation propre du système et que
+cette pulsation est commune à tous les cas étudiés (même modèle dynamique,
+même vitesse de rotation), on a \(\omega_i \approx \omega_j\) et donc
+
+\begin{equation}
+    C_i \approx C_j,
+    \label{eq:Ci-Cj-approx}
+\end{equation}
+
+ce qui justifie l'hypothèse utilisée dans les sections suivantes.
+
+
+\subsubsection{Correction temporelle du proxy}
+\label{subsubsec:correction-temporelle-proxy}
+
+Le proxy \(P_{h,i}\) est évalué à l’instant \(t_{s,i}\), alors que l’amplitude
+$P_i^{\mathrm{fit}}$ du modèle exponentiel correspond à une valeur extrapolée à \(t=0\).
+Ces deux grandeurs ne peuvent donc pas être comparées directement.
+
+Dans l’intervalle d’ajustement, l’amplitude dynamique est modélisée par
+
+\begin{equation}
+    R_i(t)
+    =
+    P_i\exp\left(\beta_i t\right),
+    \label{eq:modele-exp-correction-proxy}
+\end{equation}
+
+
+À l’instant \(t_{s,i}\),
+
+\begin{equation}
+    R_i^{\mathrm{F}}(t_{s,i})
+    =
+    P_i^{\mathrm{F}}\exp\left(\beta_i^{\mathrm{F}} t_{s,i}\right).
+    \label{eq:amplitude-ts-correction}
+\end{equation}
+
+En substituant cette expression dans la
+\eqref{eq:proxy-amplitude-simplifie}, on obtient
+
+\begin{equation}
+    P_{h,i}
+    \approx
+    K_f C_i P_i^{\mathrm{F}}
+    \exp\left(\beta_i^{\mathrm{F}} t_{s,i}\right).
+    \label{eq:proxy-avec-croissance}
+\end{equation}
+
+Le terme
+
+\begin{equation}
+    \exp\left(\beta_i^{\mathrm{F}} t_{s,i}\right)
+\end{equation}
+
+représente la croissance accumulée entre l’origine temporelle \(t=0\) et
+l’instant d’évaluation \(t_{s,i}\). Il doit donc être supprimé afin de
+reconstruire une amplitude équivalente à l’origine temporelle.
+
+En isolant \(P_i^{\mathrm{F}}\), il vient
+
+\begin{align}
+    P_i^{\mathrm{F}}
+    &=
+    \frac{P_{h,i}}
+    {K_f C_i
+    \exp\left(\beta_i^{\mathrm{F}} t_{s,i}\right)},
+    \nonumber\\
+    &=
+    \frac{P_{h,i}}{K_f C_i}
+    \exp\left(-\beta_i^{\mathrm{F}} t_{s,i}\right).
+    \label{eq:Pi-reconstruit-force}
+\end{align}
+
+L'expression \eqref{eq:Pi-reconstruit-force} est l’amplitude initiale reconstruite à partir de la force.
+
+
+Cette correction est nécessaire car deux valeurs \(P_{h,i}\) et \(P_{h,j}\)
+peuvent être différentes simplement parce qu’elles ont été évaluées à des
+instants \(t_{s,i}\) et \(t_{s,j}\) différents. Sans correction temporelle,
+cette différence pourrait être attribuée à tort à la taille de dexel.
+
+En échelle logarithmique, la relation
+\ref{eq:proxy-avec-croissance} devient
+
+\begin{align}
+    \ln P_{h,i}
+    &\approx
+    \ln K_f
+    +
+    \ln C_i
+    +
+    \ln P_i^{\mathrm{F}}
+    +
+    \beta_i^{\mathrm{F}} t_{s,i},
+    \nonumber\\
+    &\approx
+    \ln K_f
+    +
+    \ln C_i
+    +
+    c_i^{\mathrm{F}}
+    +
+    \beta_i^{\mathrm{F}} t_{s,i},
+    \label{eq:log-proxy-correction-temporelle}
+\end{align}
+
+avec
+
+\begin{equation}
+    c_i^{\mathrm{F}}=\ln P_i^{\mathrm{F}}.
+\end{equation}
+
+L’ordonnée à l’origine reconstruite à partir du proxy de force est alors
+
+\begin{equation}
+    c_i^{\mathrm{F}}
+    =
+    \ln P_{h,i}
+    -
+    \ln K_f
+    -
+    \ln C_i
+    -
+    \beta_i^{\mathrm{F}} t_{s,i}.
+    \label{eq:ci-force-corrige}
+\end{equation}
+
+Si le facteur \(C_i\) peut être considéré comme identique pour tous les cas,
+il se simplifiera ensuite dans le calcul des décalages relatifs.
+
+
+
+
+\subsubsection{Temps et décalage estimés}
+
+Le temps auquel le modèle reconstruit à partir de la force atteint
+\(A_{\mathrm{ref}}\) est défini par
+
+\begin{equation}
+    \ln A_{\mathrm{ref}}
+    =
+    c_i^{F}
+    +
+    \beta_i^{\mathrm{F}} t_i^{\mathrm{F}}.
+    \label{eq:condition-force-Aref}
+\end{equation}
+
+En isolant \(t_i^{F}\),
+
+\begin{align}
+    t_i^{F}
+    &=
+    \frac{\ln A_{\mathrm{ref}}-c_i^{\mathrm{F}}}{\beta_i^{\mathrm{F}}},
+    \nonumber\\
+    &=
+    \frac{
+        \ln A_{\mathrm{ref}}
+        -
+        \ln P_{h,i}
+        +
+        \beta_i^{\mathrm{F}} t_{s,i}
+        +
+        \ln K_f
+    }{\beta_i},
+    \nonumber\\
+    &=
+    t_{s,i}
+    +
+    \frac{1}{\beta_i^{\mathrm{F}}}
+    \ln\left(
+        \frac{K_f A_{\mathrm{ref}}}{P_{h,i}}
+    \right).
+    \label{eq:temps-force}
+\end{align}
+
+Pour deux cas \(i\) et \(j\), le décalage estimé à partir de la force est
+
+\begin{equation}
+    \Delta t_{ij}^{F}
+    =
+    t_j^{F}-t_i^{F}.
+    \label{eq:decalage-force}
+\end{equation}
+
+En substituant la \ref{eq:temps-force}, on obtient l’expression générale
+
+\begin{align}
+    \Delta t_{ij}^{F}
+    &=
+    t_{s,j}-t_{s,i}
+    +
+    \frac{1}{\beta_j^{\mathrm{F}}}
+    \ln\left(
+        \frac{K_f A_{\mathrm{ref}}}{P_{h,j}}
+    \right)
+    -
+    \frac{1}{\beta_i^{\mathrm{F}}}
+    \ln\left(
+        \frac{K_f A_{\mathrm{ref}}}{P_{h,i}}
+    \right).
+    \label{eq:decalage-force-general}
+\end{align}
+
+Cette expression sera ensuite simplifiée pour l’hypothèse
+\(\beta_i=\beta_j\), puis décomposée dans le cas général
+\(\beta_i\neq\beta_j\).
+
+\begin{figure}[H]
+    \centering
+    \fbox{
+        \parbox[c][5cm][c]{0.85\textwidth}{
+            \centering
+            \textbf{Figure à ajouter}\\[0.3cm]
+            RMS de la force résiduelle normalisée pour les différentes tailles
+            de dexel, avec les instants \(t_{s,i}\) et les valeurs \(P_{h,i}\).
+        }
+    }
+    \caption{Évaluation du proxy de perturbation à partir de la force normalisée.}
+    \label{fig:proxy-force}
+\end{figure}
+
+\subsection{Comparaison des décalages}
+\label{subsec:comparaison-decalages}
+
+L’analyse repose désormais sur trois décalages complémentaires :
+
+\begin{description}
+    \item[\(\Delta t_{ij}^{\mathrm{mes}}\)] décalage obtenu directement à partir
+    du croisement des courbes avec \(A_{\mathrm{ref}}\) ;
+
+    \item[\(\Delta t_{ij}^{\mathrm{fit}}\)] décalage calculé à partir des
+    paramètres \(P_i\) et \(\beta_i\) des ajustements ;
+
+    \item[\(\Delta t_{ij}^{F}\)] décalage reconstruit à partir du proxy
+    \(P_{h,i}\), après correction temporelle vers \(t=0\).
+\end{description}
+
+Le décalage mesuré constitue la référence. La comparaison avec
+\(\Delta t_{ij}^{\mathrm{fit}}\) permet d’évaluer la représentation
+exponentielle, tandis que la comparaison avec \(\Delta t_{ij}^{F}\) permet de
+tester si la force normalisée explique les différences d’amplitude initiale
+associées à la discrétisation.
+
+\begin{figure}[H]
+    \centering
+    \fbox{
+        \parbox[c][5cm][c]{0.85\textwidth}{
+            \centering
+            \textbf{Figure à ajouter}\\[0.3cm]
+            Comparaison de \(\Delta t_{ij}^{\mathrm{mes}}\),
+            \(\Delta t_{ij}^{\mathrm{fit}}\) et
+            \(\Delta t_{ij}^{F}\) pour chaque paire de tailles de dexel.
+        }
+    }
+    \caption{Comparaison des décalages mesuré, ajusté et reconstruit à partir de la force.}
+    \label{fig:comparaison-trois-decalages}
+\end{figure}
+
+
+% =============================================
+% === seccion 6 ==========================
+% =============================================
+
+\section{Première hypothèse : taux de croissance identiques}
+\label{sec:beta-identiques}
+
+La première hypothèse consiste à considérer que la taille de dexel modifie le
+niveau initial de la perturbation, mais pas le taux de croissance identifié dans
+la zone exponentielle.
+
+Pour deux cas \(i\) et \(j\), cette hypothèse s’écrit
+
+\begin{equation}
+    \beta_i^{\mathrm{fit}}
+    =
+    \beta_j^{\mathrm{fit}}
+    =
+    \beta^{\mathrm{fit}}.
+    \label{eq:hypothese-beta-identiques}
+\end{equation}
+
+En échelle logarithmique, les droites ajustées possèdent alors la même pente.
+Le décalage entre les deux cas dépend donc uniquement de leurs niveaux initiaux
+extrapolés.
+
+\subsection{Simplification du décalage obtenu par ajustement}
+\label{subsec:simplification-dt-fit-beta-identiques}
+
+Le décalage général obtenu par ajustement a été défini à la
+\ref{eq:decalage-fit-general}. En imposant la
+\ref{eq:hypothese-beta-identiques}, il devient
+
+\begin{align}
+    \Delta t_{ij}^{\mathrm{fit}}
+    &=
+    \frac{\ln A_{\mathrm{ref}}-\ln P_j^{\mathrm{fit}}}
+    {\beta^{\mathrm{fit}}}
+    -
+    \frac{\ln A_{\mathrm{ref}}-\ln P_i^{\mathrm{fit}}}
+    {\beta^{\mathrm{fit}}},
+    \nonumber\\
+    &=
+    \frac{1}{\beta^{\mathrm{fit}}}
+    \left[
+        \ln P_i^{\mathrm{fit}}
+        -
+        \ln P_j^{\mathrm{fit}}
+    \right],
+    \nonumber\\
+    &=
+    \frac{1}{\beta^{\mathrm{fit}}}
+    \ln\left(
+        \frac{P_i^{\mathrm{fit}}}
+        {P_j^{\mathrm{fit}}}
+    \right).
+    \label{eq:dt-fit-beta-identiques}
+\end{align}
+
+Comme
+
+\begin{equation}
+    c_i^{\mathrm{fit}}=\ln P_i^{\mathrm{fit}},
+    \qquad
+    c_j^{\mathrm{fit}}=\ln P_j^{\mathrm{fit}},
+\end{equation}
+
+la même expression peut s’écrire
+
+\begin{equation}
+    \Delta t_{ij}^{\mathrm{fit}}
+    =
+    \frac{
+        c_i^{\mathrm{fit}}-c_j^{\mathrm{fit}}
+    }{
+        \beta^{\mathrm{fit}}
+    }
+    =
+    \frac{
+        \ln P_i^{\mathrm{fit}}
+        -
+        \ln P_j^{\mathrm{fit}}
+    }{
+        \beta^{\mathrm{fit}}
+    }.
+    \label{eq:dt-fit-beta-identiques-ci}
+\end{equation}
+
+Le niveau \(A_{\mathrm{ref}}\) disparaît de l’expression. Lorsque les deux
+ajustements ont exactement la même pente, leur séparation horizontale est donc
+constante, quel que soit le niveau de référence utilisé.
+
+\subsection{Simplification du décalage reconstruit à partir de la force}
+\label{subsec:simplification-dt-force-beta-identiques}
+
+Le décalage général reconstruit à partir de la force a été établi à la
+\ref{eq:decalage-force-general}. Sous l’hypothèse
+\(\beta_i^{\mathrm{fit}}=\beta_j^{\mathrm{fit}}
+=\beta^{\mathrm{fit}}\), cette expression devient
+
+\begin{align}
+    \Delta t_{ij}^{F}
+    &=
+    t_{s,j}-t_{s,i} +
+    \frac{1}{\beta^{\mathrm{fit}}}
+    \ln\left(
+        \frac{K_f C_j A_{\mathrm{ref}}}
+        {P_{h,j}^{F}}
+    \right)
+    -
+    \frac{1}{\beta^{\mathrm{fit}}}
+    \ln\left(
+        \frac{K_f C_i A_{\mathrm{ref}}}
+        {P_{h,i}^{F}}
+    \right).
+    \label{eq:dt-force-beta-identiques-intermediaire}
+\end{align}
+
+En regroupant les logarithmes,
+
+\begin{align}
+    \Delta t_{ij}^{F}
+    &=
+    t_{s,j}-t_{s,i}
+    +
+    \frac{1}{\beta^{\mathrm{fit}}}
+    \ln\left[
+        \frac{
+            K_f C_j A_{\mathrm{ref}}
+        }{
+            P_{h,j}^{F}
+        }
+        \frac{
+            P_{h,i}^{F}
+        }{
+            K_f C_i A_{\mathrm{ref}}
+        }
+    \right],
+    \nonumber\\
+    &=
+    t_{s,j}-t_{s,i}
+    +
+    \frac{1}{\beta^{\mathrm{fit}}}
+    \ln\left(
+        \frac{P_{h,i}^{F}}{P_{h,j}^{F}}
+        \frac{C_j}{C_i}
+    \right).
+    \label{eq:dt-force-beta-identiques-general}
+\end{align}
+
+Le coefficient de force \(K_f\) et le niveau \(A_{\mathrm{ref}}\) disparaissent,
+car ils sont communs aux deux cas.
+
+Si le facteur reliant la différence régénérative au déplacement peut être
+considéré comme identique,
+
+\begin{equation}
+    C_i \approx C_j,
+    \label{eq:hypothese-C-identiques}
+\end{equation}
+
+alors
+
+\begin{equation}
+    \Delta t_{ij}^{F}
+    \approx
+    t_{s,j}-t_{s,i}
+    +
+    \frac{1}{\beta^{\mathrm{fit}}}
+    \ln\left(
+        \frac{P_{h,i}^{F}}
+        {P_{h,j}^{F}}
+    \right).
+    \label{eq:dt-force-beta-identiques-simplifie}
+\end{equation}
+
+Le premier terme corrige la différence entre les instants d’évaluation des
+proxies. Le second terme représente le décalage associé au rapport entre les
+niveaux de perturbation mesurés à partir de la force.
+
+\subsection{Évaluation de l’hypothèse}
+\label{subsec:evaluation-beta-identiques}
+
+L’hypothèse de taux identiques est évaluée à partir des trois décalages déjà
+définis à la \ref{sec:niveau-reference} :
+
+\begin{description}
+    \item[\(\Delta t_{ij}^{\mathrm{mes}}\)]
+    décalage mesuré directement sur les courbes ;
+
+    \item[\(\Delta t_{ij}^{\mathrm{fit}}\)]
+    décalage prédit par les amplitudes initiales issues des ajustements ;
+
+    \item[\(\Delta t_{ij}^{F}\)]
+    décalage reconstruit à partir du proxy de force.
+\end{description}
+
+Une proximité entre
+\(\Delta t_{ij}^{\mathrm{mes}}\) et
+\(\Delta t_{ij}^{\mathrm{fit}}\) indiquerait que la séparation observée entre les
+courbes peut être décrite comme un décalage horizontal entre deux exponentielles
+de pente commune.
+
+Une proximité entre
+\(\Delta t_{ij}^{\mathrm{fit}}\) et
+\(\Delta t_{ij}^{F}\) indiquerait que la différence entre les amplitudes initiales
+extrapolées est cohérente avec les niveaux de perturbation estimés à partir de
+la force.
+
+Si les trois valeurs sont proches, l’effet de la taille de dexel peut être
+interprété, dans cette première hypothèse, comme une modification du niveau
+initial de perturbation sans changement significatif du taux de croissance.
+
+Dans le cas contraire, l’hypothèse
+\(\beta_i^{\mathrm{fit}}=\beta_j^{\mathrm{fit}}\) devra être abandonnée et le cas
+général de taux différents devra être étudié.
+
+\begin{figure}[H]
+    \centering
+    \fbox{
+        \parbox[c][5cm][c]{0.85\textwidth}{
+            \centering
+            \textbf{Figure à ajouter}\\[0.3cm]
+            Comparaison de
+            \(\Delta t_{ij}^{\mathrm{mes}}\),
+            \(\Delta t_{ij}^{\mathrm{fit}}\)
+            et
+            \(\Delta t_{ij}^{F}\)
+            sous l’hypothèse d’un taux de croissance commun.
+        }
+    }
+    \caption{Évaluation de l’hypothèse de taux de croissance identiques.}
+    \label{fig:evaluation-beta-identiques}
+\end{figure}
+
+
+
+%==============================================
+% == Section 7 ==========================================
+%==============================================
+
+\section{Cas général : taux de croissance différents}
+\label{sec:beta-differents}
+
+Les résultats précédents reposaient sur l’hypothèse
+
+\begin{equation}
+    \beta_i^{\mathrm{fit}}
+    =
+    \beta_j^{\mathrm{fit}}.
+\end{equation}
+
+Cette hypothèse doit être abandonnée lorsque les pentes obtenues dans les
+intervalles d’ajustement présentent une différence non négligeable. Le décalage
+temporel ne dépend alors plus uniquement des amplitudes initiales extrapolées.
+Il dépend également de la différence entre les taux de croissance.
+
+Dans cette section, aucune égalité n’est donc imposée entre
+
+\begin{equation}
+    \beta_i^{\mathrm{fit}}
+    \qquad \text{et} \qquad
+    \beta_j^{\mathrm{fit}}.
+\end{equation}
+
+\subsection{Décomposition du décalage obtenu par ajustement}
+\label{subsec:decomposition-fit-beta-differents}
+
+Le décalage général obtenu à partir des ajustements a été établi à la
+\ref{eq:decalage-fit-general} :
+
+\begin{equation}
+    \Delta t_{ij}^{\mathrm{fit}}
+    =
+    \frac{
+        \ln A_{\mathrm{ref}}
+        -
+        \ln P_j^{\mathrm{fit}}
+    }{
+        \beta_j^{\mathrm{fit}}
+    }
+    -
+    \frac{
+        \ln A_{\mathrm{ref}}
+        -
+        \ln P_i^{\mathrm{fit}}
+    }{
+        \beta_i^{\mathrm{fit}}
+    }.
+    \label{eq:dt-fit-general-rappel}
+\end{equation}
+
+Afin de séparer l’effet des amplitudes initiales de celui des taux de
+croissance, le terme
+
+\begin{equation}
+    \frac{
+        \ln A_{\mathrm{ref}}
+        -
+        \ln P_i^{\mathrm{fit}}
+    }{
+        \beta_j^{\mathrm{fit}}
+    }
+\end{equation}
+
+est ajouté puis soustrait. Cette opération ne modifie pas la valeur du
+décalage, mais permet de regrouper les termes selon leur origine :
+
+\begin{align}
+    \Delta t_{ij}^{\mathrm{fit}}
+    &=
+    \frac{
+        \ln A_{\mathrm{ref}}
+        -
+        \ln P_j^{\mathrm{fit}}
+    }{
+        \beta_j^{\mathrm{fit}}
+    }
+    -
+    \frac{
+        \ln A_{\mathrm{ref}}
+        -
+        \ln P_i^{\mathrm{fit}}
+    }{
+        \beta_j^{\mathrm{fit}}
+    }
+    +
+    \frac{
+        \ln A_{\mathrm{ref}}
+        -
+        \ln P_i^{\mathrm{fit}}
+    }{
+        \beta_j^{\mathrm{fit}}
+    }
+    -
+    \frac{
+        \ln A_{\mathrm{ref}}
+        -
+        \ln P_i^{\mathrm{fit}}
+    }{
+        \beta_i^{\mathrm{fit}}}.
+    \label{eq:dt-fit-ajout-soustraction}
+\end{align}
+
+En regroupant les deux premières fractions, on obtient
+
+\begin{align}
+    \Delta t_{ij}^{\mathrm{fit}}
+    &=
+    \frac{
+        \ln P_i^{\mathrm{fit}}
+        -
+        \ln P_j^{\mathrm{fit}}
+    }{
+        \beta_j^{\mathrm{fit}}
+    }
+    \nonumber\\
+    &\quad+
+    \left(
+        \ln A_{\mathrm{ref}}
+        -
+        \ln P_i^{\mathrm{fit}}
+    \right)
+    \left(
+        \frac{1}{\beta_j^{\mathrm{fit}}}
+        -
+        \frac{1}{\beta_i^{\mathrm{fit}}}
+    \right).
+    \label{eq:decomposition-dt-fit}
+\end{align}
+
+Le décalage peut ainsi être écrit comme la somme de deux contributions :
+
+\begin{equation}
+    \Delta t_{ij}^{\mathrm{fit}}
+    =
+    \Delta t_{P,ij}^{\mathrm{fit}}
+    +
+    \Delta t_{\beta,ij}^{\mathrm{fit}}.
+    \label{eq:somme-contributions-fit}
+\end{equation}
+
+La contribution associée aux amplitudes initiales est définie par
+
+\begin{equation}
+    \Delta t_{P,ij}^{\mathrm{fit}}
+    =
+    \frac{
+        \ln P_i^{\mathrm{fit}}
+        -
+        \ln P_j^{\mathrm{fit}}
+    }{
+        \beta_j^{\mathrm{fit}}
+    }
+    =
+    \frac{1}{\beta_j^{\mathrm{fit}}}
+    \ln\left(
+        \frac{P_i^{\mathrm{fit}}}
+        {P_j^{\mathrm{fit}}}
+    \right).
+    \label{eq:contribution-P-fit}
+\end{equation}
+
+Cette contribution représente le décalage qui serait produit par la différence
+entre les amplitudes initiales extrapolées, en utilisant
+\(\beta_j^{\mathrm{fit}}\) comme taux de référence.
+
+La contribution associée aux taux de croissance est définie par
+
+\begin{equation}
+    \Delta t_{\beta,ij}^{\mathrm{fit}}
+    =
+    \left(
+        \ln A_{\mathrm{ref}}
+        -
+        \ln P_i^{\mathrm{fit}}
+    \right)
+    \left(
+        \frac{1}{\beta_j^{\mathrm{fit}}}
+        -
+        \frac{1}{\beta_i^{\mathrm{fit}}}
+    \right).
+    \label{eq:contribution-beta-fit}
+\end{equation}
+
+Le premier facteur,
+
+\begin{equation}
+    \ln A_{\mathrm{ref}}
+    -
+    \ln P_i^{\mathrm{fit}}
+    =
+    \ln\left(
+        \frac{A_{\mathrm{ref}}}
+        {P_i^{\mathrm{fit}}}
+    \right),
+\end{equation}
+
+représente la distance logarithmique entre l’amplitude initiale extrapolée du
+cas \(i\) et le niveau de référence. Le second facteur représente la différence
+entre les inverses des taux de croissance.
+
+Lorsque
+
+\begin{equation}
+    \beta_i^{\mathrm{fit}}
+    =
+    \beta_j^{\mathrm{fit}},
+\end{equation}
+
+la contribution \(\Delta t_{\beta,ij}^{\mathrm{fit}}\) devient nulle et la
+formulation du cas de taux identiques est retrouvée.
+
+Il faut noter que cette décomposition utilise le cas \(i\) comme référence
+algébrique et \(\beta_j^{\mathrm{fit}}\) comme taux de référence pour la
+contribution d’amplitude. Une autre décomposition pourrait être obtenue en
+inversant les rôles de \(i\) et \(j\). La valeur totale
+\(\Delta t_{ij}^{\mathrm{fit}}\) reste cependant inchangée.
+
+\subsection{Décomposition du décalage reconstruit à partir de la force}
+\label{subsec:decomposition-force-beta-differents}
+
+Le décalage général reconstruit à partir de la force a été défini à la
+\ref{eq:decalage-force-general}. Comme pour le décalage issu des ajustements,
+il peut être séparé en une contribution associée au niveau initial de
+perturbation et une contribution associée à la différence entre les taux de
+croissance.
+
+En utilisant l’ordonnée à l’origine reconstruite à partir de la force,
+\(c_i^{F}\), le décalage général possède la même structure que celui obtenu par
+ajustement :
+
+\begin{equation}
+    \Delta t_{ij}^{F}
+    =
+    \frac{
+        \ln A_{\mathrm{ref}}-c_j^{F}
+    }{
+        \beta_j^{\mathrm{fit}}
+    }
+    -
+    \frac{
+        \ln A_{\mathrm{ref}}-c_i^{F}
+    }{
+        \beta_i^{\mathrm{fit}}
+    }.
+    \label{eq:dt-force-forme-ciF}
+\end{equation}
+
+En ajoutant puis en soustrayant
+
+\begin{equation}
+    \frac{
+        \ln A_{\mathrm{ref}}-c_i^{F}
+    }{
+        \beta_j^{\mathrm{fit}}
+    },
+\end{equation}
+
+on obtient
+
+\begin{align}
+    \Delta t_{ij}^{F}
+    &=
+    \frac{
+        c_i^{F}-c_j^{F}
+    }{
+        \beta_j^{\mathrm{fit}}
+    }
+    \nonumber\\
+    &\quad+
+    \left(
+        \ln A_{\mathrm{ref}}-c_i^{F}
+    \right)
+    \left(
+        \frac{1}{\beta_j^{\mathrm{fit}}}
+        -
+        \frac{1}{\beta_i^{\mathrm{fit}}}
+    \right).
+    \label{eq:decomposition-dt-force-ciF}
+\end{align}
+
+Le décalage reconstruit à partir de la force est donc écrit sous la forme
+
+\begin{equation}
+    \Delta t_{ij}^{F}
+    =
+    \Delta t_{P,ij}^{F}
+    +
+    \Delta t_{\beta,ij}^{F}.
+    \label{eq:somme-contributions-force}
+\end{equation}
+
+La première contribution est
+
+\begin{equation}
+    \Delta t_{P,ij}^{F}
+    =
+    \frac{
+        c_i^{F}-c_j^{F}
+    }{
+        \beta_j^{\mathrm{fit}}
+    }.
+    \label{eq:contribution-P-force-ciF}
+\end{equation}
+
+D’après l’expression de \(c_i^{F}\) établie dans la section précédente,
+
+\begin{equation}
+    c_i^{F}
+    =
+    \ln P_{h,i}^{F}
+    -
+    \ln K_f
+    -
+    \ln C_i
+    -
+    \beta_i^{\mathrm{fit}}t_{s,i},
+    \label{eq:ciF-rappel-section7}
+\end{equation}
+
+et, de manière analogue,
+
+\begin{equation}
+    c_j^{F}
+    =
+    \ln P_{h,j}^{F}
+    -
+    \ln K_f
+    -
+    \ln C_j
+    -
+    \beta_j^{\mathrm{fit}}t_{s,j}.
+    \label{eq:cjF-rappel-section7}
+\end{equation}
+
+En substituant ces expressions dans la
+\ref{eq:contribution-P-force-ciF}, le coefficient commun \(K_f\) disparaît :
+
+\begin{align}
+    \Delta t_{P,ij}^{F}
+    &=
+    \frac{1}{\beta_j^{\mathrm{fit}}}
+    \left[
+        \ln P_{h,i}^{F}
+        -
+        \ln P_{h,j}^{F}
+        +
+        \ln C_j
+        -
+        \ln C_i
+    \right]
+    -
+    \frac{\beta_i^{\mathrm{fit}}}
+    {\beta_j^{\mathrm{fit}}}
+    t_{s,i}
+    +
+    t_{s,j},
+    \nonumber\\
+    &=
+    \frac{1}{\beta_j^{\mathrm{fit}}}
+    \ln\left(
+        \frac{
+            P_{h,i}^{F}C_j
+        }{
+            P_{h,j}^{F}C_i
+        }
+    \right)
+    -
+    \frac{\beta_i^{\mathrm{fit}}}
+    {\beta_j^{\mathrm{fit}}}
+    t_{s,i}
+    +
+    t_{s,j}.
+    \label{eq:contribution-P-force}
+\end{align}
+
+Cette contribution contient trois effets :
+
+\begin{description}
+    \item[Rapport des proxies]
+    la différence entre les niveaux \(P_{h,i}^{F}\) et \(P_{h,j}^{F}\) mesurés
+    à partir de la force normalisée ;
+
+    \item[Facteurs \(C_i\) et \(C_j\)]
+    la différence éventuelle entre les relations de proportionnalité associées
+    aux deux cas ;
+
+    \item[Correction temporelle]
+    la prise en compte des instants \(t_{s,i}\) et \(t_{s,j}\) auxquels les
+    proxies ont été évalués.
+\end{description}
+
+La seconde contribution est
+
+\begin{equation}
+    \Delta t_{\beta,ij}^{F}
+    =
+    \left(
+        \ln A_{\mathrm{ref}}-c_i^{F}
+    \right)
+    \left(
+        \frac{1}{\beta_j^{\mathrm{fit}}}
+        -
+        \frac{1}{\beta_i^{\mathrm{fit}}}
+    \right).
+    \label{eq:contribution-beta-force-ciF}
+\end{equation}
+
+En remplaçant \(c_i^{F}\) par son expression développée, il vient
+
+\begin{align}
+    \Delta t_{\beta,ij}^{F}
+    &=
+    \Bigl(
+        \ln A_{\mathrm{ref}}
+        -
+        \ln P_{h,i}^{F}
+        +
+        \ln K_f
+        +
+        \ln C_i
+        +
+        \beta_i^{\mathrm{fit}}t_{s,i}
+    \Bigr)
+    \nonumber\\
+    &\quad\times
+    \left(
+        \frac{1}{\beta_j^{\mathrm{fit}}}
+        -
+        \frac{1}{\beta_i^{\mathrm{fit}}}
+    \right).
+    \label{eq:contribution-beta-force}
+\end{align}
+
+Cette contribution quantifie la partie du décalage reconstruit qui apparaît
+uniquement parce que les deux taux de croissance sont différents.
+
+Si le facteur de proportionnalité peut être considéré comme commun,
+
+\begin{equation}
+    C_i\approx C_j,
+\end{equation}
+
+la contribution associée au niveau initial se simplifie en
+
+\begin{equation}
+    \Delta t_{P,ij}^{F}
+    \approx
+    \frac{1}{\beta_j^{\mathrm{fit}}}
+    \ln\left(
+        \frac{P_{h,i}^{F}}
+        {P_{h,j}^{F}}
+    \right)
+    -
+    \frac{\beta_i^{\mathrm{fit}}}
+    {\beta_j^{\mathrm{fit}}}
+    t_{s,i}
+    +
+    t_{s,j}.
+    \label{eq:contribution-P-force-simplifiee}
+\end{equation}
+
+\subsection{Comparaison des contributions}
+\label{subsec:comparaison-contributions-beta-differents}
+
+La décomposition précédente permet de distinguer deux mécanismes susceptibles
+de produire le décalage observé :
+
+\begin{description}
+    \item[Effet du niveau initial]
+    représenté par
+    \(\Delta t_{P,ij}^{\mathrm{fit}}\) et
+    \(\Delta t_{P,ij}^{F}\) ;
+
+    \item[Effet du taux de croissance]
+    représenté par
+    \(\Delta t_{\beta,ij}^{\mathrm{fit}}\) et
+    \(\Delta t_{\beta,ij}^{F}\).
+\end{description}
+
+Pour les ajustements, la cohérence de la décomposition doit être vérifiée par
+
+\begin{equation}
+    \Delta t_{ij}^{\mathrm{fit}}
+    =
+    \Delta t_{P,ij}^{\mathrm{fit}}
+    +
+    \Delta t_{\beta,ij}^{\mathrm{fit}}.
+    \label{eq:verification-decomposition-fit}
+\end{equation}
+
+Pour la reconstruction fondée sur la force, elle doit être vérifiée par
+
+\begin{equation}
+    \Delta t_{ij}^{F}
+    =
+    \Delta t_{P,ij}^{F}
+    +
+    \Delta t_{\beta,ij}^{F}.
+    \label{eq:verification-decomposition-force}
+\end{equation}
+
+Les valeurs totales sont ensuite comparées au décalage directement mesuré
+\(\Delta t_{ij}^{\mathrm{mes}}\).
+
+Si
+
+\begin{equation}
+    \left|
+        \Delta t_{P,ij}^{\mathrm{fit}}
+    \right|
+    \gg
+    \left|
+        \Delta t_{\beta,ij}^{\mathrm{fit}}
+    \right|,
+\end{equation}
+
+le décalage est principalement associé à une différence entre les amplitudes
+initiales extrapolées.
+
+À l’inverse, si
+
+\begin{equation}
+    \left|
+        \Delta t_{\beta,ij}^{\mathrm{fit}}
+    \right|
+    \not\ll
+    \left|
+        \Delta t_{P,ij}^{\mathrm{fit}}
+    \right|,
+\end{equation}
+
+la différence entre les taux de croissance contribue de manière significative
+au décalage et ne peut pas être négligée.
+
+La comparaison entre les contributions issues des ajustements et celles
+reconstruites à partir de la force permet finalement d’évaluer si la différence
+entre les niveaux initiaux est cohérente avec la perturbation estimée à partir
+de la force normalisée.
+
+\begin{figure}[H]
+    \centering
+    \fbox{
+        \parbox[c][5cm][c]{0.85\textwidth}{
+            \centering
+            \textbf{Figure à ajouter}\\[0.3cm]
+            Comparaison de
+            \(\Delta t_{P,ij}^{\mathrm{fit}}\),
+            \(\Delta t_{\beta,ij}^{\mathrm{fit}}\),
+            \(\Delta t_{P,ij}^{F}\),
+            \(\Delta t_{\beta,ij}^{F}\)
+            et \(\Delta t_{ij}^{\mathrm{mes}}\)
+            pour chaque paire de tailles de dexel.
+        }
+    }
+    \caption{Décomposition du décalage en contributions associées au niveau initial et au taux de croissance.}
+    \label{fig:decomposition-decalage-beta-differents}
+\end{figure}
+
+
+
+
+
+
+\end{document}

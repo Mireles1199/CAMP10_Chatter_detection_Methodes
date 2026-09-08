@@ -1,0 +1,36 @@
+\babel@toc {french}{}\relax 
+\contentsline {section}{\numberline {1}Introduction}{3}{section.1}%
+\contentsline {section}{\numberline {2}Configuration numérique}{3}{section.2}%
+\contentsline {subsection}{\numberline {2.1}Géométrie et profondeur de coupe variable}{3}{subsection.2.1}%
+\contentsline {subsection}{\numberline {2.2}Modèle dynamique régénératif}{4}{subsection.2.2}%
+\contentsline {subsection}{\numberline {2.3}Cas simulés et tailles de dexel}{5}{subsection.2.3}%
+\contentsline {subsection}{\numberline {2.4}Paramètres numériques}{5}{subsection.2.4}%
+\contentsline {section}{\numberline {3}Prétraitement des signaux}{6}{section.3}%
+\contentsline {subsection}{\numberline {3.1}Force nominale et résiduelle}{6}{subsection.3.1}%
+\contentsline {subsection}{\numberline {3.2}Correction du déplacement}{7}{subsection.3.2}%
+\contentsline {subsection}{\numberline {3.3}Correction de la vitesse}{7}{subsection.3.3}%
+\contentsline {subsection}{\numberline {3.4}Normalisation de la force résiduelle}{7}{subsection.3.4}%
+\contentsline {section}{\numberline {4}Analyse de l'amplitude exponentielle}{8}{section.4}%
+\contentsline {subsection}{\numberline {4.1}Amplitude RMS glissante}{8}{subsection.4.1}%
+\contentsline {subsection}{\numberline {4.2}Modèle log-linéaire et ajustement}{8}{subsection.4.2}%
+\contentsline {subsection}{\numberline {4.3}Niveau de référence commun}{9}{subsection.4.3}%
+\contentsline {subsection}{\numberline {4.4}Définition des trois estimateurs de décalage}{9}{subsection.4.4}%
+\contentsline {subsubsection}{\numberline {4.4.1}Décalage mesuré directement}{10}{subsubsection.4.4.1}%
+\contentsline {subsubsection}{\numberline {4.4.2}Décalage issu de l'ajustement}{10}{subsubsection.4.4.2}%
+\contentsline {subsubsection}{\numberline {4.4.3}Décalage estimé par le proxy de force}{10}{subsubsection.4.4.3}%
+\contentsline {paragraph}{Expression analytique de \(C_i\).}{11}{equation.31}%
+\contentsline {paragraph}{Correction temporelle du proxy.}{11}{equation.33}%
+\contentsline {section}{\numberline {5}Hypothèse~1 : taux de croissance identiques}{13}{section.5}%
+\contentsline {subsection}{\numberline {5.1}Simplification de $\Delta t_{ij}^{\mathrm {fit}}$}{13}{subsection.5.1}%
+\contentsline {subsection}{\numberline {5.2}Simplification de $\Delta t_{ij}^{F}$}{13}{subsection.5.2}%
+\contentsline {subsection}{\numberline {5.3}Évaluation de l'hypothèse}{13}{subsection.5.3}%
+\contentsline {section}{\numberline {6}Cas général : taux de croissance différents}{14}{section.6}%
+\contentsline {subsection}{\numberline {6.1}Décomposition analytique de $\Delta t_{ij}^{\mathrm {fit}}$}{14}{subsection.6.1}%
+\contentsline {paragraph}{Contribution des amplitudes initiales.}{14}{equation.43}%
+\contentsline {paragraph}{Contribution des taux de croissance.}{15}{equation.44}%
+\contentsline {paragraph}{Cohérence de la décomposition.}{15}{equation.45}%
+\contentsline {subsection}{\numberline {6.2}Décomposition analytique de $\Delta t_{ij}^{F}$}{15}{subsection.6.2}%
+\contentsline {paragraph}{Cohérence de la décomposition.}{16}{equation.50}%
+\contentsline {subsection}{\numberline {6.3}Interprétation}{16}{subsection.6.3}%
+\contentsline {section}{\numberline {7}Origine des différences de taux de croissance}{16}{section.7}%
+\contentsline {section}{\numberline {8}Conclusion}{17}{section.8}%

@@ -428,7 +428,7 @@ def main():
                         help="Solo imprime, no escribe en el HDF5")
     parser.add_argument("--h5", default=None,
                         help="Ruta al doe_results.h5 (por defecto: misma carpeta que este script)")
-    parser.add_argument("--plots", action="store_true", default=False,
+    parser.add_argument("--plots", action="store_true", default=True,
                         help="Show Figure 3 after the analysis")
     args = parser.parse_args()
 

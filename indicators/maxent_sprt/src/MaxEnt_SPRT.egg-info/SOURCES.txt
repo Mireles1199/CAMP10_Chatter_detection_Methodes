@@ -2,6 +2,7 @@ LICENSE
 README.md
 pyproject.toml
 src/MaxEnt_SPRT/__init__.py
+src/MaxEnt_SPRT/logging_setup.py
 src/MaxEnt_SPRT.egg-info/PKG-INFO
 src/MaxEnt_SPRT.egg-info/SOURCES.txt
 src/MaxEnt_SPRT.egg-info/dependency_links.txt

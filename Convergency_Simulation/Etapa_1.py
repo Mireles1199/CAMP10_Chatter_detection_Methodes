@@ -713,7 +713,7 @@ def main() -> None:
     # ===========================================================================
 
     local_epsilons_10 = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
-    last_epsilon_stable_10 = None# Ultimo epsilon stable
+    last_epsilon_stable_10 = 0.95
 
     print( np.linspace(12000, 12000, 7).tolist())
 
@@ -722,12 +722,12 @@ def main() -> None:
         local_epsilons_10.append(epsilon_5)
         local_epsilons_10.sort()
 
-    last_epsilon_stable_5 = None
+    last_epsilon_stable_5 = 0.95
 
     # local_epsilons_1 =   np.linspace(last_epsilon_stable_5+0.005, last_epsilon_stable_5 + 0.05 -0.005 , 9).tolist() if last_epsilon_stable_5 is not None else []
     local_epsilons_1 =   np.linspace(last_epsilon_stable_5+0.01, last_epsilon_stable_5 + 0.05 -0.01 , 4).tolist() if last_epsilon_stable_5 is not None else []
 
-    local_epsilons = local_epsilons_10
+    local_epsilons = local_epsilons_1
     ap_crit = 8.6052e-3
     n0 = 12_099.28
 
