@@ -19,6 +19,7 @@ Uso:
 """
 
 import os
+import ast
 import argparse
 import logging
 
@@ -26,6 +27,9 @@ import numpy as np
 import h5py
 import matplotlib.pyplot as plt
 from matplotlib.ticker import ScalarFormatter
+from matplotlib.colors import LogNorm
+from matplotlib.cm import ScalarMappable
+from matplotlib.lines import Line2D
 
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
@@ -37,18 +41,42 @@ FORCE_SIGNAL = "res_R_p"
 # FIGURAS
 # ==============================================================================
 
+# rcParams y tamano de figura: ver skill article-plot-style
+# (.claude/skills/article-plot-style/SKILL.md, secciones 0 y 1)
 _STYLE = {
-    "font.family": "serif", "font.size": 10,
-    "axes.titlesize": 14, "axes.labelsize": 12,
-    "xtick.labelsize": 10, "ytick.labelsize": 10,
-    "legend.fontsize": 9, "lines.linewidth": 1.4,
-    "axes.linewidth": 0.8, "grid.linewidth": 0.4,
+    "font.family": "serif", "font.size": 12,
+    "axes.titlesize": 16, "axes.labelsize": 16,
+    "xtick.labelsize": 14, "ytick.labelsize": 14,
+    "legend.fontsize": 10, "lines.linewidth": 1.2,
+    "lines.markersize": 10,
+    "axes.linewidth": 0.8, "grid.linewidth": 0.5,
+    "xtick.major.width": 0.8, "ytick.major.width": 0.8,
     "xtick.direction": "in", "ytick.direction": "in",
+    "xtick.major.size": 4, "ytick.major.size": 4,
+    "xtick.minor.size": 2.5, "ytick.minor.size": 2.5,
+    "xtick.minor.width": 0.6, "ytick.minor.width": 0.6,
     "mathtext.fontset": "stix", "axes.formatter.use_mathtext": True,
+    "legend.frameon": False, "legend.loc": "best",
+    "legend.handlelength": 2.0, "legend.borderaxespad": 0.5,
     "figure.dpi": 110, "savefig.dpi": 300, "savefig.bbox": "tight",
+    "savefig.pad_inches": 0.02, "savefig.transparent": True,
     "figure.facecolor": "white", "axes.facecolor": "white",
-    "legend.frameon": False,
 }
+
+# FIGSIZE_WIDE = (7.16, 2.6)
+FIGSIZE_WIDE = (3.58, 2.6)  # ancho de pagina completa, alto ligeramente mayor para leyenda
+
+
+
+def figsize_from_scale(base_figsize: tuple[float, float], scale: float) -> tuple[float, float]:
+    """Escala un figsize base (p.ej. FIGSIZE_WIDE) preservando su relacion de aspecto.
+
+    `scale` es un multiplicador simple (1 = tamano original, 1.5, 2, 0.5, ...)
+    aplicado por igual a ancho y alto, asi la proporcion del preset original
+    (FIGSIZE_SIMPLE/FIGSIZE_WIDE) se mantiene siempre.
+    """
+    w, h = base_figsize
+    return (w * scale, h * scale)
 
 
 def _sci_yaxis(ax) -> None:
@@ -61,9 +89,30 @@ def _plain_yaxis(ax) -> None:
     ax.ticklabel_format(axis="y", style="plain", useOffset=False)
 
 
+def _lang_text(en: str, fr: str, language: str, sep: str = "\n") -> str:
+    """Arma el texto de la figura segun el idioma configurado en main() (FIGURE_LANGUAGE).
+
+    language: "EN" (solo ingles) | "FR" (solo frances) | "both" (bilingue, con prefijo).
+    """
+    if language == "EN":
+        return en
+    if language == "FR":
+        return fr
+    if language == "both":
+        return f"[EN] {en}{sep}[FR] {fr}"
+    raise ValueError(f"language debe ser 'EN', 'FR' o 'both', recibido: {language!r}")
+
+
 def _save_fig(fig, h5_path: str, filename: str) -> str:
-    """Guarda una figura PNG en la carpeta plots junto al HDF5."""
-    out_dir = os.path.join(os.path.dirname(os.path.abspath(h5_path)), "plots")
+    """Guarda una figura PNG en la carpeta plots de la ETAPA (un nivel arriba del
+    run del DOE), no junto al doe_results.h5.
+
+    Ej.: h5_path=".../0_Cinematique/DOE_Dexels_Cinematique/doe_results.h5"
+         -> plots en ".../0_Cinematique/plots/" (no en ".../DOE_Dexels_Cinematique/plots/")
+    """
+    run_dir = os.path.dirname(os.path.abspath(h5_path))
+    stage_dir = os.path.dirname(run_dir)
+    out_dir = os.path.join(stage_dir, "plots")
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, filename)
     fig.savefig(out_path)
@@ -108,6 +157,56 @@ def _cases_from_h5(h5_path: str):
     return _load_cases(h5_path)
 
 
+def _load_wall_times(doe_run_dir: str) -> list:
+    """Lee tiempo de calculo (wall_time_s.txt) y dxl_size (var_val.py) de cada
+    subcarpeta numerica del run del DOE.
+
+    IMPORTANTE: el emparejamiento dxl_size <-> wall_time se hace leyendo el
+    `var_val.py` de la PROPIA subcarpeta numerica (`<N>/<modelo>/var_val.py`,
+    el nombre de `<modelo>` no se asume fijo), NO por indice/orden de carpeta.
+    El orden de las subcarpetas numericas (0, 1, 2, ...) NO coincide con el
+    orden de los `case_XXX` del HDF5 ni con el orden ascendente de dxl_size
+    (verificado: la carpeta 3 tiene dxl_size=1.6e-4 pero la carpeta 6 tiene
+    dxl_size=1.28e-4, mas chico) -- por eso no se puede asumir esa correspondencia.
+
+    Retorna una lista de dicts {"dxl_size": float, "wall_time_s": float, "folder": str}.
+    """
+    entries = []
+    if not os.path.isdir(doe_run_dir):
+        log.warning("Carpeta del run del DOE no encontrada: %s", doe_run_dir)
+        return entries
+
+    for name in sorted(os.listdir(doe_run_dir)):
+        sub_dir = os.path.join(doe_run_dir, name)
+        if not os.path.isdir(sub_dir) or not name.isdigit():
+            continue
+
+        wt_path = os.path.join(sub_dir, "wall_time_s.txt")
+        if not os.path.isfile(wt_path):
+            continue
+
+        var_val_path = None
+        for root, _dirs, files in os.walk(sub_dir):
+            if "var_val.py" in files:
+                var_val_path = os.path.join(root, "var_val.py")
+                break
+        if var_val_path is None:
+            log.warning("[%s] var_val.py no encontrado -- omitido del costo computacional.", name)
+            continue
+
+        with open(wt_path, "r") as f:
+            wall_time_s = float(f.read().strip())
+
+        with open(var_val_path, "r") as f:
+            text = f.read()
+        var_val = ast.literal_eval(text.split("=", 1)[1].strip())
+        dxl = float(var_val["$dxl_size$"])
+
+        entries.append({"dxl_size": dxl, "wall_time_s": wall_time_s, "folder": name})
+
+    return entries
+
+
 def _zorders(cases: list) -> dict:
     """dxl_size mas alto -> zorder mas bajo (fondo). dxl_size mas bajo -> zorder mas alto (frente)."""
     valid = sorted({c["dxl_size"] for c in cases if np.isfinite(c["dxl_size"])}, reverse=True)
@@ -115,31 +214,40 @@ def _zorders(cases: list) -> dict:
     return {c["case_name"]: rank.get(c["dxl_size"], 10) for c in cases}
 
 
-def fig3_error_summary(cases: list, F_ref: float, h5_path: str, highlight_dxl_size: float | None = None) -> None:
-    """Figure 3: error summary by case using precomputed HDF5 datasets."""
+def fig3_error_summary(cases: list, F_ref: float, h5_path: str, highlight_dxl_size: float | None = None,
+                        language: str = "both", figsize: tuple[float, float] = FIGSIZE_WIDE) -> None:
+    """Figure 3: error summary by case using precomputed HDF5 datasets.
+
+    language: "EN" | "FR" | "both" -- ver FIGURE_LANGUAGE en main().
+    figsize: tamano de la figura -- ver FIGURE_SCALE/figsize_from_scale en main().
+    """
     plt.rcParams.update(_STYLE)
     if not cases:
         log.warning("Figure 3: no cases available.")
         return
     cases_s = sorted(cases, key=lambda c: c["dxl_size"] if np.isfinite(c["dxl_size"]) else 1e99)
-    labels, e_mean, e_maxmin, e_spread, e_std = [], [], [], [], []
+    dxl_labels, err_mean_bias_pct, err_peak_pct, err_range_pct, err_std_pct = [], [], [], [], []
     for c in cases_s:
-        labels.append(f"{c['dxl_size']:.2e}" if np.isfinite(c["dxl_size"]) else "nan")
+        dxl_labels.append(f"{c['dxl_size']:.2e}" if np.isfinite(c["dxl_size"]) else "nan")
         if c["error_mean"] is None or c["error_maxmin"] is None or c["error_spread"] is None or c["error_std"] is None:
             raise KeyError(f"[{c['case_name']}] missing error datasets in HDF5")
-        e_mean.append(float(np.asarray(c["error_mean"]).ravel()[0]))
-        e_maxmin.append(float(np.asarray(c["error_maxmin"]).ravel()[0]))
-        e_spread.append(float(np.asarray(c["error_spread"]).ravel()[0]))
-        e_std.append(float(np.asarray(c["error_std"]).ravel()[0]))
+        err_mean_bias_pct.append(float(np.asarray(c["error_mean"]).ravel()[0]))
+        err_peak_pct.append(float(np.asarray(c["error_maxmin"]).ravel()[0]))
+        err_range_pct.append(float(np.asarray(c["error_spread"]).ravel()[0]))
+        err_std_pct.append(float(np.asarray(c["error_std"]).ravel()[0]))
     log.info(
-        "Figure 3 control: first dxl_size=%s, error_mean=%.6f%%",
-        labels[0],
-        e_mean[0],
+        "Figure 3 control: first dxl_size=%s, err_mean_bias_pct=%.6f%%",
+        dxl_labels[0],
+        err_mean_bias_pct[0],
     )
-    x = np.arange(len(labels))
+    x = np.arange(len(dxl_labels))
     w = 0.2
-    fig, ax = plt.subplots(figsize=(11, 5))
-    fig.suptitle("Error summary by case")
+    fig, ax = plt.subplots(figsize=figsize, constrained_layout=True)
+    fig.suptitle(_lang_text(
+        "Force error vs. dexel discretization size",
+        "Erreur de force en fonction de la taille de discrétisation (dexel)",
+        language,
+    ))
     highlight_index = None
     if highlight_dxl_size is not None and np.isfinite(highlight_dxl_size):
         for idx, c in enumerate(cases_s):
@@ -162,22 +270,38 @@ def fig3_error_summary(cases: list, F_ref: float, h5_path: str, highlight_dxl_si
             linewidths[highlight_index] = 1.6
         return linewidths
 
-    ax.bar(x - 1.5*w, e_mean,   w, label="Mean",    edgecolor=_bar_edgecolors(e_mean), linewidth=_bar_linewidth(e_mean), color=_bar_colors(e_mean))
-    ax.bar(x - 0.5*w, e_maxmin, w, label="Max/Min", edgecolor=_bar_edgecolors(e_maxmin), linewidth=_bar_linewidth(e_maxmin), color=["#f58518"] * len(e_maxmin))
-    ax.bar(x + 0.5*w, e_spread, w, label="Spread",  edgecolor=_bar_edgecolors(e_spread), linewidth=_bar_linewidth(e_spread), color=["#54a24b"] * len(e_spread))
-    ax.bar(x + 1.5*w, e_std,    w, label="Std",     edgecolor=_bar_edgecolors(e_std), linewidth=_bar_linewidth(e_std), color=["#b279a2"] * len(e_std))
+    ax.bar(x - 1.5*w, err_mean_bias_pct, w,
+           label=_lang_text("Mean bias", "Biais moyen", language, sep=" / "),
+           edgecolor=_bar_edgecolors(err_mean_bias_pct), linewidth=_bar_linewidth(err_mean_bias_pct),
+           color=_bar_colors(err_mean_bias_pct))
+    ax.bar(x - 0.5*w, err_peak_pct, w,
+           label=_lang_text("Peak (max/min)", "Pic (max/min)", language, sep=" / "),
+           edgecolor=_bar_edgecolors(err_peak_pct), linewidth=_bar_linewidth(err_peak_pct),
+           color=["#f58518"] * len(err_peak_pct))
+    ax.bar(x + 0.5*w, err_range_pct, w,
+           label=_lang_text("Range (max−min)", "Étendue (max−min)", language, sep=" / "),
+           edgecolor=_bar_edgecolors(err_range_pct), linewidth=_bar_linewidth(err_range_pct),
+           color=["#54a24b"] * len(err_range_pct))
+    ax.bar(x + 1.5*w, err_std_pct, w,
+           label=_lang_text("Std. deviation", "Écart-type", language, sep=" / "),
+           edgecolor=_bar_edgecolors(err_std_pct), linewidth=_bar_linewidth(err_std_pct),
+           color=["#b279a2"] * len(err_std_pct))
     ax.set_xticks(x)
-    tick_labels = ax.set_xticklabels(labels, rotation=45, ha="right")
-    
+    tick_labels = ax.set_xticklabels(dxl_labels, rotation=45, ha="right")
+
     if highlight_index is not None:
         tick_labels[highlight_index].set_color("red")
-    ax.set_xlabel(r"$dxl\_size$")
-    ax.set_ylabel("Error [%]")
+    ax.set_xlabel(_lang_text(
+        r"Dexel size $\Delta_{\mathrm{dxl}}$ [m]",
+        r"Taille du dexel $\Delta_{\mathrm{dxl}}$ [m]",
+        language,
+    ))
+    ax.set_ylabel(_lang_text("Error [%]", "Erreur [%]", language))
     _plain_yaxis(ax)
-    ax.axhline(10.0, color="red", linestyle="--", linewidth=1.0, label="10%")
+    ax.axhline(10.0, color="red", linestyle="--", linewidth=1.0,
+               label=_lang_text("10% threshold", "Seuil de 10 %", language, sep=" / "))
     ax.legend(loc="best")
     ax.grid(True, axis="y", alpha=0.25)
-    fig.tight_layout()
     out_path = _save_fig(fig, h5_path, "fig3_error_summary.png")
     log.info("Figure 3 saved to %s", out_path)
     plt.show()
@@ -433,6 +557,14 @@ def main():
     args = parser.parse_args()
 
     DOE_NAME = "0_Cinematique\\DOE_Dexels_Cinematique"   # nombre de la carpeta de salida  (dir_ref2exe)
+
+    # Idioma del texto de las figuras (titulo, ejes, leyenda): "EN" | "FR" | "both"
+    FIGURE_LANGUAGE = "FR"
+
+    # Multiplicador simple del tamano de figura (1 = FIGSIZE_WIDE tal cual,
+    # 1.5, 2, 0.5, etc.) -- mantiene siempre la proporcion ancho/alto.
+    FIGURE_SCALE = 2.0
+
     # ===========================================================================
     # CONSTANTES DE CORTE  (editar aqui antes de ejecutar)
     # ===========================================================================
@@ -483,7 +615,9 @@ def main():
         F_ref = constants["F_ref"]
         cases = _cases_from_h5(h5_path)
         selected_dxl_size = 20.e-5  # resaltar este tamaño de dexel en la figura
-        fig3_error_summary(cases, F_ref, h5_path, highlight_dxl_size=selected_dxl_size)
+        fig3_error_summary(cases, F_ref, h5_path, highlight_dxl_size=selected_dxl_size,
+                           language=FIGURE_LANGUAGE,
+                           figsize=figsize_from_scale(FIGSIZE_WIDE, FIGURE_SCALE))
 
 
 if __name__ == "__main__":

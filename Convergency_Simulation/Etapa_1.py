@@ -689,7 +689,7 @@ def main() -> None:
 
     # doe_name = "1_Detection_Limite_Lobes\\DOE_Detection_Limite_Lobes_dxl_10e-5"
     # doe_name = r"3_Sensitivity_dt\DOE_Detection_Limite_Lobes_dt_200"
-    doe_name = "1_Detection_Limite_Lobes\\DOE_Detection_Limite_Lobes_dxl_1.25e-5_RUN_10"
+    doe_name = "1_Detection_Limite_Lobes\\DOE_Detection_Limite_Lobes_dxl_320e-5_RUN_10"
 
     # ===========================================================================
     # CONSTANTES DE CORTE  (editar aqui antes de ejecutar)
@@ -712,8 +712,9 @@ def main() -> None:
     T_w     = 0.1            # ventana temporal para RMS movil / envolvente [s]
     # ===========================================================================
 
-    local_epsilons_10 = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
-    last_epsilon_stable_10 = 0.95
+    # local_epsilons_10 = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+    local_epsilons_10 = [1.6, 1.7, 1.8, 1.9]
+    last_epsilon_stable_10 = 1.5
 
     print( np.linspace(12000, 12000, 7).tolist())
 
@@ -722,10 +723,10 @@ def main() -> None:
         local_epsilons_10.append(epsilon_5)
         local_epsilons_10.sort()
 
-    last_epsilon_stable_5 = 0.95
+    last_epsilon_stable_5 = 1.5
 
     # local_epsilons_1 =   np.linspace(last_epsilon_stable_5+0.005, last_epsilon_stable_5 + 0.05 -0.005 , 9).tolist() if last_epsilon_stable_5 is not None else []
-    local_epsilons_1 =   np.linspace(last_epsilon_stable_5+0.01, last_epsilon_stable_5 + 0.05 -0.01 , 4).tolist() if last_epsilon_stable_5 is not None else []
+    local_epsilons_1 =   np.linspace(last_epsilon_stable_5, last_epsilon_stable_5 + 0.05, 6).tolist() if last_epsilon_stable_5 is not None else []
 
     local_epsilons = local_epsilons_1
     ap_crit = 8.6052e-3

@@ -1,0 +1,836 @@
+<title>Hoja de Ruta CAMP10</title>
+<script>
+  (function(){
+    try{
+      var saved = localStorage.getItem('camp10-lang');
+      document.documentElement.setAttribute('data-lang', saved === 'fr' ? 'fr' : 'es');
+    }catch(e){ document.documentElement.setAttribute('data-lang','es'); }
+  })();
+</script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Big+Shoulders+Stencil:wght@500;700;900&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@500;600&display=swap');
+
+  :root{
+    --bg: #e6ecf0; --surface: #ffffff; --surface-2: #dbe2e6;
+    --ink: #142029; --ink-soft: #4d5e69; --ink-faint: #7c8b94; --line: #c3ccd1;
+    --accent: #2c5c86; --accent-soft: #dde8f0; --accent-strong:#1c4266;
+    --accent2: #7a4aa8; --accent2-soft: #efe6f7;
+    --brass: #a5741f; --brass-soft: #f5e7c8;
+    --done: #1f7a52; --done-soft: #d3ecdf;
+    --pending: #6b7680; --pending-soft: #e2e6e8;
+    --shadow: 0 2px 4px rgba(20,32,41,.06), 0 14px 30px -14px rgba(20,32,41,.22);
+    --shadow-lg: 0 4px 10px rgba(20,32,41,.08), 0 28px 50px -20px rgba(20,32,41,.28);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0e1418; --surface:#171f26; --surface-2:#222c35;
+      --ink:#eaf0f3; --ink-soft:#a9b8c1; --ink-faint:#7c8b94; --line:#2c3944;
+      --accent:#7fb2da; --accent-soft:#1c2f3e; --accent-strong:#a7cbe9;
+      --accent2:#c3a4e4; --accent2-soft:#2b2138;
+      --brass:#e0b45f; --brass-soft:#3a2d17;
+      --done:#72c79a; --done-soft:#153025;
+      --pending:#8998a1; --pending-soft:#232d34;
+      --shadow: 0 2px 6px rgba(0,0,0,.35), 0 20px 40px -18px rgba(0,0,0,.55);
+      --shadow-lg: 0 4px 12px rgba(0,0,0,.4), 0 32px 60px -22px rgba(0,0,0,.6);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0e1418; --surface:#171f26; --surface-2:#222c35;
+    --ink:#eaf0f3; --ink-soft:#a9b8c1; --ink-faint:#7c8b94; --line:#2c3944;
+    --accent:#7fb2da; --accent-soft:#1c2f3e; --accent-strong:#a7cbe9;
+    --accent2:#c3a4e4; --accent2-soft:#2b2138;
+    --brass:#e0b45f; --brass-soft:#3a2d17;
+    --done:#72c79a; --done-soft:#153025;
+    --pending:#8998a1; --pending-soft:#232d34;
+    --shadow: 0 2px 6px rgba(0,0,0,.35), 0 20px 40px -18px rgba(0,0,0,.55);
+    --shadow-lg: 0 4px 12px rgba(0,0,0,.4), 0 32px 60px -22px rgba(0,0,0,.6);
+  }
+
+  :root[data-lang="es"] .fr-only{ display:none !important; }
+  :root[data-lang="fr"] .es-only{ display:none !important; }
+
+  *{ box-sizing: border-box; }
+  body{
+    background: var(--bg); color: var(--ink);
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+    padding-inline: 20px; padding-block: 44px 90px;
+  }
+  .wrap{ max-width: 940px; margin-inline: auto; display:flex; flex-direction:column; gap: 58px; }
+  code, .mono{ font-family:'IBM Plex Mono', ui-monospace, monospace; }
+
+  /* ---------------- header ---------------- */
+  header{ display:flex; flex-direction:column; gap:14px; position:relative; }
+  .toolbar{ position:absolute; top:0; right:0; display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-end; }
+  .langtoggle{
+    display:flex; border:1.5px solid var(--line); border-radius:999px;
+    overflow:hidden; font-family:'IBM Plex Mono'; font-size:.74rem; font-weight:600; box-shadow:var(--shadow);
+  }
+  .langtoggle button{ background:var(--surface); color:var(--ink-faint); border:none; padding:8px 16px; cursor:pointer; letter-spacing:.04em; }
+  :root[data-lang="es"] .langtoggle button[data-set="es"],
+  :root[data-lang="fr"] .langtoggle button[data-set="fr"]{ background:var(--accent); color:#fff; }
+  .presenttoggle{
+    display:flex; align-items:center; gap:7px; border:1.5px solid var(--accent); border-radius:999px; background:var(--accent-soft);
+    color:var(--accent); font-family:'IBM Plex Mono'; font-size:.74rem; font-weight:700; padding:8px 16px 8px 13px; cursor:pointer;
+    box-shadow:var(--shadow);
+  }
+  .presenttoggle svg{ width:14px; height:14px; }
+  body.present .presenttoggle{ background:var(--accent); color:#fff; }
+
+  .kicker{ font-family:'IBM Plex Mono'; font-size:.76rem; letter-spacing:.16em; text-transform:uppercase; color:var(--accent); font-weight:600; }
+  h1{
+    font-family:'Big Shoulders Stencil'; font-weight:800; font-size:clamp(2.8rem,7.4vw,4.6rem);
+    line-height:.9; letter-spacing:.005em; text-transform:uppercase; text-wrap:balance; margin:0; max-width: 82%;
+    background:linear-gradient(100deg, var(--ink) 55%, var(--accent) 130%);
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+  }
+  .dek{ max-width:66ch; color:var(--ink-soft); font-size:1.14rem; line-height:1.62; }
+
+  /* ---------------- overview strip ---------------- */
+  .strip-scroll{ overflow-x:auto; padding-bottom:6px; }
+  .strip{ display:flex; gap:10px; min-width:820px; }
+  .chip{
+    flex:1; background:var(--surface); border:1.5px solid var(--line); border-radius:12px; padding:14px 10px 12px;
+    display:flex; flex-direction:column; align-items:center; gap:8px; box-shadow:var(--shadow); position:relative;
+    border-top:4px solid var(--pending);
+  }
+  .chip[data-s="done"]{ border-top-color:var(--done); }
+  .chip[data-s="attn"]{ border-top-color:var(--brass); }
+  .chip[data-s="pend"]{ border-top-color:var(--pending); }
+  .chip .ring{ width:44px; height:44px; }
+  .chip .clabel{ font-size:.74rem; text-align:center; line-height:1.24; color:var(--ink-soft); font-weight:600; min-height:2.3em; }
+  .chip .cnum{ font-family:'Big Shoulders Stencil'; font-weight:900; font-size:1rem; color:var(--ink-faint); position:absolute; top:9px; right:11px; }
+
+  .ring{ position:relative; }
+  .ring svg{ width:100%; height:100%; transform:rotate(-90deg); }
+  .ring .track{ fill:none; stroke:var(--surface-2); }
+  .ring .bar{ fill:none; stroke-linecap:round; }
+  .ring.done .bar{ stroke:var(--done); }
+  .ring.attn .bar{ stroke:var(--brass); }
+  .ring.pend .bar{ stroke:var(--pending); }
+
+  /* ---------------- stage card ---------------- */
+  .stage{ background:var(--surface); border:1px solid var(--line); border-radius:12px; box-shadow:var(--shadow-lg); overflow:hidden; }
+  .stage-band{ height:6px; }
+  .stage-band.done{ background:var(--done); }
+  .stage-band.attn{ background:var(--brass); }
+  .stage-band.pend{ background:var(--pending); }
+
+  .stage-head{ display:flex; align-items:center; gap:20px; padding:26px 28px 20px; flex-wrap:wrap; }
+  .stage-bignum{
+    font-family:'Big Shoulders Stencil'; font-weight:900; font-size:clamp(3.4rem,7vw,4.6rem); line-height:.82;
+    flex-shrink:0; -webkit-text-stroke: 1.5px currentColor; color: transparent;
+  }
+  .stage-bignum.done{ color:var(--done-soft); -webkit-text-stroke-color:var(--done); }
+  .stage-bignum.attn{ color:var(--brass-soft); -webkit-text-stroke-color:var(--brass); }
+  .stage-bignum.pend{ color:var(--pending-soft); -webkit-text-stroke-color:var(--pending); }
+
+  .stage-glyph{
+    width:64px; height:64px; border-radius:14px; flex-shrink:0; display:flex; align-items:center; justify-content:center;
+    position:relative; background:var(--surface-2); border:1.5px solid var(--line);
+  }
+  .stage-glyph .icn{ width:27px; height:27px; color:var(--accent); }
+  .stage-glyph .ringwrap{ position:absolute; inset:-6px; }
+
+  .stage-title-block{ flex:1; min-width:240px; display:flex; flex-direction:column; gap:5px; }
+  .stage-eyebrow{ font-family:'IBM Plex Mono'; font-size:.7rem; letter-spacing:.12em; text-transform:uppercase; color:var(--ink-faint); }
+  .stage-title{ font-family:'IBM Plex Sans', sans-serif; font-weight:700; font-size:clamp(1.3rem,2.3vw,1.65rem); line-height:1.3; text-transform:none; letter-spacing:0; text-wrap:balance; color:var(--ink); }
+
+  .stamp{
+    font-family:'IBM Plex Sans'; font-weight:700; font-size:.76rem; letter-spacing:.03em; text-transform:uppercase;
+    padding:7px 14px; border-radius:999px; white-space:nowrap; flex-shrink:0;
+  }
+  .stamp.done{ color:var(--done); background:var(--done-soft); }
+  .stamp.attn{ color:var(--brass); background:var(--brass-soft); }
+  .stamp.pend{ color:var(--pending); background:var(--pending-soft); }
+
+  .stage-body{ padding:4px 28px 30px; display:flex; flex-direction:column; gap:20px; }
+
+  .hipo{ border-left:4px solid var(--accent); background:var(--accent-soft); padding:14px 17px; border-radius:0 8px 8px 0; }
+  .hipo .hlbl{ font-family:'IBM Plex Mono'; font-size:.68rem; letter-spacing:.08em; text-transform:uppercase; color:var(--accent); font-weight:700; display:block; margin-bottom:5px; }
+  .hipo p{ margin:0; font-size:1.08rem; line-height:1.58; color:var(--ink); }
+
+  .three{ display:grid; grid-template-columns: 1fr 1fr 1fr; gap:20px; }
+  @media (max-width:760px){ .three{ grid-template-columns:1fr; } }
+  .panel{ display:flex; flex-direction:column; gap:9px; }
+  .panel .plbl{ display:flex; align-items:center; gap:7px; font-family:'IBM Plex Mono'; font-size:.68rem; letter-spacing:.1em; text-transform:uppercase; font-weight:700; }
+  .panel .plbl .dot{ width:8px; height:8px; border-radius:50%; }
+  .panel.hay .plbl{ color:var(--accent); } .panel.hay .plbl .dot{ background:var(--accent); }
+  .panel.obj .plbl{ color:var(--ink-faint); } .panel.obj .plbl .dot{ background:var(--ink-faint); }
+  .panel.falta .plbl{ color:var(--accent2); } .panel.falta .plbl .dot{ background:var(--accent2); }
+  .panel p{ margin:0; font-size:1.08rem; line-height:1.62; color:var(--ink); }
+  .panel ul{ margin:0; padding:0; list-style:none; display:flex; flex-direction:column; gap:8px; }
+  .panel li{ font-size:1.04rem; line-height:1.58; color:var(--ink); padding-left:15px; position:relative; }
+  .panel li::before{ content:"–"; position:absolute; left:0; color:var(--ink-faint); }
+  .panel.falta li::before{ content:"–"; color:var(--accent2); }
+  .panel .done-note{ font-size:1.06rem; color:var(--done); font-weight:600; }
+
+  /* 5-front progress grid — interactive */
+  .frentes-wrap{ display:flex; flex-direction:column; gap:9px; }
+  .frentes-lbl{ display:flex; align-items:center; gap:10px; font-family:'IBM Plex Mono'; font-size:.68rem; letter-spacing:.1em; text-transform:uppercase; font-weight:700; color:var(--ink-faint); }
+  .frentes-legend{ display:flex; gap:12px; font-weight:500; text-transform:none; letter-spacing:0; font-size:.72rem; }
+  .frentes-legend span{ display:inline-flex; align-items:center; gap:4px; }
+  .frentes-legend i{ width:9px; height:9px; border-radius:50%; display:inline-block; }
+  .frentes-legend i.done{ background:var(--done); } .frentes-legend i.curso{ background:var(--brass); } .frentes-legend i.pend{ background:var(--pending); }
+  .frentes{ display:grid; grid-template-columns:repeat(5,1fr); gap:8px; }
+  @media (max-width:620px){ .frentes{ grid-template-columns:repeat(3,1fr); } }
+  .frente{
+    display:flex; flex-direction:column; align-items:center; gap:6px; padding:11px 5px; background:var(--surface-2);
+    border-radius:9px; text-align:center; cursor:pointer; user-select:none; border:1.5px solid transparent;
+  }
+  .frente:hover{ border-color:var(--accent); }
+  .frente .fi{ width:25px; height:25px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:.86rem; font-family:'IBM Plex Mono'; }
+  .frente .fi.done{ background:var(--done-soft); color:var(--done); }
+  .frente .fi.curso{ background:var(--brass-soft); color:var(--brass); }
+  .frente .fi.pend{ background:var(--pending-soft); color:var(--pending); }
+  .frente .flabel{ font-size:.7rem; line-height:1.2; color:var(--ink-soft); font-weight:600; }
+
+  .proposal{ border:1.5px dashed var(--accent2); background:var(--accent2-soft); padding:16px 18px; border-radius:10px; display:flex; flex-direction:column; gap:8px; }
+  .proposal .plbl2{ font-family:'IBM Plex Mono'; font-size:.68rem; letter-spacing:.08em; text-transform:uppercase; color:var(--accent2); font-weight:700; }
+  .proposal p{ margin:0; font-size:1.04rem; line-height:1.58; color:var(--ink); }
+
+  .pullquote{
+    position:relative; padding:16px 20px 16px 52px; background:var(--accent-soft); border-radius:10px;
+    font-size:1.13rem; line-height:1.5; color:var(--ink); font-style:italic;
+  }
+  .pullquote::before{
+    content:"“"; position:absolute; left:14px; top:2px; font-family:'Big Shoulders Stencil'; font-style:normal;
+    font-size:2.8rem; color:var(--accent); opacity:.5; line-height:1;
+  }
+
+  /* ---------------- checklist ---------------- */
+  .check-section{ background:var(--surface); border:1px solid var(--line); border-radius:12px; box-shadow:var(--shadow-lg); padding:30px 28px; }
+  .check-section h2{ font-family:'Big Shoulders Stencil'; font-weight:800; text-transform:uppercase; font-size:clamp(1.7rem,4vw,2.3rem); letter-spacing:.01em; margin:0 0 4px; }
+  .check-section > .es-only > p, .check-section > .fr-only > p{ color:var(--ink-soft); font-size:1.02rem; margin:0 0 18px; max-width:62ch; }
+  .checklist{ display:flex; flex-direction:column; gap:8px; }
+  .citem{ display:flex; align-items:flex-start; gap:14px; padding:14px 16px; border-radius:9px; background:var(--surface-2); cursor:pointer; user-select:none; }
+  .citem:hover{ outline:1.5px solid var(--accent); }
+  .box{ width:20px; height:20px; border:1.5px solid var(--ink-faint); border-radius:5px; flex-shrink:0; margin-top:2px; display:flex; align-items:center; justify-content:center; transition:background .12s,border-color .12s; }
+  .box svg{ opacity:0; width:13px; height:13px; transition:opacity .12s; }
+  .citem.on .box{ background:var(--done); border-color:var(--done); }
+  .citem.on .box svg{ opacity:1; }
+  .citem.on .ctext{ color:var(--ink-faint); text-decoration:line-through; text-decoration-color:var(--ink-faint); }
+  .ctext{ font-size:1.02rem; line-height:1.52; }
+  .ctext b{ font-weight:700; }
+
+  footer{ text-align:center; font-family:'IBM Plex Mono'; font-size:.72rem; color:var(--ink-faint); }
+
+  /* ---------------- presentation mode ---------------- */
+  body.present{ overflow:hidden; padding:0; }
+  body.present .wrap{
+    height:100dvh; overflow-y:auto; scroll-snap-type:y mandatory; scroll-behavior:smooth; gap:0; max-width:none;
+  }
+  body.present .wrap > *{
+    min-height:100dvh; scroll-snap-align:start; scroll-snap-stop:always;
+    display:flex; flex-direction:column; justify-content:center; padding:70px 9vw; box-sizing:border-box;
+  }
+  body.present header{ align-items:flex-start; }
+  body.present .strip-scroll{ padding-bottom:0; }
+  body.present .strip{ min-width:0; flex-wrap:wrap; }
+  body.present .stage{ border:none; border-radius:0; box-shadow:none; }
+  body.present .stage-band{ display:none; }
+  body.present .stage-body{ max-height:66vh; overflow-y:auto; padding-right:6px; }
+  body.present .check-section{ box-shadow:none; border:none; }
+  body.present footer{ display:none; }
+  .navbtns{ display:none; position:fixed; bottom:24px; right:26px; gap:8px; z-index:20; }
+  body.present .navbtns{ display:flex; }
+  .navbtn{
+    width:44px; height:44px; border-radius:50%; border:1.5px solid var(--line); background:var(--surface);
+    color:var(--ink); display:flex; align-items:center; justify-content:center; cursor:pointer; box-shadow:var(--shadow-lg);
+  }
+  .navbtn:hover{ border-color:var(--accent); color:var(--accent); }
+
+  @media print{
+    body{ overflow:visible !important; padding:20px !important; background:#fff !important; }
+    body.present{ overflow:visible !important; }
+    .toolbar, .navbtns{ display:none !important; }
+    .wrap{ height:auto !important; overflow:visible !important; scroll-snap-type:none !important; max-width:100% !important; gap:34px !important; }
+    body.present .wrap > *{ min-height:0 !important; padding:0 !important; display:block !important; }
+    .stage{ break-inside:avoid; }
+    * { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  }
+</style>
+
+<div class="wrap" id="wrap">
+
+  <header>
+    <div class="toolbar">
+      <button class="presenttoggle" id="presentBtn" onclick="togglePresent()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="13" rx="1.5"/><path d="M8 21h8M12 17v4"/></svg>
+        <span class="es-only">Modo presentación</span><span class="fr-only">Mode présentation</span>
+      </button>
+      <div class="langtoggle">
+        <button data-set="es" onclick="setLang('es')">ES</button>
+        <button data-set="fr" onclick="setLang('fr')">FR</button>
+      </div>
+    </div>
+    <div class="kicker">CAMP10 · Detección de Chatter</div>
+    <h1 class="es-only">Hoja de Ruta<br>de Etapas</h1>
+    <h1 class="fr-only">Feuille de Route<br>des Étapes</h1>
+    <p class="dek es-only">Ocho etapas: de elegir el dexel base hasta tener las herramientas listas para el artículo de los indicadores. Tocá los círculos de "progreso por frente" para actualizar el estado en vivo.</p>
+    <p class="dek fr-only">Huit étapes : du choix du dexel de base jusqu'à avoir les outils prêts pour l'article sur les indicateurs. Touchez les cercles de "progression par front" pour mettre à jour l'état en direct.</p>
+  </header>
+
+  <div class="strip-scroll">
+    <div class="strip">
+      <div class="chip" data-s="done" data-chip="s0"><div class="cnum">0</div><div class="ring done" style="width:44px;height:44px"><svg viewBox="0 0 40 40"><circle class="track" cx="20" cy="20" r="16" stroke-width="4"/><circle id="ring-chip-s0" class="bar" cx="20" cy="20" r="16" stroke-width="4" stroke-dasharray="100.53" stroke-dashoffset="20.1"/></svg></div><div class="clabel es-only">Dexel<br>base</div><div class="clabel fr-only">Dexel<br>de base</div></div>
+      <div class="chip" data-s="done" data-chip="s1"><div class="cnum">1</div><div class="ring done" style="width:44px;height:44px"><svg viewBox="0 0 40 40"><circle class="track" cx="20" cy="20" r="16" stroke-width="4"/><circle id="ring-chip-s1" class="bar" cx="20" cy="20" r="16" stroke-width="4" stroke-dasharray="100.53" stroke-dashoffset="20.1"/></svg></div><div class="clabel es-only">Límite de<br>estabilidad</div><div class="clabel fr-only">Limite de<br>stabilité</div></div>
+      <div class="chip" data-s="attn" data-chip="s2"><div class="cnum">2</div><div class="ring attn" style="width:44px;height:44px"><svg viewBox="0 0 40 40"><circle class="track" cx="20" cy="20" r="16" stroke-width="4"/><circle id="ring-chip-s2" class="bar" cx="20" cy="20" r="16" stroke-width="4" stroke-dasharray="100.53" stroke-dashoffset="30.2"/></svg></div><div class="clabel es-only">Efecto<br>del dexel</div><div class="clabel fr-only">Effet du<br>dexel</div></div>
+      <div class="chip" data-s="done" data-chip="s3"><div class="cnum">3</div><div class="ring done" style="width:44px;height:44px"><svg viewBox="0 0 40 40"><circle class="track" cx="20" cy="20" r="16" stroke-width="4"/><circle id="ring-chip-s3" class="bar" cx="20" cy="20" r="16" stroke-width="4" stroke-dasharray="100.53" stroke-dashoffset="20.1"/></svg></div><div class="clabel es-only">Efecto<br>de dt</div><div class="clabel fr-only">Effet<br>de dt</div></div>
+      <div class="chip" data-s="attn" data-chip="s4"><div class="cnum">4</div><div class="ring attn" style="width:44px;height:44px"><svg viewBox="0 0 40 40"><circle class="track" cx="20" cy="20" r="16" stroke-width="4"/><circle id="ring-chip-s4" class="bar" cx="20" cy="20" r="16" stroke-width="4" stroke-dasharray="100.53" stroke-dashoffset="40.2"/></svg></div><div class="clabel es-only">Pieza<br>cónica</div><div class="clabel fr-only">Pièce<br>conique</div></div>
+      <div class="chip" data-s="attn" data-chip="s5"><div class="cnum">5</div><div class="ring attn" style="width:44px;height:44px"><svg viewBox="0 0 40 40"><circle class="track" cx="20" cy="20" r="16" stroke-width="4"/><circle id="ring-chip-s5" class="bar" cx="20" cy="20" r="16" stroke-width="4" stroke-dasharray="100.53" stroke-dashoffset="80.4"/></svg></div><div class="clabel es-only">Ruido mesuré<br>y modelo</div><div class="clabel fr-only">Bruit mesuré<br>et modèle</div></div>
+      <div class="chip" data-s="pend" data-chip="s6"><div class="cnum">6</div><div class="ring pend" style="width:44px;height:44px"><svg viewBox="0 0 40 40"><circle class="track" cx="20" cy="20" r="16" stroke-width="4"/><circle id="ring-chip-s6" class="bar" cx="20" cy="20" r="16" stroke-width="4" stroke-dasharray="100.53" stroke-dashoffset="100.53"/></svg></div><div class="clabel es-only">Ajuste<br>indicadores</div><div class="clabel fr-only">Ajustement<br>indicateurs</div></div>
+      <div class="chip" data-s="pend" data-chip="s7"><div class="cnum">7</div><div class="ring pend" style="width:44px;height:44px"><svg viewBox="0 0 40 40"><circle class="track" cx="20" cy="20" r="16" stroke-width="4"/><circle id="ring-chip-s7" class="bar" cx="20" cy="20" r="16" stroke-width="4" stroke-dasharray="100.53" stroke-dashoffset="80.4"/></svg></div><div class="clabel es-only">Herram.<br>artículo</div><div class="clabel fr-only">Outils<br>article</div></div>
+    </div>
+  </div>
+
+  <!-- ================= ETAPA 0 ================= -->
+  <section class="stage">
+    <div class="stage-band done"></div>
+    <div class="stage-head">
+      <div class="stage-bignum done">0</div>
+      <div class="stage-glyph">
+        <div class="ringwrap"><svg viewBox="0 0 76 76"><circle class="track" cx="38" cy="38" r="34" stroke-width="4" style="stroke:var(--surface-2)"/><circle id="ring-s0" cx="38" cy="38" r="34" stroke-width="4" fill="none" stroke-linecap="round" style="stroke:var(--done)" stroke-dasharray="213.6" stroke-dashoffset="42.7" transform="rotate(-90 38 38)"/></svg></div>
+        <svg class="icn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="3" y="3" width="8" height="8"/><rect x="13" y="3" width="8" height="8"/><rect x="3" y="13" width="8" height="8"/><rect x="13" y="13" width="8" height="8"/></svg>
+      </div>
+      <div class="stage-title-block">
+        <div class="stage-eyebrow es-only">Etapa 0 · Punto de partida</div>
+        <div class="stage-eyebrow fr-only">Étape 0 · Point de départ</div>
+        <div class="stage-title es-only">Elección del dexel base</div>
+        <div class="stage-title fr-only">Choix du dexel de base</div>
+      </div>
+      <div class="stamp done es-only">Lista</div><div class="stamp done fr-only">Prête</div>
+    </div>
+    <div class="stage-body">
+      <div class="three es-only">
+        <div class="panel hay"><span class="plbl"><span class="dot"></span>Qué hay</span><p>Elegimos el nivel de detalle más económico que todavía da una fuerza de corte confiable. Resultado completo.</p></div>
+        <div class="panel obj"><span class="plbl"><span class="dot"></span>Objetivo</span><p>Simular con más detalle sale más caro — buscábamos el punto más barato que se mantuviera confiable.</p></div>
+        <div class="panel falta"><span class="plbl"><span class="dot"></span>Qué falta</span><p class="done-note">Nada del cálculo — queda escribirlo y terminar la figura.</p></div>
+      </div>
+      <div class="three fr-only">
+        <div class="panel hay"><span class="plbl"><span class="dot"></span>Ce qu'il y a</span><p>On a choisi le niveau de détail le plus économique qui donne encore une force de coupe fiable. Résultat complet.</p></div>
+        <div class="panel obj"><span class="plbl"><span class="dot"></span>Objectif</span><p>Simuler avec plus de détail coûte plus cher — on cherchait le point le moins cher qui reste fiable.</p></div>
+        <div class="panel falta"><span class="plbl"><span class="dot"></span>Ce qui manque</span><p class="done-note">Rien côté calcul — reste à le rédiger et finir la figure.</p></div>
+      </div>
+      <div class="frentes-wrap">
+        <div class="frentes-lbl es-only">Progreso por frente <span class="frentes-legend"><span><i class="done"></i>Hecho</span><span><i class="curso"></i>Trabajando</span><span><i class="pend"></i>En espera</span></span></div>
+        <div class="frentes-lbl fr-only">Progression par front <span class="frentes-legend"><span><i class="done"></i>Fait</span><span><i class="curso"></i>En cours</span><span><i class="pend"></i>En attente</span></span></div>
+        <div class="frentes es-only">
+          <div class="frente" data-key="s0-idea" data-state="done" onclick="cycleFrente(this)"><span class="fi done">✓</span><span class="flabel">Idea</span></div>
+          <div class="frente" data-key="s0-codigo" data-state="done" onclick="cycleFrente(this)"><span class="fi done">✓</span><span class="flabel">Código</span></div>
+          <div class="frente" data-key="s0-datos" data-state="done" onclick="cycleFrente(this)"><span class="fi done">✓</span><span class="flabel">Datos</span></div>
+          <div class="frente" data-key="s0-figuras" data-state="curso" onclick="cycleFrente(this)"><span class="fi curso">~</span><span class="flabel">Figuras</span></div>
+          <div class="frente" data-key="s0-redaccion" data-state="curso" onclick="cycleFrente(this)"><span class="fi curso">~</span><span class="flabel">Redacción</span></div>
+        </div>
+        <div class="frentes fr-only">
+          <div class="frente" data-key="s0-idea" data-state="done" onclick="cycleFrente(this)"><span class="fi done">✓</span><span class="flabel">Idée</span></div>
+          <div class="frente" data-key="s0-codigo" data-state="done" onclick="cycleFrente(this)"><span class="fi done">✓</span><span class="flabel">Code</span></div>
+          <div class="frente" data-key="s0-datos" data-state="done" onclick="cycleFrente(this)"><span class="fi done">✓</span><span class="flabel">Données</span></div>
+          <div class="frente" data-key="s0-figuras" data-state="curso" onclick="cycleFrente(this)"><span class="fi curso">~</span><span class="flabel">Figures</span></div>
+          <div class="frente" data-key="s0-redaccion" data-state="curso" onclick="cycleFrente(this)"><span class="fi curso">~</span><span class="flabel">Rédaction</span></div>
+        </div>
+      </div>
+      <div class="pullquote es-only">Con un error de fuerza menor al 10%, elegimos el nivel de detalle más económico posible.</div>
+      <div class="pullquote fr-only">Avec une erreur de force inférieure à 10%, on choisit le niveau de détail le plus économique possible.</div>
+    </div>
+  </section>
+
+  <!-- ================= ETAPA 1 ================= -->
+  <section class="stage">
+    <div class="stage-band done"></div>
+    <div class="stage-head">
+      <div class="stage-bignum done">1</div>
+      <div class="stage-glyph">
+        <div class="ringwrap"><svg viewBox="0 0 76 76"><circle class="track" cx="38" cy="38" r="34" stroke-width="4" style="stroke:var(--surface-2)"/><circle id="ring-s1" cx="38" cy="38" r="34" stroke-width="4" fill="none" stroke-linecap="round" style="stroke:var(--done)" stroke-dasharray="213.6" stroke-dashoffset="42.7" transform="rotate(-90 38 38)"/></svg></div>
+        <svg class="icn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12c2-6 4-6 6 0s4 6 6 0 4-6 6 0"/></svg>
+      </div>
+      <div class="stage-title-block">
+        <div class="stage-eyebrow es-only">Etapa 1 · Validación</div>
+        <div class="stage-eyebrow fr-only">Étape 1 · Validation</div>
+        <div class="stage-title es-only">Límite de estabilidad</div>
+        <div class="stage-title fr-only">Limite de stabilité</div>
+      </div>
+      <div class="stamp done es-only">Lista</div><div class="stamp done fr-only">Prête</div>
+    </div>
+    <div class="stage-body">
+      <div class="three es-only">
+        <div class="panel hay"><span class="plbl"><span class="dot"></span>Qué hay</span><p>Comprobamos que nuestra simulación predice el mismo límite de estabilidad que la teoría clásica, con muy poco margen de error. Tenemos el diagrama clásico con nuestros puntos superpuestos.</p></div>
+        <div class="panel obj"><span class="plbl"><span class="dot"></span>Objetivo</span><p>Validar que el modelo numérico reproduce un resultado ya conocido y confiable — desde qué profundidad de corte aparece la vibración inestable.</p></div>
+        <div class="panel falta"><span class="plbl"><span class="dot"></span>Qué falta</span><p class="done-note">Nada del cálculo — queda escribirlo y exportar el diagrama de lóbulos como imagen final.</p></div>
+      </div>
+      <div class="three fr-only">
+        <div class="panel hay"><span class="plbl"><span class="dot"></span>Ce qu'il y a</span><p>On a vérifié que notre simulation prédit la même limite de stabilité que la théorie classique, avec très peu de marge d'erreur. On a le diagramme classique avec nos points superposés.</p></div>
+        <div class="panel obj"><span class="plbl"><span class="dot"></span>Objectif</span><p>Valider que le modèle numérique reproduit un résultat déjà connu et fiable — à partir de quelle profondeur la vibration instable apparaît.</p></div>
+        <div class="panel falta"><span class="plbl"><span class="dot"></span>Ce qui manque</span><p class="done-note">Rien côté calcul — reste à le rédiger et exporter le diagramme de lobes en image finale.</p></div>
+      </div>
+      <div class="frentes-wrap">
+        <div class="frentes-lbl es-only">Progreso por frente</div>
+        <div class="frentes-lbl fr-only">Progression par front</div>
+        <div class="frentes es-only">
+          <div class="frente" data-key="s1-idea" data-state="done" onclick="cycleFrente(this)"><span class="fi done">✓</span><span class="flabel">Idea</span></div>
+          <div class="frente" data-key="s1-codigo" data-state="done" onclick="cycleFrente(this)"><span class="fi done">✓</span><span class="flabel">Código</span></div>
+          <div class="frente" data-key="s1-datos" data-state="done" onclick="cycleFrente(this)"><span class="fi done">✓</span><span class="flabel">Datos</span></div>
+          <div class="frente" data-key="s1-figuras" data-state="curso" onclick="cycleFrente(this)"><span class="fi curso">~</span><span class="flabel">Figuras</span></div>
+          <div class="frente" data-key="s1-redaccion" data-state="curso" onclick="cycleFrente(this)"><span class="fi curso">~</span><span class="flabel">Redacción</span></div>
+        </div>
+        <div class="frentes fr-only">
+          <div class="frente" data-key="s1-idea" data-state="done" onclick="cycleFrente(this)"><span class="fi done">✓</span><span class="flabel">Idée</span></div>
+          <div class="frente" data-key="s1-codigo" data-state="done" onclick="cycleFrente(this)"><span class="fi done">✓</span><span class="flabel">Code</span></div>
+          <div class="frente" data-key="s1-datos" data-state="done" onclick="cycleFrente(this)"><span class="fi done">✓</span><span class="flabel">Données</span></div>
+          <div class="frente" data-key="s1-figuras" data-state="curso" onclick="cycleFrente(this)"><span class="fi curso">~</span><span class="flabel">Figures</span></div>
+          <div class="frente" data-key="s1-redaccion" data-state="curso" onclick="cycleFrente(this)"><span class="fi curso">~</span><span class="flabel">Rédaction</span></div>
+        </div>
+      </div>
+      <div class="pullquote es-only">Nuestra simulación reproduce el límite de estabilidad conocido, con buen margen de precisión.</div>
+      <div class="pullquote fr-only">Notre simulation reproduit la limite de stabilité connue, avec une bonne marge de précision.</div>
+    </div>
+  </section>
+
+  <!-- ================= ETAPA 2 ================= -->
+  <section class="stage">
+    <div class="stage-band attn"></div>
+    <div class="stage-head">
+      <div class="stage-bignum attn">2</div>
+      <div class="stage-glyph">
+        <div class="ringwrap"><svg viewBox="0 0 76 76"><circle class="track" cx="38" cy="38" r="34" stroke-width="4" style="stroke:var(--surface-2)"/><circle id="ring-s2" cx="38" cy="38" r="34" stroke-width="4" fill="none" stroke-linecap="round" style="stroke:var(--brass)" stroke-dasharray="213.6" stroke-dashoffset="64.1" transform="rotate(-90 38 38)"/></svg></div>
+        <svg class="icn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="3" width="18" height="18"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/></svg>
+      </div>
+      <div class="stage-title-block">
+        <div class="stage-eyebrow es-only">Etapa 2 · Confianza en el modelo</div>
+        <div class="stage-eyebrow fr-only">Étape 2 · Confiance dans le modèle</div>
+        <div class="stage-title es-only">Efecto del dexel en el límite de estabilidad</div>
+        <div class="stage-title fr-only">Effet du dexel sur la limite de stabilité</div>
+      </div>
+      <div class="stamp attn es-only">Casi lista</div><div class="stamp attn fr-only">Presque prête</div>
+    </div>
+    <div class="stage-body">
+      <div class="three es-only">
+        <div class="panel hay"><span class="plbl"><span class="dot"></span>Qué hay</span><p>El cálculo está prácticamente completo — el gráfico está armado en código y listo para correr.</p></div>
+        <div class="panel obj"><span class="plbl"><span class="dot"></span>Objetivo</span><p>Repetir la Etapa 1 con varios tamaños de dexel, para confirmar que el límite de estabilidad no depende de esa elección.</p></div>
+        <div class="panel falta"><span class="plbl"><span class="dot"></span>Qué falta</span><ul><li>Decidir qué simulación usar como la definitiva para cada tamaño de dexel — tenemos varias repetidas por cada una — y después escribirlo.</li></ul></div>
+      </div>
+      <div class="three fr-only">
+        <div class="panel hay"><span class="plbl"><span class="dot"></span>Ce qu'il y a</span><p>Le calcul est presque terminé — le graphique est codé et prêt à lancer.</p></div>
+        <div class="panel obj"><span class="plbl"><span class="dot"></span>Objectif</span><p>Répéter l'Étape 1 avec plusieurs tailles de dexel, pour confirmer que la limite de stabilité n'en dépend pas.</p></div>
+        <div class="panel falta"><span class="plbl"><span class="dot"></span>Ce qui manque</span><ul><li>Décider quelle simulation utiliser comme référence pour chaque taille de dexel — on en a plusieurs répétées — puis le rédiger.</li></ul></div>
+      </div>
+      <div class="frentes-wrap">
+        <div class="frentes-lbl es-only">Progreso por frente</div>
+        <div class="frentes-lbl fr-only">Progression par front</div>
+        <div class="frentes es-only">
+          <div class="frente" data-key="s2-idea" data-state="done" onclick="cycleFrente(this)"><span class="fi done">✓</span><span class="flabel">Idea</span></div>
+          <div class="frente" data-key="s2-codigo" data-state="done" onclick="cycleFrente(this)"><span class="fi done">✓</span><span class="flabel">Código</span></div>
+          <div class="frente" data-key="s2-datos" data-state="curso" onclick="cycleFrente(this)"><span class="fi curso">~</span><span class="flabel">Datos</span></div>
+          <div class="frente" data-key="s2-figuras" data-state="curso" onclick="cycleFrente(this)"><span class="fi curso">~</span><span class="flabel">Figuras</span></div>
+          <div class="frente" data-key="s2-redaccion" data-state="curso" onclick="cycleFrente(this)"><span class="fi curso">~</span><span class="flabel">Redacción</span></div>
+        </div>
+        <div class="frentes fr-only">
+          <div class="frente" data-key="s2-idea" data-state="done" onclick="cycleFrente(this)"><span class="fi done">✓</span><span class="flabel">Idée</span></div>
+          <div class="frente" data-key="s2-codigo" data-state="done" onclick="cycleFrente(this)"><span class="fi done">✓</span><span class="flabel">Code</span></div>
+          <div class="frente" data-key="s2-datos" data-state="curso" onclick="cycleFrente(this)"><span class="fi curso">~</span><span class="flabel">Données</span></div>
+          <div class="frente" data-key="s2-figuras" data-state="curso" onclick="cycleFrente(this)"><span class="fi curso">~</span><span class="flabel">Figures</span></div>
+          <div class="frente" data-key="s2-redaccion" data-state="curso" onclick="cycleFrente(this)"><span class="fi curso">~</span><span class="flabel">Rédaction</span></div>
+        </div>
+      </div>
+      <div class="pullquote es-only">Falta una sola decisión para tener el gráfico de esta etapa listo.</div>
+      <div class="pullquote fr-only">Il manque une seule décision pour avoir le graphique de cette étape prêt.</div>
+    </div>
+  </section>
+
+  <!-- ================= ETAPA 3 ================= -->
+  <section class="stage">
+    <div class="stage-band done"></div>
+    <div class="stage-head">
+      <div class="stage-bignum done">3</div>
+      <div class="stage-glyph">
+        <div class="ringwrap"><svg viewBox="0 0 76 76"><circle class="track" cx="38" cy="38" r="34" stroke-width="4" style="stroke:var(--surface-2)"/><circle id="ring-s3" cx="38" cy="38" r="34" stroke-width="4" fill="none" stroke-linecap="round" style="stroke:var(--done)" stroke-dasharray="213.6" stroke-dashoffset="42.7" transform="rotate(-90 38 38)"/></svg></div>
+        <svg class="icn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+      </div>
+      <div class="stage-title-block">
+        <div class="stage-eyebrow es-only">Etapa 3 · Confianza en el modelo</div>
+        <div class="stage-eyebrow fr-only">Étape 3 · Confiance dans le modèle</div>
+        <div class="stage-title es-only">Efecto del paso de tiempo (dt)</div>
+        <div class="stage-title fr-only">Effet du pas de temps (dt)</div>
+      </div>
+      <div class="stamp done es-only">Lista</div><div class="stamp done fr-only">Prête</div>
+    </div>
+    <div class="stage-body">
+      <div class="three es-only">
+        <div class="panel hay"><span class="plbl"><span class="dot"></span>Qué hay</span><p>Resultado confirmado con datos reales: el error baja de <b>7.5% a 1.1%</b> al recalcular más seguido en el tiempo.</p></div>
+        <div class="panel obj"><span class="plbl"><span class="dot"></span>Objetivo</span><p>Mismo chequeo que la Etapa 2, pero variando el paso de tiempo (dt) en vez del tamaño de dexel.</p></div>
+        <div class="panel falta"><span class="plbl"><span class="dot"></span>Qué falta</span><p class="done-note">Nada del cálculo — queda solo escribirlo y pulir la figura.</p></div>
+      </div>
+      <div class="three fr-only">
+        <div class="panel hay"><span class="plbl"><span class="dot"></span>Ce qu'il y a</span><p>Résultat confirmé avec des données réelles : l'erreur passe de <b>7.5% à 1.1%</b> en recalculant plus souvent dans le temps.</p></div>
+        <div class="panel obj"><span class="plbl"><span class="dot"></span>Objectif</span><p>Même contrôle qu'à l'Étape 2, mais en faisant varier le pas de temps (dt) plutôt que la taille de dexel.</p></div>
+        <div class="panel falta"><span class="plbl"><span class="dot"></span>Ce qui manque</span><p class="done-note">Rien côté calcul — reste à le rédiger et peaufiner la figure.</p></div>
+      </div>
+      <div class="frentes-wrap">
+        <div class="frentes-lbl es-only">Progreso por frente</div>
+        <div class="frentes-lbl fr-only">Progression par front</div>
+        <div class="frentes es-only">
+          <div class="frente" data-key="s3-idea" data-state="done" onclick="cycleFrente(this)"><span class="fi done">✓</span><span class="flabel">Idea</span></div>
+          <div class="frente" data-key="s3-codigo" data-state="done" onclick="cycleFrente(this)"><span class="fi done">✓</span><span class="flabel">Código</span></div>
+          <div class="frente" data-key="s3-datos" data-state="done" onclick="cycleFrente(this)"><span class="fi done">✓</span><span class="flabel">Datos</span></div>
+          <div class="frente" data-key="s3-figuras" data-state="curso" onclick="cycleFrente(this)"><span class="fi curso">~</span><span class="flabel">Figuras</span></div>
+          <div class="frente" data-key="s3-redaccion" data-state="curso" onclick="cycleFrente(this)"><span class="fi curso">~</span><span class="flabel">Redacción</span></div>
+        </div>
+        <div class="frentes fr-only">
+          <div class="frente" data-key="s3-idea" data-state="done" onclick="cycleFrente(this)"><span class="fi done">✓</span><span class="flabel">Idée</span></div>
+          <div class="frente" data-key="s3-codigo" data-state="done" onclick="cycleFrente(this)"><span class="fi done">✓</span><span class="flabel">Code</span></div>
+          <div class="frente" data-key="s3-datos" data-state="done" onclick="cycleFrente(this)"><span class="fi done">✓</span><span class="flabel">Données</span></div>
+          <div class="frente" data-key="s3-figuras" data-state="curso" onclick="cycleFrente(this)"><span class="fi curso">~</span><span class="flabel">Figures</span></div>
+          <div class="frente" data-key="s3-redaccion" data-state="curso" onclick="cycleFrente(this)"><span class="fi curso">~</span><span class="flabel">Rédaction</span></div>
+        </div>
+      </div>
+      <div class="pullquote es-only">El error baja de 7.5% a 1.1% al afinar el paso de tiempo — confirma nuestro estándar.</div>
+      <div class="pullquote fr-only">L'erreur baisse de 7.5% à 1.1% en affinant le pas de temps — confirme notre standard.</div>
+    </div>
+  </section>
+
+  <!-- ================= ETAPA 4 ================= -->
+  <section class="stage">
+    <div class="stage-band attn"></div>
+    <div class="stage-head">
+      <div class="stage-bignum attn">4</div>
+      <div class="stage-glyph">
+        <div class="ringwrap"><svg viewBox="0 0 76 76"><circle class="track" cx="38" cy="38" r="34" stroke-width="4" style="stroke:var(--surface-2)"/><circle id="ring-s4" cx="38" cy="38" r="34" stroke-width="4" fill="none" stroke-linecap="round" style="stroke:var(--brass)" stroke-dasharray="213.6" stroke-dashoffset="85.4" transform="rotate(-90 38 38)"/></svg></div>
+        <svg class="icn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M12 3l7 17H5z"/><line x1="8.5" y1="14" x2="15.5" y2="14"/></svg>
+      </div>
+      <div class="stage-title-block">
+        <div class="stage-eyebrow es-only">Etapa 4 · Pieza cónica</div>
+        <div class="stage-eyebrow fr-only">Étape 4 · Pièce conique</div>
+        <div class="stage-title es-only">Pieza cónica: efecto del dexel en el tiempo de aparición del chatter</div>
+        <div class="stage-title fr-only">Pièce conique : effet du dexel sur le moment d'apparition du chatter</div>
+      </div>
+      <div class="stamp attn es-only">En implementación</div><div class="stamp attn fr-only">En implémentation</div>
+    </div>
+    <div class="stage-body">
+      <div class="hipo es-only"><span class="hlbl">Hipótesis a comprobar</span><p>El cambio en el momento en que aparece el chatter viene de una <b>perturbación inicial distinta para cada tamaño de dexel</b> — no de que la vibración crezca más rápido o más lento. Ya lo comprobamos con los datos completos de la simulación dinámica; falta confirmarlo con la segunda vía, más simple, basada solo en el cálculo cinemático de fuerzas de la Etapa 0.</p></div>
+      <div class="hipo fr-only"><span class="hlbl">Hypothèse à vérifier</span><p>Le décalage du moment d'apparition du chatter vient d'une <b>perturbation initiale différente selon la taille du dexel</b> — pas d'une vibration qui croît plus vite ou plus lentement. Déjà vérifié avec les données complètes de la simulation dynamique ; reste à le confirmer avec la seconde voie, plus simple, basée seulement sur le calcul cinématique de forces de l'Étape 0.</p></div>
+      <div class="three es-only">
+        <div class="panel hay"><span class="plbl"><span class="dot"></span>Qué hay</span><p>Medimos cuánto se adelanta o atrasa el chatter según el tamaño de dexel, en la pieza cónica (profundidad de corte creciente). Tenemos varias figuras, incluida la comparación principal.</p></div>
+        <div class="panel obj"><span class="plbl"><span class="dot"></span>Objetivo</span><p>Repetir el estudio de influencia del dexel (Etapa 2), ahora en la pieza cónica, y comprobar la hipótesis de arriba.</p></div>
+        <div class="panel falta"><span class="plbl"><span class="dot"></span>Qué falta</span><ul><li>Terminar la segunda vía de verificación (cálculo cinemático) para confirmar la hipótesis por partida doble.</li><li>Exportar el gráfico que resume todo en una sola curva — hoy calculado, no guardado.</li></ul></div>
+      </div>
+      <div class="three fr-only">
+        <div class="panel hay"><span class="plbl"><span class="dot"></span>Ce qu'il y a</span><p>On mesure de combien le chatter avance ou retarde selon la taille de dexel, sur la pièce conique (profondeur de coupe croissante). On a plusieurs figures, dont la comparaison principale.</p></div>
+        <div class="panel obj"><span class="plbl"><span class="dot"></span>Objectif</span><p>Répéter l'étude d'influence du dexel (Étape 2), maintenant sur la pièce conique, et vérifier l'hypothèse ci-dessus.</p></div>
+        <div class="panel falta"><span class="plbl"><span class="dot"></span>Ce qui manque</span><ul><li>Finir la seconde voie de vérification (calcul cinématique) pour confirmer l'hypothèse par deux méthodes.</li><li>Exporter le graphique qui résume tout en une seule courbe — calculé aujourd'hui, pas sauvegardé.</li></ul></div>
+      </div>
+      <div class="frentes-wrap">
+        <div class="frentes-lbl es-only">Progreso por frente</div>
+        <div class="frentes-lbl fr-only">Progression par front</div>
+        <div class="frentes es-only">
+          <div class="frente" data-key="s4-idea" data-state="curso" onclick="cycleFrente(this)"><span class="fi curso">~</span><span class="flabel">Idea</span></div>
+          <div class="frente" data-key="s4-codigo" data-state="curso" onclick="cycleFrente(this)"><span class="fi curso">~</span><span class="flabel">Código</span></div>
+          <div class="frente" data-key="s4-datos" data-state="done" onclick="cycleFrente(this)"><span class="fi done">✓</span><span class="flabel">Datos</span></div>
+          <div class="frente" data-key="s4-figuras" data-state="curso" onclick="cycleFrente(this)"><span class="fi curso">~</span><span class="flabel">Figuras</span></div>
+          <div class="frente" data-key="s4-redaccion" data-state="curso" onclick="cycleFrente(this)"><span class="fi curso">~</span><span class="flabel">Redacción</span></div>
+        </div>
+        <div class="frentes fr-only">
+          <div class="frente" data-key="s4-idea" data-state="curso" onclick="cycleFrente(this)"><span class="fi curso">~</span><span class="flabel">Idée</span></div>
+          <div class="frente" data-key="s4-codigo" data-state="curso" onclick="cycleFrente(this)"><span class="fi curso">~</span><span class="flabel">Code</span></div>
+          <div class="frente" data-key="s4-datos" data-state="done" onclick="cycleFrente(this)"><span class="fi done">✓</span><span class="flabel">Données</span></div>
+          <div class="frente" data-key="s4-figuras" data-state="curso" onclick="cycleFrente(this)"><span class="fi curso">~</span><span class="flabel">Figures</span></div>
+          <div class="frente" data-key="s4-redaccion" data-state="curso" onclick="cycleFrente(this)"><span class="fi curso">~</span><span class="flabel">Rédaction</span></div>
+        </div>
+      </div>
+      <div class="pullquote es-only">En la pieza cónica, el nivel de detalle también corre el momento en que aparece la vibración — y la hipótesis es que viene de la perturbación inicial, no de la tasa de crecimiento.</div>
+      <div class="pullquote fr-only">Sur la pièce conique, le niveau de détail décale aussi le moment d'apparition de la vibration — l'hypothèse est que cela vient de la perturbation initiale, pas du taux de croissance.</div>
+    </div>
+  </section>
+
+  <!-- ================= ETAPA 5 ================= -->
+  <section class="stage">
+    <div class="stage-band attn"></div>
+    <div class="stage-head">
+      <div class="stage-bignum attn">5</div>
+      <div class="stage-glyph">
+        <div class="ringwrap"><svg viewBox="0 0 76 76"><circle class="track" cx="38" cy="38" r="34" stroke-width="4" style="stroke:var(--surface-2)"/><circle id="ring-s5" cx="38" cy="38" r="34" stroke-width="4" fill="none" stroke-linecap="round" style="stroke:var(--brass)" stroke-dasharray="213.6" stroke-dashoffset="170.9" transform="rotate(-90 38 38)"/></svg></div>
+        <svg class="icn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12l2-4 2 7 2-9 2 8 2-6 2 5 2-7 2 4 2-3"/></svg>
+      </div>
+      <div class="stage-title-block">
+        <div class="stage-eyebrow es-only">Etapa 5 · Robustez de los indicadores</div>
+        <div class="stage-eyebrow fr-only">Étape 5 · Robustesse des indicateurs</div>
+        <div class="stage-title es-only">Efecto del ruido mesuré y del ruido modelo</div>
+        <div class="stage-title fr-only">Effet du bruit mesuré et du bruit modèle</div>
+      </div>
+      <div class="stamp attn es-only">Problema abierto</div><div class="stamp attn fr-only">Problème ouvert</div>
+    </div>
+    <div class="stage-body">
+      <div class="three es-only">
+        <div class="panel hay"><span class="plbl"><span class="dot"></span>Qué hay</span><p>La implementación del <b>ruido mesuré</b> (el de los sensores) ya está hecha, en otro proyecto. Para el <b>ruido modelo</b> (el que introduce la simulación misma) todavía no elegimos ninguna dirección.</p></div>
+        <div class="panel obj"><span class="plbl"><span class="dot"></span>Objetivo</span><p>Entender cómo cada tipo de ruido afecta la capacidad de los indicadores de chatter para detectar la vibración a tiempo.</p></div>
+        <div class="panel falta"><span class="plbl"><span class="dot"></span>Qué falta</span><ul><li>Ruido mesuré: figuras y redacción.</li><li>Ruido modelo: elegir una dirección concreta a explorar, implementarla, y recién después figuras y redacción.</li></ul></div>
+      </div>
+      <div class="three fr-only">
+        <div class="panel hay"><span class="plbl"><span class="dot"></span>Ce qu'il y a</span><p>L'implémentation du <b>bruit mesuré</b> (celui des capteurs) est déjà faite, dans un autre projet. Pour le <b>bruit modèle</b> (celui introduit par la simulation elle-même), aucune direction n'est encore choisie.</p></div>
+        <div class="panel obj"><span class="plbl"><span class="dot"></span>Objectif</span><p>Comprendre comment chaque type de bruit affecte la capacité des indicateurs de chatter à détecter la vibration à temps.</p></div>
+        <div class="panel falta"><span class="plbl"><span class="dot"></span>Ce qui manque</span><ul><li>Bruit mesuré : figures et rédaction.</li><li>Bruit modèle : choisir une direction concrète à explorer, l'implémenter, puis seulement après figures et rédaction.</li></ul></div>
+      </div>
+      <div class="frentes-wrap">
+        <div class="frentes-lbl es-only">Progreso por frente</div>
+        <div class="frentes-lbl fr-only">Progression par front</div>
+        <div class="frentes es-only">
+          <div class="frente" data-key="s5-idea" data-state="curso" onclick="cycleFrente(this)"><span class="fi curso">~</span><span class="flabel">Idea</span></div>
+          <div class="frente" data-key="s5-codigo" data-state="curso" onclick="cycleFrente(this)"><span class="fi curso">~</span><span class="flabel">Código</span></div>
+          <div class="frente" data-key="s5-datos" data-state="pend" onclick="cycleFrente(this)"><span class="fi pend">–</span><span class="flabel">Datos</span></div>
+          <div class="frente" data-key="s5-figuras" data-state="pend" onclick="cycleFrente(this)"><span class="fi pend">–</span><span class="flabel">Figuras</span></div>
+          <div class="frente" data-key="s5-redaccion" data-state="pend" onclick="cycleFrente(this)"><span class="fi pend">–</span><span class="flabel">Redacción</span></div>
+        </div>
+        <div class="frentes fr-only">
+          <div class="frente" data-key="s5-idea" data-state="curso" onclick="cycleFrente(this)"><span class="fi curso">~</span><span class="flabel">Idée</span></div>
+          <div class="frente" data-key="s5-codigo" data-state="curso" onclick="cycleFrente(this)"><span class="fi curso">~</span><span class="flabel">Code</span></div>
+          <div class="frente" data-key="s5-datos" data-state="pend" onclick="cycleFrente(this)"><span class="fi pend">–</span><span class="flabel">Données</span></div>
+          <div class="frente" data-key="s5-figuras" data-state="pend" onclick="cycleFrente(this)"><span class="fi pend">–</span><span class="flabel">Figures</span></div>
+          <div class="frente" data-key="s5-redaccion" data-state="pend" onclick="cycleFrente(this)"><span class="fi pend">–</span><span class="flabel">Rédaction</span></div>
+        </div>
+      </div>
+
+      <div class="proposal es-only">
+        <span class="plbl2">Área de exploración — todavía sin decidir</span>
+        <p>No hay una dirección elegida para medir el ruido modelo. Cualquier pista debería apoyarse en lo que ya sabemos por las Etapas 0, 2 y 4 — cómo el dexel afecta la fuerza y el momento de aparición del chatter — pero la forma concreta de traducir eso en un "nivel de ruido" todavía está abierta. Es solo un rumbo posible, no una decisión tomada.</p>
+      </div>
+      <div class="proposal fr-only">
+        <span class="plbl2">Piste à explorer — encore non décidée</span>
+        <p>Aucune direction n'est encore choisie pour mesurer le bruit modèle. Toute piste devrait s'appuyer sur ce qu'on sait déjà des Étapes 0, 2 et 4 — comment le dexel affecte la force et le moment d'apparition du chatter — mais la façon concrète de traduire cela en un "niveau de bruit" reste ouverte. C'est juste une direction possible, pas une décision prise.</p>
+      </div>
+
+      <div class="pullquote es-only">El ruido mesuré ya está resuelto; el desafío que queda es elegir una dirección para el ruido modelo.</div>
+      <div class="pullquote fr-only">Le bruit mesuré est déjà résolu ; le défi restant est de choisir une direction pour le bruit modèle.</div>
+    </div>
+  </section>
+
+  <!-- ================= ETAPA 6 ================= -->
+  <section class="stage">
+    <div class="stage-band pend"></div>
+    <div class="stage-head">
+      <div class="stage-bignum pend">6</div>
+      <div class="stage-glyph">
+        <div class="ringwrap"><svg viewBox="0 0 76 76"><circle class="track" cx="38" cy="38" r="34" stroke-width="4" style="stroke:var(--surface-2)"/><circle id="ring-s6" cx="38" cy="38" r="34" stroke-width="4" fill="none" stroke-linecap="round" style="stroke:var(--pending)" stroke-dasharray="213.6" stroke-dashoffset="213.6" transform="rotate(-90 38 38)"/></svg></div>
+        <svg class="icn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><line x1="5" y1="4" x2="5" y2="20"/><circle cx="5" cy="9" r="2"/><line x1="12" y1="4" x2="12" y2="20"/><circle cx="12" cy="15" r="2"/><line x1="19" y1="4" x2="19" y2="20"/><circle cx="19" cy="7" r="2"/></svg>
+      </div>
+      <div class="stage-title-block">
+        <div class="stage-eyebrow es-only">Etapa 6 · Robustez de los indicadores</div>
+        <div class="stage-eyebrow fr-only">Étape 6 · Robustesse des indicateurs</div>
+        <div class="stage-title es-only">Ajuste de los indicadores</div>
+        <div class="stage-title fr-only">Ajustement des indicateurs</div>
+      </div>
+      <div class="stamp pend es-only">Por definir</div><div class="stamp pend fr-only">À définir</div>
+    </div>
+    <div class="stage-body">
+      <div class="three es-only">
+        <div class="panel hay"><span class="plbl"><span class="dot"></span>Qué hay</span><p>Nada armado todavía.</p></div>
+        <div class="panel obj"><span class="plbl"><span class="dot"></span>Objetivo</span><p>Ajustar cada indicador de chatter para que funcione bien a pesar del ruido.</p></div>
+        <div class="panel falta"><span class="plbl"><span class="dot"></span>Qué falta</span><p>Todo — depende por completo de resolver primero la Etapa 5.</p></div>
+      </div>
+      <div class="three fr-only">
+        <div class="panel hay"><span class="plbl"><span class="dot"></span>Ce qu'il y a</span><p>Rien n'est encore prêt.</p></div>
+        <div class="panel obj"><span class="plbl"><span class="dot"></span>Objectif</span><p>Ajuster chaque indicateur de chatter pour qu'il fonctionne bien malgré le bruit.</p></div>
+        <div class="panel falta"><span class="plbl"><span class="dot"></span>Ce qui manque</span><p>Tout — dépend entièrement de résoudre d'abord l'Étape 5.</p></div>
+      </div>
+      <div class="frentes-wrap">
+        <div class="frentes-lbl es-only">Progreso por frente</div>
+        <div class="frentes-lbl fr-only">Progression par front</div>
+        <div class="frentes es-only">
+          <div class="frente" data-key="s6-idea" data-state="pend" onclick="cycleFrente(this)"><span class="fi pend">–</span><span class="flabel">Idea</span></div>
+          <div class="frente" data-key="s6-codigo" data-state="pend" onclick="cycleFrente(this)"><span class="fi pend">–</span><span class="flabel">Código</span></div>
+          <div class="frente" data-key="s6-datos" data-state="pend" onclick="cycleFrente(this)"><span class="fi pend">–</span><span class="flabel">Datos</span></div>
+          <div class="frente" data-key="s6-figuras" data-state="pend" onclick="cycleFrente(this)"><span class="fi pend">–</span><span class="flabel">Figuras</span></div>
+          <div class="frente" data-key="s6-redaccion" data-state="pend" onclick="cycleFrente(this)"><span class="fi pend">–</span><span class="flabel">Redacción</span></div>
+        </div>
+        <div class="frentes fr-only">
+          <div class="frente" data-key="s6-idea" data-state="pend" onclick="cycleFrente(this)"><span class="fi pend">–</span><span class="flabel">Idée</span></div>
+          <div class="frente" data-key="s6-codigo" data-state="pend" onclick="cycleFrente(this)"><span class="fi pend">–</span><span class="flabel">Code</span></div>
+          <div class="frente" data-key="s6-datos" data-state="pend" onclick="cycleFrente(this)"><span class="fi pend">–</span><span class="flabel">Données</span></div>
+          <div class="frente" data-key="s6-figuras" data-state="pend" onclick="cycleFrente(this)"><span class="fi pend">–</span><span class="flabel">Figures</span></div>
+          <div class="frente" data-key="s6-redaccion" data-state="pend" onclick="cycleFrente(this)"><span class="fi pend">–</span><span class="flabel">Rédaction</span></div>
+        </div>
+      </div>
+      <div class="pullquote es-only">Es el siguiente paso natural, pero no lo vamos a definir hasta resolver la Etapa 5.</div>
+      <div class="pullquote fr-only">C'est la suite naturelle, mais on ne la définira qu'une fois l'Étape 5 résolue.</div>
+    </div>
+  </section>
+
+  <!-- ================= ETAPA 7 ================= -->
+  <section class="stage">
+    <div class="stage-band pend"></div>
+    <div class="stage-head">
+      <div class="stage-bignum pend">7</div>
+      <div class="stage-glyph">
+        <div class="ringwrap"><svg viewBox="0 0 76 76"><circle class="track" cx="38" cy="38" r="34" stroke-width="4" style="stroke:var(--surface-2)"/><circle id="ring-s7" cx="38" cy="38" r="34" stroke-width="4" fill="none" stroke-linecap="round" style="stroke:var(--pending)" stroke-dasharray="213.6" stroke-dashoffset="170.9" transform="rotate(-90 38 38)"/></svg></div>
+        <svg class="icn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M4 5h7v15H4a1 1 0 01-1-1V6a1 1 0 011-1z"/><path d="M20 5h-7v15h7a1 1 0 001-1V6a1 1 0 00-1-1z"/></svg>
+      </div>
+      <div class="stage-title-block">
+        <div class="stage-eyebrow es-only">Etapa 7 · Artículo de indicadores</div>
+        <div class="stage-eyebrow fr-only">Étape 7 · Article sur les indicateurs</div>
+        <div class="stage-title es-only">Herramientas para el artículo de los indicadores</div>
+        <div class="stage-title fr-only">Outils pour l'article sur les indicateurs</div>
+      </div>
+      <div class="stamp pend es-only">Por definir</div><div class="stamp pend fr-only">À définir</div>
+    </div>
+    <div class="stage-body">
+      <div class="three es-only">
+        <div class="panel hay"><span class="plbl"><span class="dot"></span>Qué hay</span><p>Los indicadores de chatter ya están implementados por separado (green_integral, maxent_sprt, ssq_chatter, emd_hht, rale, rms_cv).</p></div>
+        <div class="panel obj"><span class="plbl"><span class="dot"></span>Objetivo</span><p>Tener listas las herramientas necesarias (comparaciones, experimentos) para poder escribir el artículo sobre los indicadores.</p></div>
+        <div class="panel falta"><span class="plbl"><span class="dot"></span>Qué falta</span><p>Casi todo — definir qué comparación respalda el artículo, generar las figuras, y escribirlo.</p></div>
+      </div>
+      <div class="three fr-only">
+        <div class="panel hay"><span class="plbl"><span class="dot"></span>Ce qu'il y a</span><p>Les indicateurs de chatter sont déjà implémentés séparément (green_integral, maxent_sprt, ssq_chatter, emd_hht, rale, rms_cv).</p></div>
+        <div class="panel obj"><span class="plbl"><span class="dot"></span>Objectif</span><p>Avoir prêts les outils nécessaires (comparaisons, expériences) pour pouvoir écrire l'article sur les indicateurs.</p></div>
+        <div class="panel falta"><span class="plbl"><span class="dot"></span>Ce qui manque</span><p>Presque tout — définir quelle comparaison soutient l'article, générer les figures, et le rédiger.</p></div>
+      </div>
+      <div class="frentes-wrap">
+        <div class="frentes-lbl es-only">Progreso por frente</div>
+        <div class="frentes-lbl fr-only">Progression par front</div>
+        <div class="frentes es-only">
+          <div class="frente" data-key="s7-idea" data-state="curso" onclick="cycleFrente(this)"><span class="fi curso">~</span><span class="flabel">Idea</span></div>
+          <div class="frente" data-key="s7-codigo" data-state="curso" onclick="cycleFrente(this)"><span class="fi curso">~</span><span class="flabel">Código</span></div>
+          <div class="frente" data-key="s7-datos" data-state="pend" onclick="cycleFrente(this)"><span class="fi pend">–</span><span class="flabel">Datos</span></div>
+          <div class="frente" data-key="s7-figuras" data-state="pend" onclick="cycleFrente(this)"><span class="fi pend">–</span><span class="flabel">Figuras</span></div>
+          <div class="frente" data-key="s7-redaccion" data-state="pend" onclick="cycleFrente(this)"><span class="fi pend">–</span><span class="flabel">Redacción</span></div>
+        </div>
+        <div class="frentes fr-only">
+          <div class="frente" data-key="s7-idea" data-state="curso" onclick="cycleFrente(this)"><span class="fi curso">~</span><span class="flabel">Idée</span></div>
+          <div class="frente" data-key="s7-codigo" data-state="curso" onclick="cycleFrente(this)"><span class="fi curso">~</span><span class="flabel">Code</span></div>
+          <div class="frente" data-key="s7-datos" data-state="pend" onclick="cycleFrente(this)"><span class="fi pend">–</span><span class="flabel">Données</span></div>
+          <div class="frente" data-key="s7-figuras" data-state="pend" onclick="cycleFrente(this)"><span class="fi pend">–</span><span class="flabel">Figures</span></div>
+          <div class="frente" data-key="s7-redaccion" data-state="pend" onclick="cycleFrente(this)"><span class="fi pend">–</span><span class="flabel">Rédaction</span></div>
+        </div>
+      </div>
+      <div class="pullquote es-only">Los indicadores ya existen por separado — falta definir qué comparación los convierte en artículo.</div>
+      <div class="pullquote fr-only">Les indicateurs existent déjà séparément — reste à définir quelle comparaison en fait un article.</div>
+    </div>
+  </section>
+
+  <div class="check-section">
+    <div class="es-only"><h2>Para la reunión de la semana que viene</h2><p>Checklist de qué dejar resuelto antes de terminar la reunión — marcalos ahí mismo, en vivo.</p></div>
+    <div class="fr-only"><h2>Pour la réunion de la semaine prochaine</h2><p>Checklist de ce qu'il faut régler avant de terminer la réunion — cochez-les en direct.</p></div>
+    <div class="checklist" id="checklist">
+      <div class="citem" data-id="c1"><div class="box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M4 12l5 5L20 6"/></svg></div><div class="ctext es-only">Decidir qué simulación representa cada tamaño de dexel en la <b>Etapa 2</b>, y encargar ese gráfico.</div><div class="ctext fr-only">Décider quelle simulation représente chaque taille de dexel à l'<b>Étape 2</b>, et lancer ce graphique.</div></div>
+      <div class="citem" data-id="c2"><div class="box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M4 12l5 5L20 6"/></svg></div><div class="ctext es-only">Encargar la exportación de las figuras del diagrama de lóbulos (Etapa 1) y del resumen de dexel (Etapa 4).</div><div class="ctext fr-only">Charger l'exportation des figures du diagramme de lobes (Étape 1) et du résumé de dexel (Étape 4).</div></div>
+      <div class="citem" data-id="c3"><div class="box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M4 12l5 5L20 6"/></svg></div><div class="ctext es-only">Acordar quién termina la segunda vía de verificación de la <b>Etapa 4</b> (cálculo cinemático) y para cuándo.</div><div class="ctext fr-only">Convenir qui termine la seconde voie de vérification de l'<b>Étape 4</b> (calcul cinématique) et pour quand.</div></div>
+      <div class="citem" data-id="c4"><div class="box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M4 12l5 5L20 6"/></svg></div><div class="ctext es-only">Elegir una dirección concreta a explorar para el ruido modelo en la <b>Etapa 5</b>.</div><div class="ctext fr-only">Choisir une direction concrète à explorer pour le bruit modèle à l'<b>Étape 5</b>.</div></div>
+      <div class="citem" data-id="c5"><div class="box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M4 12l5 5L20 6"/></svg></div><div class="ctext es-only">Dejar en claro que las <b>Etapas 6 y 7</b> quedan por definir — no comprometer fecha todavía.</div><div class="ctext fr-only">Préciser que les <b>Étapes 6 et 7</b> restent à définir — ne pas encore s'engager sur une date.</div></div>
+    </div>
+  </div>
+
+  <footer>
+    <span class="es-only">Hoja de Ruta CAMP10</span><span class="fr-only">Feuille de Route CAMP10</span>
+  </footer>
+
+</div>
+
+<div class="navbtns">
+  <button class="navbtn" onclick="presentNav(-1)" aria-label="Anterior">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 15l-6-6-6 6"/></svg>
+  </button>
+  <button class="navbtn" onclick="presentNav(1)" aria-label="Siguiente">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+  </button>
+</div>
+
+<script>
+  function setLang(l){
+    document.documentElement.setAttribute('data-lang', l);
+    try{ localStorage.setItem('camp10-lang', l); }catch(e){}
+  }
+  function togglePresent(){
+    document.body.classList.toggle('present');
+  }
+  function presentNav(delta){
+    var wrap = document.getElementById('wrap');
+    wrap.scrollBy({ top: delta * wrap.clientHeight, behavior: 'smooth' });
+  }
+  document.addEventListener('keydown', function(ev){
+    if (!document.body.classList.contains('present')) return;
+    if (ev.key === 'ArrowDown' || ev.key === 'ArrowRight' || ev.key === 'PageDown'){ ev.preventDefault(); presentNav(1); }
+    else if (ev.key === 'ArrowUp' || ev.key === 'ArrowLeft' || ev.key === 'PageUp'){ ev.preventDefault(); presentNav(-1); }
+    else if (ev.key === 'Escape'){ document.body.classList.remove('present'); }
+  });
+
+  var FRENTE_ORDER = ['pend','curso','done'];
+  var FRENTE_ICON = { pend:'–', curso:'~', done:'✓' };
+  function applyFrenteState(key, state){
+    document.querySelectorAll('.frente[data-key="'+key+'"]').forEach(function(el){
+      el.setAttribute('data-state', state);
+      var fi = el.querySelector('.fi');
+      fi.className = 'fi ' + state;
+      fi.textContent = FRENTE_ICON[state];
+    });
+  }
+  function saveFrentesState(){
+    var state = {};
+    document.querySelectorAll('.frente[data-key]').forEach(function(el){
+      state[el.getAttribute('data-key')] = el.getAttribute('data-state');
+    });
+    try{ localStorage.setItem('camp10-frentes-v1', JSON.stringify(state)); }catch(e){}
+  }
+  var STAGE_IDS = ['0','1','2','3','4','5','6','7'];
+  var CAT_KEYS = ['idea','codigo','datos','figuras','redaccion'];
+  function computeStagePct(id){
+    var pts = 0;
+    CAT_KEYS.forEach(function(c){
+      var el = document.querySelector('.frente[data-key="s'+id+'-'+c+'"]');
+      if(!el) return;
+      var st = el.getAttribute('data-state');
+      pts += st === 'done' ? 20 : (st === 'curso' ? 10 : 0);
+    });
+    return pts;
+  }
+  function bucketColor(pct){
+    var css = getComputedStyle(document.documentElement);
+    if (pct > 75) return css.getPropertyValue('--done').trim();
+    if (pct > 0) return css.getPropertyValue('--brass').trim();
+    return css.getPropertyValue('--pending').trim();
+  }
+  function updateStageRing(id){
+    var pct = computeStagePct(id);
+    var color = bucketColor(pct);
+    var big = document.getElementById('ring-s' + id);
+    if (big){
+      var C1 = 213.628;
+      big.style.strokeDashoffset = (C1 * (1 - pct / 100)).toFixed(2);
+      big.style.stroke = color;
+    }
+    var chip = document.getElementById('ring-chip-s' + id);
+    if (chip){
+      var C2 = 100.531;
+      chip.style.strokeDashoffset = (C2 * (1 - pct / 100)).toFixed(2);
+      chip.style.stroke = color;
+    }
+    var chipEl = document.querySelector('.chip[data-chip="s' + id + '"]');
+    if (chipEl){ chipEl.style.borderTopColor = color; }
+  }
+  function updateAllRings(){ STAGE_IDS.forEach(updateStageRing); }
+
+  function cycleFrente(el){
+    var key = el.getAttribute('data-key');
+    var cur = el.getAttribute('data-state');
+    var next = FRENTE_ORDER[(FRENTE_ORDER.indexOf(cur) + 1) % FRENTE_ORDER.length];
+    applyFrenteState(key, next);
+    saveFrentesState();
+    updateAllRings();
+  }
+  (function initFrentes(){
+    var saved = {};
+    try{ saved = JSON.parse(localStorage.getItem('camp10-frentes-v1') || '{}'); }catch(e){ saved = {}; }
+    Object.keys(saved).forEach(function(key){ applyFrenteState(key, saved[key]); });
+    updateAllRings();
+  })();
+
+  (function(){
+    var KEY = 'camp10-checklist-v8';
+    var state = {};
+    try { state = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch(e) { state = {}; }
+    document.querySelectorAll('.citem').forEach(function(item){
+      var id = item.getAttribute('data-id');
+      if (state[id]) item.classList.add('on');
+      item.addEventListener('click', function(){
+        item.classList.toggle('on');
+        state[id] = item.classList.contains('on');
+        try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e) {}
+      });
+    });
+  })();
+</script>
