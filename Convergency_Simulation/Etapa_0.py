@@ -305,8 +305,158 @@ def fig3_error_summary(cases: list, F_ref: float, h5_path: str, highlight_dxl_si
     out_path = _save_fig(fig, h5_path, "fig3_error_summary.png")
     log.info("Figure 3 saved to %s", out_path)
     plt.show()
-  
 
+
+def fig_time_series(cases: list, F_ref: float, h5_path: str, t_start: float | None = None,
+                     highlight_dxl_size: float | None = None,
+                     language: str = "both", figsize: tuple[float, float] = FIGSIZE_WIDE) -> None:
+    """Figura: series temporales F(t) superpuestas de todos los casos, coloreadas por
+    dxl_size (mapa de color continuo + colorbar, no una leyenda por caso -- con 12 casos
+    una leyenda individual seria ilegible).
+
+    Usa `_zorders` (ya definida, antes sin uso): dxl_size mas grueso al fondo, mas fino
+    al frente, para que las curvas mas precisas queden visibles por encima del ruido de
+    discretizacion de las curvas gruesas.
+
+    language: "EN" | "FR" | "both" -- ver FIGURE_LANGUAGE en main().
+    figsize: tamano de la figura -- ver FIGURE_SCALE/figsize_from_scale en main().
+    """
+    plt.rcParams.update(_STYLE)
+    if not cases:
+        log.warning("Time series figure: no cases available.")
+        return
+
+    valid_dxl = [c["dxl_size"] for c in cases if np.isfinite(c["dxl_size"])]
+    if not valid_dxl:
+        log.warning("Time series figure: no valid dxl_size values.")
+        return
+
+    zorders = _zorders(cases)
+    cmap = plt.cm.viridis
+    norm = LogNorm(vmin=min(valid_dxl), vmax=max(valid_dxl))
+
+    highlight_case = None
+    if highlight_dxl_size is not None and np.isfinite(highlight_dxl_size):
+        for c in cases:
+            if np.isfinite(c["dxl_size"]) and np.isclose(c["dxl_size"], highlight_dxl_size, rtol=0, atol=1e-12):
+                highlight_case = c["case_name"]
+                break
+
+    fig, ax = plt.subplots(figsize=figsize, constrained_layout=True)
+    fig.suptitle(_lang_text(
+        "Simulated force time series by dexel size",
+        "Séries temporelles de la force simulée par taille de dexel",
+        language,
+    ))
+
+    cases_by_zorder = sorted(cases, key=lambda c: zorders.get(c["case_name"], 10))
+    for c in cases_by_zorder:
+        if not np.isfinite(c["dxl_size"]):
+            continue
+        is_highlight = (c["case_name"] == highlight_case)
+        color = "red" if is_highlight else cmap(norm(c["dxl_size"]))
+        ax.plot(c["time"], c["force"], color=color,
+                linewidth=(1.6 if is_highlight else 0.7),
+                alpha=(1.0 if is_highlight else 0.75),
+                zorder=(zorders.get(c["case_name"], 10) + (100 if is_highlight else 0)))
+
+    legend_handles = [
+        Line2D([0], [0], color="k", linestyle="--", linewidth=1.0,
+               label=_lang_text("Reference force $F_{ref}$", "Force de référence $F_{ref}$",
+                                 language, sep=" / ")),
+    ]
+    ax.axhline(F_ref, color="k", linestyle="--", linewidth=1.0)
+
+    if t_start is not None:
+        legend_handles.append(Line2D([0], [0], color="gray", linestyle=":", linewidth=1.0,
+                                      label=_lang_text("Transient exclusion $t_{start}$",
+                                                        "Exclusion du transitoire $t_{start}$",
+                                                        language, sep=" / ")))
+        ax.axvline(t_start, color="gray", linestyle=":", linewidth=1.0)
+
+    if highlight_case is not None:
+        legend_handles.append(Line2D([0], [0], color="red", linewidth=1.6,
+                                      label=_lang_text("Retained dxl_size", "Taille de dexel retenue",
+                                                        language, sep=" / ")))
+
+    ax.set_xlabel(_lang_text("Time [s]", "Temps [s]", language))
+    ax.set_ylabel(_lang_text("Force [N]", "Force [N]", language))
+    _plain_yaxis(ax)
+    ax.legend(handles=legend_handles, loc="best")
+    ax.grid(True, axis="y", alpha=0.25)
+
+    sm = ScalarMappable(norm=norm, cmap=cmap)
+    sm.set_array([])
+    cbar = fig.colorbar(sm, ax=ax)
+    cbar.set_label(_lang_text(
+        r"Dexel size $\Delta_{\mathrm{dxl}}$ [m]",
+        r"Taille du dexel $\Delta_{\mathrm{dxl}}$ [m]",
+        language,
+    ))
+
+    out_path = _save_fig(fig, h5_path, "fig_time_series.png")
+    log.info("Time series figure saved to %s", out_path)
+    plt.show()
+
+
+def fig_computational_cost(wall_time_entries: list, h5_path: str, highlight_dxl_size: float | None = None,
+                            language: str = "both", figsize: tuple[float, float] = FIGSIZE_WIDE) -> None:
+    """Figura: costo computacional (wall-clock, wall_time_s.txt) por caso vs. dxl_size.
+
+    wall_time_entries: salida de `_load_wall_times` -- ya emparejado dxl_size/wall_time
+    por subcarpeta real, no por indice de case_XXX (ver docstring de esa funcion).
+
+    language: "EN" | "FR" | "both" -- ver FIGURE_LANGUAGE en main().
+    figsize: tamano de la figura -- ver FIGURE_SCALE/figsize_from_scale en main().
+    """
+    plt.rcParams.update(_STYLE)
+    if not wall_time_entries:
+        log.warning("Computational cost figure: no wall_time_s.txt entries found.")
+        return
+
+    entries_s = sorted(wall_time_entries, key=lambda e: e["dxl_size"])
+    labels = [f"{e['dxl_size']:.2e}" for e in entries_s]
+    times = [e["wall_time_s"] for e in entries_s]
+
+    highlight_index = None
+    if highlight_dxl_size is not None and np.isfinite(highlight_dxl_size):
+        for idx, e in enumerate(entries_s):
+            if np.isclose(e["dxl_size"], highlight_dxl_size, rtol=0, atol=1e-12):
+                highlight_index = idx
+                break
+
+    edgecolors = ["k"] * len(times)
+    linewidths = [0.4] * len(times)
+    if highlight_index is not None:
+        edgecolors[highlight_index] = "red"
+        linewidths[highlight_index] = 1.6
+
+    x = np.arange(len(labels))
+    fig, ax = plt.subplots(figsize=figsize, constrained_layout=True)
+    fig.suptitle(_lang_text(
+        "Computational cost vs. dexel discretization size",
+        "Coût de calcul en fonction de la taille de discrétisation (dexel)",
+        language,
+    ))
+
+    ax.bar(x, times, 0.6, edgecolor=edgecolors, linewidth=linewidths, color="#4c78a8")
+    ax.set_xticks(x)
+    tick_labels = ax.set_xticklabels(labels, rotation=45, ha="right")
+    if highlight_index is not None:
+        tick_labels[highlight_index].set_color("red")
+
+    ax.set_xlabel(_lang_text(
+        r"Dexel size $\Delta_{\mathrm{dxl}}$ [m]",
+        r"Taille du dexel $\Delta_{\mathrm{dxl}}$ [m]",
+        language,
+    ))
+    ax.set_ylabel(_lang_text("Wall-clock time [s]", "Temps de calcul [s]", language))
+    _plain_yaxis(ax)
+    ax.grid(True, axis="y", alpha=0.25)
+
+    out_path = _save_fig(fig, h5_path, "fig_computational_cost.png")
+    log.info("Computational cost figure saved to %s", out_path)
+    plt.show()
 
 
 # ==============================================================================
