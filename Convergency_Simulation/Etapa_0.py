@@ -82,7 +82,7 @@ def figsize_from_scale(base_figsize: tuple[float, float], scale: float) -> tuple
     (FIGSIZE_SIMPLE/FIGSIZE_WIDE) se mantiene siempre.
     """
     w, h = base_figsize
-    return (w * scale, h * scale)
+    return (w * scale, h *  scale)
 
 
 def _sci_yaxis(ax) -> None:
