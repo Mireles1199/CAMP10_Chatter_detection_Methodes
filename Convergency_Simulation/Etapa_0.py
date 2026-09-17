@@ -769,6 +769,16 @@ def main():
                            language=FIGURE_LANGUAGE,
                            figsize=figsize_from_scale(FIGSIZE_WIDE, FIGURE_SCALE))
 
+        fig_time_series(cases, F_ref, h5_path, t_start=constants["t_start"],
+                        highlight_dxl_size=selected_dxl_size,
+                        language=FIGURE_LANGUAGE,
+                        figsize=figsize_from_scale(FIGSIZE_WIDE, FIGURE_SCALE))
+
+        wall_time_entries = _load_wall_times(os.path.dirname(h5_path))
+        fig_computational_cost(wall_time_entries, h5_path, highlight_dxl_size=selected_dxl_size,
+                               language=FIGURE_LANGUAGE,
+                               figsize=figsize_from_scale(FIGSIZE_WIDE, FIGURE_SCALE))
+
 
 if __name__ == "__main__":
     main()
