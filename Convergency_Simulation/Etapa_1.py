@@ -866,13 +866,13 @@ def main() -> None:
                 ZOOM_N_REVOLUTIONS = 4
 
                 cases_series = _load_stage1_case_series(h5_path)
-                eps_crit_sim = _stage1_eps_crit_sim(h5_path)
+                eps_last_stable = _stage1_eps_last_stable(h5_path)
                 zoom_duration_s = ZOOM_N_REVOLUTIONS * 60.0 / spin_rate
                 zoom_window = (t_start, t_start + zoom_duration_s)
                 fig_paper_time_series_cases(
-                    cases_series, eps_crit_sim, zoom_window=zoom_window,
+                    cases_series, eps_last_stable, zoom_window=zoom_window,
                     language=FIGURE_LANGUAGE,
-                    figsize=figsize_from_scale(figsize_grid(2, 2), 1.4),
+                    figsize=figsize_from_scale(figsize_grid(2, 3), 1.4),
                 )
                 plt.show()
 
@@ -985,26 +985,32 @@ def _save_fig_paper(fig, filename: str) -> str:
 
 def _load_stage1_case_series(h5_path: str) -> list:
     """Lee, por caso, epsilon, estabilidad y las series temporales de desplazamiento
-    axial (corregido por deflexion estatica, Out_Deflex) y velocidad axial, para la
-    figura de --plots-paper. Requiere que _write_stage1_metadata ya haya corrido
-    (epsilon_ap_critic, stable_trend_log y Out_Deflex deben existir en el HDF5)."""
+    axial (corregido por deflexion estatica, Out_Deflex), velocidad axial cruda y
+    fuerza cruda (res_R_p, componente 0), para la figura de --plots-paper. Requiere
+    que _write_stage1_metadata ya haya corrido (epsilon_ap_critic y stable_trend_log
+    deben existir en el HDF5)."""
     cases = []
     with h5py.File(h5_path, "r") as h5f:
         case_names = sorted([n for n in h5f.keys() if n.startswith("case_")])
         for case_name in case_names:
             grp = h5f[case_name]
             disp_data = read_time_values(grp, "Out_Deflex/Axial_disp_out_deflex")
-            vel_data = read_time_values(grp, "Out_Deflex/Axial_vel_out_deflex")
-            if disp_data is None or vel_data is None:
+            vel_data = read_time_values(grp, "Axial_vel")
+            force_data = read_time_values(grp, "res_R_p")
+            if disp_data is None or vel_data is None or force_data is None:
                 continue
             disp_time, disp_values = disp_data
             vel_time, vel_values = vel_data
+            force_time, force_values = force_data
             disp_values = np.asarray(disp_values, dtype=float)
             vel_values = np.asarray(vel_values, dtype=float)
+            force_values = np.asarray(force_values, dtype=float)
             if disp_values.ndim > 1:
                 disp_values = disp_values[:, 0]
             if vel_values.ndim > 1:
                 vel_values = vel_values[:, 0]
+            if force_values.ndim > 1:
+                force_values = force_values[:, 0]
             cases.append({
                 "case_name": case_name,
                 "epsilon": float(grp.attrs.get("epsilon_ap_critic", float("nan"))),
@@ -1013,31 +1019,38 @@ def _load_stage1_case_series(h5_path: str) -> list:
                 "disp": disp_values,
                 "vel_time": np.asarray(vel_time, dtype=float),
                 "vel": vel_values,
+                "force_time": np.asarray(force_time, dtype=float),
+                "force": force_values,
             })
     return cases
 
 
-def _stage1_eps_crit_sim(h5_path: str) -> float:
-    """Lee epsilon_crit_sim (stage_1_lambda_crit_sim) desde los atributos raiz del HDF5."""
+def _stage1_eps_last_stable(h5_path: str) -> float:
+    """Lee epsilon del ultimo caso estable (stage_1_lambda_minus, limite inferior de la
+    transicion estable->inestable) desde los atributos raiz del HDF5."""
     with h5py.File(h5_path, "r") as h5f:
-        return float(h5f.attrs.get("stage_1_lambda_crit_sim", float("nan")))
+        return float(h5f.attrs.get("stage_1_lambda_minus", float("nan")))
 
 
-def fig_paper_time_series_cases(cases: list, eps_crit_sim: float, zoom_window: tuple,
+def fig_paper_time_series_cases(cases: list, eps_last_stable: float, zoom_window: tuple,
                                  language: str = "both", figsize: tuple = None) -> str:
-    """Figura de articulo (2x2): filas = desplazamiento axial corregido / velocidad
-    axial, columnas = senal completa / zoom a unas pocas revoluciones.
+    """Figura de articulo (3x2): filas = desplazamiento axial corregido / velocidad
+    axial cruda / fuerza cruda, columnas = senal completa (sin titulo) / zoom a unas
+    pocas revoluciones.
 
     Colorea cada caso por epsilon = a_p/a_p_crit (colormap continuo, sin discretizar
     por estable/inestable) para poder verificar visualmente que ninguna curva tapa
-    por completo a las demas dentro del barrido. El caso mas cercano a
-    epsilon_crit_sim (limite de estabilidad numerico) se resalta en rojo.
+    por completo a las demas dentro del barrido. El ultimo caso estable (epsilon =
+    eps_last_stable, limite inferior de la transicion estable->inestable) se resalta
+    en rojo con linea mas gruesa, y se marca con una linea horizontal + su valor
+    numerico en la barra de color -- asi la curva roja y la marca de la colorbar
+    corresponden exactamente al mismo caso.
     """
     plt.rcParams.update(_STYLE_PAPER)
     if not cases:
         raise ValueError("No hay casos para graficar (fig_paper_time_series_cases)")
     if figsize is None:
-        figsize = figsize_grid(2, 2)
+        figsize = figsize_grid(2, 3)
 
     valid_eps = sorted({c["epsilon"] for c in cases if np.isfinite(c["epsilon"])})
     if not valid_eps:
@@ -1047,72 +1060,80 @@ def fig_paper_time_series_cases(cases: list, eps_crit_sim: float, zoom_window: t
     norm = Normalize(vmin=min(valid_eps), vmax=max(valid_eps))
 
     highlight_case = None
-    if np.isfinite(eps_crit_sim):
+    if np.isfinite(eps_last_stable):
         highlight_case = min(
             (c for c in cases if np.isfinite(c["epsilon"])),
-            key=lambda c: abs(c["epsilon"] - eps_crit_sim),
+            key=lambda c: abs(c["epsilon"] - eps_last_stable),
         )["case_name"]
 
     # dibujar en orden ascendente de epsilon (zorder creciente) para que el caso
-    # resaltado, si coincide con el epsilon mas alto, no quede tapado por accidente
+    # resaltado no quede tapado por accidente por curvas dibujadas despues
     cases_sorted = sorted(cases, key=lambda c: c["epsilon"] if np.isfinite(c["epsilon"]) else -1e99)
     TOP_ZORDER = 1e6
 
-    fig, axes = plt.subplots(2, 2, figsize=figsize, constrained_layout=True)
-    (ax_disp_full, ax_disp_zoom), (ax_vel_full, ax_vel_zoom) = axes
+    row_specs = [
+        ("disp_time", "disp", _lang_text("Displacement [m]", "Deplacement [m]", language)),
+        ("vel_time", "vel", _lang_text("Velocity [m/s]", "Vitesse [m/s]", language)),
+        ("force_time", "force", _lang_text("Force [N]", "Force [N]", language)),
+    ]
+
+    fig, axes = plt.subplots(3, 2, figsize=figsize, constrained_layout=True)
 
     fig.suptitle(_lang_text(
-        "Case overlay across the DOE sweep: axial displacement and velocity",
-        "Superposition des cas du DOE : deplacement et vitesse axiaux",
+        "Case overlay across the DOE sweep: displacement, velocity and force",
+        "Superposition des cas du DOE : deplacement, vitesse et force",
         language,
     ))
-    ax_disp_full.set_title(_lang_text("Displacement -- full signal", "Deplacement -- signal complet", language))
-    ax_disp_zoom.set_title(_lang_text("Displacement -- zoom", "Deplacement -- zoom", language))
-    ax_vel_full.set_title(_lang_text("Velocity -- full signal", "Vitesse -- signal complet", language))
-    ax_vel_zoom.set_title(_lang_text("Velocity -- zoom", "Vitesse -- zoom", language))
+    axes[0, 1].set_title(_lang_text("Zoom", "Zoom", language))
 
-    for rank, c in enumerate(cases_sorted):
-        if not np.isfinite(c["epsilon"]):
-            continue
-        is_highlight = (c["case_name"] == highlight_case)
-        color = "red" if is_highlight else cmap(norm(c["epsilon"]))
-        lw = 1.6 if is_highlight else 0.7
-        alpha = 1.0 if is_highlight else 0.75
-        z = TOP_ZORDER if is_highlight else (rank + 2)
+    for row_idx, (t_key, v_key, ylabel) in enumerate(row_specs):
+        ax_full, ax_zoom = axes[row_idx]
+        for rank, c in enumerate(cases_sorted):
+            if not np.isfinite(c["epsilon"]):
+                continue
+            is_highlight = (c["case_name"] == highlight_case)
+            color = "red" if is_highlight else cmap(norm(c["epsilon"]))
+            lw = 1.6 if is_highlight else 0.7
+            alpha = 1.0 if is_highlight else 0.75
+            z = TOP_ZORDER if is_highlight else (rank + 2)
 
-        ax_disp_full.plot(c["disp_time"], c["disp"], color=color, linewidth=lw, alpha=alpha, zorder=z)
-        ax_disp_zoom.plot(c["disp_time"], c["disp"], color=color, linewidth=lw, alpha=alpha, zorder=z)
-        ax_vel_full.plot(c["vel_time"], c["vel"], color=color, linewidth=lw, alpha=alpha, zorder=z)
-        ax_vel_zoom.plot(c["vel_time"], c["vel"], color=color, linewidth=lw, alpha=alpha, zorder=z)
+            ax_full.plot(c[t_key], c[v_key], color=color, linewidth=lw, alpha=alpha, zorder=z)
+            ax_zoom.plot(c[t_key], c[v_key], color=color, linewidth=lw, alpha=alpha, zorder=z)
 
-    for ax in (ax_disp_zoom, ax_vel_zoom):
-        ax.set_xlim(*zoom_window)
-        _autoscale_y_window(ax, zoom_window)
-    for ax in (ax_disp_full, ax_vel_full):
-        ax.axvspan(*zoom_window, color="gray", alpha=0.15, zorder=0)
+        ax_zoom.set_xlim(*zoom_window)
+        _autoscale_y_window(ax_zoom, zoom_window)
+        ax_full.axvspan(*zoom_window, color="gray", alpha=0.15, zorder=0)
 
-    ax_disp_full.set_ylabel(_lang_text("Displacement [m]", "Deplacement [m]", language))
-    ax_vel_full.set_ylabel(_lang_text("Velocity [m/s]", "Vitesse [m/s]", language))
-    for ax in (ax_vel_full, ax_vel_zoom):
+        ax_full.set_ylabel(ylabel)
+        _sci_yaxis_paper(ax_full)
+        _sci_yaxis_paper(ax_zoom)
+        ax_full.grid(True, axis="y", alpha=0.25)
+        ax_zoom.grid(True, axis="y", alpha=0.25)
+
+    for ax in axes[-1]:
         ax.set_xlabel(_lang_text("Time [s]", "Temps [s]", language))
-    for ax in axes.ravel():
-        _sci_yaxis_paper(ax)
-        ax.grid(True, axis="y", alpha=0.25)
 
     if highlight_case is not None:
         legend_handles = [Line2D([0], [0], color="red", linewidth=1.6,
-                                  label=_lang_text(r"case nearest $\epsilon_{crit,sim}$",
-                                                    r"cas le plus proche de $\epsilon_{crit,sim}$",
+                                  label=_lang_text(rf"last stable case ($\epsilon={eps_last_stable:.4f}$)",
+                                                    rf"dernier cas stable ($\epsilon={eps_last_stable:.4f}$)",
                                                     language, sep=" / "))]
-        ax_disp_full.legend(handles=legend_handles, loc="best")
+        axes[0, 0].legend(handles=legend_handles, loc="best")
 
     sm = ScalarMappable(norm=norm, cmap=cmap)
     sm.set_array([])
     cbar = fig.colorbar(sm, ax=list(axes.ravel()))
     cbar.set_label(_lang_text(r"$\epsilon = a_p/a_{p,crit}$", r"$\epsilon = a_p/a_{p,crit}$", language))
+    if np.isfinite(eps_last_stable):
+        cbar.ax.axhline(eps_last_stable, color="crimson", linewidth=1.4, zorder=10)
+        cbar.ax.text(1.35, eps_last_stable, rf"$\epsilon={eps_last_stable:.4f}$",
+                      transform=cbar.ax.get_yaxis_transform(), va="center", ha="left",
+                      fontsize=9, color="crimson")
 
     out_path = _save_fig_paper(fig, "fig_time_series_cases.png")
     print(f"[fig_paper_time_series_cases] saved -> {out_path}")
+    print(f"[fig_paper_time_series_cases] highlighted case (red, last stable) -> "
+          f"{highlight_case}, epsilon={eps_last_stable:.6f}")
     return out_path
 
 
