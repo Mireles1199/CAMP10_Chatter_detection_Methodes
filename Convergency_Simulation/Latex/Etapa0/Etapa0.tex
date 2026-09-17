@@ -12,7 +12,6 @@
 \usepackage{csquotes}
 \usepackage[french]{babel}
 \usepackage{lmodern}
-\usepackage{microtype}
 
 % =========================================================
 % GEOMETRÍA DE LA PÁGINA
@@ -56,8 +55,9 @@
 \usepackage{subcaption}
 \usepackage{placeins}
 
-% Carpeta en la que se almacenarán las figuras
-\graphicspath{{figures/}}
+% Carpeta compartida (misma para todas las etapas) donde Etapa_0.py y demas scripts
+% guardan sus figuras -- ver PLOTS_DIR en Etapa_0.py
+\graphicspath{{../plots/}}
 
 % =========================================================
 % TABLAS
@@ -189,6 +189,16 @@
 \addbibresource{references.bib}
 
 % =========================================================
+% MICROTIPOGRAFÍA
+% =========================================================
+
+% patch=none: el documento no usa \footnote, por lo que el parche de microtype para
+% notas al pie es irrelevante -- desactivar todos los parches automaticos evita el
+% warning benigno "Unable to apply patch `footnote'" (el orden de carga por si solo
+% no lo evita, se probo moviendo microtype al final del preambulo).
+\usepackage[patch=none]{microtype}
+
+% =========================================================
 % COMANDOS PERSONALIZADOS
 % =========================================================
 
@@ -226,7 +236,7 @@
 
 Ce document présente la procédure théorique et numérique utilisée pour vérifier que la
 force de coupe simulée par un modèle géométrique discrétisé (représentation en dexels)
-converge vers une force de référence analytique, calculée à partir d'un modèle
+converge vers une force de coupe nominale, calculée analytiquement à partir d'un modèle
 mécaniciste de coupe, lorsque la taille de discrétisation \(\dxlsize\) diminue. Quatre
 estimateurs d'erreur relative sont définis (biais de la moyenne, erreur de crête, étendue
 et écart-type) et utilisés pour identifier, sur un plan d'expériences (DOE) balayant
@@ -253,7 +263,7 @@ chatter, il est nécessaire de s'assurer que cette force ne soit pas polluée pa
 artefacts numériques liés à la discrétisation géométrique. Cette étape correspond à une
 étude de convergence de maillage au sens classique du calcul numérique
 % TODO: cite Roache (1998), Verification and Validation in Computational Science and Engineering
-: on compare la force simulée à une force de référence analytique indépendante du
+: on compare la force simulée à la force de coupe nominale, analytique et indépendante du
 maillage, pour un balayage de valeurs de \(\dxlsize\), et on identifie la valeur la plus
 grossière pour laquelle l'écart reste inférieur à un seuil de tolérance fixé (\SI{10}{\percent}).
 Ce seuil constitue une convention personnelle, pour laquelle un écart de cet ordre sur les
@@ -265,10 +275,10 @@ détecter le chatter (basés sur la variance, l'entropie spectrale ou l'énergie
 force) ne pourront pas distinguer ce bruit numérique d'une véritable instabilité
 dynamique.
 
-\section{Modèle mécaniciste de force de référence}
+\section{Modèle mécaniciste de la force nominale de coupe}
 \label{sec-modele_force_ref}
 
-La force de référence \(\Fref\) est calculée à partir d'un modèle mécaniciste linéarisé de
+La force nominale de coupe \(\Fref\) est calculée à partir d'un modèle mécaniciste linéarisé de
 la force de coupe, cas limite du modèle de Kienzle--Victor
 % TODO: cite Kienzle-Victor (1952) et sa generalisation au fraisage (Altintas)
 lorsque l'exposant de taille de copeau \(m_c \to 0\), c'est-à-dire lorsque la pression
@@ -372,27 +382,25 @@ Le balayage de \(\dxlsize\) utilisé pour cette étude comporte douze cas, issus
 \(\dxlsize \in [4\times10^{-5},\ 2,56\times10^{-3}]\)~m, sans critère de répartition
 particulier entre ces valeurs.
 
-Pour chaque cas \texttt{case\_XXX} de ce fichier :
+Pour chacun de ces cas, la force simulée est extraite sur toute la durée de la simulation.
+Sa moyenne temporelle est comparée à \(\Fref\) pour obtenir le biais, \cref{eq-err_mean}.
+Les trois autres estimateurs -- erreur de crête, étendue et écart-type,
+\cref{eq-err_peak,eq-err_range,eq-err_std} -- sont ensuite évalués sur la fenêtre
+\([t_{\mathrm{start}}, t_{\mathrm{end}}]\), qui exclut le régime transitoire d'engagement
+de l'outil. Les quatre estimateurs, ainsi que les constantes de coupe utilisées
+(\(\Fref\), \(\Ac\), \(V_f\), \(\Delta t\)), sont conservés pour chaque cas et forment la
+base des résultats présentés dans la section suivante.
 
-\begin{enumerate}
-    \item lecture du signal de force \texttt{res\_R\_p} et de l'attribut \(\dxlsize\)
-        associé au cas (fonction \texttt{read\_force\_values});
-    \item calcul de la moyenne temporelle et de l'erreur de biais,
-        \cref{eq-err_mean} (\texttt{compute\_\allowbreak force\_stats});
-    \item calcul, sur la fenêtre \([t_{\mathrm{start}}, t_{\mathrm{end}}]\), des erreurs de
-        crête, d'étendue et d'écart-type, \cref{eq-err_peak,eq-err_range,eq-err_std}
-        (\texttt{compute\_\allowbreak force\_\allowbreak error\_\allowbreak window},
-        \texttt{compute\_\allowbreak force\_\allowbreak spread\_\allowbreak error\_\allowbreak window},
-        \texttt{compute\_\allowbreak force\_\allowbreak std\_\allowbreak error\_\allowbreak window});
-    \item écriture des quatre estimateurs, ainsi que des constantes utilisées
-        (\(\Fref\), \(\Ac\), \(V_f\), \(\Delta t\)), comme attributs et jeux de données du
-        groupe HDF5 du cas.
-\end{enumerate}
+\section{Résultats}
+\label{sec-resultats}
+
+\subsection{Erreur relative en fonction de la taille de dexel}
+\label{sec-resultats_erreur}
 
 Une fois tous les cas traités, les quatre estimateurs sont tracés en fonction de
-\(\dxlsize\) sous forme de diagramme en barres groupées (fonction
-\texttt{fig3\_error\_summary}), avec une ligne de seuil à \SI{10}{\percent} et la mise en
-évidence de la taille de dexel retenue pour les étapes suivantes du pipeline.
+\(\dxlsize\) sous forme de diagramme en barres groupées, avec une ligne de seuil à
+\SI{10}{\percent} et la mise en évidence de la taille de dexel retenue pour les étapes
+suivantes du pipeline.
 
 \begin{figure}[H]
     \centering
@@ -429,10 +437,51 @@ ce seuil, le critère le plus contraignant étant celui de l'étendue \(e_{\text
 explorer, dans les étapes suivantes, des tailles de dexel aussi bien plus fines que plus
 grossières sans risquer un coût de calcul excessif.
 
-% TODO: si les temps de calcul par cas (wall_time_s.txt, un par sous-dossier de
-% 0_Cinematique/DOE_Dexels_Cinematique/) sont exploites, ajouter ici une figure/tableau
-% du cout de calcul en fonction de dxl_size pour etayer quantitativement ce compromis
-% finesse/cout -- a confirmer avec l'utilisateur avant de la generer.
+\subsection{Séries temporelles de la force simulée}
+\label{sec-resultats_series}
+
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{fig_time_series}
+    \caption{Séries temporelles de la force simulée pour les douze cas du plan
+    d'expériences, colorées selon \(\dxlsize\) (échelle logarithmique). Gauche~: signal
+    complet. Droite~: zoom sur huit révolutions à partir de \(t_{\mathrm{start}}\). La
+    ligne noire pointillée indique la force nominale \(\Fref\)~; la courbe rouge
+    correspond à la taille de dexel retenue.}
+    \label{fig-time_series}
+\end{figure}
+
+Sur le panneau de gauche de la \cref{fig-time_series}, l'enveloppe d'oscillation de la
+force simulée s'élargit nettement autour de \(\Fref\) pour les tailles de dexel les plus
+grossières, ce qui est cohérent avec les erreurs de crête et d'étendue plus élevées
+observées à la \cref{fig-err_summary}. Le panneau de droite, limité à quelques révolutions
+à partir de \(t_{\mathrm{start}}\), permet de distinguer la forme d'onde périodique de la
+force ainsi que le bruit de discrétisation propre à chaque \(\dxlsize\), plus marqué pour
+les cas grossiers.
+
+\subsection{Coût de calcul}
+\label{sec-resultats_cout}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{fig_computational_cost}
+    \caption{Temps de calcul (\emph{wall-clock}) de chaque simulation du plan
+    d'expériences en fonction de la taille de dexel \(\dxlsize\). La barre bordée en
+    rouge correspond à la taille de dexel retenue.}
+    \label{fig-comp_cost}
+\end{figure}
+
+La \cref{fig-comp_cost} montre que le temps de calcul décroît globalement lorsque
+\(\dxlsize\) augmente, passant d'environ \SI{2711}{s} pour le cas le plus fin
+(\(\dxlsize=4\times10^{-5}\)~m) à environ \SI{686}{s} pour le cas le plus grossier
+(\(\dxlsize=2,56\times10^{-3}\)~m). Cette décroissance n'est cependant pas strictement
+monotone~: le cas retenu (\(\dxlsize=2\times10^{-4}\)~m, \SI{1267}{s}) coûte par exemple
+légèrement plus cher que le cas immédiatement plus fin (\(\dxlsize=1,6\times10^{-4}\)~m,
+\SI{1246}{s}), ce qui montre que le temps de calcul dépend aussi d'autres facteurs que la
+seule taille de dexel. Cette figure appuie quantitativement le compromis entre finesse de
+discrétisation et coût de calcul déjà évoqué à la section précédente pour justifier la
+valeur retenue.
 
 \section{Hypothèses et conditions de validité}
 \label{sec-hypotheses}
@@ -461,7 +510,8 @@ grossières sans risquer un coût de calcul excessif.
 Cette vérification de convergence constitue l'Étape 0 du pipeline : elle établit,
 quantitativement et avec un critère d'acceptation explicite, la taille de dexel la plus
 grossière pour laquelle la force simulée peut être considérée comme numériquement
-convergée, à savoir \(\dxlsize = 2\times10^{-4}\)~m (\cref{fig-err_summary}). Cette
+convergée, à savoir \(\dxlsize = 2\times10^{-4}\)~m (\cref{fig-err_summary,fig-time_series}),
+tout en restant raisonnable en termes de coût de calcul (\cref{fig-comp_cost}). Cette
 condition remplie, le signal de force peut être utilisé de façon fiable
 comme entrée des indicateurs de détection du chatter (SPRT/MaxEnt, entropie spectrale
 SSQ-STFT, Green Integral) étudiés dans les étapes suivantes, sans risque de confondre

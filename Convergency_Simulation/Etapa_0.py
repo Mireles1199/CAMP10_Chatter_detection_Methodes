@@ -2,8 +2,8 @@
 # coding: utf-8
 """Etapa 0 - Analisis de fuerzas del DOE.
 
-Lee `doe_results.h5` en la misma carpeta, calcula la fuerza de referencia
-analitica F_ref a partir de las constantes de corte, extrae la fuerza
+Lee `doe_results.h5` en la misma carpeta, calcula analiticamente la fuerza
+nominal de corte F_ref a partir de las constantes de corte, extrae la fuerza
 simulada `res_R_p` de cada caso y guarda:
   - `force_mean`                  : media temporal por componente (array 3-elem)
   - `force_error_percent_mean`    : |F_mean - F_ref| / F_ref * 100 por componente
@@ -37,6 +37,12 @@ log = logging.getLogger(__name__)
 # Nombre del dataset de fuerza en doe_results.h5
 FORCE_SIGNAL = "res_R_p"
 
+# Carpeta compartida donde se guardan TODAS las figuras (misma para todas las etapas,
+# no una por etapa) -- calculada relativa a este script, no hardcodeada, pero coincide
+# con D:\...\Convergency_Simulation\Latex\plots. El .tex de cada etapa (p.ej. Etapa0.tex)
+# la referencia directamente via \graphicspath{{../plots/}}.
+PLOTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Latex", "plots")
+
 # ==============================================================================
 # FIGURAS
 # ==============================================================================
@@ -65,7 +71,7 @@ _STYLE = {
 
 # FIGSIZE_WIDE = (7.16, 2.6)
 FIGSIZE_WIDE = (3.58, 2.6)  # ancho de pagina completa, alto ligeramente mayor para leyenda
-
+FIGSIZE_WIDE_LARGE = (7.16, 2.6)  # ancho de pagina completa, alto ligeramente mayor para leyenda
 
 
 def figsize_from_scale(base_figsize: tuple[float, float], scale: float) -> tuple[float, float]:
@@ -89,6 +95,25 @@ def _plain_yaxis(ax) -> None:
     ax.ticklabel_format(axis="y", style="plain", useOffset=False)
 
 
+def _thin_log_ticks(values: list, min_log_gap: float = 0.03, must_include: list | None = None) -> list:
+    """Filtra una lista de valores (ascendente) para que, en escala log10, dos ticks
+    consecutivos nunca queden mas cerca que `min_log_gap` -- evita que sus etiquetas se
+    superpongan visualmente en un colorbar/eje angosto. Los valores en `must_include`
+    (p.ej. el dxl_size retenido) nunca se filtran.
+    """
+    must_include = set(must_include or [])
+    values = sorted(values)
+    kept = []
+    last_log = None
+    for v in values:
+        is_forced = any(np.isclose(v, m, rtol=0, atol=1e-12) for m in must_include)
+        lv = np.log10(v)
+        if last_log is None or is_forced or (lv - last_log) >= min_log_gap:
+            kept.append(v)
+            last_log = lv
+    return kept
+
+
 def _lang_text(en: str, fr: str, language: str, sep: str = "\n") -> str:
     """Arma el texto de la figura segun el idioma configurado en main() (FIGURE_LANGUAGE).
 
@@ -103,18 +128,11 @@ def _lang_text(en: str, fr: str, language: str, sep: str = "\n") -> str:
     raise ValueError(f"language debe ser 'EN', 'FR' o 'both', recibido: {language!r}")
 
 
-def _save_fig(fig, h5_path: str, filename: str) -> str:
-    """Guarda una figura PNG en la carpeta plots de la ETAPA (un nivel arriba del
-    run del DOE), no junto al doe_results.h5.
-
-    Ej.: h5_path=".../0_Cinematique/DOE_Dexels_Cinematique/doe_results.h5"
-         -> plots en ".../0_Cinematique/plots/" (no en ".../DOE_Dexels_Cinematique/plots/")
-    """
-    run_dir = os.path.dirname(os.path.abspath(h5_path))
-    stage_dir = os.path.dirname(run_dir)
-    out_dir = os.path.join(stage_dir, "plots")
-    os.makedirs(out_dir, exist_ok=True)
-    out_path = os.path.join(out_dir, filename)
+def _save_fig(fig, filename: str) -> str:
+    """Guarda una figura PNG en la carpeta compartida PLOTS_DIR (Latex/plots), la misma
+    para todas las etapas -- no junto al doe_results.h5 de cada etapa."""
+    os.makedirs(PLOTS_DIR, exist_ok=True)
+    out_path = os.path.join(PLOTS_DIR, filename)
     fig.savefig(out_path)
     return out_path
 
@@ -214,7 +232,7 @@ def _zorders(cases: list) -> dict:
     return {c["case_name"]: rank.get(c["dxl_size"], 10) for c in cases}
 
 
-def fig3_error_summary(cases: list, F_ref: float, h5_path: str, highlight_dxl_size: float | None = None,
+def fig3_error_summary(cases: list, F_ref: float, highlight_dxl_size: float | None = None,
                         language: str = "both", figsize: tuple[float, float] = FIGSIZE_WIDE) -> None:
     """Figure 3: error summary by case using precomputed HDF5 datasets.
 
@@ -302,31 +320,42 @@ def fig3_error_summary(cases: list, F_ref: float, h5_path: str, highlight_dxl_si
                label=_lang_text("10% threshold", "Seuil de 10 %", language, sep=" / "))
     ax.legend(loc="best")
     ax.grid(True, axis="y", alpha=0.25)
-    out_path = _save_fig(fig, h5_path, "fig3_error_summary.png")
+    out_path = _save_fig(fig, "fig3_error_summary.png")
     log.info("Figure 3 saved to %s", out_path)
     plt.show()
 
 
-def fig_time_series(cases: list, F_ref: float, h5_path: str, t_start: float | None = None,
+def fig_time_series(cases: list, F_ref: float, zoom_window: tuple[float, float] | None = None,
                      highlight_dxl_size: float | None = None,
                      language: str = "both", figsize: tuple[float, float] = FIGSIZE_WIDE) -> None:
-    """Figura: series temporales F(t) superpuestas de todos los casos, coloreadas por
-    dxl_size (mapa de color continuo + colorbar, no una leyenda por caso -- con 12 casos
-    una leyenda individual seria ilegible).
+    """Figura de 2 paneles: series temporales F(t) superpuestas de todos los casos,
+    coloreadas por dxl_size (mapa de color continuo + colorbar compartido, no una
+    leyenda por caso -- con 12 casos una leyenda individual seria ilegible).
+
+    Panel izquierdo: senal completa (contexto/envolvente de amplitud por dxl_size).
+    Con el numero de muestras real (dt muy fino, decenas de miles de ciclos), a esta
+    escala cada curva se ve como una banda solida -- es el comportamiento esperado,
+    no un error, y sigue siendo informativo (envolvente relativa entre casos).
+    Panel derecho: zoom a `zoom_window` (unas pocas revoluciones) donde si se distingue
+    la forma de onda y el ruido de discretizacion caso a caso.
 
     Usa `_zorders` (ya definida, antes sin uso): dxl_size mas grueso al fondo, mas fino
     al frente, para que las curvas mas precisas queden visibles por encima del ruido de
-    discretizacion de las curvas gruesas.
+    discretizacion de las curvas gruesas. La linea de fuerza nominal se dibuja siempre
+    por encima de todas las curvas (zorder maximo) en ambos paneles.
 
+    zoom_window: (t_ini, t_fin) en segundos para el panel derecho -- ver
+        ZOOM_N_REVOLUTIONS en main(). Si es None, el panel derecho se omite.
     language: "EN" | "FR" | "both" -- ver FIGURE_LANGUAGE en main().
-    figsize: tamano de la figura -- ver FIGURE_SCALE/figsize_from_scale en main().
+    figsize: tamano de la figura (total, para los 2 paneles) -- ver
+        FIGURE_SCALE/figsize_from_scale en main().
     """
     plt.rcParams.update(_STYLE)
     if not cases:
         log.warning("Time series figure: no cases available.")
         return
 
-    valid_dxl = [c["dxl_size"] for c in cases if np.isfinite(c["dxl_size"])]
+    valid_dxl = sorted({c["dxl_size"] for c in cases if np.isfinite(c["dxl_size"])})
     if not valid_dxl:
         log.warning("Time series figure: no valid dxl_size values.")
         return
@@ -334,6 +363,7 @@ def fig_time_series(cases: list, F_ref: float, h5_path: str, t_start: float | No
     zorders = _zorders(cases)
     cmap = plt.cm.viridis
     norm = LogNorm(vmin=min(valid_dxl), vmax=max(valid_dxl))
+    TOP_ZORDER = 1e6  # la linea de fuerza nominal siempre queda por encima de todo
 
     highlight_case = None
     if highlight_dxl_size is not None and np.isfinite(highlight_dxl_size):
@@ -342,12 +372,20 @@ def fig_time_series(cases: list, F_ref: float, h5_path: str, t_start: float | No
                 highlight_case = c["case_name"]
                 break
 
-    fig, ax = plt.subplots(figsize=figsize, constrained_layout=True)
+    ncols = 2 if zoom_window is not None else 1
+    fig, axes = plt.subplots(1, ncols, figsize=figsize, constrained_layout=True)
+    axes = np.atleast_1d(axes)
+    ax_full = axes[0]
+    ax_zoom = axes[1] if ncols == 2 else None
+
     fig.suptitle(_lang_text(
         "Simulated force time series by dexel size",
         "Séries temporelles de la force simulée par taille de dexel",
         language,
     ))
+    ax_full.set_title(_lang_text("Full signal", "Signal complet", language))
+    if ax_zoom is not None:
+        ax_zoom.set_title(_lang_text("Zoom (few revolutions)", "Zoom (quelques révolutions)", language))
 
     cases_by_zorder = sorted(cases, key=lambda c: zorders.get(c["case_name"], 10))
     for c in cases_by_zorder:
@@ -355,51 +393,62 @@ def fig_time_series(cases: list, F_ref: float, h5_path: str, t_start: float | No
             continue
         is_highlight = (c["case_name"] == highlight_case)
         color = "red" if is_highlight else cmap(norm(c["dxl_size"]))
-        ax.plot(c["time"], c["force"], color=color,
-                linewidth=(1.6 if is_highlight else 0.7),
-                alpha=(1.0 if is_highlight else 0.75),
-                zorder=(zorders.get(c["case_name"], 10) + (100 if is_highlight else 0)))
+        lw = 1.6 if is_highlight else 0.7
+        alpha = 1.0 if is_highlight else 0.75
+        z = zorders.get(c["case_name"], 10) + (100 if is_highlight else 0)
+        ax_full.plot(c["time"], c["force"], color=color, linewidth=lw, alpha=alpha, zorder=z)
+        if ax_zoom is not None:
+            ax_zoom.plot(c["time"], c["force"], color=color, linewidth=lw, alpha=alpha, zorder=z)
 
     legend_handles = [
         Line2D([0], [0], color="k", linestyle="--", linewidth=1.0,
-               label=_lang_text("Reference force $F_{ref}$", "Force de référence $F_{ref}$",
-                                 language, sep=" / ")),
+               label=_lang_text("Nominal force", "Force nominale", language, sep=" / ")),
     ]
-    ax.axhline(F_ref, color="k", linestyle="--", linewidth=1.0)
-
-    if t_start is not None:
-        legend_handles.append(Line2D([0], [0], color="gray", linestyle=":", linewidth=1.0,
-                                      label=_lang_text("Transient exclusion $t_{start}$",
-                                                        "Exclusion du transitoire $t_{start}$",
-                                                        language, sep=" / ")))
-        ax.axvline(t_start, color="gray", linestyle=":", linewidth=1.0)
-
     if highlight_case is not None:
         legend_handles.append(Line2D([0], [0], color="red", linewidth=1.6,
                                       label=_lang_text("Retained dxl_size", "Taille de dexel retenue",
                                                         language, sep=" / ")))
 
-    ax.set_xlabel(_lang_text("Time [s]", "Temps [s]", language))
-    ax.set_ylabel(_lang_text("Force [N]", "Force [N]", language))
-    _plain_yaxis(ax)
-    ax.legend(handles=legend_handles, loc="best")
-    ax.grid(True, axis="y", alpha=0.25)
+    ax_full.axhline(F_ref, color="k", linestyle="--", linewidth=1.0, zorder=TOP_ZORDER)
+    ax_full.set_xlabel(_lang_text("Time [s]", "Temps [s]", language))
+    ax_full.set_ylabel(_lang_text("Force [N]", "Force [N]", language))
+    _plain_yaxis(ax_full)
+    ax_full.legend(handles=legend_handles, loc="best")
+    ax_full.grid(True, axis="y", alpha=0.25)
+
+    if ax_zoom is not None:
+        ax_zoom.axhline(F_ref, color="k", linestyle="--", linewidth=1.0, zorder=TOP_ZORDER)
+        ax_zoom.set_xlim(*zoom_window)
+        ax_zoom.set_xlabel(_lang_text("Time [s]", "Temps [s]", language))
+        _plain_yaxis(ax_zoom)
+        ax_zoom.grid(True, axis="y", alpha=0.25)
+        # indica en el panel completo la region que se amplia en el panel de zoom
+        ax_full.axvspan(*zoom_window, color="gray", alpha=0.15, zorder=0)
 
     sm = ScalarMappable(norm=norm, cmap=cmap)
     sm.set_array([])
-    cbar = fig.colorbar(sm, ax=ax)
+    cbar = fig.colorbar(sm, ax=list(axes))
     cbar.set_label(_lang_text(
         r"Dexel size $\Delta_{\mathrm{dxl}}$ [m]",
         r"Taille du dexel $\Delta_{\mathrm{dxl}}$ [m]",
         language,
     ))
+    # Un tick por cada dxl_size real del barrido (en vez de solo 2 decadas por defecto),
+    # descartando etiquetas que colisionarian por estar demasiado cerca en escala log
+    # (siempre conservando el valor retenido).
+    must_include = [highlight_dxl_size] if highlight_dxl_size is not None and np.isfinite(highlight_dxl_size) else None
+    cbar_ticks = _thin_log_ticks(valid_dxl, min_log_gap=0.03, must_include=must_include)
+    cbar.set_ticks(cbar_ticks)
+    cbar.set_ticklabels([f"{v:.2e}" for v in cbar_ticks], fontsize=8)
+    if highlight_dxl_size is not None and np.isfinite(highlight_dxl_size):
+        cbar.ax.axhline(highlight_dxl_size, color="red", linewidth=2.0, zorder=TOP_ZORDER)
 
-    out_path = _save_fig(fig, h5_path, "fig_time_series.png")
+    out_path = _save_fig(fig, "fig_time_series.png")
     log.info("Time series figure saved to %s", out_path)
     plt.show()
 
 
-def fig_computational_cost(wall_time_entries: list, h5_path: str, highlight_dxl_size: float | None = None,
+def fig_computational_cost(wall_time_entries: list, highlight_dxl_size: float | None = None,
                             language: str = "both", figsize: tuple[float, float] = FIGSIZE_WIDE) -> None:
     """Figura: costo computacional (wall-clock, wall_time_s.txt) por caso vs. dxl_size.
 
@@ -454,7 +503,7 @@ def fig_computational_cost(wall_time_entries: list, h5_path: str, highlight_dxl_
     _plain_yaxis(ax)
     ax.grid(True, axis="y", alpha=0.25)
 
-    out_path = _save_fig(fig, h5_path, "fig_computational_cost.png")
+    out_path = _save_fig(fig, "fig_computational_cost.png")
     log.info("Computational cost figure saved to %s", out_path)
     plt.show()
 
@@ -478,7 +527,7 @@ def compute_machining_constants(spin_rate, nb_dt_rev, ap, f_tooth_mm, k_f):
     V_f    = spin_rate * f_tooth_mm / 1e3         # velocidad de avance [m/min]
     ap_mm  = ap * 1e3                             # profundidad en mm
     A_c    = ap_mm * f_tooth_mm                   # seccion de corte [mm^2]
-    F_ref  = k_f * A_c                            # fuerza de referencia [N]
+    F_ref  = k_f * A_c                            # fuerza nominal de corte [N]
 
     return {
         "dt":    dt,
@@ -715,6 +764,10 @@ def main():
     # 1.5, 2, 0.5, etc.) -- mantiene siempre la proporcion ancho/alto.
     FIGURE_SCALE = 2.0
 
+    # Duracion del panel de zoom de fig_time_series, en revoluciones del husillo
+    # (empieza en t_start, para mostrar regimen ya establecido).
+    ZOOM_N_REVOLUTIONS = 4
+
     # ===========================================================================
     # CONSTANTES DE CORTE  (editar aqui antes de ejecutar)
     # ===========================================================================
@@ -758,6 +811,7 @@ def main():
     h5_path = args.h5 if args.h5 else os.path.join(
         os.path.dirname(os.path.abspath(__file__)),DOE_NAME, "doe_results.h5"
     )
+    
 
     run(h5_path, constants, dry_run=args.dry_run)
 
@@ -765,17 +819,19 @@ def main():
         F_ref = constants["F_ref"]
         cases = _cases_from_h5(h5_path)
         selected_dxl_size = 20.e-5  # resaltar este tamaño de dexel en la figura
-        fig3_error_summary(cases, F_ref, h5_path, highlight_dxl_size=selected_dxl_size,
+        fig3_error_summary(cases, F_ref, highlight_dxl_size=selected_dxl_size,
                            language=FIGURE_LANGUAGE,
                            figsize=figsize_from_scale(FIGSIZE_WIDE, FIGURE_SCALE))
 
-        fig_time_series(cases, F_ref, h5_path, t_start=constants["t_start"],
+        zoom_duration_s = ZOOM_N_REVOLUTIONS * 60.0 / spin_rate
+        zoom_window = (t_start, t_start + zoom_duration_s)
+        fig_time_series(cases, F_ref, zoom_window=zoom_window,
                         highlight_dxl_size=selected_dxl_size,
                         language=FIGURE_LANGUAGE,
-                        figsize=figsize_from_scale(FIGSIZE_WIDE, FIGURE_SCALE))
+                        figsize=figsize_from_scale(FIGSIZE_WIDE_LARGE, FIGURE_SCALE))
 
         wall_time_entries = _load_wall_times(os.path.dirname(h5_path))
-        fig_computational_cost(wall_time_entries, h5_path, highlight_dxl_size=selected_dxl_size,
+        fig_computational_cost(wall_time_entries, highlight_dxl_size=selected_dxl_size,
                                language=FIGURE_LANGUAGE,
                                figsize=figsize_from_scale(FIGSIZE_WIDE, FIGURE_SCALE))
 

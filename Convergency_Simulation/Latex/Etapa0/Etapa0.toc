@@ -1,7 +1,11 @@
 \babel@toc {french}{}\relax 
 \contentsline {section}{\numberline {1}Introduction}{2}{section.1}%
-\contentsline {section}{\numberline {2}Modèle mécaniciste de force de référence}{2}{section.2}%
+\contentsline {section}{\numberline {2}Modèle mécaniciste de la force nominale de coupe}{2}{section.2}%
 \contentsline {section}{\numberline {3}Estimateurs d'erreur de convergence}{3}{section.3}%
 \contentsline {section}{\numberline {4}Procédure numérique}{4}{section.4}%
-\contentsline {section}{\numberline {5}Hypothèses et conditions de validité}{6}{section.5}%
-\contentsline {section}{\numberline {6}Conclusion}{6}{section.6}%
+\contentsline {section}{\numberline {5}Résultats}{4}{section.5}%
+\contentsline {subsection}{\numberline {5.1}Erreur relative en fonction de la taille de dexel}{4}{subsection.5.1}%
+\contentsline {subsection}{\numberline {5.2}Séries temporelles de la force simulée}{6}{subsection.5.2}%
+\contentsline {subsection}{\numberline {5.3}Coût de calcul}{7}{subsection.5.3}%
+\contentsline {section}{\numberline {6}Hypothèses et conditions de validité}{7}{section.6}%
+\contentsline {section}{\numberline {7}Conclusion}{8}{section.7}%

@@ -1,17 +1,20 @@
 # Fdb version 4
-["biber Etapa0"] 1789485535.57805 "Etapa0.bcf" "Etapa0.bbl" "Etapa0" 1789485547.92935 0
-  "Etapa0.bcf" 1789485548 107280 baa047fc37154682033c9d37c2a03405 "pdflatex"
+["biber Etapa0"] 1789653828.93286 "Etapa0.bcf" "Etapa0.bbl" "Etapa0" 1789653844.22249 0
+  "Etapa0.bcf" 1789653844 107280 baa047fc37154682033c9d37c2a03405 "pdflatex"
   (generated)
   "Etapa0.bbl"
   "Etapa0.blg"
   (rewritten before read)
-["pdflatex"] 1789485543.61949 "d:/Thesis/03-Code_Storage/02-Altintlas_Nessy2m_Storage/Chatter-Criteria/CAMP10_Chatter_detection_Methodes/Convergency_Simulation/Latex/Etapa0/Etapa0.tex" "Etapa0.pdf" "Etapa0" 1789485547.93024 0
-  "Etapa0.aux" 1789485548 4158 04bcfdac2c698f9d93613a4e499b9ceb "pdflatex"
-  "Etapa0.bbl" 1789485540 486 76d65a242ec496c9b4361af646ff12cb "biber Etapa0"
-  "Etapa0.out" 1789485548 1153 4c60e5ba6ba1c30fbd71c9500f8e7328 "pdflatex"
-  "Etapa0.run.xml" 1789485548 2318 fb7b0fbb29ab095528fc091014ae5044 "pdflatex"
-  "Etapa0.tex" 1789485464 18760 f153f8b5b9dbbf898ad78d7dfd6862b9 ""
-  "Etapa0.toc" 1789485548 525 6e8b95fc8f32808eed4a434c7684a962 "pdflatex"
+["pdflatex"] 1789653837.3073 "d:/Thesis/03-Code_Storage/02-Altintlas_Nessy2m_Storage/Chatter-Criteria/CAMP10_Chatter_detection_Methodes/Convergency_Simulation/Latex/Etapa0/Etapa0.tex" "Etapa0.pdf" "Etapa0" 1789653844.22334 0
+  "../plots/fig3_error_summary.png" 1789652014 169251 41dd14c95fc1956d80d0e7cba446c093 ""
+  "../plots/fig_computational_cost.png" 1789652976 148177 8b86e0646c365dc56c6870c4bf62c4c5 ""
+  "../plots/fig_time_series.png" 1789652958 520363 7638561d563dc856c034fa49030d92e3 ""
+  "Etapa0.aux" 1789653844 7015 570a9f0523f05b63865e81129f52174e "pdflatex"
+  "Etapa0.bbl" 1789653832 486 76d65a242ec496c9b4361af646ff12cb "biber Etapa0"
+  "Etapa0.out" 1789653844 2093 c92c008dc24329236353b9e150e898b4 "pdflatex"
+  "Etapa0.run.xml" 1789653844 2318 fb7b0fbb29ab095528fc091014ae5044 "pdflatex"
+  "Etapa0.tex" 1789653708 21224 c2fc96f44c9ca508c7018a9157f46a81 ""
+  "Etapa0.toc" 1789653844 899 8d57cc74b06862a899e78a6a485f61c2 "pdflatex"
   "c:/texlive/2025/texmf-dist/fonts/enc/dvips/lm/lm-ec.enc" 1745598869 2375 baa924870cfb487815765f9094cf3728 ""
   "c:/texlive/2025/texmf-dist/fonts/enc/dvips/lm/lm-mathex.enc" 1745598869 3486 c7eadf5dcc57b3b2d11736679f6636ba ""
   "c:/texlive/2025/texmf-dist/fonts/enc/dvips/lm/lm-mathit.enc" 1745598869 2405 5dcf2c1b967ee25cc46c58cd52244aed ""
@@ -205,8 +208,7 @@
   "c:/texlive/2025/texmf-var/fonts/map/pdftex/updmap/pdftex.map" 1745602107 5567782 00e0fb0c7cc9c7361a97e3a2230dfbe7 ""
   "c:/texlive/2025/texmf-var/web2c/pdftex/pdflatex.fmt" 1745602295 3561286 de31e74a22f5dee8619f2d33f7e0eaf9 ""
   "c:/texlive/2025/texmf.cnf" 1745602088 713 e69b156964470283e0530f5060668171 ""
-  "d:/Thesis/03-Code_Storage/02-Altintlas_Nessy2m_Storage/Chatter-Criteria/CAMP10_Chatter_detection_Methodes/Convergency_Simulation/Latex/Etapa0/Etapa0.tex" 1789485464 18760 f153f8b5b9dbbf898ad78d7dfd6862b9 ""
-  "figures/fig3_error_summary.png" 1789484850 169251 41dd14c95fc1956d80d0e7cba446c093 ""
+  "d:/Thesis/03-Code_Storage/02-Altintlas_Nessy2m_Storage/Chatter-Criteria/CAMP10_Chatter_detection_Methodes/Convergency_Simulation/Latex/Etapa0/Etapa0.tex" 1789653708 21224 c2fc96f44c9ca508c7018a9157f46a81 ""
   (generated)
   "Etapa0.aux"
   "Etapa0.bcf"
