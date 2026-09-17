@@ -18,6 +18,10 @@ from typing import List, Optional
 
 import h5py
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
+from matplotlib.colors import Normalize
+from matplotlib.cm import ScalarMappable
+from matplotlib.lines import Line2D
 
 
 def compute_ap_crit_theo(n0: float) -> float:
@@ -685,11 +689,15 @@ def main() -> None:
                         help="Ejecuta el ejemplo 1-DOF - 150Hz de LobeCalculator y muestra su figura")
     parser.add_argument("--plots", action="store_true",
                         help="Muestra fig1 (estabilidad), fig2 (rms_vel vs dxl) y fig5 (ap_crit comparacion)")
+    parser.add_argument("--plots-paper", action="store_true",
+                        help="Genera la figura de articulo (estilo article-plot-style) con las curvas de "
+                             "todos los casos (desplazamiento/velocidad, completa + zoom), guardada con "
+                             "prefijo de etapa en Latex/plots")
     args = parser.parse_args()
 
     # doe_name = "1_Detection_Limite_Lobes\\DOE_Detection_Limite_Lobes_dxl_10e-5"
     # doe_name = r"3_Sensitivity_dt\DOE_Detection_Limite_Lobes_dt_200"
-    doe_name = "1_Detection_Limite_Lobes\\DOE_Detection_Limite_Lobes_dxl_320e-5_RUN_10"
+    doe_name = "1_Detection_Limite_Lobes\\DOE_Detection_Limite_Lobes_dxl_20e-5_RUN_10"
 
     # ===========================================================================
     # CONSTANTES DE CORTE  (editar aqui antes de ejecutar)
@@ -850,10 +858,284 @@ def main() -> None:
                 fig5_crit_comparison(h5_path)
                 plt.show()
 
+            if args.plots_paper:
+                # Idioma del texto de la figura: "EN" | "FR" | "both" -- ver skill article-plot-style.
+                FIGURE_LANGUAGE = "FR"
+                # Duracion del panel de zoom, en revoluciones del husillo (empieza en t_start,
+                # para mostrar el regimen ya establecido).
+                ZOOM_N_REVOLUTIONS = 4
+
+                cases_series = _load_stage1_case_series(h5_path)
+                eps_last_stable = _stage1_eps_last_stable(h5_path)
+                zoom_duration_s = ZOOM_N_REVOLUTIONS * 60.0 / spin_rate
+                zoom_window = (t_start, t_start + zoom_duration_s)
+                fig_paper_time_series_cases(
+                    cases_series, eps_last_stable, zoom_window=zoom_window,
+                    language=FIGURE_LANGUAGE,
+                    figsize=figsize_from_scale(figsize_grid(2, 3), 1.4),
+                )
+                plt.show()
+
 
 # ==============================================================================
 # FIGURAS
 # ==============================================================================
+
+# Carpeta compartida donde se guardan las figuras de --plots-paper (misma para todas
+# las etapas, no una por etapa). El .tex de cada etapa la referencia via
+# \graphicspath{{../plots/}} -- ver convencion analoga en Etapa_0.py.
+PLOTS_DIR_PAPER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Latex", "plots")
+
+# Prefijo de archivo para identificar de que etapa viene cada figura de --plots-paper,
+# ya que todas las etapas comparten PLOTS_DIR_PAPER.
+FIG_PREFIX = "etapa1_"
+
+# rcParams y tamanos de figura: ver skill article-plot-style
+# (.claude/skills/article-plot-style/SKILL.md, secciones 0 y 1)
+_STYLE_PAPER = {
+    "font.family": "serif", "font.size": 12,
+    "axes.titlesize": 16, "axes.labelsize": 16,
+    "xtick.labelsize": 14, "ytick.labelsize": 14,
+    "legend.fontsize": 10, "lines.linewidth": 1.2,
+    "lines.markersize": 10,
+    "axes.linewidth": 0.8, "grid.linewidth": 0.5,
+    "xtick.major.width": 0.8, "ytick.major.width": 0.8,
+    "xtick.direction": "in", "ytick.direction": "in",
+    "xtick.major.size": 4, "ytick.major.size": 4,
+    "xtick.minor.size": 2.5, "ytick.minor.size": 2.5,
+    "xtick.minor.width": 0.6, "ytick.minor.width": 0.6,
+    "mathtext.fontset": "stix", "axes.formatter.use_mathtext": True,
+    "legend.frameon": False, "legend.loc": "best",
+    "legend.handlelength": 2.0, "legend.borderaxespad": 0.5,
+    "figure.dpi": 110, "savefig.dpi": 300, "savefig.bbox": "tight",
+    "savefig.pad_inches": 0.02, "savefig.transparent": True,
+    "figure.facecolor": "white", "axes.facecolor": "white",
+}
+
+FIGSIZE_SIMPLE = (3.5, 2.6)  # una columna -- panel unico
+
+
+def figsize_grid(ncols: int, nrows: int = 1, base: tuple = FIGSIZE_SIMPLE) -> tuple:
+    """Generaliza FIGSIZE_SIMPLE a una grilla de ncols x nrows paneles, preservando
+    el tamano de panel unico (ver skill article-plot-style, seccion 1)."""
+    w, h = base
+    return (w * ncols, h * nrows)
+
+
+def figsize_from_scale(base_figsize: tuple, scale: float) -> tuple:
+    """Escala un figsize base preservando su relacion de aspecto."""
+    w, h = base_figsize
+    return (w * scale, h * scale)
+
+
+def _lang_text(en: str, fr: str, language: str, sep: str = "\n") -> str:
+    """Arma el texto de la figura segun el idioma configurado ("EN" | "FR" | "both")."""
+    if language == "EN":
+        return en
+    if language == "FR":
+        return fr
+    if language == "both":
+        return f"[EN] {en}{sep}[FR] {fr}"
+    raise ValueError(f"language debe ser 'EN', 'FR' o 'both', recibido: {language!r}")
+
+
+def _sci_yaxis_paper(ax) -> None:
+    """Notacion cientifica en el eje Y (ver skill article-plot-style, seccion 6) --
+    mejor que notacion plana para magnitudes de desplazamiento/velocidad (~1e-6/1e-5)."""
+    fmt = mticker.ScalarFormatter(useMathText=True)
+    fmt.set_scientific(True)
+    fmt.set_powerlimits((-2, 2))
+    ax.yaxis.set_major_formatter(fmt)
+    ax.ticklabel_format(axis="y", style="sci", scilimits=(-2, 2))
+
+
+def _autoscale_y_window(ax, window: tuple, margin: float = 0.05) -> None:
+    """Reajusta el eje Y de `ax` a los datos visibles dentro de `window` (t_ini, t_fin).
+
+    matplotlib NO reduce automaticamente el rango Y al restringir `set_xlim`: el
+    autoscale se calcula sobre el rango de datos completo en el momento de graficar.
+    Sin este ajuste, un panel de "zoom" en X hereda el rango Y del transitorio
+    inicial (mucho mas grande) y aparece plano/vacio.
+    """
+    y_min, y_max = None, None
+    for line in ax.get_lines():
+        x = np.asarray(line.get_xdata())
+        y = np.asarray(line.get_ydata())
+        mask = (x >= window[0]) & (x <= window[1])
+        if not np.any(mask):
+            continue
+        y_win = y[mask]
+        cur_min, cur_max = float(np.min(y_win)), float(np.max(y_win))
+        y_min = cur_min if y_min is None else min(y_min, cur_min)
+        y_max = cur_max if y_max is None else max(y_max, cur_max)
+    if y_min is None or y_max is None:
+        return
+    span = y_max - y_min
+    pad = span * margin if span > 0 else (abs(y_max) if y_max != 0 else 1.0) * margin
+    ax.set_ylim(y_min - pad, y_max + pad)
+
+
+def _save_fig_paper(fig, filename: str) -> str:
+    """Guarda una figura PNG en PLOTS_DIR_PAPER con el prefijo de esta etapa (FIG_PREFIX)."""
+    os.makedirs(PLOTS_DIR_PAPER, exist_ok=True)
+    out_path = os.path.join(PLOTS_DIR_PAPER, f"{FIG_PREFIX}{filename}")
+    fig.savefig(out_path)
+    return out_path
+
+
+def _load_stage1_case_series(h5_path: str) -> list:
+    """Lee, por caso, epsilon, estabilidad y las series temporales de desplazamiento
+    axial (corregido por deflexion estatica, Out_Deflex), velocidad axial cruda y
+    fuerza cruda (res_R_p, componente 0), para la figura de --plots-paper. Requiere
+    que _write_stage1_metadata ya haya corrido (epsilon_ap_critic y stable_trend_log
+    deben existir en el HDF5)."""
+    cases = []
+    with h5py.File(h5_path, "r") as h5f:
+        case_names = sorted([n for n in h5f.keys() if n.startswith("case_")])
+        for case_name in case_names:
+            grp = h5f[case_name]
+            disp_data = read_time_values(grp, "Out_Deflex/Axial_disp_out_deflex")
+            vel_data = read_time_values(grp, "Axial_vel")
+            force_data = read_time_values(grp, "res_R_p")
+            if disp_data is None or vel_data is None or force_data is None:
+                continue
+            disp_time, disp_values = disp_data
+            vel_time, vel_values = vel_data
+            force_time, force_values = force_data
+            disp_values = np.asarray(disp_values, dtype=float)
+            vel_values = np.asarray(vel_values, dtype=float)
+            force_values = np.asarray(force_values, dtype=float)
+            if disp_values.ndim > 1:
+                disp_values = disp_values[:, 0]
+            if vel_values.ndim > 1:
+                vel_values = vel_values[:, 0]
+            if force_values.ndim > 1:
+                force_values = force_values[:, 0]
+            cases.append({
+                "case_name": case_name,
+                "epsilon": float(grp.attrs.get("epsilon_ap_critic", float("nan"))),
+                "stable": int(grp.attrs.get("stable_trend_log", -1)),
+                "disp_time": np.asarray(disp_time, dtype=float),
+                "disp": disp_values,
+                "vel_time": np.asarray(vel_time, dtype=float),
+                "vel": vel_values,
+                "force_time": np.asarray(force_time, dtype=float),
+                "force": force_values,
+            })
+    return cases
+
+
+def _stage1_eps_last_stable(h5_path: str) -> float:
+    """Lee epsilon del ultimo caso estable (stage_1_lambda_minus, limite inferior de la
+    transicion estable->inestable) desde los atributos raiz del HDF5."""
+    with h5py.File(h5_path, "r") as h5f:
+        return float(h5f.attrs.get("stage_1_lambda_minus", float("nan")))
+
+
+def fig_paper_time_series_cases(cases: list, eps_last_stable: float, zoom_window: tuple,
+                                 language: str = "both", figsize: tuple = None) -> str:
+    """Figura de articulo (3x2): filas = desplazamiento axial corregido / velocidad
+    axial cruda / fuerza cruda, columnas = senal completa (sin titulo) / zoom a unas
+    pocas revoluciones.
+
+    Colorea cada caso por epsilon = a_p/a_p_crit (colormap continuo, sin discretizar
+    por estable/inestable) para poder verificar visualmente que ninguna curva tapa
+    por completo a las demas dentro del barrido. El ultimo caso estable (epsilon =
+    eps_last_stable, limite inferior de la transicion estable->inestable) se resalta
+    en rojo con linea mas gruesa, y se marca con una linea horizontal + su valor
+    numerico en la barra de color -- asi la curva roja y la marca de la colorbar
+    corresponden exactamente al mismo caso.
+    """
+    plt.rcParams.update(_STYLE_PAPER)
+    if not cases:
+        raise ValueError("No hay casos para graficar (fig_paper_time_series_cases)")
+    if figsize is None:
+        figsize = figsize_grid(2, 3)
+
+    valid_eps = sorted({c["epsilon"] for c in cases if np.isfinite(c["epsilon"])})
+    if not valid_eps:
+        raise ValueError("Ningun caso tiene epsilon valido")
+
+    cmap = plt.cm.viridis
+    norm = Normalize(vmin=min(valid_eps), vmax=max(valid_eps))
+
+    highlight_case = None
+    if np.isfinite(eps_last_stable):
+        highlight_case = min(
+            (c for c in cases if np.isfinite(c["epsilon"])),
+            key=lambda c: abs(c["epsilon"] - eps_last_stable),
+        )["case_name"]
+
+    # dibujar en orden ascendente de epsilon (zorder creciente) para que el caso
+    # resaltado no quede tapado por accidente por curvas dibujadas despues
+    cases_sorted = sorted(cases, key=lambda c: c["epsilon"] if np.isfinite(c["epsilon"]) else -1e99)
+    TOP_ZORDER = 1e6
+
+    row_specs = [
+        ("disp_time", "disp", _lang_text("Displacement [m]", "Deplacement [m]", language)),
+        ("vel_time", "vel", _lang_text("Velocity [m/s]", "Vitesse [m/s]", language)),
+        ("force_time", "force", _lang_text("Force [N]", "Force [N]", language)),
+    ]
+
+    fig, axes = plt.subplots(3, 2, figsize=figsize, constrained_layout=True)
+
+    fig.suptitle(_lang_text(
+        "Case overlay across the DOE sweep: displacement, velocity and force",
+        "Superposition des cas du DOE : deplacement, vitesse et force",
+        language,
+    ))
+    axes[0, 1].set_title(_lang_text("Zoom", "Zoom", language))
+
+    for row_idx, (t_key, v_key, ylabel) in enumerate(row_specs):
+        ax_full, ax_zoom = axes[row_idx]
+        for rank, c in enumerate(cases_sorted):
+            if not np.isfinite(c["epsilon"]):
+                continue
+            is_highlight = (c["case_name"] == highlight_case)
+            color = "red" if is_highlight else cmap(norm(c["epsilon"]))
+            lw = 1.6 if is_highlight else 0.7
+            alpha = 1.0 if is_highlight else 0.75
+            z = TOP_ZORDER if is_highlight else (rank + 2)
+
+            ax_full.plot(c[t_key], c[v_key], color=color, linewidth=lw, alpha=alpha, zorder=z)
+            ax_zoom.plot(c[t_key], c[v_key], color=color, linewidth=lw, alpha=alpha, zorder=z)
+
+        ax_zoom.set_xlim(*zoom_window)
+        _autoscale_y_window(ax_zoom, zoom_window)
+        ax_full.axvspan(*zoom_window, color="gray", alpha=0.15, zorder=0)
+
+        ax_full.set_ylabel(ylabel)
+        _sci_yaxis_paper(ax_full)
+        _sci_yaxis_paper(ax_zoom)
+        ax_full.grid(True, axis="y", alpha=0.25)
+        ax_zoom.grid(True, axis="y", alpha=0.25)
+
+    for ax in axes[-1]:
+        ax.set_xlabel(_lang_text("Time [s]", "Temps [s]", language))
+
+    if highlight_case is not None:
+        legend_handles = [Line2D([0], [0], color="red", linewidth=1.6,
+                                  label=_lang_text(rf"last stable case ($\epsilon={eps_last_stable:.4f}$)",
+                                                    rf"dernier cas stable ($\epsilon={eps_last_stable:.4f}$)",
+                                                    language, sep=" / "))]
+        axes[0, 0].legend(handles=legend_handles, loc="best")
+
+    sm = ScalarMappable(norm=norm, cmap=cmap)
+    sm.set_array([])
+    cbar = fig.colorbar(sm, ax=list(axes.ravel()))
+    cbar.set_label(_lang_text(r"$\epsilon = a_p/a_{p,crit}$", r"$\epsilon = a_p/a_{p,crit}$", language))
+    if np.isfinite(eps_last_stable):
+        cbar.ax.axhline(eps_last_stable, color="crimson", linewidth=1.4, zorder=10)
+        cbar.ax.text(1.35, eps_last_stable, rf"$\epsilon={eps_last_stable:.4f}$",
+                      transform=cbar.ax.get_yaxis_transform(), va="center", ha="left",
+                      fontsize=9, color="crimson")
+
+    out_path = _save_fig_paper(fig, "fig_time_series_cases.png")
+    print(f"[fig_paper_time_series_cases] saved -> {out_path}")
+    print(f"[fig_paper_time_series_cases] highlighted case (red, last stable) -> "
+          f"{highlight_case}, epsilon={eps_last_stable:.6f}")
+    return out_path
+
 
 def _save_fig(fig, h5_path: str, filename: str) -> str:
     """Guarda PNG en carpeta plots/ junto al HDF5."""

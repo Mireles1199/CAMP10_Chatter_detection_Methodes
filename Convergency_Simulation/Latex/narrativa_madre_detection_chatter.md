@@ -110,9 +110,14 @@ cada figura real se afinará al construir la narrativa de su etapa correspondien
 2. **Esquema modelo tubo vs. modelo cono** (ap constante vs. ap variable) con el lóbulo de
    estabilidad superpuesto, mostrando visualmente por qué el cruce teórico del lóbulo ya no es
    una referencia directa en ap variable -- respalda: **Justificación** y **Resultado clave**.
-3. **Estudio de convergencia**: tiempo (o ap) de inicio de chatter vs. tamaño de dexel en el
-   modelo cónico, mostrando si la curva converge o sigue derivando al afinar el dexel -- respalda
-   directamente el punto crítico de la **Justificación** (la duda sobre si el modelo converge).
+   *Puramente conceptual/esquemático por ahora -- pendiente de confirmar si hay curvas reales de
+   tubo vs. cono o si queda como diagrama ilustrativo.*
+3. **Estudio de convergencia (dato real disponible)**: tiempo (o ap) de inicio de chatter vs.
+   tamaño de dexel, **dentro del modelo cónico** (variando solo el dexel, no tubo vs. cono),
+   mostrando si la curva converge o sigue derivando al afinar el dexel -- respalda directamente
+   el punto crítico de la **Justificación** (la duda sobre si el modelo converge). Esta es la
+   curva que Enrique ya tiene de la exploración preliminar que motivó el replanteamiento en
+   etapas -- candidata natural para la figura motivadora antes de Etapa0.
 4. **Comparación esquemática de detección por indicador vs. tiempo teórico de cruce del lóbulo**,
    ilustrando cómo el desplazamiento por dexel invalida usar ese tiempo teórico como referencia
    fija de comparación -- respalda el **Hilo narrativo**.
