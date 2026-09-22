@@ -1,10 +1,10 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.27 (TeX Live 2025) (preloaded format=pdflatex 2025.4.25)  17 SEP 2026 16:03
+This is pdfTeX, Version 3.141592653-2.6-1.40.27 (TeX Live 2025) (preloaded format=pdflatex 2025.4.25)  18 SEP 2026 17:19
 entering extended mode
  restricted \write18 enabled.
  file:line:error style messages enabled.
  %&-line parsing enabled.
-**d:/Thesis/03-Code_Storage/02-Altintlas_Nessy2m_Storage/Chatter-Criteria/CAMP10_Chatter_detection_Methodes/Convergency_Simulation/Latex/Etapa0/Etapa0.tex
-(d:/Thesis/03-Code_Storage/02-Altintlas_Nessy2m_Storage/Chatter-Criteria/CAMP10_Chatter_detection_Methodes/Convergency_Simulation/Latex/Etapa0/Etapa0.tex
+**d:/Thesis/03-Code_Storage/02-Altintlas_Nessy2m_Storage/Chatter-Criteria/wt_etapa0/Convergency_Simulation/Latex/Etapa0/Etapa0.tex
+(d:/Thesis/03-Code_Storage/02-Altintlas_Nessy2m_Storage/Chatter-Criteria/wt_etapa0/Convergency_Simulation/Latex/Etapa0/Etapa0.tex
 LaTeX2e <2024-11-01> patch level 2
 L3 programming layer <2025-03-26>
 (c:/texlive/2025/texmf-dist/tex/latex/base/article.cls
@@ -1041,21 +1041,12 @@ LaTeX Font Info:    External font `lmex10' loaded for size
 {c:/texlive/2025/texmf-var/fonts/map/pdftex/updmap/pdftex.map}{c:/texlive/2025/texmf-dist/fonts/enc/dvips/lm/lm-ec.enc}{c:/texlive/2025/texmf-dist/fonts/enc/dvips/lm/lm-rm.enc}]
 
 [2{c:/texlive/2025/texmf-dist/fonts/enc/dvips/lm/lm-mathit.enc}{c:/texlive/2025/texmf-dist/fonts/enc/dvips/lm/lm-mathsy.enc}]
-LaTeX Font Info:    Trying to load font information for T1+lmtt on input line 334.
- (c:/texlive/2025/texmf-dist/tex/latex/lm/t1lmtt.fd
-File: t1lmtt.fd 2015/05/01 v1.6.1 Font defs for Latin Modern
-)
-Package microtype Info: Loading generic protrusion settings for font family
-(microtype)             `lmtt' (encoding: T1).
-(microtype)             For optimal results, create family-specific settings.
-(microtype)             See the microtype manual for details.
-
 
 [3{c:/texlive/2025/texmf-dist/fonts/enc/dvips/lm/lm-mathex.enc}]
-<../plots/fig3_error_summary.png, id=100, 514.0806pt x 372.4314pt>
+<../plots/fig3_error_summary.png, id=101, 514.0806pt x 372.4314pt>
 File: ../plots/fig3_error_summary.png Graphic file (type png)
 <use ../plots/fig3_error_summary.png>
-Package pdftex.def Info: ../plots/fig3_error_summary.png  used on input line 407.
+Package pdftex.def Info: ../plots/fig3_error_summary.png  used on input line 425.
 (pdftex.def)             Requested size: 438.17227pt x 317.44902pt.
 Package microtype Info: Character `029' is missing
 (microtype)             in font `T1/lmr/m/sc/10.95'.
@@ -1063,18 +1054,18 @@ Package microtype Info: Character `029' is missing
 
 
 [4]
-<../plots/fig_time_series.png, id=113, 1029.3657pt x 372.4314pt>
+<../plots/fig_time_series.png, id=116, 1029.3657pt x 372.4314pt>
 File: ../plots/fig_time_series.png Graphic file (type png)
 <use ../plots/fig_time_series.png>
-Package pdftex.def Info: ../plots/fig_time_series.png  used on input line 446.
+Package pdftex.def Info: ../plots/fig_time_series.png  used on input line 464.
 (pdftex.def)             Requested size: 438.17227pt x 158.53413pt.
 
 
 [5 <../plots/fig3_error_summary.png>]
-<../plots/fig_computational_cost.png, id=123, 514.0806pt x 372.4314pt>
+<../plots/fig_computational_cost.png, id=126, 514.0806pt x 372.4314pt>
 File: ../plots/fig_computational_cost.png Graphic file (type png)
 <use ../plots/fig_computational_cost.png>
-Package pdftex.def Info: ../plots/fig_computational_cost.png  used on input line 468.
+Package pdftex.def Info: ../plots/fig_computational_cost.png  used on input line 486.
 (pdftex.def)             Requested size: 438.17227pt x 317.44902pt.
 
 
@@ -1094,18 +1085,18 @@ Package logreq Info: Writing requests to 'Etapa0.run.xml'.
 
  ) 
 Here is how much of TeX's memory you used:
- 33028 strings out of 469626
- 632450 string characters out of 5475183
+ 32979 strings out of 469626
+ 631583 string characters out of 5475183
  1465995 words of memory out of 5000000
- 59227 multiletter control sequences out of 15000+600000
- 733933 words of font info for 220 fonts, out of 8000000 for 9000
+ 59182 multiletter control sequences out of 15000+600000
+ 733614 words of font info for 219 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
- 75i,12n,80p,1341b,1882s stack positions out of 10000i,1000n,20000p,200000b,200000s
-<c:/texlive/2025/texmf-dist/fonts/type1/public/lm/lmbx10.pfb><c:/texlive/2025/texmf-dist/fonts/type1/public/lm/lmbx12.pfb><c:/texlive/2025/texmf-dist/fonts/type1/public/lm/lmcsc10.pfb><c:/texlive/2025/texmf-dist/fonts/type1/public/lm/lmex10.pfb><c:/texlive/2025/texmf-dist/fonts/type1/public/lm/lmmi10.pfb><c:/texlive/2025/texmf-dist/fonts/type1/public/lm/lmmi8.pfb><c:/texlive/2025/texmf-dist/fonts/type1/public/lm/lmr10.pfb><c:/texlive/2025/texmf-dist/fonts/type1/public/lm/lmr12.pfb><c:/texlive/2025/texmf-dist/fonts/type1/public/lm/lmr7.pfb><c:/texlive/2025/texmf-dist/fonts/type1/public/lm/lmr8.pfb><c:/texlive/2025/texmf-dist/fonts/type1/public/lm/lmri10.pfb><c:/texlive/2025/texmf-dist/fonts/type1/public/lm/lmsy10.pfb><c:/texlive/2025/texmf-dist/fonts/type1/public/lm/lmsy8.pfb><c:/texlive/2025/texmf-dist/fonts/type1/public/lm/lmtt10.pfb>
-Output written on Etapa0.pdf (8 pages, 1318376 bytes).
+ 75i,12n,80p,1317b,1882s stack positions out of 10000i,1000n,20000p,200000b,200000s
+<c:/texlive/2025/texmf-dist/fonts/type1/public/lm/lmbx10.pfb><c:/texlive/2025/texmf-dist/fonts/type1/public/lm/lmbx12.pfb><c:/texlive/2025/texmf-dist/fonts/type1/public/lm/lmcsc10.pfb><c:/texlive/2025/texmf-dist/fonts/type1/public/lm/lmex10.pfb><c:/texlive/2025/texmf-dist/fonts/type1/public/lm/lmmi10.pfb><c:/texlive/2025/texmf-dist/fonts/type1/public/lm/lmmi8.pfb><c:/texlive/2025/texmf-dist/fonts/type1/public/lm/lmr10.pfb><c:/texlive/2025/texmf-dist/fonts/type1/public/lm/lmr12.pfb><c:/texlive/2025/texmf-dist/fonts/type1/public/lm/lmr7.pfb><c:/texlive/2025/texmf-dist/fonts/type1/public/lm/lmr8.pfb><c:/texlive/2025/texmf-dist/fonts/type1/public/lm/lmri10.pfb><c:/texlive/2025/texmf-dist/fonts/type1/public/lm/lmsy10.pfb><c:/texlive/2025/texmf-dist/fonts/type1/public/lm/lmsy8.pfb>
+Output written on Etapa0.pdf (8 pages, 1296259 bytes).
 PDF statistics:
- 225 PDF objects out of 1000 (max. 8388607)
- 176 compressed objects within 2 object streams
+ 224 PDF objects out of 1000 (max. 8388607)
+ 177 compressed objects within 2 object streams
  30 named destinations out of 1000 (max. 500000)
- 57952 words of extra memory for PDF output out of 61914 (max. 10000000)
+ 57440 words of extra memory for PDF output out of 61914 (max. 10000000)
 

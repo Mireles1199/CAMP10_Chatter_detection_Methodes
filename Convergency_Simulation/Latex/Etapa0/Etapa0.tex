@@ -241,8 +241,7 @@ mécaniciste de coupe, lorsque la taille de discrétisation \(\dxlsize\) diminue
 estimateurs d'erreur relative sont définis (biais de la moyenne, erreur de crête, étendue
 et écart-type) et utilisés pour identifier, sur un plan d'expériences (DOE) balayant
 \(\dxlsize\), la taille de dexel la plus grossière garantissant une convergence numérique
-suffisante avant l'extraction des indicateurs de détection du chatter (SPRT/MaxEnt,
-SSQ-STFT, Green Integral) dans les étapes suivantes.
+suffisante avant l'exploitation de la force simulée dans les étapes suivantes du pipeline.
 
 \end{abstract}
 
@@ -253,6 +252,18 @@ SSQ-STFT, Green Integral) dans les étapes suivantes.
 \section{Introduction}
 \label{sec-introduction}
 
+Cette étude de convergence constitue la première d'une série de huit étapes (Étape~0 à
+Étape~7) organisées pour isoler, une à une, les sources d'incertitude d'un modèle numérique
+de coupe avant de l'utiliser comme base de comparaison entre indicateurs de détection du
+chatter. Ce découpage par étapes fait suite à un constat antérieur, obtenu avec un modèle à
+profondeur de passe variable (modèle \enquote{cône}) : en raffinant la taille de dexel,
+l'instant d'apparition du chatter se décalait de façon continue, sans signe de convergence
+-- ce qui remettait en cause la fiabilité du modèle comme référence pour comparer des
+indicateurs entre eux. La présente étape revient donc au modèle le plus simple possible
+(profondeur de passe constante, dynamique structurelle désactivée) pour vérifier, en
+premier lieu, que la discrétisation géométrique n'introduit pas elle-même un biais
+numérique sur la force de coupe.
+
 Dans les simulations étudiées, la géométrie de la matière enlevée est représentée par une
 discrétisation en dexels, dont la taille \(\dxlsize\) fixe la résolution spatiale du
 modèle géométrique : plus \(\dxlsize\) est faible, plus la discrétisation est fine et plus
@@ -261,26 +272,22 @@ le coût de calcul est élevé.
 Avant d'utiliser la force de coupe simulée pour en extraire un indicateur de détection du
 chatter, il est nécessaire de s'assurer que cette force ne soit pas polluée par des
 artefacts numériques liés à la discrétisation géométrique. Cette étape correspond à une
-étude de convergence de maillage au sens classique du calcul numérique
-% TODO: cite Roache (1998), Verification and Validation in Computational Science and Engineering
-: on compare la force simulée à la force de coupe nominale, analytique et indépendante du
+étude de convergence de maillage au sens classique du calcul numérique : on compare la force simulée à la force de coupe nominale, analytique et indépendante du
 maillage, pour un balayage de valeurs de \(\dxlsize\), et on identifie la valeur la plus
 grossière pour laquelle l'écart reste inférieur à un seuil de tolérance fixé (\SI{10}{\percent}).
 Ce seuil constitue une convention personnelle, pour laquelle un écart de cet ordre sur les
 efforts de coupe est jugé acceptable et exploitable en pratique.
 
 Cette étude est un préalable indispensable : si la force simulée présente une variance ou
-un biais d'origine purement numérique, les indicateurs statistiques utilisés en aval pour
-détecter le chatter (basés sur la variance, l'entropie spectrale ou l'énergie du signal de
-force) ne pourront pas distinguer ce bruit numérique d'une véritable instabilité
-dynamique.
+un biais d'origine purement numérique, les analyses statistiques utilisées en aval pour
+détecter le chatter ne pourront pas distinguer ce bruit numérique d'une véritable
+instabilité dynamique.
 
 \section{Modèle mécaniciste de la force nominale de coupe}
 \label{sec-modele_force_ref}
 
 La force nominale de coupe \(\Fref\) est calculée à partir d'un modèle mécaniciste linéarisé de
 la force de coupe, cas limite du modèle de Kienzle--Victor
-% TODO: cite Kienzle-Victor (1952) et sa generalisation au fraisage (Altintas)
 lorsque l'exposant de taille de copeau \(m_c \to 0\), c'est-à-dire lorsque la pression
 spécifique de coupe \(\kf\) est traitée comme constante :
 
@@ -321,17 +328,27 @@ Le cas simulé correspond à une opération de tournage, et non de fraisage : l'
 comporte qu'une seule arête de coupe, de sorte que \(N_t=1\) est ici une caractéristique
 exacte de l'opération -- et non une approximation -- et n'a donc pas à apparaître
 explicitement dans \cref{eq-vf}. Plus précisément, il s'agit d'un cas simplifié de
-tournage à un seul degré de liberté (1DDL), à profondeur de passe \(\ap\) constante, pour
-lequel la dynamique structurelle a été désactivée (simulation purement cinématique). Le
+tournage à un seul degré de liberté (1DDL), à profondeur de passe \(\ap\) constante --
+désigné \enquote{modèle tube} dans la suite --, pour lequel la dynamique structurelle a été
+désactivée (simulation purement cinématique). Le
 modèle dynamique complet associé à ce cas est présenté dans une section antérieure de la
 thèse ; la présente étude de convergence en prépare le terrain en validant, en amont, la
 fiabilité numérique de la force simulée qui alimentera ce modèle. La géométrie de la pièce
 est un cylindre -- et non un cône -- de rayon extérieur constant.
 
+Les valeurs numériques retenues pour cette étude sont \(\ap = 15\)~mm,
+\(\fz = 0,05\)~mm/tour et \(\kf = 1\,000\)~N/mm\(^2\), soit, via
+\cref{eq-section_coupe,eq-force_ref}, \(\Ac = 0,75\)~mm\(^2\) et \(\Fref = 750\)~N. La
+vitesse de rotation est \(\Omega = 12\,094\)~tr/min, avec \(N_{\mathrm{rev}} = 200\) pas de
+temps par tour, soit, via \cref{eq-dt,eq-vf}, \(\Delta t \approx 2,48\times10^{-5}\)~s et
+\(V_f \approx 0,60\)~m/min. La fenêtre d'analyse démarre à
+\(t_{\mathrm{start}} = 0,05\)~s, excluant le régime transitoire d'engagement de l'outil, et
+s'étend jusqu'à la fin de la simulation.
+
 \section{Estimateurs d'erreur de convergence}
 \label{sec-estimateurs_erreur}
 
-Soit \(F(t)\) la composante de force simulée extraite du signal \texttt{res\_R\_p},
+Soit \(F(t)\) la composante de force de coupe simulée,
 restreinte à une fenêtre temporelle \([t_{\mathrm{start}}, t_{\mathrm{end}}]\) excluant le
 régime transitoire d'engagement de l'outil. Quatre estimateurs d'erreur relative,
 exprimés en pourcentage de \(\Fref\), sont calculés pour chaque cas du DOE :
@@ -376,11 +393,9 @@ numérique : à convergence (\(\dxlsize \to 0\), en l'absence de vibration physi
 \section{Procédure numérique}
 \label{sec-procedure}
 
-Le balayage de \(\dxlsize\) utilisé pour cette étude comporte douze cas, issus du fichier
-\texttt{doe\_\allowbreak results.h5} du plan d'expériences
-\texttt{0\_Cinematique/\allowbreak DOE\_Dexels\_Cinematique}, couvrant la plage
-\(\dxlsize \in [4\times10^{-5},\ 2,56\times10^{-3}]\)~m, sans critère de répartition
-particulier entre ces valeurs.
+Le balayage de \(\dxlsize\) utilisé pour cette étude comporte douze cas issus du plan
+d'expériences (DOE), couvrant la plage \(\dxlsize \in [4\times10^{-5},\ 2,56\times10^{-3}]\)~m,
+sans critère de répartition particulier entre ces valeurs.
 
 Pour chacun de ces cas, la force simulée est extraite sur toute la durée de la simulation.
 Sa moyenne temporelle est comparée à \(\Fref\) pour obtenir le biais, \cref{eq-err_mean}.
@@ -512,10 +527,12 @@ quantitativement et avec un critère d'acceptation explicite, la taille de dexel
 grossière pour laquelle la force simulée peut être considérée comme numériquement
 convergée, à savoir \(\dxlsize = 2\times10^{-4}\)~m (\cref{fig-err_summary,fig-time_series}),
 tout en restant raisonnable en termes de coût de calcul (\cref{fig-comp_cost}). Cette
-condition remplie, le signal de force peut être utilisé de façon fiable
-comme entrée des indicateurs de détection du chatter (SPRT/MaxEnt, entropie spectrale
-SSQ-STFT, Green Integral) étudiés dans les étapes suivantes, sans risque de confondre
-artefact numérique et instabilité dynamique réelle.
+taille de dexel est reprise telle quelle à l'Étape~1, où la dynamique structurelle du
+modèle tube est réactivée afin de vérifier que la profondeur de passe limite de stabilité
+prédite par la simulation coïncide avec la valeur théorique, à une vitesse de rotation
+donnée. Plus généralement, cette condition de convergence remplie, le signal de force
+pourra être utilisé de façon fiable dans les étapes ultérieures du pipeline, sans risque de
+confondre artefact numérique et instabilité dynamique réelle.
 
 % \printbibliography
 
