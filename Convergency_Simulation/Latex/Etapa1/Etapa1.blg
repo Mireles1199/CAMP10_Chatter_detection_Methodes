@@ -1,0 +1,9 @@
+[0] Config.pm:308> INFO - This is Biber 2.20
+[1] Config.pm:311> INFO - Logfile is 'Etapa1.blg'
+[746] biber-MSWIN64:340> INFO - === 
+[986] Biber.pm:420> INFO - Reading 'Etapa1.bcf'
+[1434] Biber.pm:994> INFO - Found 0 citekeys in bib section 0
+[1507] bbl.pm:676> INFO - Writing 'Etapa1.bbl' with encoding 'UTF-8'
+[1507] bbl.pm:779> INFO - Output to Etapa1.bbl
+[1547] Biber.pm:131> WARN - The file 'Etapa1.bcf' does not contain any citations!
+[1547] Biber.pm:133> INFO - WARNINGS: 1
