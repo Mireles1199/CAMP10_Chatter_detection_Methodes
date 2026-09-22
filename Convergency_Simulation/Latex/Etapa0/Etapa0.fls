@@ -1,8 +1,8 @@
-PWD d:/Thesis/03-Code_Storage/02-Altintlas_Nessy2m_Storage/Chatter-Criteria/CAMP10_Chatter_detection_Methodes/Convergency_Simulation/Latex/Etapa0
+PWD d:/Thesis/03-Code_Storage/02-Altintlas_Nessy2m_Storage/Chatter-Criteria/wt_etapa0/Convergency_Simulation/Latex/Etapa0
 INPUT c:/texlive/2025/texmf.cnf
 INPUT c:/texlive/2025/texmf-dist/web2c/texmf.cnf
 INPUT c:/texlive/2025/texmf-var/web2c/pdftex/pdflatex.fmt
-INPUT d:/Thesis/03-Code_Storage/02-Altintlas_Nessy2m_Storage/Chatter-Criteria/CAMP10_Chatter_detection_Methodes/Convergency_Simulation/Latex/Etapa0/Etapa0.tex
+INPUT d:/Thesis/03-Code_Storage/02-Altintlas_Nessy2m_Storage/Chatter-Criteria/wt_etapa0/Convergency_Simulation/Latex/Etapa0/Etapa0.tex
 OUTPUT Etapa0.log
 INPUT c:/texlive/2025/texmf-dist/tex/latex/base/article.cls
 INPUT c:/texlive/2025/texmf-dist/tex/latex/base/article.cls
@@ -375,14 +375,10 @@ INPUT c:/texlive/2025/texmf-dist/fonts/enc/dvips/lm/lm-ec.enc
 INPUT c:/texlive/2025/texmf-dist/fonts/enc/dvips/lm/lm-rm.enc
 INPUT c:/texlive/2025/texmf-dist/fonts/enc/dvips/lm/lm-mathit.enc
 INPUT c:/texlive/2025/texmf-dist/fonts/enc/dvips/lm/lm-mathsy.enc
-INPUT c:/texlive/2025/texmf-dist/tex/latex/lm/t1lmtt.fd
-INPUT c:/texlive/2025/texmf-dist/tex/latex/lm/t1lmtt.fd
-INPUT c:/texlive/2025/texmf-dist/tex/latex/lm/t1lmtt.fd
-INPUT c:/texlive/2025/texmf-dist/fonts/tfm/public/lm/ec-lmtt10.tfm
 INPUT c:/texlive/2025/texmf-dist/fonts/tfm/public/lm/ec-lmr8.tfm
 INPUT c:/texlive/2025/texmf-dist/fonts/tfm/public/lm/ec-lmr6.tfm
-INPUT c:/texlive/2025/texmf-dist/fonts/tfm/public/lm/ec-lmri10.tfm
 INPUT c:/texlive/2025/texmf-dist/fonts/enc/dvips/lm/lm-mathex.enc
+INPUT c:/texlive/2025/texmf-dist/fonts/tfm/public/lm/ec-lmri10.tfm
 INPUT c:/texlive/2025/texmf-dist/fonts/tfm/public/lm/ec-lmbx12.tfm
 INPUT ../plots/fig3_error_summary.png
 INPUT ../plots/fig3_error_summary.png
@@ -415,4 +411,3 @@ INPUT c:/texlive/2025/texmf-dist/fonts/type1/public/lm/lmr8.pfb
 INPUT c:/texlive/2025/texmf-dist/fonts/type1/public/lm/lmri10.pfb
 INPUT c:/texlive/2025/texmf-dist/fonts/type1/public/lm/lmsy10.pfb
 INPUT c:/texlive/2025/texmf-dist/fonts/type1/public/lm/lmsy8.pfb
-INPUT c:/texlive/2025/texmf-dist/fonts/type1/public/lm/lmtt10.pfb
