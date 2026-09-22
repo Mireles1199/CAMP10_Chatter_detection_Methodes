@@ -272,9 +272,7 @@ le coût de calcul est élevé.
 Avant d'utiliser la force de coupe simulée pour en extraire un indicateur de détection du
 chatter, il est nécessaire de s'assurer que cette force ne soit pas polluée par des
 artefacts numériques liés à la discrétisation géométrique. Cette étape correspond à une
-étude de convergence de maillage au sens classique du calcul numérique
-% TODO: cite Roache (1998), Verification and Validation in Computational Science and Engineering
-: on compare la force simulée à la force de coupe nominale, analytique et indépendante du
+étude de convergence de maillage au sens classique du calcul numérique : on compare la force simulée à la force de coupe nominale, analytique et indépendante du
 maillage, pour un balayage de valeurs de \(\dxlsize\), et on identifie la valeur la plus
 grossière pour laquelle l'écart reste inférieur à un seuil de tolérance fixé (\SI{10}{\percent}).
 Ce seuil constitue une convention personnelle, pour laquelle un écart de cet ordre sur les
@@ -290,7 +288,6 @@ instabilité dynamique.
 
 La force nominale de coupe \(\Fref\) est calculée à partir d'un modèle mécaniciste linéarisé de
 la force de coupe, cas limite du modèle de Kienzle--Victor
-% TODO: cite Kienzle-Victor (1952) et sa generalisation au fraisage (Altintas)
 lorsque l'exposant de taille de copeau \(m_c \to 0\), c'est-à-dire lorsque la pression
 spécifique de coupe \(\kf\) est traitée comme constante :
 
