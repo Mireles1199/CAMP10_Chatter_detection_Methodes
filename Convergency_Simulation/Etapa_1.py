@@ -697,7 +697,7 @@ def main() -> None:
 
     # doe_name = "1_Detection_Limite_Lobes\\DOE_Detection_Limite_Lobes_dxl_10e-5"
     # doe_name = r"3_Sensitivity_dt\DOE_Detection_Limite_Lobes_dt_200"
-    doe_name = "1_Detection_Limite_Lobes\\DOE_Detection_Limite_Lobes_dxl_20e-5_RUN_10"
+    doe_name = "1_Detection_Limite_Lobes\\DOE_Detection_Limite_Lobes_dxl_1.25e-5_RUN_10"
 
     # ===========================================================================
     # CONSTANTES DE CORTE  (editar aqui antes de ejecutar)
