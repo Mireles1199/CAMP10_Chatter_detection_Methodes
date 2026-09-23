@@ -208,8 +208,9 @@
 Ce document étudie l'influence de la taille de dexel \(\dxlsize\) sur la limite de
 stabilité \(\apcritsim\) détectée par simulation, dans le modèle dynamique le plus simple
 du pipeline (profondeur axiale \(\ap\) constante, \enquote{modèle tube}), en reprenant la
-méthode de bissection de l'Étape~1 pour neuf tailles de dexel réparties autour de la valeur
-de base retenue à l'Étape~0. L'objectif est de déterminer si \(\apcritsim\) converge vers la
+méthode de bissection déjà validée précédemment pour neuf tailles de dexel réparties autour
+de la valeur de base retenue lors de l'étude de convergence de maillage préalable.
+L'objectif est de déterminer si \(\apcritsim\) converge vers la
 valeur théorique \(\apcrittheo\) lorsque \(\dxlsize\) diminue, ou si elle continue de dériver
 sans convergence -- le doute qui a motivé le réagencement complet du travail en étapes
 isolant chacune un paramètre. Les résultats montrent une convergence rapide de
@@ -227,8 +228,9 @@ grossier du balayage, pour lequel la détection se dégrade nettement.
 \section{Introduction}
 \label{sec-introduction}
 
-L'Étape~1 a établi, pour une taille de dexel fixe \(\dxlsize = 2\times10^{-4}\)~m (celle
-retenue à l'Étape~0), que la limite de stabilité \(\apcritsim\) obtenue par bissection sur le
+Il a été établi précédemment, pour une taille de dexel fixe \(\dxlsize = 2\times10^{-4}\)~m
+(celle retenue lors de l'étude de convergence de maillage préalable), que la limite de
+stabilité \(\apcritsim\) obtenue par bissection sur le
 modèle dynamique \enquote{tube} (\(\ap\) constant, un seul degré de liberté) coïncide avec la
 valeur théorique \(\apcrittheo\) issue du diagramme de lobes de stabilité
 % TODO: citer la reference du modele de lobes de stabilite (Altintas) utilise pour calculer a_{p,crit,theo}
@@ -247,20 +249,20 @@ pipeline, afin de déterminer si l'instabilité déjà identifiée dans le modè
 \label{sec-methode}
 
 Pour chacune des neuf tailles de dexel du balayage (\cref{tab-dexels}), la même procédure de
-bissection qu'à l'Étape~1 est appliquée indépendamment : un ensemble de simulations à
+bissection que précédemment est appliquée indépendamment : un ensemble de simulations à
 profondeur \(\ap\) croissante est exécuté, chaque cas étant classé stable ou instable selon
 le signe de la pente de la tendance logarithmique de la réponse RMS mobile du système. La
 transition stable~\(\to\)~instable entre deux cas consécutifs définit un intervalle
-\([\lambda_-, \lambda_+]\), où
+\([\eta_-, \eta_+]\), où
 \begin{equation}
     \eta = \frac{\ap}{\apcrittheo}
     \label{eq-eta}
 \end{equation}
-est la profondeur normalisée par la valeur théorique, \(\lambda_-\) étant la valeur de
-\(\eta\) du dernier cas simulé stable et \(\lambda_+\) celle du premier cas simulé
-instable. La bissection est poursuivie jusqu'à \(\lambda_+ - \lambda_- \leq 0,01\). La
+est la profondeur normalisée par la valeur théorique, \(\eta_-\) étant la valeur de
+\(\eta\) du dernier cas simulé stable et \(\eta_+\) celle du premier cas simulé
+instable. La bissection est poursuivie jusqu'à \(\eta_+ - \eta_- \leq 0,01\). La
 limite simulée normalisée retenue est le centre de cet intervalle,
-\(\etac = (\lambda_- + \lambda_+)/2\) ; l'intervalle \([\lambda_-, \lambda_+]\) lui-même
+\(\etac = (\eta_- + \eta_+)/2\) ; l'intervalle \([\eta_-, \eta_+]\) lui-même
 constitue la résolution atteinte par la bissection, et non une mesure de précision qui
 varierait avec \(\dxlsize\) -- tout écart de \(\etac\) à \(1\) plus grand que cet intervalle
 est donc attribuable à la taille de dexel, et non au bruit propre de la méthode de
@@ -269,13 +271,12 @@ détection.
 \begin{table}[H]
     \centering
     \caption{Tailles de dexel du balayage, réparties en puissances de deux autour de la
-    valeur de base \(\dxlsize = 2\times10^{-4}\)~m retenue à l'Étape~0.}
+    valeur de base \(\dxlsize = 2\times10^{-4}\)~m retenue lors de l'étude de convergence de
+    maillage préalable.}
     \label{tab-dexels}
-    \begin{tabular}{@{}ccccccccc@{}}
+    \begin{tabular}{@{}cccccccccc@{}}
         \toprule
-        \(\dxlsize\) (\(\times10^{-5}\)~m) & 1,25 & 2,5 & 5 & 10 & 20 & 40 & 80 & 160 \\
-        \midrule
-        & \multicolumn{8}{c}{et \(320\times10^{-5}\)~m} \\
+        \(\dxlsize\) (\(\times10^{-5}\)~m) & 1,25 & 2,5 & 5 & 10 & 20 & 40 & 80 & 160 & 320 \\
         \bottomrule
     \end{tabular}
 \end{table}
@@ -288,7 +289,7 @@ détection.
     \includegraphics[width=\linewidth]{etapa2_convergence_epsilon_vs_dxl}
     \caption{Limite de stabilité simulée normalisée \(\etac\) en fonction de la taille de
     dexel \(\dxlsize\) (échelle logarithmique), avec la bande de résolution
-    \([\lambda_-,\lambda_+]\) et la référence théorique \(\eta=1\). L'axe vertical est
+    \([\eta_-,\eta_+]\) et la référence théorique \(\eta=1\). L'axe vertical est
     scindé en deux panneaux pour séparer le dexel le plus grossier du reste du balayage,
     dont l'écart à la référence est d'un autre ordre de grandeur.}
     \label{fig-convergence}
@@ -297,17 +298,17 @@ détection.
 Sur les huit tailles de dexel les plus fines du balayage
 (\(\dxlsize \in [1,25\times10^{-5},\ 1,6\times10^{-3}]\)~m), \(\etac\) reste compris entre
 \(0,985\) et \(0,995\) (\cref{fig-convergence}), soit un écart à la référence théorique de
-l'ordre de \SI{1}{\percent} à \SI{2}{\percent}. Le dexel de base retenu à l'Étape~0
+l'ordre de \SI{1}{\percent} à \SI{2}{\percent}. Le dexel de base retenu précédemment
 (\(\dxlsize = 2\times10^{-4}\)~m) se situe dans cette plage de convergence. Pour le dexel le
 plus grossier du balayage (\(\dxlsize = 3,2\times10^{-3}\)~m), \(\etac \approx 1,505\) :
 l'instabilité y est détectée à une profondeur environ \SI{50}{\percent} supérieure à la
 valeur théorique, très en dehors de la tendance du reste du balayage.
 
-Le même comportement qualitatif que celui observé à l'Étape~1 est retrouvé ici : les
+Le même comportement qualitatif que celui observé précédemment est retrouvé ici : les
 tailles de dexel fines à intermédiaires conduisent à une détection légèrement conservatrice
 (\(\etac < 1\), instabilité détectée avant la valeur théorique), tandis que la taille de
 dexel la plus grossière sous-estime nettement l'instabilité (\(\etac > 1\)). La différence
-notable avec l'Étape~1 est que la convergence est atteinte rapidement du côté fin du
+notable par rapport au cas précédent est que la convergence est atteinte rapidement du côté fin du
 balayage : au-delà d'un certain raffinement, réduire davantage \(\dxlsize\) n'apporte plus
 de gain significatif sur \(\etac\) au regard du coût de calcul supplémentaire qu'il
 implique.
@@ -318,8 +319,8 @@ implique.
 Dans le modèle dynamique le plus simple du pipeline (\(\ap\) constant), la limite de
 stabilité simulée \(\apcritsim\) converge rapidement vers la valeur théorique \(\apcrittheo\)
 lorsque la taille de dexel diminue, avec un écart de l'ordre de \SI{1}{\percent} à
-\SI{2}{\percent} sur la majeure partie du balayage, y compris au dexel de base retenu à
-l'Étape~0. Raffiner davantage le dexel au-delà de cette plage ne se justifie donc pas au
+\SI{2}{\percent} sur la majeure partie du balayage, y compris au dexel de base retenu
+précédemment. Raffiner davantage le dexel au-delà de cette plage ne se justifie donc pas au
 regard du coût de calcul supplémentaire qu'il impliquerait. Seul le dexel le plus grossier
 du balayage rompt cette convergence, sous-estimant nettement l'instabilité.
 
@@ -328,7 +329,7 @@ la référence théorique est robuste à la taille de dexel sur la majeure parti
 testée. Le doute initial sur la convergence du modèle -- motivé par le comportement observé
 dans le modèle cône -- ne se retrouve pas ici : l'origine de la dérive observée dans le
 modèle cône doit donc être recherchée ailleurs, notamment dans la discrétisation temporelle
-(Étape~3) ou dans les spécificités du modèle à profondeur variable (Étape~4).
+ou dans les spécificités du modèle à profondeur variable.
 
 % \printbibliography
 
