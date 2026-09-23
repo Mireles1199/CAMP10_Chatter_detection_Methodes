@@ -115,8 +115,8 @@ def plot_epsilon_convergence(data: List[dict], language: str = "both",
 
     theo_label = _lang_text(r"Theoretical limit $\eta=1$",
                              r"Limite théorique $\eta=1$", language, sep=" / ")
-    band_label = _lang_text(r"Detection resolution [$\lambda_-,\lambda_+$]",
-                             r"Résolution de détection [$\lambda_-,\lambda_+$]",
+    band_label = _lang_text(r"Detection resolution [$\eta_-,\eta_+$]",
+                             r"Résolution de détection [$\eta_-,\eta_+$]",
                              language, sep=" / ")
     sim_label = _lang_text(r"Simulated $\eta_{crit,sim}$",
                             r"$\eta_{crit,sim}$ simulé",
@@ -180,13 +180,14 @@ def plot_epsilon_convergence(data: List[dict], language: str = "both",
             fontsize=plt.rcParams["legend.fontsize"], va="bottom", ha="left",
         )
 
-    # Definicion de lambda_-/lambda_+: lambda_- es el epsilon del ultimo caso
-    # simulado estable, lambda_+ el del primer caso simulado inestable. Va arriba
+    # Definicion de eta_-/eta_+: eta_- es el eta del ultimo caso simulado estable,
+    # eta_+ el del primer caso simulado inestable (mismo simbolo eta que el resto de
+    # la figura, en vez de introducir una letra distinta para las cotas). Va arriba
     # del todo en ax_top (debajo del titulo, encima de la leyenda) para no chocar
     # con ninguno de los dos.
     lambda_def_text = _lang_text(
-        r"$\lambda_-$: last stable $\eta$  /  $\lambda_+$: first unstable $\eta$",
-        r"$\lambda_-$ : dernier $\eta$ stable  /  $\lambda_+$ : premier $\eta$ instable",
+        r"$\eta_-$: last stable $\eta$  /  $\eta_+$: first unstable $\eta$",
+        r"$\eta_-$ : dernier $\eta$ stable  /  $\eta_+$ : premier $\eta$ instable",
         language, sep="\n")
     ax_top.text(
         0.02, 0.98, lambda_def_text,
