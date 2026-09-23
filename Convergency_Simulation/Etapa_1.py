@@ -21,7 +21,6 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 from matplotlib.colors import Normalize
 from matplotlib.cm import ScalarMappable
-from matplotlib.lines import Line2D
 
 
 def compute_ap_crit_theo(n0: float) -> float:
@@ -32,27 +31,27 @@ def compute_ap_crit_theo(n0: float) -> float:
     raise NotImplementedError("Implement compute_ap_crit_theo(n0) or pass ap_crit")
 
 
-def epsilon(eps_list: List[float] = None) -> List[float]:
-    """Devuelve la lista de epsilon a usar en el barrido de a_p."""
-    if eps_list is not None:
-        return list(eps_list)
+def eta(eta_list: List[float] = None) -> List[float]:
+    """Devuelve la lista de eta a usar en el barrido de a_p."""
+    if eta_list is not None:
+        return list(eta_list)
     return [0.50, 0.70, 0.85, 0.90, 0.95, 0.98, 0.99, 1.00,
             1.01, 1.02, 1.05, 1.10, 1.15, 1.30, 1.50]
 
 
-def compute_ap_values(ap_crit: float, eps_list: List[float] = None) -> List[float]:
-    """Calcula la lista de a_p a partir de a_p critico y epsilon."""
-    return [lam * ap_crit for lam in epsilon(eps_list)]
+def compute_ap_values(ap_crit: float, eta_list: List[float] = None) -> List[float]:
+    """Calcula la lista de a_p a partir de a_p critico y eta."""
+    return [lam * ap_crit for lam in eta(eta_list)]
 
 
 def generate_ap_values_from_rpm(n0: Optional[float] = None, ap_crit: Optional[float] = None,
-                                 eps_list: List[float] = None) -> List[float]:
+                                 eta_list: List[float] = None) -> List[float]:
     """Devuelve la lista de a_p desde n0 o desde a_p critico."""
     if ap_crit is None:
         if n0 is None:
             raise ValueError("Either n0 or ap_crit must be provided")
         ap_crit = compute_ap_crit_theo(n0)
-    return compute_ap_values(ap_crit, eps_list=eps_list)
+    return compute_ap_values(ap_crit, eta_list=eta_list)
 
 
 def format_ap_list(ap_list: List[float]) -> List[str]:
@@ -188,7 +187,7 @@ def _stable_trend_label(value) -> str:
 def compute_numeric_limit_from_h5(case_rows: List[dict], ap_crit_ref: float) -> dict:
     """Estima el limite numerico buscando la primera transicion 0->1 en stable_trend_log.
 
-    Los casos se ordenan internamente por epsilon ascendente para ser robustos
+    Los casos se ordenan internamente por eta ascendente para ser robustos
     a datos mezclados (union de varios HDF5). Se busca la primera pareja
     consecutiva (i, i+1) tal que i es estable (0) e i+1 es inestable (1).
     lambda_crit_sim = (lambda_minus + lambda_plus) / 2
@@ -201,8 +200,8 @@ def compute_numeric_limit_from_h5(case_rows: List[dict], ap_crit_ref: float) -> 
             "percent_error": float("nan"),
         }
 
-    # ordenar siempre por epsilon para que la busqueda de transicion sea fiable
-    rows = sorted(case_rows, key=lambda r: float(r["epsilon"]))
+    # ordenar siempre por eta para que la busqueda de transicion sea fiable
+    rows = sorted(case_rows, key=lambda r: float(r["eta"]))
 
     # buscar primera transicion consecutiva 0 -> 1
     trans_idx = None
@@ -212,16 +211,16 @@ def compute_numeric_limit_from_h5(case_rows: List[dict], ap_crit_ref: float) -> 
             break
 
     if trans_idx is not None:
-        lambda_minus = float(rows[trans_idx]["epsilon"])
-        lambda_plus  = float(rows[trans_idx + 1]["epsilon"])
+        lambda_minus = float(rows[trans_idx]["eta"])
+        lambda_plus  = float(rows[trans_idx + 1]["eta"])
         ap_minus     = float(rows[trans_idx]["ap"])
         ap_plus      = float(rows[trans_idx + 1]["ap"])
     else:
         # fallback: ultimo estable / primer inestable (sin exigir consecutivos)
         stable_rows   = [r for r in rows if int(r["stable_trend_log"]) == 0]
         unstable_rows = [r for r in rows if int(r["stable_trend_log"]) == 1]
-        lambda_minus = float(stable_rows[-1]["epsilon"])   if stable_rows   else float("nan")
-        lambda_plus  = float(unstable_rows[0]["epsilon"])  if unstable_rows else float("nan")
+        lambda_minus = float(stable_rows[-1]["eta"])   if stable_rows   else float("nan")
+        lambda_plus  = float(unstable_rows[0]["eta"])  if unstable_rows else float("nan")
         ap_minus     = float(stable_rows[-1]["ap"])        if stable_rows   else float("nan")
         ap_plus      = float(unstable_rows[0]["ap"])       if unstable_rows else float("nan")
 
@@ -541,6 +540,194 @@ def build_sld_1dof(h5_path: Optional[str] = None, spin_rate: Optional[float] = N
     return fig_1DOF_150Hz, ax_1DOF_150Hz, lobes, f_peaks
 
 
+def _compute_sld_1dof_lobes() -> list:
+    """Recalcula los lobulos de 150Hz y 250Hz cada uno AISLADO (su propio FRF de
+    1-DOF, no un FRF de 2-DOF combinado) y los devuelve por separado para
+    superponerlos al graficar. Con un FRF combinado (two_dof) la contribucion
+    del modo de 250Hz corre el valle del modo 150Hz (deja de tocar
+    eta=a_p/a_p,crit,teo=1 en spin_rate, que se calculo con la teoria
+    1-DOF); calculando cada modo aislado el valle de 150Hz vuelve a coincidir
+    exacto con ap_theo. Separado de build_sld_1dof porque
+    sld_tools.Plotter.plot_lobes siempre crea su propia figura de un solo
+    panel, y fig_paper_stability_map necesita dibujar los lobulos en dos
+    paneles (contexto + zoom) dentro de una sola figura.
+
+    Returns
+    -------
+    list[tuple[np.ndarray, np.ndarray]]
+        [(lobes_150hz, f_peaks_150hz), (lobes_250hz, f_peaks_250hz)]
+    """
+    from sld_tools import FRFModel, AltintasPhaseStrategy, LobeCalculator
+
+    w1, w2, w_delta = 250.0, 150.0, 0.5
+    k1, zeta1, theta1_A = 2.26e8, 0.012, 30.0 * np.pi / 180.0
+    k2, zeta2, theta2_A = 2.13e8, 0.01, -45.0 * np.pi / 180.0
+    Kf = 1000e6
+    target = 0.0
+    k_list = np.arange(0, 4)
+    num_points = 50000
+    w = np.linspace(0, max(w1, w2) * (1 + w_delta), num_points)
+
+    modes = [(k2, zeta2, theta2_A, w2), (k1, zeta1, theta1_A, w1)]  # 150Hz primero (verde), 250Hz despues (azul)
+    results = []
+    for k, zeta, theta_A, w_natural in modes:
+        r = lambda w, w_natural=w_natural: w / w_natural
+        frf = FRFModel.one_dof(k, zeta, theta_A, r)
+        calculator = LobeCalculator(frf=frf, phase_strategy=AltintasPhaseStrategy())
+        results.append(calculator.compute_lobes(w=w, target=target, k_list=k_list, Kf=Kf))
+    return results
+
+
+def _load_stage1_lobe_case_points(h5_path: str, spin_rate: float) -> dict:
+    """Lee, por caso, su a_p [mm] y estabilidad, mas a_p_crit teorico/simulado --
+    para superponerlos sobre el diagrama de lobulos en fig_paper_stability_map."""
+    with h5py.File(h5_path, "r") as h5f:
+        ap_theo = float(h5f.attrs.get("stage_1_ap_crit", float("nan")))
+        eta_crit_sim = float(h5f.attrs.get("stage_1_lambda_crit_sim", float("nan")))
+        case_names = sorted(n for n in h5f.keys() if n.startswith("case_"))
+        y_vals, eta_vals, colors = [], [], []
+        for case_name in case_names:
+            grp = h5f[case_name]
+            y_vals.append(float(grp.attrs.get("$Ap_start$", grp.attrs.get("$Ap_end$", float("nan")))))
+            # fallback al nombre viejo del atributo (epsilon_ap_critic) mientras no
+            # se regenere el .h5 con el nuevo nombre (eta_ap_critic)
+            eta_vals.append(float(grp.attrs.get("eta_ap_critic", grp.attrs.get("epsilon_ap_critic", float("nan")))))
+            stable_val = grp.attrs.get("stable_trend_log", float("nan"))
+            colors.append("red" if int(stable_val) == 1 else "limegreen")
+
+    y_arr = np.asarray(y_vals, dtype=float) * 1e3
+    eta_arr = np.asarray(eta_vals, dtype=float)
+    mask = np.isfinite(y_arr) & np.isfinite(eta_arr)
+    return {
+        "x": np.full(int(np.count_nonzero(mask)), float(spin_rate)),
+        "y_mm": y_arr[mask],
+        "eta": eta_arr[mask],
+        "colors": np.asarray(colors, dtype=object)[mask],
+        "ap_theo_mm": ap_theo * 1e3,
+        "eta_crit_sim": eta_crit_sim,
+        "spin_rate": float(spin_rate),
+    }
+
+
+def fig_paper_stability_map(h5_path: str, spin_rate: float, language: str = "both",
+                             figsize: tuple = None) -> str:
+    """Figura de articulo (1x2): diagrama de lobulos de estabilidad 1-DOF-150Hz,
+    ambos paneles en eta = a_p/a_p,crit,theo (no en a_p fisico) -- es la misma
+    variable que usa el resto de las figuras de esta etapa, y evita mezclar dos
+    escalas distintas entre paneles. Panel izquierdo = rango completo (contexto);
+    panel derecho = zoom cerca de eta=1, donde caen los casos del DOE -- en el
+    rango completo quedan amontonados en una franja delgada, tapandose entre si."""
+    # letra mas chica que _STYLE_PAPER a pedido explicito (el panel es angosto y
+    # a 16/14/10pt se sentia sobredimensionado) -- desviacion deliberada de
+    # article-plot-style solo para esta figura, no cambia el _STYLE_PAPER global
+    _style_small = dict(_STYLE_PAPER)
+    _style_small.update({
+        "font.size": 9, "axes.titlesize": 12, "axes.labelsize": 12,
+        "xtick.labelsize": 9, "ytick.labelsize": 9, "legend.fontsize": 10,
+    })
+    plt.rcParams.update(_style_small)
+    lobe_results = _compute_sld_1dof_lobes()  # [(lobes_150hz, f_peaks_150hz), (lobes_250hz, f_peaks_250hz)]
+    pts = _load_stage1_lobe_case_points(h5_path, spin_rate)
+    ap_theo_mm = pts["ap_theo_mm"]
+
+    if figsize is None:
+
+        figsize = (7.16, 3.5)
+    fig, (ax_full, ax_zoom) = plt.subplots(1, 2, figsize=figsize, constrained_layout=True)
+
+    # un color por modo/lobulo (250Hz y 150Hz) para poder distinguirlos
+    mode_colors = ["mediumseagreen", "steelblue"]
+
+    stable_label = rf"$\eta_{{sim,{_lang_text('stable', 'stable', language)}}}$"
+    unstable_label = rf"$\eta_{{sim,{_lang_text('unstable', 'instable', language)}}}$"
+    is_unstable = np.asarray([c == "red" for c in pts["colors"]])
+
+    # mini-mapa: copia del diagrama SLD completo (velocidad de giro desde 0,
+    # no desde 8500 como ax_full) incrustada arriba a la izquierda del panel
+    # izquierdo, para ver todos los lobulos sin recortar por legibilidad
+    ax_inset = ax_full.inset_axes([0.06, 0.54, 0.45, 0.42])
+    ax_inset.set_zorder(10)
+    # rectangulo de fondo aparte (no ax.patch) -- savefig(transparent=True) de
+    # _STYLE_PAPER fuerza TODOS los ax.patch a transparentes al guardar, sin
+    # importar set_facecolor/set_alpha; un patch agregado a mano no lo toca
+    ax_inset.add_patch(plt.Rectangle((0, 0), 1, 1, transform=ax_inset.transAxes,
+                                      facecolor="white", edgecolor="none", zorder=0))
+
+    for ax, is_zoom in ((ax_full, False), (ax_zoom, True), (ax_inset, True)):
+        for mode_idx, (lobes, f_peaks) in enumerate(lobe_results):
+            color = mode_colors[mode_idx % len(mode_colors)]
+            for j in range(lobes.shape[0]):
+                mode_label = f"Mode {f_peaks[j]:.0f} Hz" if j < len(f_peaks) else f"Mode {mode_idx}"
+                for i in range(lobes.shape[1]):
+                    x_i, y_i = lobes[j, i, :, 0], lobes[j, i, :, 1]
+                    m = ~np.isnan(x_i) & ~np.isnan(y_i)
+                    ax.plot(x_i[m], y_i[m] / ap_theo_mm, color=color, linewidth=1.2,
+                             label=(mode_label if i == 0 and j == 0 and not is_zoom else None))
+
+        # verde/rojo por separado -- cada color es su propia serie con su propia
+        # etiqueta de leyenda (estable / inestable), no un solo "casos del DOE"
+        ax.scatter(pts["x"][~is_unstable], pts["eta"][~is_unstable], c="limegreen", s=40,
+                   marker="o", edgecolors="k", linewidths=0.5, zorder=5,
+                   label=(stable_label if is_zoom and ax is ax_zoom else None))
+        ax.scatter(pts["x"][is_unstable], pts["eta"][is_unstable], c="red", s=40,
+                   marker="o", edgecolors="k", linewidths=0.5, zorder=5,
+                   label=(unstable_label if is_zoom and ax is ax_zoom else None))
+        ax.axhline(1.0, color="crimson", linewidth=1.2, linestyle=":",
+                   label=(r"$\eta_{crit,theo}$" if is_zoom and ax is ax_zoom else None))
+        if np.isfinite(pts["eta_crit_sim"]):
+            ax.scatter([pts["spin_rate"]], [pts["eta_crit_sim"]], c="blue", s=45, marker="s",
+                       edgecolors="k", linewidths=0.6, zorder=7,
+                       label=(r"$\eta_{crit,sim}$" if is_zoom and ax is ax_zoom else None))
+        ax.set_xlabel(_lang_text("Spindle speed [rpm]", "Vitesse de rotation [tr/min]", language))
+
+    ax_full.set_xlim(8500, 18750)
+    ax_full.set_ylim(0, 60.0 / ap_theo_mm if np.isfinite(ap_theo_mm) and ap_theo_mm > 0 else 7.0)
+    # label corto -- "eta = a_p/a_p,crit,theo" completo y rotado no se leia
+    # bien; la formula ya esta explicada por las etiquetas de la leyenda
+    ax_full.set_ylabel(r"$\eta$")
+
+    ax_inset.set_xlim(0, ax_full.get_xlim()[1])
+    ax_inset.set_ylim(ax_full.get_ylim())
+    ax_inset.set_xlabel("")
+    ax_inset.set_ylabel("")
+    ax_inset.tick_params(labelsize=6)
+
+    # modos aislados -> el valle de 150Hz vuelve a tocar exactamente eta=1
+    # en spin_rate, no hace falta forzar la curva dentro del ylim del zoom
+    eta_ref = [1.0, pts["eta_crit_sim"]] + list(pts["eta"])
+    eta_ref = [v for v in eta_ref if np.isfinite(v)]
+    eta_pad = 0.05 * (max(eta_ref) - min(eta_ref) + 1e-9)
+    # piso fijo (no el minimo real de los casos) -- estira la zona ~0.95-1.0
+    # (donde esta la transicion estable/inestable) sin agregar un inset anidado;
+    # los casos por debajo de 0.75 quedan fuera de este panel pero se siguen
+    # viendo en el panel izquierdo (contexto completo)
+    eta_floor = 0.94
+    ax_zoom.set_xlim(10900.0, 13100.0)
+    ax_zoom.xaxis.set_major_locator(mticker.MaxNLocator(nbins=4))
+    ax_zoom.set_ylim(max(eta_floor, min(eta_ref) - eta_pad), max(eta_ref) + eta_pad)
+    ax_zoom.set_ylabel(r"$\eta$")
+    ax_zoom.set_title(_lang_text("Zoom", "Zoom", language), fontsize=_style_small["axes.titlesize"])
+    if np.isfinite(ap_theo_mm):
+        ax_zoom.text(10970.0, 1.0, rf"$a_{{p,crit}}^{{theo}} = {ap_theo_mm:.3f}$ mm",
+                     transform=ax_zoom.transData, ha="left", va="bottom",
+                     fontsize=_style_small["legend.fontsize"], color="crimson")
+
+    # leyenda propia por panel, adentro de los ejes -- modos en el izquierdo,
+    # casos/marcadores/linea de referencia en el derecho
+    ax_full.legend(loc="best", framealpha=0.9, fontsize=_style_small["legend.fontsize"])
+    ax_zoom.legend(loc="best", framealpha=0.9, fontsize=_style_small["legend.fontsize"])
+
+    fig.suptitle(
+        _lang_text("Stability limit: theoretical vs simulated",
+                    "Limite de stabilite : theorique vs simule", language),
+        fontsize=_style_small["axes.titlesize"],
+    )
+
+    out_path = _save_fig_paper(fig, "fig_stability_map.png")
+    print(f"[fig_paper_stability_map] saved -> {out_path}")
+    return out_path
+
+
 def _write_stage1_metadata(h5_path: str, ap_crit: float, T_w: float, f_tooth_mm: float, k_cut: float, k_sys: float) -> None:
     """Guarda en doe_results.h5 la metainformacion de la etapa de a_p."""
     if not os.path.isfile(h5_path):
@@ -555,7 +742,7 @@ def _write_stage1_metadata(h5_path: str, ap_crit: float, T_w: float, f_tooth_mm:
         for case_name in case_names:
             grp = h5f[case_name]
             case_ap = _read_case_ap(grp)
-            case_epsilon_ap_critic = (case_ap / ap_crit) if np.isfinite(case_ap) and ap_crit != 0 else float("nan")
+            case_eta_ap_critic = (case_ap / ap_crit) if np.isfinite(case_ap) and ap_crit != 0 else float("nan")
             case_stable_theoric = 0 if np.isfinite(case_ap) and case_ap < ap_crit else 1
             case_force_theoric = compute_case_force_from_ap(case_ap, f_tooth_mm, k_cut)
             case_delta_theoric = compute_static_deflection(case_force_theoric, k_sys)
@@ -632,7 +819,7 @@ def _write_stage1_metadata(h5_path: str, ap_crit: float, T_w: float, f_tooth_mm:
                 rms_group.attrs["signal_names"] = np.array(["Axial_disp", "Axial_vel"], dtype="S")
 
             grp.attrs["ap_crit"] = float(ap_crit)
-            grp.attrs["epsilon_ap_critic"] = case_epsilon_ap_critic
+            grp.attrs["eta_ap_critic"] = case_eta_ap_critic
             grp.attrs["stable_theoric"] = case_stable_theoric
             grp.attrs["deflex_theoric_m"] = case_delta_theoric
             grp.attrs["force_theoric_N"] = case_force_theoric
@@ -647,7 +834,7 @@ def _write_stage1_metadata(h5_path: str, ap_crit: float, T_w: float, f_tooth_mm:
             grp = h5f[case_name]
             case_rows.append({
                 "case_name": case_name,
-                "epsilon": float(grp.attrs.get("epsilon_ap_critic", float("nan"))),
+                "eta": float(grp.attrs.get("eta_ap_critic", grp.attrs.get("epsilon_ap_critic", float("nan")))),
                 "ap": float(grp.attrs.get("$Ap_start$", grp.attrs.get("$Ap_end$", float("nan")))),
                 "dxl_size": float(grp.attrs.get("$dxl_size$", grp.attrs.get("dxl_size", float("nan")))),
                 "stable_theoric": grp.attrs.get("stable_theoric", float("nan")),
@@ -697,7 +884,18 @@ def main() -> None:
 
     # doe_name = "1_Detection_Limite_Lobes\\DOE_Detection_Limite_Lobes_dxl_10e-5"
     # doe_name = r"3_Sensitivity_dt\DOE_Detection_Limite_Lobes_dt_200"
-    doe_name = "1_Detection_Limite_Lobes\\DOE_Detection_Limite_Lobes_dxl_1.25e-5_RUN_10"
+    doe_name = (
+        r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\Chatter-Criteria"
+        r"\CAMP10_Chatter_detection_Methodes\Convergency_Simulation\1_Detection_Limite_Lobes"
+        r"\DOE_Detection_Limite_Lobes_dxl_20e-5_RUN_10"
+    )
+
+    # doe_name = (
+    #     r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
+    #     r"\Chatter-Criteria\CAMP10_Chatter_detection_Methodes"
+    #     r"\Convergency_Simulation\3_Sensitivity_dt\DOE_Detection_Limite_Lobes_dt_200_RUN_10"
+    # )
+
 
     # ===========================================================================
     # CONSTANTES DE CORTE  (editar aqui antes de ejecutar)
@@ -720,23 +918,23 @@ def main() -> None:
     T_w     = 0.1            # ventana temporal para RMS movil / envolvente [s]
     # ===========================================================================
 
-    # local_epsilons_10 = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
-    local_epsilons_10 = [1.6, 1.7, 1.8, 1.9]
-    last_epsilon_stable_10 = 1.5
+    local_etas_10 = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+    # local_etas_10 = [1.6, 1.7, 1.8, 1.9]
+    last_eta_stable_10 = 0.9
 
     print( np.linspace(12000, 12000, 7).tolist())
 
-    epsilon_5 = last_epsilon_stable_10 + 0.05 if last_epsilon_stable_10 is not None else -1.0
-    if epsilon_5 > 0.0:
-        local_epsilons_10.append(epsilon_5)
-        local_epsilons_10.sort()
+    eta_5 = last_eta_stable_10 + 0.05 if last_eta_stable_10 is not None else -1.0
+    if eta_5 > 0.0:
+        local_etas_10.append(eta_5)
+        local_etas_10.sort()
 
-    last_epsilon_stable_5 = 1.5
+    last_eta_stable_5 = None
 
-    # local_epsilons_1 =   np.linspace(last_epsilon_stable_5+0.005, last_epsilon_stable_5 + 0.05 -0.005 , 9).tolist() if last_epsilon_stable_5 is not None else []
-    local_epsilons_1 =   np.linspace(last_epsilon_stable_5, last_epsilon_stable_5 + 0.05, 6).tolist() if last_epsilon_stable_5 is not None else []
+    # local_etas_1 =   np.linspace(last_eta_stable_5+0.005, last_eta_stable_5 + 0.05 -0.005 , 9).tolist() if last_eta_stable_5 is not None else []
+    local_etas_1 =   np.linspace(last_eta_stable_5, last_eta_stable_5 + 0.05, 6).tolist() if last_eta_stable_5 is not None else []
 
-    local_epsilons = local_epsilons_1
+    local_etas = local_etas_10
     ap_crit = 8.6052e-3
     n0 = 12_099.28
 
@@ -762,12 +960,12 @@ def main() -> None:
     print(f"  ap_crit = {ap_crit:.6e} m")
     print(f"  n0      = {n0:.2f} rpm")
 
-    print("\nReferencia epsilon -> a_p:")
-    candidate_ap_values = compute_ap_values(ap_crit, eps_list=local_epsilons)
-    print("  idx | epsilon   | a_p [m]")
+    print("\nReferencia eta -> a_p:")
+    candidate_ap_values = compute_ap_values(ap_crit, eta_list=local_etas)
+    print("  idx | eta   | a_p [m]")
     print("  ----+-----------+-------------")
-    for idx, (eps_value, ap_value) in enumerate(zip(local_epsilons, candidate_ap_values), start=0):
-        print(f"  {idx:>3d} | {eps_value:>9.6g} | {ap_value:>11.6e}")
+    for idx, (eta_value, ap_value) in enumerate(zip(local_etas, candidate_ap_values), start=0):
+        print(f"  {idx:>3d} | {eta_value:>9.6g} | {ap_value:>11.6e}")
 
     force_ref = k_cut * (ap_crit * 1e3) * f_tooth_mm
     delta_stat_ref = compute_static_deflection(force_ref, k_sys)
@@ -795,21 +993,21 @@ def main() -> None:
             for case_name in case_names:
                 grp = h5f[case_name]
                 case_ap = float(grp.attrs.get("$Ap_start$", grp.attrs.get("$Ap_end$", np.nan)))
-                epsilon_ap = float(grp.attrs.get("epsilon_ap_critic", np.nan))
+                eta_ap = float(grp.attrs.get("eta_ap_critic", grp.attrs.get("epsilon_ap_critic", np.nan)))
                 dxl_size = float(grp.attrs.get("$dxl_size$", grp.attrs.get("dxl_size", np.nan)))
                 stable_theoric_value = grp.attrs.get("stable_theoric", np.nan)
                 stable_trend_log_value = grp.attrs.get("stable_trend_log", np.nan)
 
                 case_rows.append({
                     "case_name": case_name,
-                    "epsilon": epsilon_ap,
+                    "eta": eta_ap,
                     "ap": case_ap,
                     "dxl_size": dxl_size,
                     "stable_theoric": stable_theoric_value,
                     "stable_trend_log": stable_trend_log_value,
                 })
 
-            case_rows.sort(key=lambda row: row["epsilon"])
+            case_rows.sort(key=lambda row: row["eta"])
 
             limit_result = compute_numeric_limit_from_h5(case_rows, ap_crit)
 
@@ -835,26 +1033,26 @@ def main() -> None:
 
             print("\nRoot metadata stage-1 (from HDF5 root attrs):")
             print(f"  dxl_size         = {root_dxl_size:.6e}")
-            print(f"  epsilon_minus    = {root_lambda_minus:.6f}  |  ap_minus = {root_ap_minus:.6e} m")
-            print(f"  epsilon_plus     = {root_lambda_plus:.6f}  |  ap_plus  = {root_ap_plus:.6e} m")
-            print(f"  epsilon_crit_sim = {root_lambda_crit_sim:.6f}")
+            print(f"  eta_minus    = {root_lambda_minus:.6f}  |  ap_minus = {root_ap_minus:.6e} m")
+            print(f"  eta_plus     = {root_lambda_plus:.6f}  |  ap_plus  = {root_ap_plus:.6e} m")
+            print(f"  eta_crit_sim = {root_lambda_crit_sim:.6f}")
             print(f"  ap_crit_sim [m]  = {root_ap_crit_sim:.6e}")
             print(f"  error_percentual = {root_percent_error:.6f} %")
 
 
 
-            print("  idx | case_name | epsilon  | ap [m]       | stable_trend_log")
+            print("  idx | case_name | eta  | ap [m]       | stable_trend_log")
             print("  ----+-----------+----------+-------------+-----------------")
             for idx, row in enumerate(case_rows, start=0):
                 stable_trend_log_label = _stable_trend_label(row["stable_trend_log"])
                 print(
-                    f"  {idx:>3d} | {row['case_name']:<9} | {float(row['epsilon']):>8.5f} | {float(row['ap']):>11.6e} | "
+                    f"  {idx:>3d} | {row['case_name']:<9} | {float(row['eta']):>8.5f} | {float(row['ap']):>11.6e} | "
                     f"{stable_trend_log_label:>15}"
                 )
 
             if args.plots:
                 fig1_stability_map(case_rows, ap_crit, h5_path)
-                fig2_rms_vel_vs_epsilon(case_rows, h5_path)
+                fig2_rms_vel_vs_eta(case_rows, h5_path)
                 fig5_crit_comparison(h5_path)
                 plt.show()
 
@@ -866,15 +1064,17 @@ def main() -> None:
                 ZOOM_N_REVOLUTIONS = 4
 
                 cases_series = _load_stage1_case_series(h5_path)
-                eps_last_stable = _stage1_eps_last_stable(h5_path)
+                eta_last_stable = _stage1_eta_last_stable(h5_path)
                 zoom_duration_s = ZOOM_N_REVOLUTIONS * 60.0 / spin_rate
                 zoom_window = (t_start, t_start + zoom_duration_s)
                 fig_paper_time_series_cases(
-                    cases_series, eps_last_stable, zoom_window=zoom_window,
+                    cases_series, eta_last_stable, zoom_window=zoom_window,
                     language=FIGURE_LANGUAGE,
                     figsize=figsize_from_scale(figsize_grid(2, 3), 1.4),
                 )
-                plt.show()
+                fig_paper_stability_map(
+                    h5_path, spin_rate=spin_rate, language=FIGURE_LANGUAGE,
+                )
 
 
 # ==============================================================================
@@ -912,7 +1112,8 @@ _STYLE_PAPER = {
     "figure.facecolor": "white", "axes.facecolor": "white",
 }
 
-FIGSIZE_SIMPLE = (3.5, 2.6)  # una columna -- panel unico
+FIGSIZE_SIMPLE = (3.5, 2.6)   # una columna -- panel unico
+FIGSIZE_WIDE   = (7.16, 2.6)  # ancho de pagina completa -- misma altura que SIMPLE
 
 
 def figsize_grid(ncols: int, nrows: int = 1, base: tuple = FIGSIZE_SIMPLE) -> tuple:
@@ -984,10 +1185,10 @@ def _save_fig_paper(fig, filename: str) -> str:
 
 
 def _load_stage1_case_series(h5_path: str) -> list:
-    """Lee, por caso, epsilon, estabilidad y las series temporales de desplazamiento
+    """Lee, por caso, eta, estabilidad y las series temporales de desplazamiento
     axial (corregido por deflexion estatica, Out_Deflex), velocidad axial cruda y
     fuerza cruda (res_R_p, componente 0), para la figura de --plots-paper. Requiere
-    que _write_stage1_metadata ya haya corrido (epsilon_ap_critic y stable_trend_log
+    que _write_stage1_metadata ya haya corrido (eta_ap_critic y stable_trend_log
     deben existir en el HDF5)."""
     cases = []
     with h5py.File(h5_path, "r") as h5f:
@@ -1013,7 +1214,7 @@ def _load_stage1_case_series(h5_path: str) -> list:
                 force_values = force_values[:, 0]
             cases.append({
                 "case_name": case_name,
-                "epsilon": float(grp.attrs.get("epsilon_ap_critic", float("nan"))),
+                "eta": float(grp.attrs.get("eta_ap_critic", grp.attrs.get("epsilon_ap_critic", float("nan")))),
                 "stable": int(grp.attrs.get("stable_trend_log", -1)),
                 "disp_time": np.asarray(disp_time, dtype=float),
                 "disp": disp_values,
@@ -1025,23 +1226,23 @@ def _load_stage1_case_series(h5_path: str) -> list:
     return cases
 
 
-def _stage1_eps_last_stable(h5_path: str) -> float:
-    """Lee epsilon del ultimo caso estable (stage_1_lambda_minus, limite inferior de la
+def _stage1_eta_last_stable(h5_path: str) -> float:
+    """Lee eta del ultimo caso estable (stage_1_lambda_minus, limite inferior de la
     transicion estable->inestable) desde los atributos raiz del HDF5."""
     with h5py.File(h5_path, "r") as h5f:
         return float(h5f.attrs.get("stage_1_lambda_minus", float("nan")))
 
 
-def fig_paper_time_series_cases(cases: list, eps_last_stable: float, zoom_window: tuple,
+def fig_paper_time_series_cases(cases: list, eta_last_stable: float, zoom_window: tuple,
                                  language: str = "both", figsize: tuple = None) -> str:
     """Figura de articulo (3x2): filas = desplazamiento axial corregido / velocidad
     axial cruda / fuerza cruda, columnas = senal completa (sin titulo) / zoom a unas
     pocas revoluciones.
 
-    Colorea cada caso por epsilon = a_p/a_p_crit (colormap continuo, sin discretizar
+    Colorea cada caso por eta = a_p/a_p_crit (colormap continuo, sin discretizar
     por estable/inestable) para poder verificar visualmente que ninguna curva tapa
-    por completo a las demas dentro del barrido. El ultimo caso estable (epsilon =
-    eps_last_stable, limite inferior de la transicion estable->inestable) se resalta
+    por completo a las demas dentro del barrido. El ultimo caso estable (eta =
+    eta_last_stable, limite inferior de la transicion estable->inestable) se resalta
     en rojo con linea mas gruesa, y se marca con una linea horizontal + su valor
     numerico en la barra de color -- asi la curva roja y la marca de la colorbar
     corresponden exactamente al mismo caso.
@@ -1052,23 +1253,23 @@ def fig_paper_time_series_cases(cases: list, eps_last_stable: float, zoom_window
     if figsize is None:
         figsize = figsize_grid(2, 3)
 
-    valid_eps = sorted({c["epsilon"] for c in cases if np.isfinite(c["epsilon"])})
-    if not valid_eps:
-        raise ValueError("Ningun caso tiene epsilon valido")
+    valid_eta = sorted({c["eta"] for c in cases if np.isfinite(c["eta"])})
+    if not valid_eta:
+        raise ValueError("Ningun caso tiene eta valido")
 
     cmap = plt.cm.viridis
-    norm = Normalize(vmin=min(valid_eps), vmax=max(valid_eps))
+    norm = Normalize(vmin=min(valid_eta), vmax=max(valid_eta))
 
     highlight_case = None
-    if np.isfinite(eps_last_stable):
+    if np.isfinite(eta_last_stable):
         highlight_case = min(
-            (c for c in cases if np.isfinite(c["epsilon"])),
-            key=lambda c: abs(c["epsilon"] - eps_last_stable),
+            (c for c in cases if np.isfinite(c["eta"])),
+            key=lambda c: abs(c["eta"] - eta_last_stable),
         )["case_name"]
 
-    # dibujar en orden ascendente de epsilon (zorder creciente) para que el caso
+    # dibujar en orden ascendente de eta (zorder creciente) para que el caso
     # resaltado no quede tapado por accidente por curvas dibujadas despues
-    cases_sorted = sorted(cases, key=lambda c: c["epsilon"] if np.isfinite(c["epsilon"]) else -1e99)
+    cases_sorted = sorted(cases, key=lambda c: c["eta"] if np.isfinite(c["eta"]) else -1e99)
     TOP_ZORDER = 1e6
 
     row_specs = [
@@ -1089,11 +1290,11 @@ def fig_paper_time_series_cases(cases: list, eps_last_stable: float, zoom_window
     for row_idx, (t_key, v_key, ylabel) in enumerate(row_specs):
         ax_full, ax_zoom = axes[row_idx]
         for rank, c in enumerate(cases_sorted):
-            if not np.isfinite(c["epsilon"]):
+            if not np.isfinite(c["eta"]):
                 continue
             is_highlight = (c["case_name"] == highlight_case)
-            color = "red" if is_highlight else cmap(norm(c["epsilon"]))
-            lw = 1.6 if is_highlight else 0.7
+            color = "red" if is_highlight else cmap(norm(c["eta"]))
+            lw = 0.7
             alpha = 1.0 if is_highlight else 0.75
             z = TOP_ZORDER if is_highlight else (rank + 2)
 
@@ -1104,6 +1305,13 @@ def fig_paper_time_series_cases(cases: list, eps_last_stable: float, zoom_window
         _autoscale_y_window(ax_zoom, zoom_window)
         ax_full.axvspan(*zoom_window, color="gray", alpha=0.15, zorder=0)
 
+        # el eje Y del panel "completo" se calcula ignorando el transitorio inicial
+        # (mismo umbral que ignore_initial_time_s en compute_moving_rms /
+        # compute_log_rms_trend) para que el pico de arranque no aplaste la escala;
+        # el eje X y los datos graficados no se tocan -- el transitorio sigue ahi,
+        # solo queda fuera del rango visible en Y.
+        _autoscale_y_window(ax_full, (0.15, np.inf))
+
         ax_full.set_ylabel(ylabel)
         _sci_yaxis_paper(ax_full)
         _sci_yaxis_paper(ax_zoom)
@@ -1113,27 +1321,20 @@ def fig_paper_time_series_cases(cases: list, eps_last_stable: float, zoom_window
     for ax in axes[-1]:
         ax.set_xlabel(_lang_text("Time [s]", "Temps [s]", language))
 
-    if highlight_case is not None:
-        legend_handles = [Line2D([0], [0], color="red", linewidth=1.6,
-                                  label=_lang_text(rf"last stable case ($\epsilon={eps_last_stable:.4f}$)",
-                                                    rf"dernier cas stable ($\epsilon={eps_last_stable:.4f}$)",
-                                                    language, sep=" / "))]
-        axes[0, 0].legend(handles=legend_handles, loc="best")
-
     sm = ScalarMappable(norm=norm, cmap=cmap)
     sm.set_array([])
     cbar = fig.colorbar(sm, ax=list(axes.ravel()))
-    cbar.set_label(_lang_text(r"$\epsilon = a_p/a_{p,crit}$", r"$\epsilon = a_p/a_{p,crit}$", language))
-    if np.isfinite(eps_last_stable):
-        cbar.ax.axhline(eps_last_stable, color="crimson", linewidth=1.4, zorder=10)
-        cbar.ax.text(1.35, eps_last_stable, rf"$\epsilon={eps_last_stable:.4f}$",
+    cbar.set_label(_lang_text(r"$\eta = a_p/a_{p,crit}$", r"$\eta = a_p/a_{p,crit}$", language))
+    if np.isfinite(eta_last_stable):
+        cbar.ax.axhline(eta_last_stable, color="crimson", linewidth=1.4, zorder=10)
+        cbar.ax.text(1.35, eta_last_stable, rf"$\eta={eta_last_stable:.4f}$",
                       transform=cbar.ax.get_yaxis_transform(), va="center", ha="left",
                       fontsize=9, color="crimson")
 
     out_path = _save_fig_paper(fig, "fig_time_series_cases.png")
     print(f"[fig_paper_time_series_cases] saved -> {out_path}")
     print(f"[fig_paper_time_series_cases] highlighted case (red, last stable) -> "
-          f"{highlight_case}, epsilon={eps_last_stable:.6f}")
+          f"{highlight_case}, eta={eta_last_stable:.6f}")
     return out_path
 
 
@@ -1147,27 +1348,27 @@ def _save_fig(fig, h5_path: str, filename: str) -> str:
 
 
 def fig1_stability_map(case_rows: list, ap_crit: float, h5_path: str) -> None:
-    """Fig1: epsilon_ap_critic (x) vs stable_trend_log (y)."""
-    rows = sorted(case_rows, key=lambda r: float(r["epsilon"]))
-    eps   = [float(r["epsilon"]) for r in rows]
+    """Fig1: eta_ap_critic (x) vs stable_trend_log (y)."""
+    rows = sorted(case_rows, key=lambda r: float(r["eta"]))
+    eta   = [float(r["eta"]) for r in rows]
     stab  = [float(r["stable_trend_log"]) for r in rows]
     with h5py.File(h5_path, "r") as hf:
         dxl_size = float(hf.attrs.get("stage_1_dxl_size", float("nan")))
 
     fig, ax = plt.subplots(figsize=(8, 4))
-    ax.scatter(eps, stab, color="steelblue", zorder=3)
-    ax.axvline(ap_crit / ap_crit, color="gray", linestyle="--", linewidth=0.9, label=r"$\epsilon=1$")
-    ap_crit_sim_eps = None
+    ax.scatter(eta, stab, color="steelblue", zorder=3)
+    ax.axvline(ap_crit / ap_crit, color="gray", linestyle="--", linewidth=0.9, label=r"$\eta=1$")
+    ap_crit_sim_eta = None
     for i in range(len(stab) - 1):
         if stab[i] == 0 and stab[i + 1] == 1:
-            ap_crit_sim_eps = (eps[i] + eps[i + 1]) / 2.0
+            ap_crit_sim_eta = (eta[i] + eta[i + 1]) / 2.0
             break
-    if ap_crit_sim_eps is not None:
-        ax.axvline(ap_crit_sim_eps, color="red", linestyle=":", linewidth=1.1, label=rf"$\epsilon_{{crit,sim}}={ap_crit_sim_eps:.4f}$")
-    ax.set_xlabel(r"$\epsilon = a_p / a_{p,crit}$")
+    if ap_crit_sim_eta is not None:
+        ax.axvline(ap_crit_sim_eta, color="red", linestyle=":", linewidth=1.1, label=rf"$\eta_{{crit,sim}}={ap_crit_sim_eta:.4f}$")
+    ax.set_xlabel(r"$\eta = a_p / a_{p,crit}$")
     ax.set_ylabel("stable_trend_log  (0=stable, 1=unstable)")
     dxl_label = f"{dxl_size:.2e}" if np.isfinite(dxl_size) else "N/A"
-    ax.set_title(f"Fig 1 - Stability map by epsilon  |  dxl_size = {dxl_label} m")
+    ax.set_title(f"Fig 1 - Stability map by eta  |  dxl_size = {dxl_label} m")
     ax.set_yticks([0, 1])
     ax.set_yticklabels(["stable (0)", "unstable (1)"])
     ax.legend(title="blue=stable, red=unstable")
@@ -1178,8 +1379,8 @@ def fig1_stability_map(case_rows: list, ap_crit: float, h5_path: str) -> None:
     
 
 
-def fig2_rms_vel_vs_epsilon(case_rows: list, h5_path: str) -> None:
-    """Fig2: epsilon (x) vs trend_log_rms_vel (y), coloured by stability."""
+def fig2_rms_vel_vs_eta(case_rows: list, h5_path: str) -> None:
+    """Fig2: eta (x) vs trend_log_rms_vel (y), coloured by stability."""
     with h5py.File(h5_path, "r") as hf:
         dxl_size = float(hf.attrs.get("stage_1_dxl_size", float("nan")))
         data = []
@@ -1187,39 +1388,39 @@ def fig2_rms_vel_vs_epsilon(case_rows: list, h5_path: str) -> None:
             grp = hf[r["case_name"]]
             rms_vel = float(grp.attrs.get("trend_log_rms_vel", float("nan")))
             data.append({
-                "eps": float(r["epsilon"]),
+                "eta": float(r["eta"]),
                 "rms_vel": rms_vel,
                 "stab": int(r["stable_trend_log"]),
             })
 
-    data.sort(key=lambda d: d["eps"])
-    stable_pts   = [(d["eps"], d["rms_vel"]) for d in data if d["stab"] == 0]
-    unstable_pts = [(d["eps"], d["rms_vel"]) for d in data if d["stab"] == 1]
+    data.sort(key=lambda d: d["eta"])
+    stable_pts   = [(d["eta"], d["rms_vel"]) for d in data if d["stab"] == 0]
+    unstable_pts = [(d["eta"], d["rms_vel"]) for d in data if d["stab"] == 1]
 
-    # epsilon_crit_sim from root attrs
-    eps_crit_sim = None
+    # eta_crit_sim from root attrs
+    eta_crit_sim = None
     with h5py.File(h5_path, "r") as hf2:
         v = hf2.attrs.get("stage_1_lambda_crit_sim", None)
         if v is not None:
-            eps_crit_sim = float(v)
+            eta_crit_sim = float(v)
 
     fig, ax = plt.subplots(figsize=(8, 4))
     if stable_pts:
         ax.scatter(*zip(*stable_pts),   color="steelblue", label="stable",   zorder=3)
     if unstable_pts:
         ax.scatter(*zip(*unstable_pts), color="tomato",    label="unstable", zorder=3)
-    ax.axvline(1.0, color="gray", linestyle="--", linewidth=0.9, label=r"$\epsilon=1$")
-    if eps_crit_sim is not None and np.isfinite(eps_crit_sim):
-        ax.axvline(eps_crit_sim, color="red", linestyle=":", linewidth=1.1,
-                   label=rf"$\epsilon_{{crit,sim}}={eps_crit_sim:.4f}$")
-    ax.set_xlabel(r"$\epsilon = a_p / a_{p,crit}$")
+    ax.axvline(1.0, color="gray", linestyle="--", linewidth=0.9, label=r"$\eta=1$")
+    if eta_crit_sim is not None and np.isfinite(eta_crit_sim):
+        ax.axvline(eta_crit_sim, color="red", linestyle=":", linewidth=1.1,
+                   label=rf"$\eta_{{crit,sim}}={eta_crit_sim:.4f}$")
+    ax.set_xlabel(r"$\eta = a_p / a_{p,crit}$")
     ax.set_ylabel("trend_log_rms_vel  [log(m/s)/s]")
     dxl_label = f"{dxl_size:.2e}" if np.isfinite(dxl_size) else "N/A"
-    ax.set_title(f"Fig 2 - RMS velocity trend vs epsilon  |  dxl_size = {dxl_label} m")
+    ax.set_title(f"Fig 2 - RMS velocity trend vs eta  |  dxl_size = {dxl_label} m")
     ax.legend()
     ax.grid(True, alpha=0.25)
     fig.tight_layout()
-    out = _save_fig(fig, h5_path, "fig2_rms_vel_vs_epsilon.png")
+    out = _save_fig(fig, h5_path, "fig2_rms_vel_vs_eta.png")
     print(f"[fig2] saved -> {out}")
     
 
