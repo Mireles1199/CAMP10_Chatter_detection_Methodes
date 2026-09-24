@@ -32,7 +32,7 @@ import logging
 
 import numpy as np
 
-from MaxEnt_SPRT.logging_setup import _section
+from rms_cv.logging_setup import _section
 from rms_cv.utils.types import SignalData, IndicatorResult
 from rms_cv import rms_sequence, CVOnlineConfig, CVOnlineMonitor
 from rms_cv.lib.cv_monitor import CVStableRegionDetector
@@ -285,11 +285,12 @@ def run_rms_cv(signal: SignalData, INDICATOR_CONFIG: dict ) -> IndicatorResult:
         func = rms_cv_pipeline
 
     trace: Optional[Dict[str, Any]] = None
+    params_physical: Dict[str, Any] = {}
 
     if param_mode == "native":
         params: Dict[str, Any] = INDICATOR_CONFIG.get("params", {})
     else:
-        params_physical: Dict[str, Any] = INDICATOR_CONFIG["params_physical"]
+        params_physical = INDICATOR_CONFIG["params_physical"]
         params, trace = _resolve_physical_params_rmscv(
             param_mode, params_physical, signal.fs
         )
@@ -311,15 +312,31 @@ def run_rms_cv(signal: SignalData, INDICATOR_CONFIG: dict ) -> IndicatorResult:
     # print(params)  # debug rápido de parámetros nativos
     result: IndicatorResult = func(signal, **params)
 
-    if params_physical.get("T_rev", None) is not None:
-        f_cycle = 1 / (params_physical.get("T_rev", "n/a"))
+    # ── traceability: standard meta keys derived from param_mode, never from
+    #    which physical key happens to be present (see COMMON_TEMPLATE.md §4)
+    if param_mode == "native":
+        unit_name   = "native"
+        T_unit      = float("nan")
+        f_cycle     = float("nan")
+        N_cycles    = result.meta.get("n_max")
+        step_cycles = float("nan")
     else:
-        f_cycle = 1 / (params_physical.get("T_modal", "n/a"))
+        unit_name   = trace["unit_name"]
+        T_unit      = trace["T_unit"]
+        f_cycle     = 1.0 / T_unit
+        N_cycles    = trace["N_win"]
+        step_cycles = trace["step"]
 
-
-    # ── traceability in meta ────────────────────────────────────────────────
-    result.meta["param_mode"] = param_mode
-    result.meta["f_cycle"] = f_cycle
+    result.meta["param_mode"]   = param_mode
+    result.meta["unit_name"]    = unit_name
+    result.meta["T_unit"]       = T_unit
+    result.meta["f_cycle"]      = f_cycle
+    result.meta["N_cycles"]     = N_cycles
+    result.meta["step_cycles"]  = step_cycles
+    result.meta["Total_window"] = (
+        N_cycles if param_mode == "native"
+        else N_cycles + (result.meta["n_max"] - 1) * step_cycles
+    )
 
     if trace is not None:
         result.meta["physical_params_input"]  = trace["physical_params_input"]
@@ -333,11 +350,6 @@ def run_rms_cv(signal: SignalData, INDICATOR_CONFIG: dict ) -> IndicatorResult:
         result.meta["K_cv_total_exact_units"]   = trace["K_cv_total_exact_units"]
         result.meta["t_cv_total_s"]             = trace["t_cv_total_s"]
         result.meta["K_cv_total_units"]         = trace["K_cv_total_units"]
-        result.meta["unit_name"]                = trace["unit_name"]
-        result.meta["T_unit"]                   = trace["T_unit"]
-        result.meta["N_cycles"]                 = trace["N_win"]
-        result.meta["step_cycles"]              = trace["step"]
-        result.meta["Total_window"] =  result.meta["N_cycles"] + ( result.meta["n_max"] - 1) * result.meta["step_cycles"]
 
 
 
@@ -364,7 +376,10 @@ def run_rms_cv(signal: SignalData, INDICATOR_CONFIG: dict ) -> IndicatorResult:
         ) 
 
         logger.info("  %-24s %.5f s",  "Primera deteccion:", result.t_d[0])
-        logger.info("  %-24s %.3f s", "Primera Detecion Non Far:",  result.t_d_no_FAR[0])
+        if len(result.t_d_no_FAR) > 0:
+            logger.info("  %-24s %.3f s", "Primera Detecion Non Far:", result.t_d_no_FAR[0])
+        else:
+            logger.info("  %-24s %s", "Primera Detecion Non Far:", "n/a (sin t_theorical)")
         logger.info("  %-24s %d",      "Total detecciones:", len(result.t_d))
         logger.info("  %-24s %.4f, %.4f ms", "Tiempo I[0], I[1]:", result.t[0]*1000, result.t[1]*1000)
         logger.info("  %-24s %.4f, %.4f ms", "Hop[0], H[1] ", result.t[1]*1000 - result.t[0]*1000, result.t[2]*1000 - result.t[1]*1000 )
