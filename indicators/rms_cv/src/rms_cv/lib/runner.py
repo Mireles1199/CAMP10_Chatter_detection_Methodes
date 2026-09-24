@@ -554,8 +554,11 @@ def rms_cv_pipeline(
     mask                = np.where(cv_array > cv_threshold_used)[0]
     chatter_points_time = t_array[mask]
 
-    t_d_no_FAR_idx = np.where(chatter_points_time > t_theorical)[0]
-    t_d_no_FAR = chatter_points_time[t_d_no_FAR_idx] if t_d_no_FAR_idx.size > 0 else np.array([])
+    if t_theorical is not None:
+        t_d_no_FAR_idx = np.where(chatter_points_time > t_theorical)[0]
+        t_d_no_FAR = chatter_points_time[t_d_no_FAR_idx] if t_d_no_FAR_idx.size > 0 else np.array([])
+    else:
+        t_d_no_FAR = np.array([])
 
     
 

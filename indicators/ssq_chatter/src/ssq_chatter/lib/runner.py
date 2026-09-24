@@ -332,8 +332,11 @@ def run_sst_svd(signal: SignalData, INDICATOR_CONFIG: dict ) -> IndicatorResult:
             result.meta.get("training_sigma", float("nan")),
         )
 
-        logger.info("  %-24s %.3f s", "Primera deteccion:", result.t_d[0])        
-        logger.info("  %-24s %.3f s", "Primera Detecion Non Far:",  result.t_d_no_FAR[0])
+        logger.info("  %-24s %.3f s", "Primera deteccion:", result.t_d[0])
+        if result.t_d_no_FAR.size > 0:
+            logger.info("  %-24s %.3f s", "Primera Detecion Non Far:", result.t_d_no_FAR[0])
+        else:
+            logger.info("  %-24s %s", "Primera Detecion Non Far:", "n/a")
         logger.info("  %-24s %d",     "Total detecciones:", result.t_d.size)
         logger.info("  %-24s %.4f, %.4f ms", "Tiempo I[0], I[1]:", result.t[0]*1000, result.t[1]*1000)
         logger.info("  %-24s %.4f, %.4f ms", "Hop[0], H[1] ", result.t[1]*1000 - result.t[0]*1000, result.t[2]*1000 - result.t[1]*1000 )
@@ -486,8 +489,11 @@ def _sst_svd_pipeline(
 
     chatter_points_mask = np.where(d1 > res['lim_sup'])[0]
     chatter_points_time = t_i[chatter_points_mask] if chatter_points_mask.size > 0 else np.array([])
-    t_d_no_FAR_idx = np.where(chatter_points_time > t_theorical)[0]
-    t_d_no_FAR = chatter_points_time[t_d_no_FAR_idx] if t_d_no_FAR_idx.size > 0 else np.array([])
+    if t_theorical is not None:
+        t_d_no_FAR_idx = np.where(chatter_points_time > t_theorical)[0]
+        t_d_no_FAR = chatter_points_time[t_d_no_FAR_idx] if t_d_no_FAR_idx.size > 0 else np.array([])
+    else:
+        t_d_no_FAR = np.array([])
 
     
     chatter_points_values = d1[chatter_points_mask] if chatter_points_mask.size > 0 else np.array([])
