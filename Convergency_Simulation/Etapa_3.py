@@ -17,6 +17,7 @@ from typing import List
 import numpy as np
 import h5py
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 
 
 # ==============================================================================
@@ -613,14 +614,20 @@ def plot_dt_convergence(data: List[dict], language: str = "both",
         ordered_labels = [l for l in (theo_label, band_label, sim_label) if l in label_to_handle]
         ax_top.legend([label_to_handle[l] for l in ordered_labels], ordered_labels, loc="lower left")
     else:
-        # Panel unico: la leyenda va afuera del area de datos (a la derecha) en
-        # vez de adentro -- el icono del errorbar de sim_label es mas alto que
-        # su texto y, puesto adentro, terminaba superpuesto con los puntos.
+        # Panel unico: la leyenda va adentro, en el hueco vacio a media altura
+        # a la derecha (x grande, por debajo de la banda de datos y por
+        # encima de las etiquetas de N_dt pegadas al borde inferior -- "lower
+        # right" chocaba con esas etiquetas). El handle de sim_label se
+        # reemplaza por un marcador simple (sin la "gorra" vertical del icono
+        # de errorbar, que quedaba mas alta que el resto de la fila y parecia
+        # un punto suelto).
         bot_handles, bot_labels = ax_bot.get_legend_handles_labels()
         label_to_handle = dict(zip(bot_labels, bot_handles))
+        label_to_handle[sim_label] = Line2D([0], [0], marker="o", linestyle="",
+                                             color="steelblue", ms=7)
         ordered_labels = [l for l in (theo_label, band_label, sim_label) if l in label_to_handle]
         ax_bot.legend([label_to_handle[l] for l in ordered_labels], ordered_labels,
-                       loc="center left", bbox_to_anchor=(1.02, 0.5))
+                       loc="center right", bbox_to_anchor=(0.99, 0.30))
 
     return fig
 
