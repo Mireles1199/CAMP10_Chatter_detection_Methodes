@@ -1,10 +1,9 @@
 """Shared data container classes for the RMS-CV chatter detection pipeline.
 
-Defines three :mod:`dataclasses <dataclasses>` used throughout the package:
+Defines two :mod:`dataclasses <dataclasses>` used throughout the package:
 
 * :class:`SignalData` — raw signal arrays and acquisition metadata.
 * :class:`IndicatorResult` — detection output produced by the pipeline.
-* :class:`ScenarioMetadata` — optional descriptor for experimental scenarios.
 
 All classes can be passed between pipeline stages by reference and converted
 to plain dictionaries via :func:`dataclasses.asdict` when needed.
@@ -87,9 +86,9 @@ class IndicatorResult:
         I_t (np.ndarray): Indicator values at each frame.  For the RMS-CV
             pipeline this is the Coefficient of Variation sequence,
             shape ``(F,)``.
-        t_d (Optional[np.ndarray]): Array of times [s] where the indicator
-            exceeded the detection threshold.  ``None`` if no detection
-            occurred during the recording.
+        t_d (np.ndarray): Array of times [s] where the indicator exceeded the
+            detection threshold.  Empty array if no detection occurred during
+            the recording — never ``None``.
         meta (Dict[str, Any]): Extended pipeline outputs echoed for
             diagnostics and plotting: RMS values, CV values, window
             parameters, and alert arrays.  Defaults to ``{}``.
@@ -98,35 +97,6 @@ class IndicatorResult:
     name: str
     t: np.ndarray
     I_t: np.ndarray
-    t_d: Optional[float] = None
-    t_d_no_FAR: Optional[float] = None
+    t_d: np.ndarray = field(default_factory=lambda: np.array([]))
+    t_d_no_FAR: np.ndarray = field(default_factory=lambda: np.array([]))
     meta: Dict[str, Any] = field(default_factory=dict)
-
-
-# =========================
-# 3) Scenario metadata (optional)
-# =========================
-@dataclass
-class ScenarioMetadata:
-    """Optional descriptor for experimental machining scenarios.
-
-    Intended for bookkeeping when running batch experiments so that each
-    :class:`IndicatorResult` can be traced back to its physical conditions.
-
-    Attributes:
-        scenario_id (str): Unique string identifier for the scenario
-            (e.g. ``"exp_01_5mm_12000rpm"``).
-        ap_ramp (Optional[tuple[float, float]]): Axial depth-of-cut ramp as
-            ``(ap_start_mm, ap_end_mm)``.  ``None`` for constant ap.
-        rpm (Optional[float]): Spindle speed [rev/min].  ``None`` if unknown.
-        snr_db (Optional[float]): Signal-to-noise ratio of the recording
-            [dB].  ``None`` if unmeasured.
-        extra (Dict[str, Any]): Any additional key-value pairs specific to
-            the experiment.  Defaults to ``{}``.
-    """
-
-    scenario_id: str
-    ap_ramp: Optional[tuple[float, float]] = None
-    rpm: Optional[float] = None
-    snr_db: Optional[float] = None
-    extra: Dict[str, Any] = field(default_factory=dict)
