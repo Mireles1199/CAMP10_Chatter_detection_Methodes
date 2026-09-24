@@ -35,6 +35,8 @@ class IndicatorResult:
 ```
 `t_d`/`t_d_no_FAR` son **siempre `np.ndarray`** de timestamps de detección en segundos. Array vacío = sin detección, **nunca `None`** ni un escalar.
 
+**Patrón de bug recurrente confirmado en los 4 indicadores** (cada uno lo tenía en su propia variante): código que loguea o indexa `t_d_no_FAR[0]` asumiendo que no está vacío, sin guardar contra el caso "hubo detecciones en `t_d` pero ninguna pasó el filtro de `t_d_no_FAR`" (`IndexError` en maxent_sprt/rms_cv/ssq_chatter) o directamente nunca lo define en alguna rama (`UnboundLocalError` en green_integral). Guardar siempre con `if result.t_d_no_FAR.size > 0: ... else: ...` antes de indexar.
+
 ## 3. Contrato de `INDICATOR_CONFIG`
 
 Consumido por `run_<indicador>(signal: SignalData, INDICATOR_CONFIG: dict) -> IndicatorResult`.
@@ -62,6 +64,7 @@ Claves de primer nivel: `id` (opcional, label de logging), `func` (`"Default"` |
 - `segmentation` (`"opr"` por defecto | `"raw"`):
   - `"opr"`: `N_*_window` y `step_*` deben ser **enteros exactos** (p. ej. `2.0` es válido, `2.5` no) → `ValueError` si no lo son. Nunca truncar en silencio.
   - `"raw"`: se aceptan valores decimales; se convierten a cantidad de muestras con `ceil`.
+  - **Excepción documentada (Green Integral)**: `segmentation` no aplica a indicadores cuyas ventanas se dimensionan en segundos continuos sin decimación OPR (ventana = tiempo real, no cantidad de muestras). Green Integral es el primer caso: no adopta esta clave, y en su lugar `N_*_window` exige enteros exactos siempre (nunca truncar) mientras que `step_*` acepta fraccionarios siempre (no hay modo "raw" que lo restrinja). Si un futuro indicador tampoco decima a OPR, documentarlo igual en su propia guía en vez de forzar `segmentation`.
 - Los parámetros propios de cada indicador (p. ej. `alpha`/`beta`/`reset_on_H0` en MaxEnt, `cv_threshold` en RMS, `Ai_length_mode` en SST) pasan sin tocar por un `frozenset _<IND>_PASS_THROUGH_PARAMS` definido en cada paquete — nunca forman parte de este contrato común.
 
 ### `func` como punto de extensión
@@ -152,7 +155,10 @@ y comparar contra `dependencies` en `pyproject.toml`. Un `pip install .` en un e
 
 Trazabilidad para que cada sesión de indicador sepa qué corregir en sus propios archivos. Esta sesión (MaxEnt) no los edita.
 
-### RMS-CV (`rms_cv`)
+### RMS-CV (`rms_cv`) — ✅ hecho (sesión RMS-CV, en `wt-RMS-CV`, sin commitear/mergear)
+Reportado: import cruzado reemplazado por su propio `logging_setup._section` local; `run_rms_cv` reescrito con el esqueleto de §4 (con fallback seguro en `native`, que además tenía un `KeyError` más abajo no cubierto por el checklist original); `N_rev_window`/`step_rev`/`T_rev` ya cumplían; `t_d`/`t_d_no_FAR` → `np.ndarray`; `ScenarioMetadata` borrado (cero usos confirmados); agregó a `pyproject.toml` `h5py` + **`scipy`** + **`statsmodels`** (no detectados en el grep original de §9 — usados en `viz/rms_cv_plots.py` y `lib/cv_monitor.py`); encontró y arregló el mismo `IndexError` en `t_d_no_FAR[0]` que apareció en maxent_sprt y ssq_chatter (ver nota al final de esta sección). Verificado con corridas reales (native/by_revolution/by_modal).
+
+Hallazgos originales (referencia, ya resueltos):
 - `NameError` en modo `native`: `src/rms_cv/lib/runner.py:314` usa `params_physical` sin definirlo en esa rama. Aplicar el esqueleto de §4.
 - `f_cycle` (`:314-317`) elegido según qué clave está presente (`T_rev` vs `T_modal`) en vez de según `param_mode` — mismo bug que tenía MaxEnt.
 - Renombrar claves de ventana: `N_rev_window`/`N_modal_window` ya coinciden con la plantilla (RMS ya las usa así); falta hacer `step_rev`/`step_modal` consistentemente obligatorios (ya lo son) y quitar la obligatoriedad de `T_rev` en `by_modal` si aplica el mismo criterio que MaxEnt.
@@ -162,7 +168,10 @@ Trazabilidad para que cada sesión de indicador sepa qué corregir en sus propio
 - **`examples/RMS_CV_Chatter_Detection_NEW.py` y `RMS_CV_Chatter_Detection_old.py` NO insertan `src/` local al `sys.path`** (verificado) — van a correr contra el paquete instalado (ruta fija, ver §8) en vez del código editado, hasta que se les agregue el bloque de §8.
 - **`h5py` no está declarado en `pyproject.toml`** (usado en `src/rms_cv/utils/hdf5_utils.py`) — agregar a `dependencies` (ver §9).
 
-### SST-SVD (`ssq_chatter`)
+### SST-SVD (`ssq_chatter`) — ✅ hecho (sesión SST, en `wt-SST`, sin commitear/mergear)
+Reportado: `NameError` y `f_cycle`/`unit_name`/`N_cycles`/`step_cycles` corregidos siguiendo §4; además arregló un bug propio no listado abajo: el logging leía `N_cycles`/`step_cycles`/`Total_window` incondicionalmente aunque solo se poblaban en modo físico (en `native` quedan `None`, logging los saltea con guard explícito — evaluó usar `nan` pero lo descartó porque `N_cycles` se loguea con `%d`, que también rompe con `nan` vía `OverflowError`; `None` + guard es la opción correcta). `t_d`/`t_d_no_FAR` → `np.ndarray`. Agregó a `pyproject.toml` `h5py` + **`statsmodels`** (usado en `detection_strategies.py` vía `lilliefors`, no detectado en el grep original de §9) y descomentó `matplotlib`. Compilado sin errores; no corrido end-to-end (sin datos de prueba disponibles en su sesión).
+
+Hallazgos originales (referencia, ya resueltos):
 - Mismo `NameError` en modo `native`: `src/ssq_chatter/lib/runner.py:275`.
 - Mismo bug de `f_cycle` elegido por presencia de clave en vez de por `param_mode` (`:275-278`).
 - Tipo de `t_d` en `utils/types.py` — pasar a `np.ndarray`.
@@ -170,7 +179,10 @@ Trazabilidad para que cada sesión de indicador sepa qué corregir en sus propio
 - **`examples/SSQ_STFT_Chatter_Detection_NEW.py` y `SSQ_STFT_Chatter_Detection_old.py` NO insertan `src/` local al `sys.path`** (verificado) — mismo riesgo que RMS-CV, agregar el bloque de §8.
 - **`h5py` no está declarado en `pyproject.toml`** (usado en `src/ssq_chatter/utils/hdf5_utils.py`), y **`matplotlib` está comentado** en `dependencies` aunque `viz/plotting.py` y `viz/sst_svd_plots.py` lo importan directo — descomentar y agregar `h5py` (ver §9).
 
-### Green Integral (`green_integral`)
+### Green Integral (`green_integral`) — ✅ hecho (sesión Green-Area, en `wt-Green-Area`, sin commitear/mergear)
+Reportado: `_resolve_physical_params_green` reescrito con el esqueleto de §4; adoptó `param_mode`/`params_physical` con `T_rev`/`N_rev_window`/`step_rev` o `T_modal`/`N_modal_window`/`step_modal` (`T_rev` opcional/informativo en `by_modal`, igual que MaxEnt); eliminó `f_modal`/`f_cycle`/`N_cycles_per_seg`/`step_cycles` del contrato público (el `f_modal` viejo no era un filtro bandpass real pese a su docstring, solo definía la duración del ciclo de ventaneo). **Decisión documentada**: Green NO adopta `segmentation` (`opr`/`raw`) de §3 — sus ventanas se dimensionan en segundos continuos, sin decimación OPR a muestras, así que esa dualidad no aplica; ver nota agregada a §3. `N_*_window` sí exige enteros exactos (antes truncaba en silencio con `int(...)`), `step_*` acepta fraccionarios (paso continuo, no hay modo raw que lo restrinja). Encontró y arregló un `UnboundLocalError` real: la rama `func=="Default"` nunca definía `t_d_no_FAR`. `t_d`/`t_d_no_FAR` → `np.ndarray`. Decisión: mantiene `StdSignalData` (no es redundante, la `SignalData` nativa separa displacement/velocity). Actualizó `Green_Integral_Detection_NEW.py` y `Green_Integral_FixedWindow_Tutorial.py` al nuevo `param_mode`; no tocó los demos legacy. Verificado con un self-check ad-hoc de 7 asserts (no commiteado, solo para validar el refactor), incluye corridas end-to-end reales para `Default` y `FixedWindow`.
+
+Hallazgos originales (referencia, ya resueltos):
 - No tiene `param_mode`. Adoptar `param_mode` (`native`/`by_revolution`/`by_modal`) + `params_physical` con `T_rev`/`T_modal`/`N_rev_window`/`N_modal_window`/`step_rev`/`step_modal`, en vez del esquema actual `f_cycle`/`N_cycles_per_seg`/`step_cycles` en `lib/runner_std.py`.
 - El `f_cycle` actual (línea ~119 de `lib/runner_std.py`) se calcula a partir de un valor recibido directamente, no derivado de `T_rev`/`T_modal` según el modo — alinear con la regla de §3.
 - `StdSignalData` (en `utils/types.py`) existe solo para imitar `SignalData` de este contrato — una vez que `run_green_std` adopte el contrato estándar directamente, evaluar si `StdSignalData` sigue siendo necesaria o se puede unificar con la `SignalData` nativa de Green.
