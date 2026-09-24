@@ -57,8 +57,8 @@ if str(_here) not in sys.path:
     sys.path.insert(0, str(_here))
 
 from green_integral import HDF5Reader
-from green_integral.lib.runner_fixed import run_fixed_window
-from green_integral.utils.types import SignalData, FixedWindowConfig
+from green_integral.lib.runner_lyapunov import run_lyapunov
+from green_integral.utils.types import SignalData, LyapunovConfig
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Estilo CAMP10
@@ -155,23 +155,23 @@ def _area_rms(x, v):
     return np.pi * np.sqrt(np.mean(x**2)) * np.sqrt(np.mean(v**2))
 
 
-def _area_green_fixed(t, x, v, f_n, n_cycles, step_cycles):
-    """Área por ventana usando run_fixed_window + estimadores ellipse y RMS.
+def _area_green_lyapunov(t, x, v, f_n, n_cycles, step_cycles):
+    """Área por ventana usando run_lyapunov + estimadores ellipse y RMS.
 
     Returns
     -------
     t_wins   : tiempos de inicio de cada ventana [s]
-    A_gi     : área Shoelace (Green-Fixed) por ventana [m·m/s]
+    A_gi     : área Shoelace (Green-Lyapunov) por ventana [m·m/s]
     A_el     : área elipse (π√det Σ) por ventana [m·m/s]
     A_rm     : área RMS (π·RMS_x·RMS_v) por ventana [m·m/s]
     sigma    : exponente de Lyapunov σ̂ por ventana [1/s]
     sigma_ew : σ̂ suavizado con EWMA (lambda=0.3)
     """
-    signal = SignalData(t=t, displacement=x, velocity=v, name="cono_fixed")
+    signal = SignalData(t=t, displacement=x, velocity=v, name="cono_lyapunov")
     T_modal = 1.0 / f_n
     dt_step = step_cycles * T_modal
 
-    cfg = FixedWindowConfig(
+    cfg = LyapunovConfig(
         f_modal          = f_n,
         num_T            = n_cycles,
         dt               = dt_step,
@@ -181,7 +181,7 @@ def _area_green_fixed(t, x, v, f_n, n_cycles, step_cycles):
         sigma_method     = "ratio",
         area_noise_eps   = 1e-30,
     )
-    result = run_fixed_window(signal, cfg)
+    result = run_lyapunov(signal, cfg)
 
     # Compute ellipse & RMS on the same windows
     dt_sig = float(t[1] - t[0])
@@ -198,7 +198,7 @@ def _area_green_fixed(t, x, v, f_n, n_cycles, step_cycles):
 
     A_el = np.array(A_el_list)
     A_rm = np.array(A_rm_list)
-    # Trim/pad to match run_fixed_window window count
+    # Trim/pad to match run_lyapunov window count
     n = len(result.t_wins)
     A_el = A_el[:n]
     A_rm = A_rm[:n]
@@ -250,7 +250,7 @@ print(f"ap en onset  t_GT = {_T_GT:.3f} s  →  ap_lim ≈ {ap_gt*1e3:.2f} mm")
 print(f"Ventana: {N_CYCLES} ciclos = {N_CYCLES / _F_N * 1e3:.1f} ms  |  "
       f"paso: {STEP_CYCLES} ciclos = {STEP_CYCLES / _F_N * 1e3:.1f} ms")
 
-t_w, A_gi, A_el, A_rm, sigma, sigma_ew = _area_green_fixed(
+t_w, A_gi, A_el, A_rm, sigma, sigma_ew = _area_green_lyapunov(
     t, x, v, _F_N, N_CYCLES, STEP_CYCLES
 )
 
@@ -287,7 +287,7 @@ _draw_tgt(ax_a0, _T_GT)
 fig_a1, ax_a1 = _mk_fig(
     f'Fig A1 — Área de órbita  (ventana={N_CYCLES} ciclos, paso={STEP_CYCLES} ciclos)')
 _shade(ax_a1, _T_START, _T_GT, _T_END)
-ax_a1.plot(t_w, A_gi, color=color_verde,  lw=1.5, label='Green-Fixed (Shoelace)')
+ax_a1.plot(t_w, A_gi, color=color_verde,  lw=1.5, label='Green-Lyapunov (Shoelace)')
 ax_a1.plot(t_w, A_el, color=color_purple, lw=1.5, label=r'Elipse  $\pi\sqrt{\det\Sigma}$', ls='--')
 ax_a1.plot(t_w, A_rm, color=color_red,    lw=1.5, label=r'RMS  $\pi\cdot\mathrm{RMS}_x\cdot\mathrm{RMS}_v$', ls=':')
 ax_a1.set_xlabel('Tiempo [s]')
@@ -305,7 +305,7 @@ fig_a2.canvas.manager.set_window_title(
     'Fig A2 — Área normalizada  +  exponente de Lyapunov')
 
 _shade(ax_a2a, _T_START, _T_GT, _T_END)
-ax_a2a.plot(t_w, A_gi_n, color=color_verde,  lw=1.5, label='Green-Fixed / $K_c a_p$')
+ax_a2a.plot(t_w, A_gi_n, color=color_verde,  lw=1.5, label='Green-Lyapunov / $K_c a_p$')
 ax_a2a.plot(t_w, A_el_n, color=color_purple, lw=1.5, label=r'Elipse / $K_c a_p$', ls='--')
 ax_a2a.plot(t_w, A_rm_n, color=color_red,    lw=1.5, label=r'RMS / $K_c a_p$', ls=':')
 ax_a2a.set_ylabel(r'$A\,/\,(K_c a_p)$  $[\mathrm{m}/\mathrm{s}\cdot\mathrm{N}^{-1}]$')
@@ -321,7 +321,7 @@ ax_a2b.plot(t_w[m_ch], sigma_ew[m_ch], color=color_orange, lw=1.5, label=r'$\hat
 ax_a2b.axhline(0, color='k', lw=0.8, ls=':')
 ax_a2b.set_ylabel(r'$\hat{\sigma}$  [1/s]')
 ax_a2b.set_xlabel('Tiempo [s]')
-ax_a2b.set_title(r'Exponente de Lyapunov $\hat{\sigma}$ (Green-Fixed, EWMA $\lambda=0.3$)', fontsize=11)
+ax_a2b.set_title(r'Exponente de Lyapunov $\hat{\sigma}$ (Green-Lyapunov, EWMA $\lambda=0.3$)', fontsize=11)
 ax_a2b.legend()
 ax_a2b.axvline(_T_GT, color='k', lw=1.2, ls='--')
 ax_a2b.set_xlim(_XLIM)
@@ -334,7 +334,7 @@ fig_a2.tight_layout()
 # ── Fig A3 — Panel combinado: señal + área + ap(t) ───────────────────────────
 fig_a3, axes = plt.subplots(3, 1, figsize=(14, 10), sharex=True)
 fig_a3.canvas.manager.set_window_title(
-    'Fig A3 — Panel combinado: señal | área Green-Fixed | ap(t)')
+    'Fig A3 — Panel combinado: señal | área Green-Lyapunov | ap(t)')
 
 # Subplot 1: señal
 _shade(axes[0], _T_START, _T_GT, _T_END)
@@ -375,7 +375,7 @@ i_gt = np.argmin(np.abs(t_w - _T_GT))
 i_0  = 0
 print("\n── Diagnóstico del indicador ──")
 print(f"{'':20s}  {'t_start':>12s}  {'t_GT':>12s}  {'t_END':>12s}")
-print(f"{'A_gi (Green-Fixed)':20s}  {A_gi[i_0]:.3e}  {A_gi[i_gt]:.3e}  {A_gi[-1]:.3e}  m²/s")
+print(f"{'A_gi (Green-Lyapunov)':20s}  {A_gi[i_0]:.3e}  {A_gi[i_gt]:.3e}  {A_gi[-1]:.3e}  m²/s")
 print(f"{'A_el (elipse)':20s}  {A_el[i_0]:.3e}  {A_el[i_gt]:.3e}  {A_el[-1]:.3e}  m²/s")
 print(f"{'A_rm (RMS)':20s}  {A_rm[i_0]:.3e}  {A_rm[i_gt]:.3e}  {A_rm[-1]:.3e}  m²/s")
 print(f"  σ̂_EWMA en t_GT : {sigma_ew[i_gt]:.4f}  1/s")

@@ -1,6 +1,6 @@
 """Augmented Phase Trajectory — 3D geometric descriptors over Green Integral windows.
 
-Extends ``run_fixed_window`` (Green Integral indicator) by enriching each
+Extends ``run_lyapunov`` (Green Integral indicator) by enriching each
 window it already computes with the following geometric descriptors of the
 augmented trajectory  r(t) = [x(t), v(t), ap(t)]:
 
@@ -72,11 +72,11 @@ from green_integral.logging_setup import configure_logging, LOGGING_LEVELS
 configure_logging(level=LOGGING_LEVELS["info"])
 
 from green_integral import (
-    FixedWindowResult,
+    LyapunovResult,
     HDF5Reader,
     SignalData,
-    plots_fixed_window,
-    run_fixed_window,
+    plots_lyapunov,
+    run_lyapunov,
 )
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -552,7 +552,7 @@ def statistical_occupation(
 def enrich_windows(
     sig: SignalData,
     ap: np.ndarray,
-    result_fw: FixedWindowResult,
+    result_fw: LyapunovResult,
     window_size_s: float,
     n_bins_occ: int = 20,
 ) -> pd.DataFrame:
@@ -575,8 +575,8 @@ def enrich_windows(
         Signal container (.t, .displacement, .velocity).
     ap : np.ndarray
         Depth-of-cut array aligned with sig.t [mm].
-    result_fw : FixedWindowResult
-        Output of run_fixed_window — provides t_wins and areas.
+    result_fw : LyapunovResult
+        Output of run_lyapunov — provides t_wins and areas.
     window_size_s : float
         Duration of each window [s]  (= num_T / f_modal).
     n_bins_occ : int
@@ -934,7 +934,7 @@ def plot_occupation_features(
 def plot_phase_snapshots(
     sig: SignalData,
     ap: np.ndarray,
-    result_fw: FixedWindowResult,
+    result_fw: LyapunovResult,
     window_size_s: float,
     n_snapshots: int = 4,
     t_gt: Optional[float] = None,
@@ -998,7 +998,7 @@ def plot_phase_snapshots(
 def plot_occupation_heatmaps(
     sig: SignalData,
     ap: np.ndarray,
-    result_fw: FixedWindowResult,
+    result_fw: LyapunovResult,
     window_size_s: float,
     t_stable: float,
     t_chatter: float,
@@ -1179,12 +1179,12 @@ def main() -> None:
         t_stable  = t[0] + 0.2 * (t[-1] - t[0])   # first 20% — stable
         t_chatter = t[0] + 0.8 * (t[-1] - t[0])   # last 20%  — chatter
 
-    # ── 2. Green Integral fixed-window indicator ───────────────────────────
+    # ── 2. Green Integral Lyapunov indicator ────────────────────────────────
     sig           = SignalData(t=t, displacement=x, velocity=v, name=sig_name)
     window_size_s = float(num_T) / f_modal
 
-    config_fixed = {
-        "func": "FixedWindow",
+    config_lyapunov = {
+        "func": "Lyapunov",
         "params": {
             "f_modal":            f_modal,
             "num_T":              num_T,
@@ -1204,7 +1204,7 @@ def main() -> None:
     }
 
     print("[main] Running Green Integral indicator …")
-    result_fw  = run_fixed_window(sig, config_fixed)
+    result_fw  = run_lyapunov(sig, config_lyapunov)
     n_valid    = int(np.sum(np.isfinite(result_fw.sigma)))
     sigma_mean = float(np.nanmean(result_fw.sigma))
     print(f"  Windows computed : {len(result_fw.areas)}")
@@ -1239,14 +1239,14 @@ def main() -> None:
         rel_diff = (diff / df["A_xv"].replace(0, np.nan)).abs()
         print(f"  Sanity |A_xv − |A_vec_z||  max={diff.max():.2e}  mean={diff.mean():.2e}")
         print(f"  Relative diff              max={rel_diff.max():.1%}  mean={rel_diff.mean():.1%}")
-        print("  (Non-zero due to internal bandpass filtering in run_fixed_window)")
+        print("  (Non-zero due to internal bandpass filtering in run_lyapunov)")
         print()
 
     # ── 4. Plots ───────────────────────────────────────────────────────────
     print("[main] Plotting …")
 
     # Standard Green indicator output (σ̂, Ĝ, threshold)
-    plots_fixed_window(
+    plots_lyapunov(
         signal=sig,
         result=result_fw,
         t_gt=t_gt,

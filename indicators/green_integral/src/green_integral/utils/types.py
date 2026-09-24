@@ -133,12 +133,12 @@ class GreenIntegralResult:
 
 
 # ---------------------------------------------------------------------------
-# Fixed-window indicator (no zero-crossing, no clustering)
+# Lyapunov indicator (no zero-crossing, no clustering)
 # ---------------------------------------------------------------------------
 
 @dataclass
-class FixedWindowConfig:
-    """Configuration for the Fixed-Window Lyapunov chatter indicator.
+class LyapunovConfig:
+    """Configuration for the Lyapunov chatter indicator.
 
     Parameters
     ----------
@@ -245,8 +245,8 @@ class FixedWindowConfig:
 
 
 @dataclass
-class FixedWindowResult:
-    """Output of :func:`run_fixed_window`.
+class LyapunovResult:
+    """Output of :func:`run_lyapunov`.
 
     Attributes
     ----------
@@ -289,7 +289,12 @@ class StdSignalData:
     """Standard signal container compatible with other CAMP10 indicators.
 
     This mirrors the ``SignalData`` of MaxEnt-SPRT so that ``run_green_std``
-    can be driven by the same input objects used for maxent, rms_cv, and ssq.
+    can be driven by the same input objects used for maxent, rms_cv, and ssq
+    (see ``indicators/COMMON_TEMPLATE.md`` §1). Kept as a distinct class
+    (not reusing Green's own ``SignalData`` above) because that name is
+    already taken by Green's native container, which separates
+    ``displacement``/``velocity`` — a shape the single-channel common
+    contract does not have.
 
     ``signal_analysis`` is interpreted as the **displacement** signal.
     Velocity is taken from ``meta["velocity"]`` when supplied; otherwise it is
@@ -319,9 +324,9 @@ class IndicatorResult:
     """Time axis for the indicator trajectory."""
     I_t: np.ndarray
     """Indicator values along ``t``."""
-    t_d: Optional[float] = None
-    """Detection time [s]; ``None`` when not detected."""
-    t_d_no_FAR: Optional[float] = None
-    """Detection time without false alarms [s]; ``None`` when not detected."""
+    t_d: np.ndarray = field(default_factory=lambda: np.array([]))
+    """Detection timestamps [s]; empty array when no detection occurred (never ``None``)."""
+    t_d_no_FAR: np.ndarray = field(default_factory=lambda: np.array([]))
+    """Detection timestamps [s] excluding false alarms; empty array when none (never ``None``)."""
     meta: Dict[str, Any] = field(default_factory=dict)
     """Auxiliary artifacts (raw result, resolved config, resolver trace, etc.)."""

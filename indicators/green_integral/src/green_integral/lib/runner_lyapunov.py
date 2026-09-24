@@ -1,8 +1,8 @@
-"""Fixed-window Lyapunov chatter indicator.
+"""Lyapunov chatter indicator.
 
 Differences from the standard green_integral indicator:
 
-* **No zero-crossing detection** — windows have a fixed duration of
+* **No zero-crossing detection** — windows have a constant duration of
   ``num_T × T_modal`` seconds, exactly as specified.
 * **No clustering** — one shoelace area per window, no cross-window grouping.
 * **Lyapunov exponent** σ̂ estimated from consecutive log-area ratios or a
@@ -31,7 +31,7 @@ try:
 except ImportError:
     _SKLEARN_OK = False
 
-from ..utils.types import SignalData, FixedWindowConfig, FixedWindowResult
+from ..utils.types import SignalData, LyapunovConfig, LyapunovResult
 from ..utils.signal_filter import savgol_filter_window
 from ..logging_setup import LOGGING_LEVELS, configure_logging
 from .diagnostics import estimate_center, center_trajectory, compute_local_phase, drift_ratio
@@ -410,11 +410,11 @@ def extract_complete_cycles(
 # Core pipeline
 # ---------------------------------------------------------------------------
 
-def _fixed_window_pipeline(
+def _lyapunov_pipeline(
     signal: SignalData,
-    config: FixedWindowConfig,
-) -> FixedWindowResult:
-    """Fixed-window Lyapunov indicator pipeline."""
+    config: LyapunovConfig,
+) -> LyapunovResult:
+    """Lyapunov indicator pipeline."""
 
     t   = np.asarray(signal.t,            dtype=float)
     q   = np.asarray(signal.displacement, dtype=float)
@@ -902,7 +902,7 @@ def _fixed_window_pipeline(
 
     n_valid = int(np.sum(np.isfinite(areas)))
     logger.info_plus(
-        "Fixed-Window: %d windows computed, %d valid (area > eps=%.2e)",
+        "Lyapunov: %d windows computed, %d valid (area > eps=%.2e)",
         len(areas), n_valid, config.area_noise_eps,
     )
 
@@ -917,7 +917,7 @@ def _fixed_window_pipeline(
     # ---- 3. Optional EWMA smoothing ----------------------------------------
     if config.lambda_ewma is not None:
         sigma_ewma = _apply_ewma(sigma, float(config.lambda_ewma))
-        logger.info_plus("Fixed-Window: EWMA applied (λ=%.3f).", config.lambda_ewma)
+        logger.info_plus("Lyapunov: EWMA applied (λ=%.3f).", config.lambda_ewma)
     else:
         sigma_ewma = sigma.copy()
 
@@ -925,7 +925,7 @@ def _fixed_window_pipeline(
     if config.accumulate:
         G_hat = _integrate_G(sigma_ewma, t_wins)
         logger.info_plus(
-            "Fixed-Window: Ĝ_final = %.4f  (%s)",
+            "Lyapunov: Ĝ_final = %.4f  (%s)",
             float(G_hat[-1]) if len(G_hat) else float("nan"),
             "CHATTER" if len(G_hat) and G_hat[-1] > 0 else "stable",
         )
@@ -936,7 +936,7 @@ def _fixed_window_pipeline(
     if config.G_memory is not None:
         G_hat_sliding = _integrate_G_sliding(sigma_ewma, t_wins, float(config.G_memory))
         logger.info_plus(
-            "Fixed-Window: Ĝ_sliding_final = %.4f  (T_memory=%.3f s, %s)",
+            "Lyapunov: Ĝ_sliding_final = %.4f  (T_memory=%.3f s, %s)",
             float(G_hat_sliding[-1]) if len(G_hat_sliding) else float("nan"),
             float(config.G_memory),
             "CHATTER" if len(G_hat_sliding) and G_hat_sliding[-1] > 0 else "stable",
@@ -987,12 +987,12 @@ def _fixed_window_pipeline(
             if det_idx.size > 0:
                 t_d_detected = np.float64(t_wins[det_idx])
             logger.info_plus(
-                "Fixed-Window area threshold (log10): mu=%.4g, sigma=%.4g, upper=%.4g",
+                "Lyapunov area threshold (log10): mu=%.4g, sigma=%.4g, upper=%.4g",
                 mu_log, sigma_log, upper_log,
             )
         else:
             logger.warning(
-                "Fixed-Window area threshold: not enough stable windows (%d < 3), skipped.",
+                "Lyapunov area threshold: not enough stable windows (%d < 3), skipped.",
                 stab_valid.sum(),
             )
 
@@ -1000,8 +1000,8 @@ def _fixed_window_pipeline(
         "q_signal":           q.tolist(),
         "q_o_signal":         q_o.tolist(),
         "t":                  t.tolist(),
-        "type_signal":        "FixedWindow",
-        "type_method":        "FixedWindow",
+        "type_signal":        "Lyapunov",
+        "type_method":        "Lyapunov",
         "area_mu_3sigma":     area_mu_3sigma,
         "training_intervals": list(config.training_intervals) if config.training_intervals else None,
         "use_area_threshold": bool(config.use_area_threshold),
@@ -1011,7 +1011,7 @@ def _fixed_window_pipeline(
 
 
 
-    return FixedWindowResult(
+    return LyapunovResult(
         t_wins=t_wins,
         areas=areas,
         trayectory_C=trayectory_C,
@@ -1035,7 +1035,7 @@ def _fixed_window_pipeline(
 # Public API
 # ---------------------------------------------------------------------------
 
-_DEFAULT_FW_PARAMS: Dict[str, Any] = {
+_DEFAULT_LYAPUNOV_PARAMS: Dict[str, Any] = {
     "num_T":              6,
     "dt":                 None,
     "data_filtrated":     True,
@@ -1061,39 +1061,39 @@ _DEFAULT_FW_PARAMS: Dict[str, Any] = {
     "center_win":              0,        # half-width [samples] for slow-centre estimate
 }
 
-FIXED_WINDOW_CONFIG: Dict[str, Any] = {
-    "func":   "FixedWindow",
-    "params": _DEFAULT_FW_PARAMS,
+LYAPUNOV_CONFIG: Dict[str, Any] = {
+    "func":   "Lyapunov",
+    "params": _DEFAULT_LYAPUNOV_PARAMS,
 }
 
 
-def run_fixed_window(
+def run_lyapunov(
     signal: SignalData,
     config: Dict[str, Any],
-) -> FixedWindowResult:
-    """Run the Fixed-Window Lyapunov chatter indicator.
+) -> LyapunovResult:
+    """Run the Lyapunov chatter indicator.
 
     Parameters
     ----------
     signal : :class:`~green_integral.utils.types.SignalData` input.
     config : dict with keys ``"func"`` (ignored) and ``"params"``
         (merged on top of defaults).  Alternatively, pass a
-        :class:`~green_integral.utils.types.FixedWindowConfig` directly.
+        :class:`~green_integral.utils.types.LyapunovConfig` directly.
 
     Returns
     -------
-    :class:`~green_integral.utils.types.FixedWindowResult`
+    :class:`~green_integral.utils.types.LyapunovResult`
     """
-    if isinstance(config, FixedWindowConfig):
+    if isinstance(config, LyapunovConfig):
         cfg = config
     else:
         params = config.get("params", {})
-        merged = {**_DEFAULT_FW_PARAMS, **params}
+        merged = {**_DEFAULT_LYAPUNOV_PARAMS, **params}
         f_modal = merged.pop("f_modal", None)
         if f_modal is None:
-            raise ValueError("run_fixed_window: 'f_modal' is required in params.")
-        cfg = FixedWindowConfig(f_modal=f_modal, **{
-            k: merged[k] for k in merged if k in FixedWindowConfig.__dataclass_fields__
+            raise ValueError("run_lyapunov: 'f_modal' is required in params.")
+        cfg = LyapunovConfig(f_modal=f_modal, **{
+            k: merged[k] for k in merged if k in LyapunovConfig.__dataclass_fields__
         })
 
-    return _fixed_window_pipeline(signal, cfg)
+    return _lyapunov_pipeline(signal, cfg)
