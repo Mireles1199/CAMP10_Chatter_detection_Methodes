@@ -372,8 +372,8 @@ def _print_run_result(rr: "RunResult", indicator_config: dict) -> None:
     elif ind in ("maxent", "maxent_sprt"):
         seg_mode = meta.get("segmentation", "opr") if meta else "opr"
         if param_mode == "by_modal":
-            step_s     = pp.get("step_modal", pp.get("N_modal_per_seg", 1))
-            N_seg_phys = pp.get("N_modal_per_seg", "-")
+            step_s     = pp.get("step_modal", pp.get("N_modal_window", 1))
+            N_seg_phys = pp.get("N_modal_window", "-")
             overlap_p  = (
                 (1.0 - step_s / N_seg_phys)
                 if isinstance(N_seg_phys, (int, float)) and N_seg_phys > 0
@@ -382,14 +382,14 @@ def _print_run_result(rr: "RunResult", indicator_config: dict) -> None:
             T_rev_v = pp.get("T_rev", 0)
             lines += [
                 _kv("T_rev",
-                    f"{T_rev_v * 1e3:.3f} ms  (rpm = {60.0 / T_rev_v:.1f})" if T_rev_v else "N/A"),
-                _kv("T_modal",         f"{pp['T_modal'] * 1e3:.3f} ms  (f = {1/pp['T_modal']:.1f} Hz)"),
-                _kv("N_modal_per_seg", f"{N_seg_phys} periodos modales/seg"),
-                _kv("step_modal",      f"{step_s} periodos    (overlap = {overlap_p:.1%})"),
+                    f"{T_rev_v * 1e3:.3f} ms  (rpm = {60.0 / T_rev_v:.1f})" if T_rev_v else "N/A (opcional, informativo)"),
+                _kv("T_modal",        f"{pp['T_modal'] * 1e3:.3f} ms  (f = {1/pp['T_modal']:.1f} Hz)"),
+                _kv("N_modal_window", f"{N_seg_phys} periodos modales/seg"),
+                _kv("step_modal",     f"{step_s} periodos    (overlap = {overlap_p:.1%})"),
             ]
         elif param_mode == "by_revolution":
-            step_s     = pp.get("step_rev", pp.get("N_rev_per_seg", 1))
-            N_seg_phys = pp.get("N_rev_per_seg", "-")
+            step_s     = pp.get("step_rev", pp.get("N_rev_window", 1))
+            N_seg_phys = pp.get("N_rev_window", "-")
             overlap_p  = (
                 (1.0 - step_s / N_seg_phys)
                 if isinstance(N_seg_phys, (int, float)) and N_seg_phys > 0
@@ -399,8 +399,8 @@ def _print_run_result(rr: "RunResult", indicator_config: dict) -> None:
             lines += [
                 _kv("T_rev",
                     f"{T_rev_v * 1e3:.3f} ms  (rpm = {60 / T_rev_v:.1f})" if T_rev_v else "N/A"),
-                _kv("N_rev_per_seg", f"{N_seg_phys} rev/seg"),
-                _kv("step_rev",      f"{step_s} rev    (overlap = {overlap_p:.1%})"),
+                _kv("N_rev_window", f"{N_seg_phys} rev/seg"),
+                _kv("step_rev",     f"{step_s} rev    (overlap = {overlap_p:.1%})"),
             ]
             if seg_mode == "raw":
                 lines.append(_kv("segmentation", "raw  (OPR aliasing — raw mode)"))

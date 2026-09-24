@@ -74,8 +74,8 @@ Se conserva este modo porque: (i) es el modo original sobre el que se construyer
 El usuario proporciona:
 
 - $T_\text{rev} > 0$ [s]: periodo de una revolución del husillo.
-- $N_\text{rev} \in \mathbb{Z}^+$: número de revoluciones deseado por segmento (notación del código: `N_rev_per_seg`).
-- $\text{step\_rev} \in \mathbb{Z}^+$ (opcional): número de revoluciones de avance entre ventanas. Si se omite, $\text{step\_rev} = N_\text{rev}$.
+- $N_\text{rev} \in \mathbb{Z}^+$: número de revoluciones deseado por segmento (notación del código: `N_rev_window`).
+- $\text{step\_rev} \in \mathbb{Z}^+$: número de revoluciones de avance entre ventanas (obligatorio).
 
 #### Derivación de los parámetros nativos
 
@@ -177,10 +177,10 @@ $$\delta_\% = \frac{\Delta t}{t_\text{target}} \times 100 = \frac{\lceil N_m \cd
 
 #### Parámetros de entrada
 
-- $T_\text{rev} > 0$ [s]: periodo del husillo (para calcular $n_\text{rpm,modal}$ relativo a la unidad modal).
+- $T_\text{rev} > 0$ [s] (opcional, solo informativo en MaxEnt — no afecta la ventana): periodo del husillo.
 - $T_\text{modal} > 0$ [s]: periodo del modo de chatter.
-- $N_m \in \mathbb{Z}^+$: número de periodos modales por segmento (notación del código: `N_modal_per_seg`).
-- $\text{step\_modal} \in \mathbb{Z}^+$ (opcional): número de periodos modales de avance. Defecto: $\text{step\_modal} = N_m$.
+- $N_m \in \mathbb{Z}^+$: número de periodos modales por segmento (notación del código: `N_modal_window`).
+- $\text{step\_modal} \in \mathbb{Z}^+$: número de periodos modales de avance (obligatorio).
 
 #### Derivación de los parámetros nativos
 

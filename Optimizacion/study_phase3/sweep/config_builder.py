@@ -23,11 +23,11 @@ SST-SVD  (by_revolution)
     ``Ai_length_mode="frames"``, ``Ai_length_rev``
 
 MaxEnt  (by_modal)
-    ``T_rev`` (required quirk — does not affect T_total),
-    ``T_modal``, ``N_modal_per_seg``, ``step_modal``
+    ``T_modal``, ``N_modal_window``, ``step_modal``
+    (``T_rev`` is optional/informational only, not required)
 
 MaxEnt  (by_revolution)
-    ``T_rev``, ``N_rev_per_seg``, ``step_rev``,
+    ``T_rev``, ``N_rev_window``, ``step_rev``,
     + ``segmentation="raw"`` automatically injected when
     ``not basis.maxent_opr_valid`` (OPR blind to chatter frequency).
 
@@ -193,18 +193,16 @@ def _build_maxent(
     step    = int(combo["step"])
 
     if basis.mode == "by_modal":
-        # T_rev is always required by the MaxEnt by_modal API even though
-        # it does not affect T_total (API quirk documented in runner.py).
+        # T_rev is optional/informational only in by_modal — not required.
         phys: Dict[str, Any] = {
-            "T_rev":           basis.T_rev,      # required quirk
             "T_modal":         basis.T_modal,
-            "N_modal_per_seg": K_total,           # N_seg = K_total
+            "N_modal_window":  K_total,           # N_seg = K_total
             "step_modal":      step,
         }
     else:  # by_revolution
         phys = {
             "T_rev":          basis.T_rev,
-            "N_rev_per_seg":  K_total,            # N_seg = K_total
+            "N_rev_window":   K_total,            # N_seg = K_total
             "step_rev":       step,
         }
         # Inject raw segmentation when OPR cannot resolve chatter frequency

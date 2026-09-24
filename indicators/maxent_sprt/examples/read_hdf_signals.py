@@ -8,9 +8,19 @@ small summary so you can reuse the loaded arrays in later scripts.
 
 from __future__ import annotations
 
+import os
+import sys
 from pathlib import Path
 
 import numpy as np
+
+# -- path setup -----------------------------------------------------------
+# Prefer the local (worktree) src/ over whatever MaxEnt_SPRT is installed
+# editable-mode against, which may point at a different checkout/worktree.
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_SRC = os.path.abspath(os.path.join(_HERE, "..", "src"))
+if _SRC not in sys.path:
+    sys.path.insert(0, _SRC)
 
 from MaxEnt_SPRT import HDF5Reader
 

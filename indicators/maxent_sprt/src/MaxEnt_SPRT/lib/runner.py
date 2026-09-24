@@ -5,7 +5,7 @@ from typing import Any, Callable, Dict, List, Sequence, Optional, Tuple
 
 from collections import defaultdict
 
-from MaxEnt_SPRT.logging_setup import _section
+from ..logging_setup import _section
 from ..utils.types import SignalData, IndicatorResult
 from ..lib.detector import MaxEntSPRTConfig, MaxEntSPRTDetector
 from ..lib.entropy import GaussianMaxEntEstimator, EmpiricalHistogramEntropyEstimator, entropy_from_segments
@@ -32,19 +32,27 @@ def _resolve_physical_params_maxent(
     """
     Translate a physical parameter specification into native MaxEnt-SPRT parameters.
 
-    Supports two physical modes:
+    Supports two physical modes (see ``indicators/COMMON_TEMPLATE.md`` for the
+    contract shared with rms_cv/ssq_chatter/green_integral):
 
-    * ``by_revolution`` – the analysis segment spans a fixed number of spindle
-      revolutions.  ``T_rev`` (s) sets the spindle rotation period and
-      ``N_rev_per_seg`` is used directly as ``N_seg``.
+    * ``by_revolution`` – the analysis segment spans ``N_rev_window`` spindle
+      revolutions.  ``T_rev`` (s) sets the spindle rotation period; ``step_rev``
+      (revolutions) is the mandatory hop between consecutive segments.
 
-    * ``by_modal`` – the segment duration is expressed as a multiple of the
-      modal (chatter) period.  ``N_seg`` is derived by rounding
-      ``N_modal_per_seg * T_modal / T_rev`` to the nearest integer (min 1).
+    * ``by_modal`` – the segment duration spans ``N_modal_window`` modal
+      (chatter) periods.  ``T_modal`` (s) sets the modal period; ``step_modal``
+      (modal periods) is the mandatory hop. ``T_rev``, if given, is purely
+      informational here and does not affect the window size.
 
-    In both modes all pass-through parameters (``alpha``, ``beta``,
-    ``reset_on_H0``, ``t_stable_total``, ``cut_start_time``, ``cut_end_time``,
-    ``ratio_sampling``) are forwarded unchanged.
+    ``segmentation`` (default ``"opr"``) controls how fractional windows are
+    handled: in ``"opr"`` mode ``N_*_window``/``step_*`` must be exact integers
+    (one OPR sample per cycle), and a non-integer value raises ``ValueError``
+    instead of being silently truncated; in ``"raw"`` mode fractional values
+    are accepted and converted to a raw sample count via ``ceil``.
+
+    All pass-through parameters (``alpha``, ``beta``, ``reset_on_H0``,
+    ``t_stable_total``, ``cut_start_time``, ``cut_end_time``, ``ratio_sampling``,
+    etc. – see ``_MAXENT_PASS_THROUGH_PARAMS``) are forwarded unchanged.
 
     :param param_mode: Either ``"by_revolution"`` or ``"by_modal"``.
     :param params_physical: Dictionary of physical parameters (mode-specific
@@ -55,7 +63,7 @@ def _resolve_physical_params_maxent(
         Tuple[Dict[str, Any], Dict[str, Any]]:
             *native_params* – kwargs ready for ``_maxent_sprt_pipeline``;
             *trace* – traceability record (physical inputs, resolved native
-            values, quantisation notes).
+            values, window unit bookkeeping, quantisation notes).
 
     Raises
     ------
@@ -76,131 +84,130 @@ def _resolve_physical_params_maxent(
             f"segmentation must be 'opr' or 'raw', got '{segmentation}'."
         )
 
+    def _window_value(name: str, value: Any) -> float:
+        value = float(value)
+        if segmentation == "opr" and not value.is_integer():
+            raise ValueError(
+                f"{name} must be an integer when segmentation='opr' "
+                f"(one OPR sample per cycle), got {value}."
+            )
+        return value
+
     if param_mode == "by_revolution":
-        for key in ("T_rev", "N_rev_per_seg"):
+        for key in ("T_rev", "N_rev_window", "step_rev"):
             if key not in params_physical:
                 raise ValueError(
                     f"by_revolution mode requires '{key}' in params_physical."
                 )
 
         T_rev = float(params_physical["T_rev"])
-        N_rev_per_seg = params_physical["N_rev_per_seg"]
-
         if T_rev <= 0.0:
             raise ValueError(f"T_rev must be > 0, got {T_rev}.")
-        if int(N_rev_per_seg) < 1:
-            raise ValueError(f"N_rev_per_seg must be >= 1, got {N_rev_per_seg}.")
 
-        rpm   = 60.0 / T_rev
-        N_seg = int(N_rev_per_seg)
-        t_seg = N_seg * T_rev
+        N_win = _window_value("N_rev_window", params_physical["N_rev_window"])
+        step  = _window_value("step_rev", params_physical["step_rev"])
+        if N_win < 1:
+            raise ValueError(f"N_rev_window must be >= 1, got {N_win}.")
+        if not (0 < step <= N_win):
+            raise ValueError(
+                f"step_rev must satisfy 0 < step_rev <= N_rev_window={N_win}, got {step}."
+            )
 
-        # optional overlap: step_rev -> step_seg (in OPR samples = revolutions)
-        step_rev = params_physical.get("step_rev", None)
-        if step_rev is not None:
-            step_seg = step_rev
-            # step_seg = int(step_rev)
-            # if not (1 <= step_seg <= N_seg):
-            #     raise ValueError(
-            #         f"step_rev must satisfy 1 <= step_rev <= N_rev_per_seg={N_seg}, got {step_rev}."
-            #     )
-        else:
-            step_seg = N_seg  # no overlap
+        rpm      = 60.0 / T_rev
+        t_seg    = N_win * T_rev
+        unit_name = "rev"
+        T_unit    = T_rev
 
         native_params["rpm"]      = rpm
-        native_params["N_seg"]    = N_seg
-        native_params["step_seg"] = step_seg
+        native_params["N_seg"]    = int(N_win)
+        native_params["step_seg"] = int(step) if segmentation == "opr" else step
 
         # raw segmentation: convert revolution counts to raw sample counts
         if segmentation == "raw":
-            samples_per_rev          = fs / rpm * 60.0           # = fs * T_rev
-            N_samples_per_seg        = int(math.ceil(N_seg * samples_per_rev))
-            step_samples             = int(math.ceil(step_seg * samples_per_rev))
+            samples_per_rev          = fs * T_rev
+            N_samples_per_seg        = int(math.ceil(N_win * samples_per_rev))
+            step_samples             = int(math.ceil(step * samples_per_rev))
+            native_params["N_seg"]    = int(math.ceil(N_win))
             native_params["N_samples_per_seg"] = N_samples_per_seg
             native_params["step_seg"] = step_samples             # override: hop in raw samples
             quantization_notes.append(
-                f"raw mode: N_samples_per_seg = ceil({N_seg} x {samples_per_rev:.1f}) = {N_samples_per_seg}"
+                f"raw mode: N_samples_per_seg = ceil({N_win} x {samples_per_rev:.1f}) = {N_samples_per_seg}"
             )
             quantization_notes.append(
-                f"raw mode: step_samples = ceil({step_seg} x {samples_per_rev:.1f}) = {step_samples}"
+                f"raw mode: step_samples = ceil({step} x {samples_per_rev:.1f}) = {step_samples}"
             )
 
         quantization_notes.append(
-            f"N_seg = int(N_rev_per_seg={N_rev_per_seg}) → {N_seg}"
+            f"t_seg = {N_win} x {T_rev:.6f} s = {t_seg:.6f} s"
         )
         quantization_notes.append(
-            f"t_seg = {N_seg} x {T_rev:.6f} s = {t_seg:.6f} s"
-        )
-        quantization_notes.append(
-            f"step_seg = {step_seg}  (overlap = {1.0 - step_seg/N_seg:.1%})"
+            f"step_rev = {step}  (overlap = {1.0 - step/N_win:.1%})"
         )
 
     elif param_mode == "by_modal":
-        for key in ("T_rev", "T_modal", "N_modal_per_seg"):
+        for key in ("T_modal", "N_modal_window", "step_modal"):
             if key not in params_physical:
                 raise ValueError(
                     f"by_modal mode requires '{key}' in params_physical."
                 )
 
-        T_rev          = float(params_physical["T_rev"])
-        T_modal        = float(params_physical["T_modal"])
-        N_modal_per_seg = float(params_physical["N_modal_per_seg"])
-
-        if T_rev <= 0.0:
-            raise ValueError(f"T_rev must be > 0, got {T_rev}.")
+        T_modal = float(params_physical["T_modal"])
         if T_modal <= 0.0:
             raise ValueError(f"T_modal must be > 0, got {T_modal}.")
-        if N_modal_per_seg <= 0.0:
-            raise ValueError(f"N_modal_per_seg must be > 0, got {N_modal_per_seg}.")
 
-        rpm          = 60.0 / T_rev
-        rpm_modal     = 60.0 / T_modal
-        N_seg        = int(N_modal_per_seg)
-        t_seg_target = N_seg * T_modal
-        t_seg_real   = math.ceil((t_seg_target)*fs) / fs
+        # T_rev is optional in by_modal: informational only, not used for windowing.
+        T_rev_raw = params_physical.get("T_rev")
+        if T_rev_raw is not None:
+            T_rev = float(T_rev_raw)
+            if T_rev <= 0.0:
+                raise ValueError(f"T_rev must be > 0, got {T_rev}.")
+            quantization_notes.append(
+                f"T_rev = {T_rev:.6f} s (informational only, not used for windowing)"
+            )
+
+        N_win = _window_value("N_modal_window", params_physical["N_modal_window"])
+        step  = _window_value("step_modal", params_physical["step_modal"])
+        if N_win < 1:
+            raise ValueError(f"N_modal_window must be >= 1, got {N_win}.")
+        if not (0 < step <= N_win):
+            raise ValueError(
+                f"step_modal must satisfy 0 < step_modal <= N_modal_window={N_win}, got {step}."
+            )
+
+        rpm_modal    = 60.0 / T_modal
+        t_seg_target = N_win * T_modal
+        t_seg_real   = math.ceil(t_seg_target * fs) / fs
         quant_err_s  = t_seg_real - t_seg_target
         quant_err_pct = abs(quant_err_s) / t_seg_target * 100.0
-
-        # optional overlap: step_modal -> step_seg (in OPR samples = modal periods)
-        step_modal = params_physical.get("step_modal", None)
-        if step_modal is not None:
-            pass
-            # step_seg = int(step_modal)
-            step_seg = step_modal
-            # if not (1 <= step_seg <= N_seg):
-            #     raise ValueError(
-            #         f"step_modal must satisfy 1 <= step_modal <= N_modal_per_seg={N_seg}, got {step_modal}."
-            #     )
-        else:
-            step_seg = N_seg  # no overlap
+        unit_name = "modal"
+        T_unit    = T_modal
 
         native_params["rpm"]      = rpm_modal
-        native_params["N_seg"]    = N_seg
-        native_params["step_seg"] = step_seg
+        native_params["N_seg"]    = int(N_win)
+        native_params["step_seg"] = int(step) if segmentation == "opr" else step
 
         # raw segmentation: convert modal-period counts to raw sample counts
         if segmentation == "raw":
             samples_per_modal        = T_modal * fs
-            N_samples_per_seg        = int(math.ceil(N_seg * samples_per_modal))
-            step_samples             = int(math.ceil(step_seg * samples_per_modal))
+            N_samples_per_seg        = int(math.ceil(N_win * samples_per_modal))
+            step_samples             = int(math.ceil(step * samples_per_modal))
+            native_params["N_seg"]    = int(math.ceil(N_win))
             native_params["N_samples_per_seg"] = N_samples_per_seg
             native_params["step_seg"] = step_samples             # override: hop in raw samples
             quantization_notes.append(
-                f"raw mode: N_samples_per_seg = ceil({N_seg} x {samples_per_modal:.1f}) = {N_samples_per_seg}"
+                f"raw mode: N_samples_per_seg = ceil({N_win} x {samples_per_modal:.1f}) = {N_samples_per_seg}"
             )
             quantization_notes.append(
-                f"raw mode: step_samples = ceil({step_seg} x {samples_per_modal:.1f}) = {step_samples}"
+                f"raw mode: step_samples = ceil({step} x {samples_per_modal:.1f}) = {step_samples}"
             )
 
-        quantization_notes.append(
-            f"N_seg: {N_modal_per_seg} (modal)"
-        )
+        quantization_notes.append(f"N_modal_window = {N_win}")
         quantization_notes.append(
             f"t_seg_target={t_seg_target:.6f} s | t_seg_real={t_seg_real:.6f} s"
             f" | delta={quant_err_s:+.6f} s ({quant_err_pct:.2f}%)"
         )
         quantization_notes.append(
-            f"step_seg = {step_seg}  (overlap = {1.0 - step_seg/N_seg:.1%})"
+            f"step_modal = {step}  (overlap = {1.0 - step/N_win:.1%})"
         )
 
     else:
@@ -217,6 +224,10 @@ def _resolve_physical_params_maxent(
                                    "segmentation": segmentation,
                                    **({"N_samples_per_seg": native_params["N_samples_per_seg"]}
                                       if "N_samples_per_seg" in native_params else {})},
+        "unit_name": unit_name,
+        "T_unit": T_unit,
+        "N_win": N_win,
+        "step": step,
         "quantization_notes":     "; ".join(quantization_notes),
     }
     return native_params, trace
@@ -229,8 +240,20 @@ def run_maxent_sprt(signal: SignalData, INDICATOR_CONFIG: dict ) -> IndicatorRes
     This function serves as a wrapper that retrieves the appropriate analysis function
     from the configuration and executes it with the provided signal data and parameters.
 
+    ``INDICATOR_CONFIG["param_mode"]`` selects how the analysis window is
+    specified (see ``indicators/COMMON_TEMPLATE.md`` for the full contract
+    shared with rms_cv/ssq_chatter/green_integral):
+
+    * ``"native"`` (default) – native kwargs for ``_maxent_sprt_pipeline`` go in
+      ``INDICATOR_CONFIG["params"]``.
+    * ``"by_revolution"`` / ``"by_modal"`` – physical parameters
+      (``T_rev``/``N_rev_window``/``step_rev`` or
+      ``T_modal``/``N_modal_window``/``step_modal``) go in
+      ``INDICATOR_CONFIG["params_physical"]`` and are resolved to native kwargs
+      via ``_resolve_physical_params_maxent``.
+
     :param signal: Input signal bundle containing the analysis array, aligned time axis, sampling frequency, and optional metadata.
-    :param INDICATOR_CONFIG: Dispatcher dictionary containing the selected function under ``func`` and its keyword arguments under ``params``.
+    :param INDICATOR_CONFIG: Dispatcher dictionary containing the selected function under ``func``, the mode under ``param_mode``, and its keyword arguments under ``params`` (native mode) or ``params_physical`` (physical modes).
 
     Returns:
         IndicatorResult: Result object returned by the selected indicator
@@ -252,11 +275,12 @@ def run_maxent_sprt(signal: SignalData, INDICATOR_CONFIG: dict ) -> IndicatorRes
         func = _maxent_sprt_pipeline
 
     trace: Optional[Dict[str, Any]] = None
+    params_physical: Dict[str, Any] = {}
 
     if param_mode == "native":
         params: Dict[str, Any] = INDICATOR_CONFIG.get("params", {})
     else:
-        params_physical: Dict[str, Any] = INDICATOR_CONFIG["params_physical"]
+        params_physical = INDICATOR_CONFIG["params_physical"]
         params, trace = _resolve_physical_params_maxent(param_mode, params_physical, fs)
         _phys_display = {
             k: v for k, v in trace["physical_params_input"].items()
@@ -275,21 +299,28 @@ def run_maxent_sprt(signal: SignalData, INDICATOR_CONFIG: dict ) -> IndicatorRes
 
     result: IndicatorResult = func(signal, **params)
 
-    if params_physical.get("T_rev", None) is not None:
-        f_cycle = 1 / (params_physical.get("T_rev", "n/a"))
+    # ── Traceability: attach mode + standard meta keys (see COMMON_TEMPLATE.md) ──
+    if param_mode == "native":
+        f_cycle      = (params["rpm"] / 60.0) if params.get("rpm") else float("nan")
+        unit_name    = "native"
+        T_unit       = float("nan")
+        step_cycles  = params.get("step_seg", float("nan"))
+        reset_on_H0  = params.get("reset_on_H0", "n/a")
     else:
-        f_cycle = 1 / (params_physical.get("T_modal", "n/a"))
-    if params_physical.get("step_rev", None) is not None:
-        step = params_physical.get("step_rev", "n/a")
-    else:
-        step = params_physical.get("step_modal", "n/a")
+        unit_name   = trace["unit_name"]
+        T_unit      = trace["T_unit"]
+        f_cycle     = 1.0 / T_unit
+        step_cycles = trace["step"]
+        reset_on_H0 = params_physical.get("reset_on_H0", "n/a")
 
-    # ── Traceability: attach mode + physical↔native mapping to meta ───────────
-    result.meta["param_mode"] = param_mode
-    result.meta["f_cycle"] = f_cycle
-    result.meta["step_cycles"] = step
-    result.meta["reset_on_H0"] = params_physical.get("reset_on_H0", "n/a")
-    result.meta ["Total_window"] = result.meta["N_seg"]
+    result.meta["param_mode"]   = param_mode
+    result.meta["unit_name"]    = unit_name
+    result.meta["T_unit"]       = T_unit
+    result.meta["f_cycle"]      = f_cycle
+    result.meta["N_cycles"]     = result.meta.get("N_seg")
+    result.meta["step_cycles"]  = step_cycles
+    result.meta["reset_on_H0"]  = reset_on_H0
+    result.meta["Total_window"] = result.meta.get("N_seg")
 
     if trace is not None:
         result.meta["physical_params_input"]  = trace["physical_params_input"]
@@ -326,7 +357,10 @@ def run_maxent_sprt(signal: SignalData, INDICATOR_CONFIG: dict ) -> IndicatorRes
         logger.info("  %-24s %.10f", "B:",      result.meta["sprt_result"].b)
 
         logger.info("  %-24s %.3f s", "Primera deteccion:", result.t_d[0])
-        logger.info("  %-24s %.3f s", "Primera Detecion Non Far:",  result.t_d_no_FAR[0])
+        if result.t_d_no_FAR.size > 0:
+            logger.info("  %-24s %.3f s", "Primera Detecion Non Far:", result.t_d_no_FAR[0])
+        else:
+            logger.info("  %-24s %s", "Primera Detecion Non Far:", "n/a (sin t_theorical)")
         logger.info("  %-24s %d",     "Total detecciones:", result.t_d.size)
         logger.info("  %-24s %.4f, %.4f ms", "Tiempo I[0], I[1]:", result.t[0]*1000, result.t[1]*1000)
         logger.info("  %-24s %.4f, %.4f ms", "Hop[0], H[1] ", result.t[1]*1000 - result.t[0]*1000, result.t[2]*1000 - result.t[1]*1000 )
@@ -569,8 +603,11 @@ def _maxent_sprt_pipeline(
         mask = np.where(sprt_result.S_history >= sprt_result.b)[0]
         chatter_points_time   = t_mid_segments[mask] if mask.size > 0 else np.array([])
 
-        t_d_no_FAR_idx = np.where(chatter_points_time > t_theorical)[0]
-        t_d_no_FAR = chatter_points_time[t_d_no_FAR_idx] if t_d_no_FAR_idx.size > 0 else np.array([])
+        if t_theorical is not None:
+            t_d_no_FAR_idx = np.where(chatter_points_time > t_theorical)[0]
+            t_d_no_FAR = chatter_points_time[t_d_no_FAR_idx] if t_d_no_FAR_idx.size > 0 else np.array([])
+        else:
+            t_d_no_FAR = np.array([])
 
         chatter_points_values = sprt_result.S_history[mask] if mask.size > 0 else np.array([])
         logger.info_plus("  %-24s %s", "ONLINE FINAL STATE:",
@@ -598,8 +635,11 @@ def _maxent_sprt_pipeline(
         chatter_points_time   = t_mid_segments[_thr_mask]
         chatter_points_values = H_arr[_thr_mask]
 
-        t_d_no_FAR_idx = np.where(chatter_points_time > t_theorical)[0]
-        t_d_no_FAR = chatter_points_time[t_d_no_FAR_idx] if t_d_no_FAR_idx.size > 0 else np.array([])
+        if t_theorical is not None:
+            t_d_no_FAR_idx = np.where(chatter_points_time > t_theorical)[0]
+            t_d_no_FAR = chatter_points_time[t_d_no_FAR_idx] if t_d_no_FAR_idx.size > 0 else np.array([])
+        else:
+            t_d_no_FAR = np.array([])
         
         logger.info_plus("  %-24s %s", "ONLINE MODE (no SPRT):",
                          f"per-segment threshold  H_thr = {_H_thr_used:.5f}")

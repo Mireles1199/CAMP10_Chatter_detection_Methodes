@@ -63,10 +63,10 @@ class IndicatorResult:
     """Time axis for the computed indicator trajectory."""
     I_t: np.ndarray
     """Indicator values evaluated along ``t``."""
-    t_d: Optional[float] = None
-    """Detection timestamp in seconds when available; ``None`` when no detection time is defined."""
-    t_d_no_FAR: Optional[np.ndarray] = None
-    """Detection timestamps in seconds when available and above the theoretical threshold; ``None`` when no detection time is defined."""
+    t_d: np.ndarray = field(default_factory=lambda: np.array([]))
+    """Array of detection timestamps in seconds; empty array when no detection occurred."""
+    t_d_no_FAR: np.ndarray = field(default_factory=lambda: np.array([]))
+    """Array of detection timestamps in seconds above the theoretical (no-FAR) threshold; empty array when no detection occurred."""
     meta: Dict[str, Any] = field(default_factory=dict)
     """Auxiliary artifacts required for analysis, visualization, reproducibility, or post-hoc debugging."""
 

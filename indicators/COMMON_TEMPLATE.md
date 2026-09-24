@@ -1,0 +1,183 @@
+# Plantilla común de indicadores CAMP10
+
+## Alcance
+
+Aplica a `maxent_sprt`, `rms_cv`, `ssq_chatter` (SST) y `green_integral`. `rale` y `emd_hht` están obsoletos y no se cubren.
+
+Esto es una **convención para copiar y adaptar** en los archivos propios de cada paquete — **no hay módulo base compartido**. Está prohibido importar tipos/funciones de un paquete de indicador desde otro (anti-patrón existente hoy: `rms_cv/src/rms_cv/lib/runner.py:35` hace `from MaxEnt_SPRT.logging_setup import _section` sin declarar la dependencia en su `pyproject.toml` — corregir en la sesión de RMS).
+
+`maxent_sprt` es la implementación de referencia de esta plantilla.
+
+## 1. `SignalData` (entrada)
+
+```python
+@dataclass
+class SignalData:
+    t_analysis: np.ndarray
+    signal_analysis: np.ndarray
+    path: str
+    fs: float
+    meta: Dict[str, Any] = field(default_factory=dict)
+```
+Referencia: `maxent_sprt/src/MaxEnt_SPRT/utils/types.py`. Ya es uniforme en los 4 paquetes.
+
+## 2. `IndicatorResult` (salida)
+
+```python
+@dataclass
+class IndicatorResult:
+    name: str
+    t: np.ndarray
+    I_t: np.ndarray
+    t_d: np.ndarray = field(default_factory=lambda: np.array([]))
+    t_d_no_FAR: np.ndarray = field(default_factory=lambda: np.array([]))
+    meta: Dict[str, Any] = field(default_factory=dict)
+```
+`t_d`/`t_d_no_FAR` son **siempre `np.ndarray`** de timestamps de detección en segundos. Array vacío = sin detección, **nunca `None`** ni un escalar.
+
+## 3. Contrato de `INDICATOR_CONFIG`
+
+Consumido por `run_<indicador>(signal: SignalData, INDICATOR_CONFIG: dict) -> IndicatorResult`.
+
+Claves de primer nivel: `id` (opcional, label de logging), `func` (`"Default"` | otro valor propio del indicador, ver punto 4), `param_mode`, `params` (modo `native`) o `params_physical` (modos físicos).
+
+### Tabla de modos
+
+| `param_mode` | obligatorias en `params_physical` | opcionales |
+|---|---|---|
+| `native` | parámetros nativos propios del indicador (van en `params`, no en `params_physical`) | — |
+| `by_revolution` | `T_rev`, `N_rev_window`, `step_rev` | `segmentation` |
+| `by_modal` | `T_modal`, `N_modal_window`, `step_modal` | `T_rev` (informativo, no afecta la ventana), `segmentation` |
+
+`param_mode` es **obligatorio** en los 4 indicadores (Green lo adopta en su propia sesión — ver checklist §10).
+
+### Reglas comunes de validación
+
+- `T_rev > 0`, `T_modal > 0`.
+- `N_*_window >= 1`.
+- `0 < step_* <= N_*_window`.
+- `f_cycle` se deriva **según `param_mode`**, nunca según qué claves estén presentes:
+  - `by_revolution`: `f_cycle = 1 / T_rev`.
+  - `by_modal`: `f_cycle = 1 / T_modal`.
+- `segmentation` (`"opr"` por defecto | `"raw"`):
+  - `"opr"`: `N_*_window` y `step_*` deben ser **enteros exactos** (p. ej. `2.0` es válido, `2.5` no) → `ValueError` si no lo son. Nunca truncar en silencio.
+  - `"raw"`: se aceptan valores decimales; se convierten a cantidad de muestras con `ceil`.
+- Los parámetros propios de cada indicador (p. ej. `alpha`/`beta`/`reset_on_H0` en MaxEnt, `cv_threshold` en RMS, `Ai_length_mode` en SST) pasan sin tocar por un `frozenset _<IND>_PASS_THROUGH_PARAMS` definido en cada paquete — nunca forman parte de este contrato común.
+
+### `func` como punto de extensión
+
+`"Default"` es la base. Un indicador puede definir valores adicionales (p. ej. `"FixedWindow"` en Green) solo cuando ofrece variantes algorítmicas reales bajo la misma `SignalData`/`IndicatorResult`/`param_mode`. Se documenta en la guía propia de ese indicador, no es obligatorio para todos.
+
+Las dataclasses algorítmicas internas (`MaxEntSPRTConfig`/`SPRTConfig`, `CVOnlineConfig`, `PipelineConfig`, `GreenIntegralConfig`) quedan **internas**, construidas dentro del pipeline — nunca parte del dict público.
+
+## 4. Esqueleto canónico de `run_<indicador>`
+
+```python
+def run_<ind>(signal: SignalData, INDICATOR_CONFIG: dict) -> IndicatorResult:
+    param_mode: str = INDICATOR_CONFIG.get("param_mode", "native")
+    func = INDICATOR_CONFIG["func"]
+    if func == "Default":
+        func = _<ind>_pipeline
+
+    if param_mode == "native":
+        params: Dict[str, Any] = INDICATOR_CONFIG.get("params", {})
+        params_physical: Dict[str, Any] = {}
+        unit_name, T_unit, N_cycles, step_cycles = "native", float("nan"), None, None
+    else:
+        params_physical = INDICATOR_CONFIG["params_physical"]
+        params, trace = _resolve_physical_params_<ind>(param_mode, params_physical, signal.fs)
+        unit_name  = trace["unit_name"]
+        T_unit     = trace["T_unit"]
+        N_cycles   = trace["N_win"]
+        step_cycles = trace["step"]
+
+    result: IndicatorResult = func(signal, **params)
+
+    result.meta["param_mode"]   = param_mode
+    result.meta["unit_name"]    = unit_name
+    result.meta["f_cycle"]      = (1.0 / T_unit) if T_unit and T_unit == T_unit else <nativo propio>
+    result.meta["N_cycles"]     = N_cycles
+    result.meta["step_cycles"]  = step_cycles
+    result.meta["Total_window"] = <ventanas totales, propio de cada indicador>
+    return result
+```
+Nótese que `params_physical` queda **siempre definido** (dict vacío en modo `native`), y el diagnóstico se ramifica explícitamente por `param_mode` en vez de asumir que `params_physical` tiene ciertas claves. Esto corrige un `NameError` idéntico presente hoy en los tres runners existentes (ver checklist §10).
+
+## 5. Claves estándar de `result.meta`
+
+`param_mode`, `f_cycle` [Hz], `unit_name` (`"rev"`|`"modal"`|`"native"`), `T_unit` [s], `N_cycles`, `step_cycles`, `Total_window` (en ciclos/ventanas). En modos físicos, también `physical_params_input` y `native_params_resolved` (trazabilidad). Cada indicador puede agregar claves propias.
+
+## 6. `HDF5Reader` y `logging_setup.py`
+
+Referencia: `maxent_sprt/src/MaxEnt_SPRT/utils/hdf5_utils.py` y `maxent_sprt/src/MaxEnt_SPRT/logging_setup.py` (`INFO_PLUS_LEVEL=15`, `LOGGING_LEVELS`, `configure_logging()`, `_section()`). Se copian localmente en cada paquete — nunca se importan entre paquetes.
+
+## 7. Convención de nombres
+
+`run_<indicador>(signal, INDICATOR_CONFIG) -> IndicatorResult` y `plots_<indicador>(...)` como únicos dos puntos de entrada públicos, reexportados desde el `__init__.py` de cada paquete.
+
+## 8. Import local vs. instalación editable (evitar código fantasma)
+
+**Hallazgo real en la sesión de MaxEnt**: cada indicador está instalado en modo editable (`pip install -e`) apuntando a una ruta **fija y absoluta** (en este repo, el checkout `CAMP10_Chatter_detection_Methodes`, no los worktrees `wt-*`). Un `.pth` en el entorno registra esa ruta al momento de instalar y no cambia solo — no importa desde qué worktree/rama corras un script, `import MaxEnt_SPRT` (o `rms_cv`, `ssq_chatter`, `green_integral`) siempre resuelve ahí, salvo que el propio script le diga lo contrario.
+
+Consecuencia: mientras un worktree tiene cambios sin mergear (renombres de claves, fixes de bugs, etc.), **cualquier script que no fuerce el import local corre silenciosamente contra el código viejo** — o peor, contra un config nuevo que el resolver viejo no entiende (`ValueError: ... requires 'N_rev_per_seg' ...` fue exactamente este caso).
+
+**Regla obligatoria**: todo script bajo `examples/` de cualquier indicador debe insertar su propio `src/` al principio de `sys.path`, **antes** de importar el paquete:
+
+```python
+import os
+import sys
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_SRC = os.path.abspath(os.path.join(_HERE, "..", "src"))
+if _SRC not in sys.path:
+    sys.path.insert(0, _SRC)
+
+from <Paquete> import ...
+```
+
+Es relativo a `__file__`, así que sigue resolviendo bien después de mergear (converge con la instalación editable en vez de competir con ella — ver checklist §10 para el estado real de cada paquete).
+
+Esto no aplica solo a scripts de un solo indicador: cualquier script que combine varios (`pareto_stage1.py`, `Noise_SNR.py`, `effective_window/`, `Optimizacion/*`) necesita insertar el `src/` de **cada** indicador que use, antes del primer `import`. Los que ya lo hacen bien en este repo (patrón a copiar): `Optimizacion/study_phase3/study_phase3.py` y `Optimizacion/study_phase1/study_phase1.py` (calculan la raíz del repo vía `__file__`, no hardcodean el nombre del checkout).
+
+## 9. `pyproject.toml`: dependencias completas
+
+Cada paquete debe declarar en `dependencies` **todo** paquete de terceros que se importa en algún archivo bajo `src/<paquete>/` — no solo los que se usaron para probar en un entorno que ya los traía instalados por otra vía. Verificar con:
+
+```bash
+grep -rhoE "^(import|from) [a-zA-Z0-9_]+" src/<paquete>/**/*.py | sort -u
+```
+y comparar contra `dependencies` en `pyproject.toml`. Un `pip install .` en un entorno limpio (p. ej. el de un director/colaborador que nunca tocó este repo) debe funcionar sin `ModuleNotFoundError`.
+
+## 10. Checklist de migración por indicador
+
+Trazabilidad para que cada sesión de indicador sepa qué corregir en sus propios archivos. Esta sesión (MaxEnt) no los edita.
+
+### RMS-CV (`rms_cv`)
+- `NameError` en modo `native`: `src/rms_cv/lib/runner.py:314` usa `params_physical` sin definirlo en esa rama. Aplicar el esqueleto de §4.
+- `f_cycle` (`:314-317`) elegido según qué clave está presente (`T_rev` vs `T_modal`) en vez de según `param_mode` — mismo bug que tenía MaxEnt.
+- Renombrar claves de ventana: `N_rev_window`/`N_modal_window` ya coinciden con la plantilla (RMS ya las usa así); falta hacer `step_rev`/`step_modal` consistentemente obligatorios (ya lo son) y quitar la obligatoriedad de `T_rev` en `by_modal` si aplica el mismo criterio que MaxEnt.
+- Import cruzado no declarado: `src/rms_cv/lib/runner.py:35` (`from MaxEnt_SPRT.logging_setup import _section`) — copiar `logging_setup.py` localmente en vez de importar de `MaxEnt_SPRT`.
+- `t_d: Optional[float]` en `utils/types.py:101` (aprox.) — pasar a `np.ndarray` con `default_factory`, como en §2.
+- `ScenarioMetadata` en `utils/types.py` parece no usarse por ningún runner/ejemplo — candidato a borrar si se confirma.
+- **`examples/RMS_CV_Chatter_Detection_NEW.py` y `RMS_CV_Chatter_Detection_old.py` NO insertan `src/` local al `sys.path`** (verificado) — van a correr contra el paquete instalado (ruta fija, ver §8) en vez del código editado, hasta que se les agregue el bloque de §8.
+- **`h5py` no está declarado en `pyproject.toml`** (usado en `src/rms_cv/utils/hdf5_utils.py`) — agregar a `dependencies` (ver §9).
+
+### SST-SVD (`ssq_chatter`)
+- Mismo `NameError` en modo `native`: `src/ssq_chatter/lib/runner.py:275`.
+- Mismo bug de `f_cycle` elegido por presencia de clave en vez de por `param_mode` (`:275-278`).
+- Tipo de `t_d` en `utils/types.py` — pasar a `np.ndarray`.
+- Ya usa `N_rev_window`/`N_modal_window`/`step_rev`/`step_modal` — coincide con la plantilla.
+- **`examples/SSQ_STFT_Chatter_Detection_NEW.py` y `SSQ_STFT_Chatter_Detection_old.py` NO insertan `src/` local al `sys.path`** (verificado) — mismo riesgo que RMS-CV, agregar el bloque de §8.
+- **`h5py` no está declarado en `pyproject.toml`** (usado en `src/ssq_chatter/utils/hdf5_utils.py`), y **`matplotlib` está comentado** en `dependencies` aunque `viz/plotting.py` y `viz/sst_svd_plots.py` lo importan directo — descomentar y agregar `h5py` (ver §9).
+
+### Green Integral (`green_integral`)
+- No tiene `param_mode`. Adoptar `param_mode` (`native`/`by_revolution`/`by_modal`) + `params_physical` con `T_rev`/`T_modal`/`N_rev_window`/`N_modal_window`/`step_rev`/`step_modal`, en vez del esquema actual `f_cycle`/`N_cycles_per_seg`/`step_cycles` en `lib/runner_std.py`.
+- El `f_cycle` actual (línea ~119 de `lib/runner_std.py`) se calcula a partir de un valor recibido directamente, no derivado de `T_rev`/`T_modal` según el modo — alinear con la regla de §3.
+- `StdSignalData` (en `utils/types.py`) existe solo para imitar `SignalData` de este contrato — una vez que `run_green_std` adopte el contrato estándar directamente, evaluar si `StdSignalData` sigue siendo necesaria o se puede unificar con la `SignalData` nativa de Green.
+- Tipo de `t_d`/`t_d_no_FAR` — confirmar que sean siempre `np.ndarray`.
+- `"func": "Default" | "FixedWindow"` ya es un punto de extensión legítimo (documentado en `runner_std.py`), se mantiene tal cual.
+- `examples/`: la mayoría de los scripts principales (`Green_Integral_Detection_NEW.py`, `Green_Integral_FixedWindow_Tutorial.py`, `phase_area_indicator.py`, `test_synthetic_signal.py`, `augmented_trajectory_exploration.py`, `DDE_signal_sources.py`) **sí** insertan `src/` local — bien. Los demos (`Demo_Spirale*.py`, `Demo_Trayectoria_8.py`, `Green_Area_*.py`) no lo hacen; revisar si valen la pena o son candidatos a legacy/borrado antes de arreglarlos.
+- `pyproject.toml` ya declara `h5py`, `scipy`, `matplotlib`, `scikit-learn` — sin hallazgos de dependencias faltantes por ahora; re-verificar con el comando de §9 si se agregan imports nuevos.
+
+### Consumidores externos (repo Repo-DOE)
+- MaxEnt renombra `N_rev_per_seg`→`N_rev_window`, `N_modal_per_seg`→`N_modal_window`; hace el paso obligatorio; vuelve `t_d` siempre `np.ndarray`. Avisado por SendMessage; confirmar antes de mergear.
