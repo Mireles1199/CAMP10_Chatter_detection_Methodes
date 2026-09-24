@@ -1,0 +1,1 @@
+var_val={'$Ap_start$':0.00886,'$Ap_end$':0.00886,'$spin_rate$':12098.28,'$f_tooth$':0.05,'$dxl_size$':0.0002,'$nb_dt_rev$':200.0,}
