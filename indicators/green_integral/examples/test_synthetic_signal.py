@@ -1,4 +1,4 @@
-"""Synthetic signal test for FixedWindow indicator.
+"""Synthetic signal test for the Lyapunov indicator.
 
 Signal profile (4 phases):
   0 – 2 s   →  amortiguación   (σ = -1.5)   amplitude decays
@@ -20,8 +20,8 @@ if str(_here) not in sys.path:
 from green_integral.logging_setup import configure_logging, LOGGING_LEVELS
 configure_logging(level=LOGGING_LEVELS["warning"])   # quiet — only warnings
 
-from green_integral import SignalData, run_fixed_window, FixedWindowConfig
-from green_integral import plots_fixed_window
+from green_integral import SignalData, run_lyapunov, LyapunovConfig
+from green_integral import plots_lyapunov
 
 # ── Parameters ──────────────────────────────────────────────────────────────
 fs       = 5000.0        # sampling frequency [Hz]
@@ -54,7 +54,7 @@ v = np.gradient(x, t)
 sig = SignalData(t=t, displacement=x, velocity=v, name="synthetic_4phases")
 
 # ── Indicator config ─────────────────────────────────────────────────────────
-cfg = FixedWindowConfig(
+cfg = LyapunovConfig(
     f_modal       = f_modal,
     num_T         = 6,
     dt            = T_modal,        # step = one period → good time resolution
@@ -66,7 +66,7 @@ cfg = FixedWindowConfig(
 )
 
 # ── Run ──────────────────────────────────────────────────────────────────────
-res = run_fixed_window(sig, cfg)
+res = run_lyapunov(sig, cfg)
 
 # ── Console summary ──────────────────────────────────────────────────────────
 print("\n── Synthetic signal: 4-phase test ───────────────────────────────")
@@ -134,6 +134,6 @@ for ax in axes:
 fig.tight_layout()
 
 # Standard indicator plots (areas + σ̂ + Ĝ figures)
-plots_fixed_window(signal=sig, result=res, show=False)
+plots_lyapunov(signal=sig, result=res, show=False)
 
 plt.show()

@@ -1,4 +1,4 @@
-﻿"""Green Integral Fixed-Window — Pedagogical tutorial.
+﻿"""Green Integral Lyapunov — Pedagogical tutorial.
 
 Generates ONE phase diagram for the selected window, showing:
   - the shaded area computed by the Shoelace formula,
@@ -12,7 +12,7 @@ The window is selected via _WIN_IDX (index) or _WIN_T (approximate time).
 Usage
 -----
     cd indicators/green_integral
-    python examples/Green_Integral_FixedWindow_Tutorial.py
+    python examples/Green_Integral_Lyapunov_Tutorial.py
 """
 
 from __future__ import annotations
@@ -108,7 +108,7 @@ def _draw_vlines(ax, vlines, default_color: str = "black",
             )
 
 
-# -- Local shoelace (mirrors runner_fixed._shoelace) ------------------------
+# -- Local shoelace (mirrors runner_lyapunov._shoelace) ------------------------
 def _shoelace(x: np.ndarray, v: np.ndarray) -> float:
     """Signed shoelace area of the closed orbit (q, dq/dt)."""
     if len(x) < 3:
@@ -217,11 +217,11 @@ sig_std = StdSignalData(
 # -------------------------------------------------------------------------------
 # 2.  RUN INDICATOR
 # -------------------------------------------------------------------------------
-# Config estándar CAMP10 para FixedWindow — interfaz unificada f_cycle.
+# Config estándar CAMP10 para Lyapunov — interfaz unificada f_cycle.
 # f_cycle = f_modal → ventana por periodo modal  (T_cycle = T_modal)
 # Equivalencia: dt = _DT_STEP × T_modal = step_cycles / f_cycle
-config_std_fixed = {
-    "func":       "FixedWindow",
+config_std_lyapunov = {
+    "func":       "Lyapunov",
     "params_physical": {
         "f_modal":          _F_MODAL,               # Hz — filtro bandpass y ciclo
         "f_cycle":          _F_MODAL,               # Hz — ventana por periodo modal
@@ -241,14 +241,14 @@ config_std_fixed = {
     },
 }
 
-result_std = run_green_std(sig_std, config_std_fixed)
+result_std = run_green_std(sig_std, config_std_lyapunov)
 
 # Extraer campos desde IndicatorResult (interfaz estándar)
 # result_std.t    = t_wins (tiempos de inicio de ventana)
 # result_std.I_t  = sigma_ewma (exponente de Lyapunov suavizado)
 # result_std.t_d  = tiempo de detección
-# result_std.meta["raw_result"] = FixedWindowResult (acceso a areas, sigma, global_data)
-result_fw = result_std.meta["raw_result"]   # FixedWindowResult completo
+# result_std.meta["raw_result"] = LyapunovResult (acceso a areas, sigma, global_data)
+result_fw = result_std.meta["raw_result"]   # LyapunovResult completo
 
 t_wins = np.asarray(result_std.t)             # == result_fw.t_wins
 areas  = np.asarray(result_fw.areas)

@@ -1,4 +1,4 @@
-"""Phase-space diagnostics for the fixed-window Green integral indicator.
+"""Phase-space diagnostics for the Lyapunov Green integral indicator.
 
 Functions
 ---------
@@ -7,7 +7,7 @@ center_trajectory     : quita el centro lento → (xr, vr).
 compute_local_phase   : fase local phi = unwrap(arctan2(vr, xr)), dphi.
 drift_ratio           : rho = desplazamiento_centro / radio_local_medio.
 
-Uso típico (dentro del debug loop de runner_fixed.py):
+Uso típico (dentro del debug loop de runner_lyapunov.py):
     cx, cv = estimate_center(q_win, v_win, center_win)
     xr, vr = center_trajectory(q_win, v_win, cx, cv)
     phi, dphi = compute_local_phase(xr, vr)

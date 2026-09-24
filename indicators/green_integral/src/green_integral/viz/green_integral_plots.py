@@ -9,7 +9,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import norm as _scipy_norm
 
-from ..utils.types import SignalData, GreenIntegralResult, FixedWindowResult
+from ..utils.types import SignalData, GreenIntegralResult, LyapunovResult
 from .plots import plot_windows_local, plot_windows_duration, plot_indicator_local
 
 # ── Color palette ─────────────────────────────────────────────────────────────────────────────
@@ -156,17 +156,17 @@ def plots_green_integral(
 
 
 # ---------------------------------------------------------------------------
-# Fixed-window indicator plots
+# Lyapunov indicator plots
 # ---------------------------------------------------------------------------
 
-def plots_fixed_window(
+def plots_lyapunov(
     signal: SignalData,
-    result: FixedWindowResult,
+    result: LyapunovResult,
     t_gt: Optional[float] = None,
     training_intervals=None,
     show: bool = True,
 ) -> None:
-    """Produce the standard set of plots for a :class:`FixedWindowResult`.
+    """Produce the standard set of plots for a :class:`LyapunovResult`.
 
     Figures produced
     ----------------
@@ -180,7 +180,7 @@ def plots_fixed_window(
     Parameters
     ----------
     signal             : original input signal.
-    result             : output of :func:`run_fixed_window`.
+    result             : output of :func:`run_lyapunov`.
     t_gt               : ground-truth chatter onset [s] (optional).
     training_intervals : list of ``(t0, t1, label)`` tuples. Entries whose
                          label starts with ``"stable"`` define the stable
@@ -605,7 +605,7 @@ def plots_fixed_window(
 
 def plots_signal_diagnostics(
     signal: SignalData,
-    result: FixedWindowResult,
+    result: LyapunovResult,
     stable_range: Tuple[float, float] = (0.5, 4.0),
     zoom_range: Tuple[float, float] = (1.0, 1.2),
     eq_smooth_s: float = 0.050,
@@ -634,7 +634,7 @@ def plots_signal_diagnostics(
     Parameters
     ----------
     signal        : original input signal.
-    result        : output of :func:`run_fixed_window`.
+    result        : output of :func:`run_lyapunov`.
     stable_range  : ``(t_start, t_end)`` [s] defining the "stable" zone
                     used for the FFT and autocorrelation.
     zoom_range    : ``(t_start, t_end)`` [s] for the signal zoom (B1/B2).
