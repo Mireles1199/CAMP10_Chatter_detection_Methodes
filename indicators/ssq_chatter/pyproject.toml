@@ -22,7 +22,9 @@ dependencies = [
   "numpy>= 1.26.4",
   "scipy>=1.9",
   "numba>= 0.62.1",
-  # "matplotlib>=3.6",   # descomenta si usarás visualizaciones
+  "matplotlib>=3.6",
+  "h5py>=3.0",
+  "statsmodels>=0.13",
   # "pyfftw>=0.13",      # descomenta si usarás pyFFTW
 ]
 
@@ -38,12 +40,8 @@ classifiers = [
 
 
 # Comentario: extras opcionales para instalación tipo:
-#   pip install .[viz]
 #   pip install .[gpu]
 [project.optional-dependencies]
-viz = [
-  "matplotlib>=3.6",
-]
 gpu = [
   # Comentario: agrega aquí libs GPU si las usas (p.ej., cupy, numba cuda, etc.)
   # "cupy-cuda12x>=12.0",   # ejemplo

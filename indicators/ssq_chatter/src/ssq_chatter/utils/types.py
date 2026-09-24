@@ -76,16 +76,16 @@ class IndicatorResult:
         Eje temporal asociado al índice I(t). Puede ser tiempo o ciclos.
     I_t : np.ndarray
         Valor del índice.
-    t_d : Optional[float]
-        Tiempo de detección.
+    t_d : np.ndarray
+        Tiempos de detección [s]. Array vacío si no hubo detección (nunca ``None``).
     meta : Dict[str, Any]
         Metadatos adicionales específicos del indicador.
     """
     name: str
     t: np.ndarray
     I_t: np.ndarray
-    t_d: Optional[float] = None
-    t_d_no_FAR: Optional[float] = None
+    t_d: np.ndarray = field(default_factory=lambda: np.array([]))
+    t_d_no_FAR: np.ndarray = field(default_factory=lambda: np.array([]))
     meta: Dict[str, Any] = field(default_factory=dict)
 
 

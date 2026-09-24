@@ -242,11 +242,12 @@ def run_sst_svd(signal: SignalData, INDICATOR_CONFIG: dict ) -> IndicatorResult:
         func = _sst_svd_pipeline
 
     trace: Optional[Dict[str, Any]] = None
+    params_physical: Dict[str, Any] = {}
 
     if param_mode == "native":
         params: Dict[str, Any] = INDICATOR_CONFIG.get("params", {})
     else:
-        params_physical: Dict[str, Any] = INDICATOR_CONFIG["params_physical"]
+        params_physical = INDICATOR_CONFIG["params_physical"]
         params, trace = _resolve_physical_params_ssq(
             param_mode, params_physical, signal.fs
         )
@@ -272,14 +273,31 @@ def run_sst_svd(signal: SignalData, INDICATOR_CONFIG: dict ) -> IndicatorResult:
 
     result: IndicatorResult = func(signal, **params)
 
-    if params_physical.get("T_rev", None) is not None:
-        f_cycle = 1 / (params_physical.get("T_rev", "n/a"))
+    # ── traceability: derive by param_mode, never by which key is present ────
+    if param_mode == "native":
+        unit_name   = "native"
+        T_unit      = float("nan")
+        f_cycle     = float("nan")
+        N_cycles    = None
+        step_cycles = None
     else:
-        f_cycle = 1 / (params_physical.get("T_modal", "n/a"))
+        unit_name   = trace["unit_name"]
+        T_unit      = trace["T_unit"]
+        f_cycle     = 1.0 / T_unit
+        N_cycles    = trace["N_win"]
+        step_cycles = trace["step"]
 
-    # ── traceability in meta ────────────────────────────────────────────────
-    result.meta["param_mode"] = param_mode
-    result.meta["f_cycle"] = f_cycle
+    result.meta["param_mode"]   = param_mode
+    result.meta["unit_name"]    = unit_name
+    result.meta["T_unit"]       = T_unit
+    result.meta["f_cycle"]      = f_cycle
+    result.meta["N_cycles"]     = N_cycles
+    result.meta["step_cycles"]  = step_cycles
+    result.meta["Total_window"] = (
+        N_cycles + (result.meta["Ai_length"] - 1) * step_cycles
+        if N_cycles is not None else result.meta["Ai_length"]
+    )
+
     if trace is not None:
         result.meta["physical_params_input"]  = trace["physical_params_input"]
         result.meta["native_params_resolved"] = trace["native_params_resolved"]
@@ -288,15 +306,10 @@ def run_sst_svd(signal: SignalData, INDICATOR_CONFIG: dict ) -> IndicatorResult:
         result.meta["K_svd_total_exact_units"]      = trace["K_svd_total_exact_units"]
         result.meta["t_svd_total_efectivo_s"]          = trace["t_svd_total_efectivo_s"]
         result.meta["K_svd_total_efectivo_units"]      = trace["K_svd_total_efectivo_units"]
-        result.meta["unit_name"]              = trace["unit_name"]
-        result.meta["T_unit"]                 = trace["T_unit"]
         result.meta["t_win_exact_ms"]         = trace["t_win_exact_ms"]
         result.meta["t_win_efectivo_ms"]          = trace["t_win_efectivo_ms"]
         result.meta["t_hop_exact_ms"]         = trace["t_hop_exact_ms"]
         result.meta["t_hop_efectivo_ms"]          = trace["t_hop_efectivo_ms"]
-        result.meta["N_cycles"]                 = trace["N_win"]
-        result.meta["step_cycles"]              = trace["step"]
-        result.meta["Total_window"] =  result.meta["N_cycles"] + (result.meta["Ai_length"] - 1) * result.meta["step_cycles"]
 
 # ---------- WARNING: resultado critico ----------------------------------------
     if result.t_d.size > 0:
@@ -304,10 +317,12 @@ def run_sst_svd(signal: SignalData, INDICATOR_CONFIG: dict ) -> IndicatorResult:
         logger.info("  %-24s %s",     "Indicador:",         result.name)
         logger.info("  %-24s %s",     "Modo config:",        result.meta["param_mode"])
         logger.info("  %-24s %.3f Hz",   "Frecuency Cycle:", result.meta["f_cycle"])
-        logger.info("  %-24s %d",      "SST Windows",       result.meta["N_cycles"])
+        if result.meta["N_cycles"] is not None:
+            logger.info("  %-24s %d",  "SST Windows",       result.meta["N_cycles"])
         logger.info("  %-24s %d",      "SVD Windows",             result.meta["Ai_length"])
         logger.info("  %-24s %d",      "Total Windows",           result.meta["Total_window"])
-        logger.info("  %-24s %.3f",    "Step:",             result.meta["step_cycles"])
+        if result.meta["step_cycles"] is not None:
+            logger.info("  %-24s %.3f", "Step:",            result.meta["step_cycles"])
         logger.info("  %-24s %.10f",    "SVD Threshold:",         result.meta["lim_sup"])
 
         logger.info(
