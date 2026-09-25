@@ -148,11 +148,20 @@ def main() -> None:
             r"\4\1DOF_150Hz\sens_out.hdf5"
         ),
 
+        "tubo_stable_8_605e_5" : (
+            r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
+            r"\Chatter-Criteria\CAMP10_Chatter_detection_Methodes"
+            r"\Convergency_Simulation\1_Detection_Limite_Lobes"
+            r"\DOE_Detection_Limite_Lobes_dxl_20e-5_RUN_10"
+            r"\6\1DOF_150Hz\sens_out.hdf5"
+        ),
+
+
     }
 
     # See COMMON_TEMPLATE.md §11 -- forma estándar de declarar el origen de la señal.
     _SIGNAL_SOURCE = {
-        "hdf5_path": _DATA_DIRS["tubo_stable_6_88e_5"],
+        "hdf5_path": _DATA_DIRS["tubo_stable_8_605e_5"],
         "case_name": None,  # None (layout crudo) | "case_003" (layout DOE)
         "disp_name": "Axial_disp",
         "vel_name": "Axial_vel",
