@@ -55,7 +55,7 @@ from .utils.types import (  # noqa: E402
     LyapunovResult,
     IndicatorResult,
 )
-from .utils.hdf5_utils import HDF5Reader  # noqa: E402
+from .utils.hdf5_utils import HDF5Reader, load_signal  # noqa: E402
 from .lib.runner import run_green_integral, INDICATOR_CONFIG  # noqa: E402
 from .lib.runner_lyapunov import run_lyapunov, LYAPUNOV_CONFIG  # noqa: E402
 from .lib.runner_std import run_green_std  # noqa: E402
@@ -69,6 +69,7 @@ __all__ = [
     "GreenIntegralConfig",
     "GreenIntegralResult",
     "HDF5Reader",
+    "load_signal",
     "run_green_integral",
     "plots_green_integral",
     "INDICATOR_CONFIG",

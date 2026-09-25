@@ -81,6 +81,11 @@ class GreenIntegralConfig:
     frac_stable: float = 0.30
     stable_time: Optional[Tuple[float, float]] = None
     z_sigma: float = 3.0
+    reference_signal: Optional["SignalData"] = None
+    """External signal (already labeled "stable") windowed with the same
+    f_modal/num_T/dt and used in full as the training population for the
+    mu ± zσ area threshold, replacing training_intervals/stable_time/
+    frac_stable when set. See ``result.meta["training_source"]``."""
 
     # --- debug / output ---
     debug_level: int = 0
@@ -186,6 +191,11 @@ class LyapunovConfig:
     frac_stable: float = 0.30
     stable_time: Optional[Tuple[float, float]] = None
     z_sigma: float = 3.0
+    reference_signal: Optional["SignalData"] = None
+    """External signal (already labeled "stable"), windowed with the same
+    pipeline and used in full as the training population for the mu ± zσ
+    area threshold, replacing training_intervals/stable_time/frac_stable
+    when set. See ``result.meta["training_source"]``."""
 
     # --- cycle extraction ---
     use_zero_crossing_cycles: bool = True

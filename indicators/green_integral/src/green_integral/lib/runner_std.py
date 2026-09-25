@@ -40,6 +40,15 @@ CAMP10 indicators (maxent_sprt, rms_cv, ssq_chatter) per
             "z_sigma": 3.0,
             # ... any other GreenIntegralConfig / LyapunovConfig field
         },
+
+        # optional, top-level (any param_mode): external reference signal
+        # already labeled "stable" (see the DOE reference-dataset pipeline).
+        # When set, it is windowed with the same f_modal/num_T/dt and used in
+        # full as the training population for the mu +- z*sigma area
+        # threshold, replacing training_intervals/stable_time/frac_stable.
+        # Omit it (default) for 100% unchanged behavior. See
+        # result.meta["training_source"] ("external_reference" | "internal").
+        "reference_signal": None,  # Optional[StdSignalData]
     }
 
   Unlike MaxEnt/RMS-CV/SSQ, Green does not adopt the ``segmentation``
@@ -193,6 +202,42 @@ def _resolve_physical_params_green(
     return native_params, trace
 
 
+def _to_internal_signal(
+    signal_data: StdSignalData,
+    label: str,
+) -> Tuple[_GreenSignalData, str]:
+    """Convert a :class:`StdSignalData` into Green's internal ``SignalData``.
+
+    Velocity is taken from ``meta["velocity"]`` when provided, otherwise
+    estimated via ``np.gradient``. Shared by the analyzed signal and an
+    optional ``reference_signal`` so both are built identically.
+    """
+    t_arr = np.asarray(signal_data.t_analysis, dtype=float)
+    x_arr = np.asarray(signal_data.signal_analysis, dtype=float)
+
+    if "velocity" in signal_data.meta and signal_data.meta["velocity"] is not None:
+        v_arr = np.asarray(signal_data.meta["velocity"], dtype=float)
+        vel_source = "meta['velocity']"
+    else:
+        logger.warning(
+            "Warning: velocity not found in meta for %s; using np.gradient for estimation.",
+            label,
+        )
+        v_arr = np.gradient(x_arr, t_arr)
+        vel_source = "np.gradient (estimated)"
+
+    sig_name = (
+        signal_data.meta.get("signal", None)
+        or signal_data.meta.get("name", None)
+        or signal_data.path
+        or label
+    )
+    internal_sig = _GreenSignalData(
+        t=t_arr, displacement=x_arr, velocity=v_arr, name=str(sig_name),
+    )
+    return internal_sig, vel_source
+
+
 def run_green_std(
     signal_data: StdSignalData,
     config: Dict[str, Any],
@@ -234,33 +279,16 @@ def run_green_std(
 
     use_area_threshold = bool(native_params.get("use_area_threshold", False))
 
-    # ── Build displacement & velocity arrays ─────────────────────────────────
-    t_arr  = np.asarray(signal_data.t_analysis,    dtype=float)
-    x_arr  = np.asarray(signal_data.signal_analysis, dtype=float)
-
-    if "velocity" in signal_data.meta and signal_data.meta["velocity"] is not None:
-        v_arr = np.asarray(signal_data.meta["velocity"], dtype=float)
-        vel_source = "meta['velocity']"
-    else:
-        logger.warning("Warning: velocity not found in meta; using np.gradient for estimation.")
-        v_arr = np.gradient(x_arr, t_arr)
-        vel_source = "np.gradient (estimated)"
-
+    # ── Build internal GreenSignalData (analyzed signal + optional reference) ──
+    internal_sig, vel_source = _to_internal_signal(signal_data, "signal")
     logger.debug("run_green_std | velocity source: %s", vel_source)
 
-    # ── Build internal GreenSignalData ───────────────────────────────────────
-    sig_name = (
-        signal_data.meta.get("signal", None)
-        or signal_data.meta.get("name", None)
-        or signal_data.path
-        or "signal"
-    )
-    internal_sig = _GreenSignalData(
-        t=t_arr,
-        displacement=x_arr,
-        velocity=v_arr,
-        name=str(sig_name),
-    )
+    reference_signal_std: Optional[StdSignalData] = config.get("reference_signal")
+    training_source = "external_reference" if reference_signal_std is not None else "internal"
+    if reference_signal_std is not None:
+        internal_ref_sig, ref_vel_source = _to_internal_signal(reference_signal_std, "reference_signal")
+        logger.debug("run_green_std | reference_signal velocity source: %s", ref_vel_source)
+        native_params = {**native_params, "reference_signal": internal_ref_sig}
 
     # ── Run indicator ─────────────────────────────────────────────────────────
     if func == "Default":
@@ -359,6 +387,7 @@ def run_green_std(
         "step_cycles": step,
         "Total_window": N_win,
         "use_area_threshold": use_area_threshold,
+        "training_source": training_source,
         "I_t_meaning": "areas_Ak" if use_area_threshold else ("delta_n" if func == "Default" else "sigma_ewma"),
         "vel_source": vel_source,
         "raw_result": raw_result,

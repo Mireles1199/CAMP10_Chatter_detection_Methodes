@@ -21,6 +21,7 @@ Decision rule
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -951,49 +952,67 @@ def _lyapunov_pipeline(
     sigma_log = None
     upper_log = None
     lower_log = None
+    train_areas  = np.array([], dtype=float)
+    train_t_wins = np.array([], dtype=float)
+
+    training_source = "external_reference" if config.reference_signal is not None else "internal"
 
     # Only compute μ±zσ area threshold when the user explicitly enabled
-    # `use_area_threshold` AND provided `training_intervals`. Skip automatic
-    # fallback selection of stable windows when training_intervals is None.
-    if config.use_area_threshold and config.training_intervals is not None:
-        stab = _select_stable_mask(
-            t_wins, config.training_intervals,
-            config.stable_time, config.frac_stable,
-        )
+    # `use_area_threshold` AND provided a training source (`reference_signal`
+    # or `training_intervals`). Skip automatic fallback selection of stable
+    # windows when neither is given.
+    has_training_source = config.reference_signal is not None or config.training_intervals is not None
+    if config.use_area_threshold and has_training_source:
         valid_mask = np.isfinite(areas) & (areas > config.area_noise_eps)
-        stab_valid = stab & valid_mask
-        if stab_valid.sum() >= 3:
+
+        if config.reference_signal is not None:
+            if config.training_intervals is not None or config.stable_time is not None:
+                logger.warning(
+                    "Both 'reference_signal' and internal training selectors "
+                    "(training_intervals/stable_time) were provided; "
+                    "reference_signal takes priority."
+                )
+            # Run the same windowing pipeline over the external reference
+            # signal and use ALL of its windows as the training population.
+            ref_config = replace(
+                config, reference_signal=None, use_area_threshold=False, debug_level=0,
+            )
+            ref_result = _lyapunov_pipeline(config.reference_signal, ref_config)
+            ref_valid = np.isfinite(ref_result.areas) & (ref_result.areas > config.area_noise_eps)
+            train_areas = ref_result.areas[ref_valid]
+            train_t_wins = ref_result.t_wins[ref_valid]
+        else:
+            stab = _select_stable_mask(
+                t_wins, config.training_intervals,
+                config.stable_time, config.frac_stable,
+            )
+            train_areas = areas[stab & valid_mask]
+            train_t_wins = t_wins[stab & valid_mask]
+
+        if train_areas.size >= 3:
             # Work in log10 space — areas are approximately log-normal
-            log10_stab = np.log10(areas[stab_valid])
+            log10_stab = np.log10(train_areas)
             mu_log    = float(np.mean(log10_stab))
             sigma_log = float(np.std(log10_stab, ddof=1))
             upper_log = mu_log + config.z_sigma * sigma_log
             lower_log = mu_log - config.z_sigma * sigma_log
-
-            # log10_stab = areas[stab_valid]
-            # mu_log    = float(np.mean(log10_stab))
-            # sigma_log = float(np.std(log10_stab, ddof=1))
-            # upper_log = mu_log + config.z_sigma * sigma_log
-            # lower_log = mu_log - config.z_sigma * sigma_log
-
 
             area_mu_3sigma = {
                 "mu": mu_log, "sigma": sigma_log,
                 "upper": upper_log, "lower": lower_log, "z": config.z_sigma,
             }
             # detection in linear space: area > 10^upper_log
-            det_idx = np.where( valid_mask & (areas > 10 ** upper_log))[0]
-            # det_idx = np.where(~stab & valid_mask & (areas > upper_log))[0]
+            det_idx = np.where(valid_mask & (areas > 10 ** upper_log))[0]
             if det_idx.size > 0:
                 t_d_detected = np.float64(t_wins[det_idx])
             logger.info_plus(
-                "Lyapunov area threshold (log10): mu=%.4g, sigma=%.4g, upper=%.4g",
-                mu_log, sigma_log, upper_log,
+                "Lyapunov area threshold (log10, %s): mu=%.4g, sigma=%.4g, upper=%.4g",
+                training_source, mu_log, sigma_log, upper_log,
             )
         else:
             logger.warning(
-                "Lyapunov area threshold: not enough stable windows (%d < 3), skipped.",
-                stab_valid.sum(),
+                "Lyapunov area threshold: not enough training windows (%d < 3), skipped.",
+                train_areas.size,
             )
 
     global_data: Dict[str, Any] = {
@@ -1005,9 +1024,20 @@ def _lyapunov_pipeline(
         "area_mu_3sigma":     area_mu_3sigma,
         "training_intervals": list(config.training_intervals) if config.training_intervals else None,
         "use_area_threshold": bool(config.use_area_threshold),
+        "training_source":    training_source,
+        # Exact population that trained the threshold above (linear areas;
+        # area_mu_3sigma is in log10 space) — used by
+        # plots.plot_training_distribution() so the histogram/curve always
+        # matches training_source, instead of being re-derived (possibly
+        # against the wrong signal) from training_intervals at plot time.
+        "training_areas":     train_areas,
+        "training_t_wins":    train_t_wins,
     }
-    t_d_detected_no_FAR_idx =  np.where(t_d_detected >= config.t_theorical)[0] if t_d_detected is not None else np.array([], dtype=int)
-    td_detected_no_FAR = t_d_detected[t_d_detected_no_FAR_idx] if t_d_detected is not None else None
+    if t_d_detected is not None and config.t_theorical is not None:
+        t_d_detected_no_FAR_idx = np.where(t_d_detected >= config.t_theorical)[0]
+        td_detected_no_FAR = t_d_detected[t_d_detected_no_FAR_idx]
+    else:
+        td_detected_no_FAR = None
 
 
 
@@ -1050,6 +1080,7 @@ _DEFAULT_LYAPUNOV_PARAMS: Dict[str, Any] = {
     "frac_stable":        0.30,
     "stable_time":        None,
     "z_sigma":            3.0,
+    "reference_signal":   None,
     "debug_level":        0,
     "debug_window_range": (0.0, None),
     "t_theorical":       None,

@@ -259,3 +259,29 @@ class HDF5Reader:
     def find_first(self, key: str) -> Optional[str]:
         matches = self.find_all(key)
         return matches[0] if matches else None
+
+
+def load_signal(
+    reader: "HDF5Reader",
+    signal_name: str,
+    case_name: Optional[str] = None,
+) -> "tuple[np.ndarray, np.ndarray]":
+    """Read ``(t, y)`` from an already-loaded :class:`HDF5Reader`.
+
+    Shared convention across the 4 CAMP10 indicators (MaxEnt/RMS-CV/SST/
+    Green) for the two HDF5 layouts a signal can come from:
+
+    - ``case_name=None`` -> raw simulator layout (``sens_out.hdf5``/
+      ``out.hdf5``): ``"<signal_name>/data"`` as a single ``(N, 2)`` array,
+      column 0 = time, column 1 = value.
+    - ``case_name="<grupo>"`` -> DOE-repackaged layout (``doe_results.h5``/
+      ``doe_noise_results.h5``): ``"<case_name>/<signal_name>/time"`` and
+      ``"<case_name>/<signal_name>/values"`` as separate 1-D datasets.
+    """
+    if case_name:
+        t = np.asarray(reader.get_element(f"{case_name}/{signal_name}/time"), dtype=float)
+        y = np.asarray(reader.get_element(f"{case_name}/{signal_name}/values"), dtype=float)
+    else:
+        arr = np.asarray(reader.get_element(f"{signal_name}/data"), dtype=float)
+        t, y = arr[:, 0], arr[:, 1]
+    return t, y

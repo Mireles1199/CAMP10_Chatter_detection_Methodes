@@ -10,7 +10,12 @@ import matplotlib.pyplot as plt
 from scipy.stats import norm as _scipy_norm
 
 from ..utils.types import SignalData, GreenIntegralResult, LyapunovResult
-from .plots import plot_windows_local, plot_windows_duration, plot_indicator_local
+from .plots import (
+    plot_windows_local,
+    plot_windows_duration,
+    plot_indicator_local,
+    plot_training_distribution,
+)
 
 # ── Color palette ─────────────────────────────────────────────────────────────────────────────
 r, g, b = colorsys.hls_to_rgb(346/360, 0.45, 0.99);  color_red    = (r, g, b)
@@ -150,6 +155,10 @@ def plots_green_integral(
     plot_windows_local(result_dict, name=name)
     plot_windows_duration(result_dict, name=name)
     plot_indicator_local(result_dict, name=name)
+    # Histogram + verification curve for the mu +- z*sigma training
+    # population (internal training_intervals or external reference_signal —
+    # see COMMON_TEMPLATE.md Fase 3).
+    plot_training_distribution(result_dict.get("global_data", {}), name=name, log_transform=False)
 
     if show:
         plt.show(block=True)
@@ -173,7 +182,14 @@ def plots_lyapunov(
     C1. **Signal split** — displacement and velocity, stable (azul) vs chatter (orange).
     C2. **Areas** — shoelace area per window on a log scale.
     C3. **Lyapunov** — raw σ̂ and (if available) σ̂_EWMA.
-    C4. **Histogram** — stable areas (log₁₀), Gaussian PDF, μ + μ±3σ lines.
+    Training population — histogram + Gaussian fit, and a verification curve
+        of the exact windows that trained mu +- z*sigma (see
+        ``plots.plot_training_distribution``); sourced from
+        ``global_data["training_areas"]``, so it always matches whichever
+        ``training_source`` ("internal" training_intervals or
+        "external_reference" reference_signal) actually trained the threshold.
+    D1b/D4b. Per-label breakdown — only when training_source == "internal"
+        and >=2 distinct "stable*" labels were passed via training_intervals.
     Ĝ  **Accumulator** — only when ``result.G_hat`` is non-empty.
     Ĝs **Sliding** — only when ``result.G_hat_sliding`` is non-empty.
 
@@ -199,15 +215,11 @@ def plots_lyapunov(
     gd     = result.global_data or {}
     thr    = gd.get("area_mu_3sigma") or {}
     area_threshold_enabled = bool(gd.get("use_area_threshold", False))
+    training_source = gd.get("training_source", "internal")
 
     # training_intervals: direct param overrides global_data
     if training_intervals is None:
         training_intervals = gd.get("training_intervals")
-    # If training_intervals was not explicitly provided (None), treat it as
-    # "no explicit training" and avoid plotting histograms / Gaussian PDFs
-    # that rely on a user-defined stable training region. This prevents
-    # showing μ±3σ curves when no training intervals were supplied.
-    explicit_training_provided = training_intervals is not None
 
     _all_stable_ranges = [
         (_t0, _t1)
@@ -232,68 +244,26 @@ def plots_lyapunov(
     if t_arr.size > 0 and q_arr.size == t_arr.size and v_arr.size == t_arr.size:
         fig_c1, (ax_x, ax_v) = plt.subplots(
             2, 1, figsize=fig_size(scale=3.0), sharex=True,
-            constrained_layout=True,
         )
         fig_c1.suptitle(f"C1 — Signal — {name}")
-        _split_t = t_gt if t_gt is not None else t_d
-        if _all_stable_ranges:
-            # plot each stable interval separately (avoids connecting lines)
-            for _bi, (_t0, _t1) in enumerate(_all_stable_ranges):
-                _m = (t_arr >= _t0) & (t_arr <= _t1)
-                if _m.any():
-                    ax_x.plot(t_arr[_m], q_arr[_m], color=color_azul,
-                              lw=0.8, label="Stable" if _bi == 0 else "_nolegend_")
-            if _split_t is not None:
-                _mc = t_arr >= _split_t
-                if _mc.any():
-                    ax_x.plot(t_arr[_mc], q_arr[_mc], color=color_orange,
-                              lw=0.8, label="Chatter")
-        else:
-            if _split_t is not None:
-                mask_s = t_arr < _split_t
-                mask_c = t_arr >= _split_t
-            else:
-                mask_s = np.ones(len(t_arr), dtype=bool)
-                mask_c = np.zeros(len(t_arr), dtype=bool)
-            if mask_s.any():
-                ax_x.plot(t_arr[mask_s], q_arr[mask_s], color=color_azul,
-                          lw=0.8, label="Stable")
-            if mask_c.any():
-                ax_x.plot(t_arr[mask_c], q_arr[mask_c], color=color_orange,
-                          lw=0.8, label="Chatter")
+        # Single trace, single color — stable/chatter timing is already
+        # marked by the t_gt/t_d vlines below, no need to split the line
+        # itself into two colors.
+        ax_x.plot(t_arr, q_arr, color=color_azul, lw=0.8, label="Signal")
         ax_x.set_ylabel("Displacement [m]")
         ax_x.legend()
         _draw_vlines(ax_x, auto_vlines)
-        if _all_stable_ranges:
-            for _bi, (_t0, _t1) in enumerate(_all_stable_ranges):
-                _m = (t_arr >= _t0) & (t_arr <= _t1)
-                if _m.any():
-                    ax_v.plot(t_arr[_m], v_arr[_m], color=color_azul,
-                              lw=0.8, label="Stable" if _bi == 0 else "_nolegend_")
-            if _split_t is not None:
-                _mc = t_arr >= _split_t
-                if _mc.any():
-                    ax_v.plot(t_arr[_mc], v_arr[_mc], color=color_orange,
-                              lw=0.8, label="Chatter")
-        else:
-            _v_split_t = t_gt if t_gt is not None else t_d
-            if _v_split_t is not None:
-                _ms = t_arr < _v_split_t
-                _mc = t_arr >= _v_split_t
-            else:
-                _ms = np.ones(len(t_arr), dtype=bool)
-                _mc = np.zeros(len(t_arr), dtype=bool)
-            if _ms.any():
-                ax_v.plot(t_arr[_ms], v_arr[_ms], color=color_azul,
-                          lw=0.8, label="Stable")
-            if _mc.any():
-                ax_v.plot(t_arr[_mc], v_arr[_mc], color=color_orange,
-                          lw=0.8, label="Chatter")
+        ax_v.plot(t_arr, v_arr, color=color_azul, lw=0.8, label="Signal")
         ax_v.set_ylabel("Velocity [m/s]")
         ax_v.set_xlabel("Time [s]")
         ax_v.legend()
         _draw_vlines(ax_v, auto_vlines)
-        # constrained_layout handles spacing for 2-subplot figure
+        # One-shot layout, not a persistent engine (layout='tight' /
+        # constrained_layout=True recompute on every draw/savefig, so
+        # ax.get_position() would visibly wobble depending on which
+        # vline/hline text labels happen to be in view at that moment —
+        # see plot_training_distribution's sibling fix in plots.py history).
+        fig_c1.tight_layout()
 
     # ── C2: Areas per window ──────────────────────────────────────────────
     fig_c2, ax_c2 = plt.subplots(figsize=fig_size(scale=3.0))
@@ -307,7 +277,7 @@ def plots_lyapunov(
         ax_c2.plot(t_wins[valid], areas[valid], color=color_azul,
                    lw=1.0, marker="o", markersize=2, label="$A_k$")
         ax_c2.set_yscale("log")
-    if thr and explicit_training_provided and area_threshold_enabled:
+    if thr and area_threshold_enabled:
         z_lbl   = f"{thr['z']:.0f}"
         y_upper = 10 ** thr["upper"]
         y_lower = 10 ** thr["lower"]
@@ -348,7 +318,7 @@ def plots_lyapunov(
         ax_c2b.plot(t_wins[valid], area_c_k[valid], color=color_purple,
                    lw=1.0, marker="o", markersize=2, label="$C_k+K_k$") 
         ax_c2b.set_yscale("linear")
-    if thr and explicit_training_provided and area_threshold_enabled:
+    if thr and area_threshold_enabled:
         z_lbl   = f"{thr['z']:.0f}"
         y_upper = 10 ** thr["upper"]
         y_lower = 10 ** thr["lower"]
@@ -370,7 +340,7 @@ def plots_lyapunov(
 
 
     # ── C3: Lyapunov exponent σ̂ ──────────────────────────────────────────
-    fig_c3, ax_c3 = plt.subplots(figsize=fig_size(scale=3.0), layout='tight')
+    fig_c3, ax_c3 = plt.subplots(figsize=fig_size(scale=3.0))
     ax_c3.set_title(rf"C3 — Lyapunov $\hat{{\sigma}}$(t) — {name}")
     ax_c3.set_xlabel("Time [s]")
     ax_c3.set_ylabel(r"$\hat{\sigma}$ [1/s]")
@@ -390,89 +360,42 @@ def plots_lyapunov(
                   label=r"$\hat{\sigma}=0$")
     _draw_vlines(ax_c3, auto_vlines)
     ax_c3.legend()
+    fig_c3.tight_layout()  # one-shot, not layout='tight' — see C1 for why
 
-    # ── C4: Histogram of stable areas ─────────────────────────────────────
-    N_wins = len(t_wins)
-    if _all_stable_ranges:
-        stable_mask = np.zeros(N_wins, dtype=bool)
+    # ── Training population diagnostics (histogram + verification curve) ───
+    # Sourced from global_data["training_areas"]/["training_t_wins"] — the
+    # exact windows that trained mu/sigma above, correct regardless of
+    # training_source ("internal" training_intervals or "external_reference"
+    # reference_signal — see COMMON_TEMPLATE.md Fase 3). Replaces the old
+    # C4/D1 figures, which always re-derived a "stable" slice from
+    # training_intervals against THIS signal even when the threshold had
+    # actually been trained on a separate reference_signal.
+    plot_training_distribution(gd, name=name, log_transform=True)
+
+    # ── D1b / D4b: per-label breakdown — only meaningful for internal
+    # training (needs this signal's own training_intervals labels; skipped
+    # for training_source == "external_reference", where they don't apply).
+    _stable_label_groups: dict = {}
+    for _t0, _t1, _lbl in (training_intervals or []):
+        if str(_lbl).startswith("stable"):
+            _stable_label_groups.setdefault(str(_lbl), []).append((_t0, _t1))
+
+    if (training_source != "external_reference" and area_threshold_enabled
+            and len(_stable_label_groups) >= 2
+            and thr and float(thr.get("sigma", 0.0)) > 0):
+        mu_h, std_h = float(thr["mu"]), float(thr["sigma"])
+        stable_mask = np.zeros(len(t_wins), dtype=bool)
         for _t0, _t1 in _all_stable_ranges:
             stable_mask |= (t_wins >= _t0) & (t_wins <= _t1)
-    else:
-        _stable_split = t_gt if t_gt is not None else t_d
-        if _stable_split is not None:
-            stable_mask = t_wins < _stable_split
-        else:
-            stable_mask = np.zeros(N_wins, dtype=bool)
-            stable_mask[:max(3, int(0.30 * N_wins))] = True
-    stable_areas = areas[stable_mask]
-    valid_sa = np.isfinite(stable_areas) & (stable_areas > 0)
-    # Only show stable-area histogram / Gaussian fit if the user provided
-    # explicit training intervals (otherwise we assume no training-based
-    # thresholding / annotation is desired).
-    if valid_sa.sum() >= 5 and explicit_training_provided and area_threshold_enabled:
+        stable_areas = areas[stable_mask]
+        valid_sa = np.isfinite(stable_areas) & (stable_areas > 0)
         log10_a = np.log10(stable_areas[valid_sa])
-        fig_c4, ax_c4 = plt.subplots(figsize=fig_size(scale=3.0), layout='tight')
-        ax_c4.set_title(f"C4 — Stable Area Distribution — {name}")
-        ax_c4.set_xlabel(r"$\log_{10}(A_k)$")
-        ax_c4.set_ylabel("Density")
-        ax_c4.hist(log10_a, bins=40, density=True, alpha=0.55,
-                   color=color_azul, label=f"Stable (n={int(valid_sa.sum())})")
-        mu_h  = float(np.mean(log10_a))
-        std_h = float(np.std(log10_a))
-        if std_h > 0:
-            xs = np.linspace(mu_h - 4 * std_h, mu_h + 4 * std_h, 300)
-            ax_c4.plot(xs, _scipy_norm.pdf(xs, mu_h, std_h),
-                       color=color_azul, lw=1.8, ls="-")
-            ax_c4.axvline(mu_h, color=color_verde, ls="-", lw=1.4)
-            _add_vline_label(ax_c4, mu_h, rf"$\mu={mu_h:.3g}$", fontsize=14, color=color_verde)
-            if thr and thr.get("upper", 0) > 0 and thr.get("lower", 0) > 0:
-                lo3   = np.log10(float(thr["lower"]))
-                hi3   = np.log10(float(thr["upper"]))
-                z_lbl = f"{thr['z']:.0f}"
-            else:
-                lo3, hi3, z_lbl = mu_h - 3 * std_h, mu_h + 3 * std_h, "3"
-            ax_c4.axvline(hi3, color=color_red, ls="--", lw=1.4)
-            _add_vline_label(ax_c4, hi3, rf"$\mu+{z_lbl}\sigma={hi3:.3g}$", fontsize=14, color=color_red)
-            ax_c4.axvline(lo3, color=color_red, ls=":", lw=1.2)
-            _add_vline_label(ax_c4, lo3, rf"$\mu-{z_lbl}\sigma={lo3:.3g}$", fontsize=14, color=color_red)
-        ax_c4.legend()
-        ax_c4.grid(False)
-
-        # times matching the log10_a array (needed for per-label D1b / D4b)
         _t_stable = t_wins[stable_mask][valid_sa]
 
-        # ── D1: Time series — stable log₁₀(A)  [MaxEnt F1 analog] ────────
-        fig_d1, ax_d1 = plt.subplots(figsize=fig_size(scale=3.0), layout='tight',
-                                     num=f"D1 — Stable Areas — {name}")
-        ax_d1.set_title(f"D1 — Stable Areas — {name}")
-        ax_d1.set_xlabel("Time [s]")
-        ax_d1.set_ylabel(r"$\log_{10}(A_k)$")
-        if _all_stable_ranges:
-            for _bi, (_t0, _t1) in enumerate(_all_stable_ranges):
-                _m = (t_wins >= _t0) & (t_wins <= _t1) & np.isfinite(areas) & (areas > 0)
-                if _m.any():
-                    ax_d1.plot(
-                        t_wins[_m], np.log10(areas[_m]),
-                        color=color_azul, lw=1.0, marker="o", markersize=2,
-                        label="Stable" if _bi == 0 else "_nolegend_",
-                    )
-        else:
-            ax_d1.plot(_t_stable, log10_a, color=color_azul,
-                       lw=1.0, marker="o", markersize=2, label="Stable")
-        _draw_vlines(ax_d1, auto_vlines)
-        ax_d1.legend()
-
-        # ── D1b / D4b: per-label (only when ≥2 distinct stable labels) ────
-        _stable_label_groups: dict = {}
-        for _t0, _t1, _lbl in (training_intervals or []):
-            if str(_lbl).startswith("stable"):
-                _stable_label_groups.setdefault(str(_lbl), []).append((_t0, _t1))
-
         # D1b — one figure per stable label  [MaxEnt F1b analog]
-        if len(_stable_label_groups) >= 2:
-            for _gi, (_lbl_name, _ranges) in enumerate(_stable_label_groups.items()):
+        for _gi, (_lbl_name, _ranges) in enumerate(_stable_label_groups.items()):
                 fig_d1b, ax_d1b = plt.subplots(
-                    figsize=fig_size(scale=3.0), layout='tight',
+                    figsize=fig_size(scale=3.0),
                     num=f"D1b.{_gi} — {_lbl_name}",
                 )
                 ax_d1b.set_title(rf"D1b — Stable Areas | {_lbl_name} — {name}")
@@ -505,6 +428,7 @@ def plots_lyapunov(
                     _add_hline_label(ax_d1b, _hi3_d1b, rf"$\mu+3\sigma={_hi3_d1b:.3g}$",
                                      color=color_red, ha='right', va='bottom', fontsize=14)
                 ax_d1b.legend()
+                fig_d1b.tight_layout()  # one-shot, not layout='tight' — see C1 for why
 
         # D4b — one figure per stable label histogram  [MaxEnt F4b analog]
         if len(_stable_label_groups) >= 2 and std_h > 0:
@@ -514,7 +438,7 @@ def plots_lyapunov(
             _heights_all_d = _counts_all_d / (len(log10_a) * _widths_d)
             for _gi, (_lbl_name, _ranges) in enumerate(_stable_label_groups.items()):
                 fig_d4b, ax_d4b = plt.subplots(
-                    figsize=fig_size(scale=3.0), layout='tight',
+                    figsize=fig_size(scale=3.0),
                     num=f"D4b.{_gi} — {_lbl_name}",
                 )
                 ax_d4b.set_title(rf"D4b — Area PDF | {_lbl_name} — {name}")
@@ -554,11 +478,12 @@ def plots_lyapunov(
                                  fontsize=14, color=color_red)
                 ax_d4b.legend()
                 ax_d4b.grid(False)
+                fig_d4b.tight_layout()  # one-shot, not layout='tight' — see C1 for why
 
     # ── Ĝ accumulator (optional) ──────────────────────────────────────────
     G = np.asarray(result.G_hat)
     if G.size > 0:
-        fig_g, ax_g = plt.subplots(figsize=fig_size(scale=3.0), layout='tight')
+        fig_g, ax_g = plt.subplots(figsize=fig_size(scale=3.0))
         ax_g.set_title(rf"$\hat{{G}}$ Accumulator — {name}")
         ax_g.set_xlabel("Time [s]")
         ax_g.set_ylabel(r"$\hat{G}$ [m·m/s · s]")
@@ -574,11 +499,12 @@ def plots_lyapunov(
                           label="stable")
         _draw_vlines(ax_g, auto_vlines)
         ax_g.legend()
+        fig_g.tight_layout()  # one-shot, not layout='tight' — see C1 for why
 
     # ── Ĝ sliding window (optional) ───────────────────────────────────────
     Gs = np.asarray(result.G_hat_sliding)
     if Gs.size > 0:
-        fig_gs, ax_gs = plt.subplots(figsize=fig_size(scale=3.0), layout='tight')
+        fig_gs, ax_gs = plt.subplots(figsize=fig_size(scale=3.0))
         ax_gs.set_title(rf"$\hat{{G}}$ Sliding Window — {name}")
         ax_gs.set_xlabel("Time [s]")
         ax_gs.set_ylabel(r"$\hat{G}_{slide}$ [m·m/s · s]")
@@ -594,6 +520,7 @@ def plots_lyapunov(
                            label="stable")
         _draw_vlines(ax_gs, auto_vlines)
         ax_gs.legend()
+        fig_gs.tight_layout()  # one-shot, not layout='tight' — see C1 for why
 
     if show:
         plt.show(block=True)
@@ -609,6 +536,8 @@ def plots_signal_diagnostics(
     stable_range: Tuple[float, float] = (0.5, 4.0),
     zoom_range: Tuple[float, float] = (1.0, 1.2),
     eq_smooth_s: float = 0.050,
+    freq_markers: Optional[Dict[str, float]] = None,
+    t_beat_ms: Optional[float] = None,
     show: bool = True,
 ) -> None:
     """Diagnostic plots for understanding signal structure and area variability.
@@ -616,9 +545,11 @@ def plots_signal_diagnostics(
     Figures produced
     ----------------
     **Fig A — Frequency content & area autocorrelation**
-        A1. FFT of *x* in the stable zone (``stable_range``).
+        A1. FFT of *x* in the stable zone (``stable_range``), with vertical
+            markers at ``freq_markers`` (if given — see below).
         A2. Autocorrelation of ln(areas) in the stable zone — reveals
-            periodic modulation (beat, tooth-pass, etc.).
+            periodic modulation (beat, tooth-pass, etc.); marks ``t_beat_ms``
+            (if given).
 
     **Fig B — Quasi-static equilibrium & dynamic decomposition**
         B1. Full *x* signal with the quasi-static equilibrium
@@ -642,6 +573,13 @@ def plots_signal_diagnostics(
     eq_smooth_s   : half-width [s] of the moving-average used to estimate
                     ``x_eq``.  Default 50 ms — slow enough to follow AP
                     drift but fast enough to not absorb dynamic vibration.
+    freq_markers  : optional ``{label: frequency_hz}`` vertical markers drawn
+                    on the FFT panel (A1) — e.g. the actual ``f_modal``/tooth-
+                    pass/beat frequencies of *this* run's config. ``None``
+                    (default) draws no markers, rather than guessing them.
+    t_beat_ms     : optional expected beat period [ms] marked on the
+                    autocorrelation panel (A2). ``None`` (default) draws no
+                    marker.
     show          : call ``plt.show()`` when done.
     """
     name = signal.name or ""
@@ -685,14 +623,13 @@ def plots_signal_diagnostics(
         freqs   = np.fft.rfftfreq(N_fft, 1.0 / fs)
         mask_f  = freqs < min(fs / 2, 800.0)
         aA1.semilogy(freqs[mask_f], fft_mag[mask_f],
-                     color="steelblue", lw=0.8, label="FFT |X(f)|")
-        for fmark, col, lbl in [
-            (150.0, "red",    "f_modal 150 Hz"),
-            (200.0, "green",  "f_tool  200 Hz"),
-            (50.0,  "purple", "f_beat   50 Hz"),
-        ]:
+                     color=color_azul, lw=0.8, label="FFT |X(f)|")
+        _marker_colors = [color_red, color_verde, color_purple, color_orange, color_azul]
+        for _mi, (lbl, fmark) in enumerate((freq_markers or {}).items()):
             if fmark < freqs[-1]:
-                aA1.axvline(fmark, color=col, lw=1.5, ls="--", label=lbl)
+                col = _marker_colors[_mi % len(_marker_colors)]
+                aA1.axvline(fmark, color=col, lw=1.5, ls="--",
+                            label=f"{lbl} {fmark:.1f} Hz")
     aA1.set_xlabel("Frequency [Hz]")
     aA1.set_ylabel("|FFT(x)|")
     aA1.set_title(f"FFT of x in stable zone t=[{stable_range[0]:.1f}, {stable_range[1]:.1f}] s")
@@ -713,9 +650,10 @@ def plots_signal_diagnostics(
         lags_ms = np.arange(len(acorr)) * (t_wins[1] - t_wins[0]) * 1000.0
         n_show  = min(len(lags_ms), 200)
         aA2.plot(lags_ms[:n_show], acorr[:n_show],
-                 color="darkorange", lw=1.2, label="autocorr ln(A)")
-        aA2.axvline(20.0, color="purple", lw=1.2, ls="--",
-                    label="T_beat=20 ms (expected)")
+                 color=color_orange, lw=1.2, label="autocorr ln(A)")
+        if t_beat_ms is not None:
+            aA2.axvline(t_beat_ms, color=color_purple, lw=1.2, ls="--",
+                        label=f"T_beat={t_beat_ms:.1f} ms (expected)")
         aA2.axhline(0, color="black", lw=0.5)
     aA2.set_xlabel("Lag [ms]")
     aA2.set_ylabel("Autocorrelation")
@@ -733,8 +671,8 @@ def plots_signal_diagnostics(
     vz = v[mz]; vdynz = v_dyn[mz]
 
     # B1: x with x_eq overlay
-    aB1.plot(tz * 1000, xz,    color="steelblue", lw=0.9, label="x  (absoluto)")
-    aB1.plot(tz * 1000, xeqz,  color="red",       lw=2.0, ls="--",
+    aB1.plot(tz * 1000, xz,    color=color_azul, lw=0.9, label="x  (absoluto)")
+    aB1.plot(tz * 1000, xeqz,  color=color_red,  lw=2.0, ls="--",
              label=f"x_eq ≈ moving avg ({eq_smooth_s*1000:.0f} ms)")
     aB1.set_ylabel("x [m]")
     aB1.set_title(f"Señal x y equilibrio cuasi-estático — zoom t=[{zoom_range[0]:.2f}, {zoom_range[1]:.2f}] s")
@@ -742,7 +680,7 @@ def plots_signal_diagnostics(
     aB1.grid(True, alpha=0.3)
 
     # B2: dynamic residual
-    aB2.plot(tz * 1000, xdynz, color="forestgreen", lw=0.9, label="x_dyn = x − x_eq")
+    aB2.plot(tz * 1000, xdynz, color=color_verde, lw=0.9, label="x_dyn = x − x_eq")
     aB2.axhline(0, color="black", lw=0.5)
     aB2.set_ylabel("x_dyn [m]")
     aB2.set_title("Componente dinámica (vibración alrededor del equilibrio)")
@@ -770,7 +708,7 @@ def plots_signal_diagnostics(
     # pick three snapshot times: 20 % (stable), 55 % (transition), 85 % (chatter)
     snap_fracs  = [0.20, 0.55, 0.85]
     snap_labels = ["Estable (20%)", "Transición (55%)", "Chatter (85%)"]
-    snap_colors = ["steelblue", "darkorange", "crimson"]
+    snap_colors = [color_azul, color_orange, color_red]
     snap_dur    = min(0.05, t_total * 0.03)   # 50 ms per snapshot
 
     figC, axes_c = plt.subplots(1, 3, figsize=(13, 5))

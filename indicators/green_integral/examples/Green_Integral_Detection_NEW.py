@@ -11,9 +11,18 @@ Toggle
     Set USE_LYAPUNOV = True  to run the no-clustering Lyapunov variant.
     Set USE_LYAPUNOV = False to run the original clustering-based indicator.
 
+    Set USE_EXTERNAL_REFERENCE = True  to train the mu +- z*sigma area
+    threshold from the external "stable" signal in `reference_combined.h5`
+    (DOE reference-dataset pipeline) instead of `training_intervals`.
+    Set USE_EXTERNAL_REFERENCE = False for the original internal-training
+    behavior — flip it back and forth to compare both on the same case.
+
 Case selector
 -------------
-    Set _ACTIVE_CASE to one of the keys in _CASES to switch between signals.
+    Set ACTIVE_CASE to one of the keys in CASES to switch signal + config
+    together — each entry splits "signal_source" (hdf5_path/case_name/
+    disp_name/vel_name/force_name, same shape across the 4 CAMP10
+    indicators) from "indicator_config" (everything else, Green-specific).
 """
 
 from typing import Tuple
@@ -38,6 +47,7 @@ logger = logging.getLogger(__name__)
 # ── Public API ─────────────────────────────────────────────────────────────
 from green_integral import (
     HDF5Reader,
+    load_signal,             # ← shared (t, y) loader, raw sim layout or DOE-repackaged layout
     StdSignalData,           # ← standard input  (same shape as MaxEnt / RMS-CV)
     IndicatorResult,         # ← standard output (same shape as MaxEnt / RMS-CV)
     run_green_std,           # ← standard runner  (param_mode + params_physical, see COMMON_TEMPLATE.md)
@@ -56,15 +66,53 @@ def _cut_signal(t, x, time_range: Tuple[float, float]) -> Tuple[np.ndarray, np.n
     return t[mask], x[mask]
 
 
+def _load_reference_combined(path: str, channel: str, label: str = "stable") -> StdSignalData:
+    """Minimal reader for `reference_combined.h5` (Repo-DOE Fase 1/2 pipeline).
+
+    Layout written by `reference_dataset.py`'s `save_combined` (read here
+    directly with h5py instead of importing that Repo-DOE module — same rule
+    as the rest of this codebase, see COMMON_TEMPLATE.md §8): one group per
+    combined signal named ``f"{label}__{channel}"``, with datasets ``t``/``y``
+    (already stitched into one continuous, monotonic time axis) and attrs
+    ``fs``/``channel``/``label``/``n_pieces``/``source_ids``. Velocity is
+    pulled from the sibling ``f"{label}__Axial_vel"`` group when present,
+    otherwise `run_green_std` estimates it via `np.gradient`.
+    """
+    import h5py
+
+    with h5py.File(path, "r") as f:
+        g = f[f"{label}__{channel}"]
+        t = g["t"][()]
+        y = g["y"][()]
+        fs = float(g.attrs["fs"])
+        vel_key = f"{label}__Axial_vel"
+        velocity = f[vel_key]["y"][()] if vel_key in f else None
+
+    return StdSignalData(
+        t_analysis=t,
+        signal_analysis=y,
+        path=path,
+        fs=fs,
+        meta={"velocity": velocity, "name": f"reference_{label}_{channel}"},
+    )
+
+
 def main() -> None:
     # ── Toggle ─────────────────────────────────────────────────────────────
     USE_LYAPUNOV: bool = True   # True → Lyapunov (no clustering)
                                       # False → original clustering indicator
 
-    # ═══════════════════════════════════════════════════════════════════════════════
-    # CASE SELECTOR — change only this line to switch between signals
-    # ═══════════════════════════════════════════════════════════════════════════════
-    _ACTIVE_CASE = "cono"   # "cono" | "stable_5mm" | "chatter_15mm" | "custom_case"
+    # True  → train mu +- z*sigma threshold from reference_combined.h5's
+    #         external "stable" signal (Fase 3, DOE reference dataset).
+    # False → original behavior, threshold trained from training_intervals.
+    USE_EXTERNAL_REFERENCE: bool = True
+    _REFERENCE_COMBINED_H5 = (
+        r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\Chatter-Criteria"
+        r"\CAMP10_Chatter_detection_Methodes\Convergency_Simulation"
+        r"\4_DOE_Data_Training_Tube\DOE_Training_Tube_dxl_20e-5_RUN_10_0.5-2.0"
+        r"\reference_combined.h5"
+    )
+
     _RPM     = 12_000.0
     _RPM_MODAL = 150*60.0  # RPM equivalente a f_modal = 150 Hz
     _F_MODAL = 150.0
@@ -104,81 +152,109 @@ def main() -> None:
     chatter_15mm = (r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\Chatter-Criteria\CAMP8-Ventanna_Glisante"
                     r"\Nessy2m_Case_Test_Explicit\1DOF_150Hz_15mm\1DOF_150Hz\out.hdf5")
 
-    _CASES = {
+    # CASES shape shared across the 4 CAMP10 indicators: each entry splits
+    # "signal_source" (hdf5_path/case_name/disp_name/vel_name/force_name —
+    # see COMMON_TEMPLATE.md) from "indicator_config" (everything else,
+    # content stays Green-specific). Change only ACTIVE_CASE below to pick
+    # both the signal and its config together.
+    CASES: dict = {
         # ── Original 2DOF cone (chatter onset at 5.366 s) ──────────────────
         "cono": {
-            "hdf5":               cono_doe_control_sensor,
-            # "signal_source": {"disp_path": "tool_dyn/data", "vel_path": "tool_dyn_o/data"},
-            "signal_source": {"disp_path": "Axial_disp/data", "vel_path": "Axial_vel/data"},
-
-            "name":               "cono",
-            "t_range":            (0.05,16.0),
-            "t_gt":               _T_GT,
-            "f_modal":            _F_MODAL,  # 150 Hz
-            "T_REV":              _T_REV,  # example value, adjust as needed
-            "F_REV":              _F_REV,  # example value, adjust as needed
-            "num_T":              4,
-            "use_area_threshold": True,
-            "training_intervals": [
-                (0.05, _T_GT, "stable_1"),
-                # (3.3,  4.46,    "stable_2"),   # tighter stable sub-band
-                # (_T_GT, 10, "stable_1"),
-            ],
+            "signal_source": {
+                # "hdf5_path": cono_doe_control_sensor,
+                # "disp_name": "tool_dyn", "vel_name": "tool_dyn_o", "case_name": None,
+                "hdf5_path": cono_doe_control_sensor,
+                "disp_name": "Axial_disp", "vel_name": "Axial_vel",
+                "force_name": "res_R_p", "case_name": None,
+            },
+            "indicator_config": {
+                "name":               "cono",
+                "t_range":            (0.05,16.0),
+                "t_gt":               _T_GT,
+                "f_modal":            _F_MODAL,  # 150 Hz
+                "T_REV":              _T_REV,  # example value, adjust as needed
+                "F_REV":              _F_REV,  # example value, adjust as needed
+                "num_T":              4,
+                "use_area_threshold": True,
+                "training_intervals": [
+                    (0.05, _T_GT, "stable_1"),
+                    # (3.3,  4.46,    "stable_2"),   # tighter stable sub-band
+                    # (_T_GT, 10, "stable_1"),
+                ],
+            },
         },
         # ── Stable case — ap = 5 mm (no chatter) ───────────────────────────
         "stable_5mm": {
-            "hdf5":               (rf"{_BASE}\Chatter-Criteria\CAMP8-Ventanna_Glisante"
-                                   r"\Nessy2m_Case_Test_Explicit\1DOF_150Hz_5mm\1DOF_150Hz\out.hdf5"),
-            "signal_source": {"disp_path": "tool_dyn/data", "vel_path": "tool_dyn_o/data"},
-            "name":               "5mm_stable",
-            "t_range":            (0.05, 16.0),
-            "t_gt":               _T_GT,          # no chatter in this case
-            "f_modal":            _F_MODAL,
-            "T_REV":              _T_REV,      # example value, adjust as needed
-            "F_REV":              _F_REV,      # example value, adjust as needed
-            "num_T":              4,
-            "use_area_threshold": False,           # area threshold is noisy for cono but works well for this case
-
+            "signal_source": {
+                "hdf5_path": (rf"{_BASE}\Chatter-Criteria\CAMP8-Ventanna_Glisante"
+                              r"\Nessy2m_Case_Test_Explicit\1DOF_150Hz_5mm\1DOF_150Hz\out.hdf5"),
+                "disp_name": "tool_dyn", "vel_name": "tool_dyn_o",
+                "force_name": "res_R_p", "case_name": None,
+            },
+            "indicator_config": {
+                "name":               "5mm_stable",
+                "t_range":            (0.05, 16.0),
+                "t_gt":               _T_GT,          # no chatter in this case
+                "f_modal":            _F_MODAL,
+                "T_REV":              _T_REV,      # example value, adjust as needed
+                "F_REV":              _F_REV,      # example value, adjust as needed
+                "num_T":              4,
+                "use_area_threshold": False,  # area threshold is noisy for cono but works well for this case
+            },
         },
         # ── Chatter case — ap = 15 mm (chatter from ~0.05 s) ───────────────
         "chatter_15mm": {
-            "hdf5":               chatter_15mm,
-            "signal_source": {"disp_path": "tool_dyn/data", "vel_path": "tool_dyn_o/data"},
-            "name":               "15mm_chatter",
-            "t_range":            (0.05, 16.0),
-            "t_gt":               _T_GT,          # chatter after initial transient
-            "f_modal":            _F_MODAL,
-            "T_REV":              _T_REV,      # example value, adjust as needed
-            "F_REV":              _F_REV,      # example value, adjust as needed
-            "num_T":              4,
-            "use_area_threshold": False,
-
+            "signal_source": {
+                "hdf5_path": chatter_15mm,
+                "disp_name": "tool_dyn", "vel_name": "tool_dyn_o",
+                "force_name": "res_R_p", "case_name": None,
+            },
+            "indicator_config": {
+                "name":               "15mm_chatter",
+                "t_range":            (0.05, 16.0),
+                "t_gt":               _T_GT,          # chatter after initial transient
+                "f_modal":            _F_MODAL,
+                "T_REV":              _T_REV,      # example value, adjust as needed
+                "F_REV":              _F_REV,      # example value, adjust as needed
+                "num_T":              4,
+                "use_area_threshold": False,
+            },
         },
 
         "custom_case": {
-            # "hdf5":               r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\2DOF_Cone_DOE\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_180\3\1DOF_150Hz\out.hdf5",
-            # Para usar la señal de sensor (misma escala que el DOE):
-            "hdf5":             custom_case,
-            # "signal_source": {"disp_path": "tool_dyn/data", "vel_path": "tool_dyn_o/data"},
-            # signal_source para sens_out.hdf5:
-            "signal_source": {"disp_path": "Axial_disp/data", "vel_path": "Axial_vel/data"},
-            "name":               "custom",
-            "t_range":            (0.05, 16.0),    # adjust
-            "t_gt":               _T_GT,           # set if known
-            "f_modal":            _F_MODAL,          # adjust based on modal analysis
-            "T_REV":              _T_REV,       # example value, adjust as needed
-            "F_REV":              _F_REV,       # example value, adjust as needed
-            "num_T":              4,             # adjust based on expected cycles in window
-            "use_area_threshold": True,          # adjust based on signal characteristics
-            "training_intervals": [
-                (0.00, _T_GT, "stable"),             # adjust based on expected stable/chatter intervals
-            ],
-        }
+            "signal_source": {
+                # "hdf5_path": r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\2DOF_Cone_DOE\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_180\3\1DOF_150Hz\out.hdf5",
+                # "disp_name": "tool_dyn", "vel_name": "tool_dyn_o", "case_name": None,
+                # signal_source para sens_out.hdf5 (o "case_name": "case_003" para un doe_results.h5):
+                "hdf5_path": custom_case,
+                "disp_name": "Axial_disp", "vel_name": "Axial_vel",
+                "force_name": "res_R_p", "case_name": None,
+            },
+            "indicator_config": {
+                "name":               "custom",
+                "t_range":            (0.05, 16.0),    # adjust
+                "t_gt":               _T_GT,           # set if known
+                "f_modal":            _F_MODAL,          # adjust based on modal analysis
+                "T_REV":              _T_REV,       # example value, adjust as needed
+                "F_REV":              _F_REV,       # example value, adjust as needed
+                "num_T":              4,             # adjust based on expected cycles in window
+                "use_area_threshold": True,          # adjust based on signal characteristics
+                "training_intervals": [
+                    (0.00, _T_GT, "stable"),             # adjust based on expected stable/chatter intervals
+                ],
+            },
+        },
     }
 
+    # ═══════════════════════════════════════════════════════════════════════
+    # CASE SELECTOR — change only this line to switch signal + config together
+    # ═══════════════════════════════════════════════════════════════════════
+    ACTIVE_CASE      = "cono"   # "cono" | "stable_5mm" | "chatter_15mm" | "custom_case"
+    SIGNAL_SOURCE    = CASES[ACTIVE_CASE]["signal_source"]
+    INDICATOR_CONFIG = CASES[ACTIVE_CASE]["indicator_config"]
+
     # ── Unpack active case ────────────────────────────────────────────────
-    _cfg        = _CASES[_ACTIVE_CASE]
-    _HDF5       = _cfg["hdf5"]
+    _cfg        = INDICATOR_CONFIG
     _SIG_NAME   = _cfg["name"]
     _T0, _T1    = _cfg["t_range"]
     _T_GT       = _cfg["t_gt"]           # None if no chatter
@@ -190,25 +266,26 @@ def main() -> None:
     _TRAIN_IV   = _cfg.get("training_intervals", [])
     _CUT_START  = _T0
 
-    # ── Load signal from HDF5 ────────────────────────────────────────────────
-    _src         = _cfg.get("signal_source", {"disp_path": "tool_dyn/data", "vel_path": "tool_dyn_o/data"})
-    _DISP_PATH   = _src["disp_path"]
-    _VEL_PATH    = _src["vel_path"]
-    # col0=time, col1=signal for both out.hdf5 (N,2) and sens_out.hdf5 (N,3)
+    # ── Load signal from HDF5 (shared load_signal() — raw sim layout when
+    # case_name is None, DOE-repackaged layout when it names a case group) ──
+    _src         = SIGNAL_SOURCE
+    _HDF5        = _src["hdf5_path"]
+    _DISP_NAME   = _src["disp_name"]
+    _VEL_NAME    = _src["vel_name"]
+    _CASE_NAME   = _src.get("case_name")
+    _FORCE_NAME  = _src.get("force_name", "res_R_p")
 
     data         = HDF5Reader(_HDF5)
 
-    raw_disp     = data.get_element(_DISP_PATH)
-    t            = raw_disp[:, 0]
-    tool_dyn     = raw_disp[:, 1]
+    t, tool_dyn  = load_signal(data, _DISP_NAME, _CASE_NAME)
     try:
-        tool_dyn_vel = data.get_element(_VEL_PATH)[:, 1]
+        _, tool_dyn_vel = load_signal(data, _VEL_NAME, _CASE_NAME)
     except Exception:
         tool_dyn_vel = np.gradient(tool_dyn, t)
 
     # force channel may not exist in all cases
     try:
-        force_N = data.get_element("res_R_p/data")[:, 1]
+        _, force_N = load_signal(data, _FORCE_NAME, _CASE_NAME)
     except Exception:
         force_N = np.zeros_like(t)
 
@@ -230,6 +307,13 @@ def main() -> None:
 
     # Ground-truth chatter onset (used for training_intervals and plots)
     # _T_GT is None when no chatter is expected (e.g. stable_5mm case)
+
+    # ── Optional external reference signal (Fase 3, DOE reference dataset) ──
+    # channel="Axial_disp" matches this case's displacement channel above.
+    reference_signal_std = (
+        _load_reference_combined(_REFERENCE_COMBINED_H5, channel="Axial_disp", label="stable")
+        if USE_EXTERNAL_REFERENCE else None
+    )
 
     # ── Indicator configuration — formato estándar CAMP10 ────────────────────
     # param_mode define en qué unidad se mide el ciclo de la ventana:
@@ -260,6 +344,10 @@ def main() -> None:
             "save_figures_windows": False,
             "work_space":           None,
         },
+        # Top-level (sibling to params_physical, not inside it — see
+        # COMMON_TEMPLATE.md §3). None (USE_EXTERNAL_REFERENCE=False) =
+        # cero impacto, same as before this key existed.
+        "reference_signal": reference_signal_std,
     }
 
     # Variante Lyapunov (sin clustering, exponente de Lyapunov σ̂) — ventana por revolución
@@ -293,6 +381,8 @@ def main() -> None:
                                     #  "detrended - detren for v=0 , trayectoria detrend"
             "cycle_area_norm": "none",  # "none" | "mean" | "median"
         },
+        # Top-level, same as in config_std — see comment there.
+        "reference_signal": reference_signal_std,
     }
 
 
