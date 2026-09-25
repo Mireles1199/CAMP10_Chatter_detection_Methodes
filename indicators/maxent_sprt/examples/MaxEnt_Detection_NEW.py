@@ -63,49 +63,60 @@ def _cut_signal(t, x, time_range: Tuple[float, float]) -> Tuple[np.ndarray, np.n
 #    see COMMON_TEMPLATE.md §10; the chatter side is a MaxEnt-specific mirror
 #    of it, not part of the shared contract) --------------------------------
 # True  -> calibrate P0 (stable) training against Repo-DOE's externally-labelled
-#          "stable" region in reference_combined.h5 instead of the internal
+#          "stable" pieces in reference_dataset.h5 instead of the internal
 #          training_intervals split below.
 # False -> P0 stays internal (comment this flag or flip it to False to
 #          compare both modes on the same run).
 USE_EXTERNAL_REFERENCE = True
-# Same toggle, but for P1 (chatter) against the "unstable" region of the same file.
+# Same toggle, but for P1 (chatter) against the "unstable" pieces of the same file.
 USE_EXTERNAL_REFERENCE_CHATTER = True
+# reference_dataset.h5 (per-piece, pre-combine layout -- NOT reference_combined.h5,
+# which concatenates every DOE case's stable/unstable stretches into one signal
+# and would mix physically-unrelated time spans into the same training window at
+# the seam between cases). reference_combined.h5 still exists in the same folder
+# and keeps being the input for doe_unified_selector.py's viewer -- it's just not
+# read here anymore.
 _REFERENCE_H5 = (
     r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\Chatter-Criteria"
     r"\CAMP10_Chatter_detection_Methodes\Convergency_Simulation"
     r"\4_DOE_Data_Training_Tube\DOE_Training_Tube_dxl_20e-5_RUN_10_0.5-2.0"
-    r"\reference_combined.h5"
+    r"\reference_dataset.h5"
 )
 _REFERENCE_CHANNEL = "Axial_vel"
 
 
-def _load_reference_signal(h5_path: str, channel: str, label: str = "stable") -> SignalData:
-    """Build a ``reference_signal`` SignalData from Repo-DOE's reference_combined.h5.
+def _load_reference_pieces(h5_path: str, label: str, channel: str) -> list[SignalData]:
+    """Build ``reference_signal``/``reference_signal_chatter`` pieces from Repo-DOE's
+    reference_dataset.h5 -- one ``SignalData`` per isolated (case, piece), never
+    concatenated into a single signal.
 
-    That file follows ``reference_dataset.py``'s ``save_combined``/``load_combined``
-    layout (one group per ``"{label}__{channel}"``, datasets ``t``/``y``, attrs
-    ``fs``/``label``/``channel``/``n_pieces``/``source_ids``). Read directly with
-    h5py -- never import the Repo-DOE script, to avoid coupling packages (see
-    COMMON_TEMPLATE.md §8/§10).
+    That file follows ``reference_dataset.py``'s ``ReferenceDataset.to_hdf5`` layout:
+    ``/<label>/<case>/<channel>__NNN/{t, y}``, attrs ``signal_id``/``t0``/``t1``/
+    ``fs``/``channel``. Read directly with h5py -- never import the Repo-DOE
+    script, to avoid coupling packages (see COMMON_TEMPLATE.md §8/§10).
+
+    Returning one piece per (case, interval) instead of one concatenated array
+    is what lets the pipeline window each piece independently and pool only the
+    resulting entropy values -- see COMMON_TEMPLATE.md §10's seam-avoidance rule.
     """
-    group_name = f"{label}__{channel}"
+    out: list[SignalData] = []
     with h5py.File(h5_path, "r") as f:
-        if group_name not in f:
-            raise KeyError(f"'{group_name}' not found in {h5_path}. Available: {list(f.keys())}")
-        g = f[group_name]
-        t = g["t"][:]
-        y = g["y"][:]
-        fs = float(g.attrs["fs"])
-        n_pieces = int(g.attrs.get("n_pieces", 0))
-
-    return SignalData(
-        t_analysis=t,
-        signal_analysis=y,
-        path=h5_path,
-        fs=fs,
-        meta={"label": label, "channel": channel, "n_pieces": n_pieces,
-              "source": "Repo-DOE reference_combined.h5"},
-    )
+        if label not in f:
+            raise KeyError(f"'{label}' not found in {h5_path}. Available: {list(f.keys())}")
+        for case in f[label]:
+            for piece in f[label][case].values():
+                if piece.attrs["channel"] != channel:
+                    continue
+                out.append(SignalData(
+                    t_analysis=piece["t"][()],
+                    signal_analysis=piece["y"][()],
+                    path=h5_path,
+                    fs=float(piece.attrs["fs"]),
+                    meta={"label": label, "channel": channel, "case": case,
+                          "signal_id": piece.attrs["signal_id"],
+                          "source": "Repo-DOE reference_dataset.h5"},
+                ))
+    return out
 
 
 def _log_config_summary(result, fr: float, t_stable_total: float) -> None:
@@ -279,13 +290,22 @@ def main() -> None:
         "cono_dexel_20e_5": (
             r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
             r"\2DOF_Cone_New\Cono_dexel_20e-5_dt_200\0\1DOF_150Hz\sens_out.hdf5"
-        )
+        ),
+
+        "tubo_stable_6_88e_5" : (
+            r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
+            r"\Chatter-Criteria\CAMP10_Chatter_detection_Methodes"
+            r"\Convergency_Simulation\1_Detection_Limite_Lobes"
+            r"\DOE_Detection_Limite_Lobes_dxl_20e-5_RUN_10"
+            r"\4\1DOF_150Hz\sens_out.hdf5"
+        ),
+
 
     }
 
     # See COMMON_TEMPLATE.md §11 -- forma estándar de declarar el origen de la señal.
     _SIGNAL_SOURCE = {
-        "hdf5_path": _DATA_DIRS["cono_dexel_20e_5"],
+        "hdf5_path": _DATA_DIRS["tubo_stable_6_88e_5"],
         "case_name": None,  # None (layout crudo) | "case_003" (layout DOE)
         "disp_name": "Axial_disp",
         "vel_name": "Axial_vel",
@@ -368,7 +388,7 @@ def main() -> None:
         "param_mode": "by_revolution",
         "params_physical": {
             "T_rev": _T_REV,
-            "N_rev_window": 5,  # -> N_seg = 5
+            "N_rev_window": 4,  # -> N_seg = 5
             "step_rev": 1,  # hop de 1 rev  =>  overlap 80 %
             "segmentation": "opr",
             **_COMMON,
@@ -454,12 +474,12 @@ def main() -> None:
     # keys (sibling of func/params), not part of _COMMON -- inject them here,
     # gated independently by the two USE_EXTERNAL_REFERENCE* flags above.
     if USE_EXTERNAL_REFERENCE:
-        INDICATOR_CONFIG["reference_signal"] = _load_reference_signal(
-            _REFERENCE_H5, _REFERENCE_CHANNEL, label="stable"
+        INDICATOR_CONFIG["reference_signal"] = _load_reference_pieces(
+            _REFERENCE_H5, label="stable", channel=_REFERENCE_CHANNEL
         )
     if USE_EXTERNAL_REFERENCE_CHATTER:
-        INDICATOR_CONFIG["reference_signal_chatter"] = _load_reference_signal(
-            _REFERENCE_H5, _REFERENCE_CHANNEL, label="unstable"
+        INDICATOR_CONFIG["reference_signal_chatter"] = _load_reference_pieces(
+            _REFERENCE_H5, label="unstable", channel=_REFERENCE_CHANNEL
         )
 
     pd.set_option("display.max_colwidth", None)

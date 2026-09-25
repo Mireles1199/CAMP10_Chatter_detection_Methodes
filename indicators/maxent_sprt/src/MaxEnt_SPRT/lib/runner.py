@@ -1,7 +1,7 @@
 from __future__ import annotations
 import logging
 import math
-from typing import Any, Callable, Dict, List, Sequence, Optional, Tuple
+from typing import Any, Callable, Dict, List, Sequence, Optional, Tuple, Union
 
 from collections import defaultdict
 
@@ -253,7 +253,7 @@ def run_maxent_sprt(signal: SignalData, INDICATOR_CONFIG: dict ) -> IndicatorRes
       via ``_resolve_physical_params_maxent``.
 
     :param signal: Input signal bundle containing the analysis array, aligned time axis, sampling frequency, and optional metadata.
-    :param INDICATOR_CONFIG: Dispatcher dictionary containing the selected function under ``func``, the mode under ``param_mode``, its keyword arguments under ``params`` (native mode) or ``params_physical`` (physical modes), and an optional ``reference_signal`` (``SignalData``) to calibrate P0/stable training against an externally-labelled "stable" reference instead of internally-derived cuts — see ``indicators/COMMON_TEMPLATE.md``. ``reference_signal_chatter`` is MaxEnt's own mirror of it for P1/chatter (not part of the shared contract).
+    :param INDICATOR_CONFIG: Dispatcher dictionary containing the selected function under ``func``, the mode under ``param_mode``, its keyword arguments under ``params`` (native mode) or ``params_physical`` (physical modes), and an optional ``reference_signal`` (``SignalData`` or ``List[SignalData]``) to calibrate P0/stable training against externally-labelled "stable" reference piece(s) instead of internally-derived cuts — see ``indicators/COMMON_TEMPLATE.md``. ``reference_signal_chatter`` is MaxEnt's own mirror of it for P1/chatter (not part of the shared contract).
 
     Returns:
         IndicatorResult: Result object returned by the selected indicator
@@ -297,12 +297,12 @@ def run_maxent_sprt(signal: SignalData, INDICATOR_CONFIG: dict ) -> IndicatorRes
             trace["quantization_notes"],
         )
 
-    reference_signal: Optional[SignalData] = INDICATOR_CONFIG.get("reference_signal")
+    reference_signal: Optional[Union[SignalData, List[SignalData]]] = INDICATOR_CONFIG.get("reference_signal")
     if reference_signal is not None:
         logger.debug("reference_signal provided: overrides internally-derived stable/training region.")
     # reference_signal_chatter is a MaxEnt-specific mirror of reference_signal for the
     # chatter/P1 side (not part of the shared COMMON_TEMPLATE contract).
-    reference_signal_chatter: Optional[SignalData] = INDICATOR_CONFIG.get("reference_signal_chatter")
+    reference_signal_chatter: Optional[Union[SignalData, List[SignalData]]] = INDICATOR_CONFIG.get("reference_signal_chatter")
     extra_kwargs: Dict[str, Any] = {}
     if reference_signal is not None:
         extra_kwargs["reference_signal"] = reference_signal
@@ -413,43 +413,54 @@ def _extract_training_segments(
     intervals,
 ):
     """
-    Extract and concatenate training segments from a signal given a list of
-    labelled time intervals.
+    Split a signal into per-interval training pieces given a list of
+    labelled time intervals -- WITHOUT concatenating same-label intervals.
+
+    Each interval stays its own isolated piece so a downstream fixed-length
+    window never straddles the seam between two discontinuous intervals
+    (see COMMON_TEMPLATE.md §10: "ventanear cada tramo por separado, nunca
+    concatenar la señal cruda entre tramos discontinuos").
 
     :param t: Full time axis of the signal.
     :param x: Full signal values aligned with ``t``.
     :param intervals: Sequence of ``(t_start, t_end, label)`` tuples where
         ``label`` is either ``"stable"`` or ``"chatter"``.
-        Multiple intervals with the same label are concatenated in order.
 
     Returns:
-        ``(t_stable, signal_stable, t_chatter, signal_chatter)``.
+        ``(stable_pieces, chatter_pieces)``, each a list of
+        ``(t_piece, x_piece, piece_id)`` tuples, one per interval of that label.
     """
-    t_stable_parts:  list = []
-    x_stable_parts:  list = []
-    t_chatter_parts: list = []
-    x_chatter_parts: list = []
+    stable_pieces:  list = []
+    chatter_pieces: list = []
 
-    for entry in intervals:
+    for i, entry in enumerate(intervals):
         t0, t1, label = float(entry[0]), float(entry[1]), str(entry[2]).lower().strip()
         if not (label.startswith("stable") or label.startswith("chatter")):
             raise ValueError(
                 f"training_intervals label must start with 'stable' or 'chatter', got '{label}'."
             )
         mask = (t >= t0) & (t <= t1)
-        if label.startswith("stable"):
-            t_stable_parts.append(t[mask])
-            x_stable_parts.append(x[mask])
-        else:
-            t_chatter_parts.append(t[mask])
-            x_chatter_parts.append(x[mask])
+        piece = (t[mask], x[mask], f"interval[{i}]:{label}:{t0:.3f}-{t1:.3f}")
+        (stable_pieces if label.startswith("stable") else chatter_pieces).append(piece)
 
-    t_stable_out  = np.concatenate(t_stable_parts)  if t_stable_parts  else np.array([])
-    x_stable_out  = np.concatenate(x_stable_parts)  if x_stable_parts  else np.array([])
-    t_chatter_out = np.concatenate(t_chatter_parts) if t_chatter_parts else np.array([])
-    x_chatter_out = np.concatenate(x_chatter_parts) if x_chatter_parts else np.array([])
+    return stable_pieces, chatter_pieces
 
-    return t_stable_out, x_stable_out, t_chatter_out, x_chatter_out
+
+def _pieces_from_signaldata(ref) -> list:
+    """Normalize a ``SignalData`` or ``List[SignalData]`` into ``(t, x, piece_id)`` pieces."""
+    ref_list = [ref] if isinstance(ref, SignalData) else list(ref)
+    return [
+        (sd.t_analysis, sd.signal_analysis, str(sd.meta.get("signal_id", sd.path)))
+        for sd in ref_list
+    ]
+
+
+def _reference_meta_list(ref) -> Optional[List[dict]]:
+    """Per-piece ``.meta`` dicts for a ``reference_signal``/``reference_signal_chatter`` value."""
+    if ref is None:
+        return None
+    ref_list = [ref] if isinstance(ref, SignalData) else list(ref)
+    return [dict(sd.meta) for sd in ref_list]
 
 
 def _maxent_sprt_pipeline(
@@ -470,8 +481,8 @@ def _maxent_sprt_pipeline(
     H_threshold: Optional[float] = None,
     training_intervals = None,
     t_theorical: Optional[float] = None,  # for debug/plots, not used in detection
-    reference_signal: Optional[SignalData] = None,
-    reference_signal_chatter: Optional[SignalData] = None,
+    reference_signal: Optional[Union[SignalData, List[SignalData]]] = None,
+    reference_signal_chatter: Optional[Union[SignalData, List[SignalData]]] = None,
 
     ) -> IndicatorResult:
     """
@@ -501,20 +512,22 @@ def _maxent_sprt_pipeline(
     :param N_samples_per_seg: Block length in raw samples used when
         ``segmentation="raw"``.  Resolved automatically for physical modes;
         must be provided explicitly for native mode.
-    :param reference_signal: Optional externally-labelled ``SignalData`` whose
-        ``t_analysis``/``signal_analysis`` replace the internally-derived
+    :param reference_signal: Optional externally-labelled ``SignalData`` or
+        ``List[SignalData]`` whose pieces replace the internally-derived
         stable/training region (``training_intervals`` or the legacy
-        ``cut_start_time``/``t_stable_total`` cut). When given without
-        ``reference_signal_chatter``, the chatter counterpart still comes from
-        ``training_intervals``/the legacy cut if those are also provided
-        (falls back to empty otherwise). See ``indicators/COMMON_TEMPLATE.md``
-        for the shared contract.
+        ``cut_start_time``/``t_stable_total`` cut). Each piece is windowed
+        independently and only the resulting entropy values are pooled, so a
+        window never straddles the seam between two physically-disjoint
+        pieces. When given without ``reference_signal_chatter``, the chatter
+        counterpart still comes from ``training_intervals``/the legacy cut if
+        those are also provided (falls back to empty otherwise). See
+        ``indicators/COMMON_TEMPLATE.md`` §10 for the shared contract.
     :param reference_signal_chatter: Optional externally-labelled ``SignalData``
-        (MaxEnt-specific, not part of the shared contract) whose
-        ``t_analysis``/``signal_analysis`` replace the internally-derived
-        chatter/P1 training region, mirroring ``reference_signal`` for the
-        stable/P0 side. Takes priority over ``training_intervals``/the legacy
-        cut for the chatter side when given.
+        or ``List[SignalData]`` (MaxEnt-specific, not part of the shared
+        contract) whose pieces replace the internally-derived chatter/P1
+        training region, mirroring ``reference_signal`` for the stable/P0
+        side. Takes priority over ``training_intervals``/the legacy cut for
+        the chatter side when given.
 
     Returns:
         IndicatorResult: Result object with segment timestamps, SPRT statistic
@@ -541,50 +554,47 @@ def _maxent_sprt_pipeline(
 
     # ── Training signal split ─────────────────────────────────────────────────
     # Each side (stable/P0, chatter/P1) independently comes from its own
-    # externally-supplied reference SignalData when given, else from
-    # training_intervals/the legacy cut on the analyzed signal (unchanged
-    # behaviour when neither reference is given).
+    # externally-supplied reference SignalData/List[SignalData] when given,
+    # else from training_intervals/the legacy cut on the analyzed signal
+    # (unchanged behaviour when neither reference is given). Every source is
+    # normalized into a list of (t, x, piece_id) "pieces" -- one per
+    # physically-disjoint span -- so pieces are windowed independently
+    # further down and never concatenated as raw signal across a seam
+    # (see COMMON_TEMPLATE.md §10).
     training_source = "external_reference" if reference_signal is not None else "internal"
     chatter_source  = "external_reference" if reference_signal_chatter is not None else "internal"
 
     if reference_signal is not None and reference_signal_chatter is not None:
-        t_stable, signal_analysis_stable = reference_signal.t_analysis, reference_signal.signal_analysis
-        t_chatter, signal_analysis_chatter = reference_signal_chatter.t_analysis, reference_signal_chatter.signal_analysis
+        stable_pieces = _pieces_from_signaldata(reference_signal)
+        chatter_pieces = _pieces_from_signaldata(reference_signal_chatter)
     elif reference_signal is not None:
-        t_stable, signal_analysis_stable = reference_signal.t_analysis, reference_signal.signal_analysis
+        stable_pieces = _pieces_from_signaldata(reference_signal)
         if training_intervals is not None:
-            _, _, t_chatter, signal_analysis_chatter = \
-                _extract_training_segments(t_analysis, signal_analysis, training_intervals)
+            _, chatter_pieces = _extract_training_segments(t_analysis, signal_analysis, training_intervals)
         elif cut_end_time is not None:
-            t_chatter, signal_analysis_chatter = _cut_signal(
-                t_analysis, signal_analysis, (t_stable_total, cut_end_time)
-            )
+            t_c, x_c = _cut_signal(t_analysis, signal_analysis, (t_stable_total, cut_end_time))
+            chatter_pieces = [(t_c, x_c, "legacy_cut:chatter")]
         else:
-            t_chatter, signal_analysis_chatter = np.array([]), np.array([])
+            chatter_pieces = []
     elif reference_signal_chatter is not None:
-        t_chatter, signal_analysis_chatter = reference_signal_chatter.t_analysis, reference_signal_chatter.signal_analysis
+        chatter_pieces = _pieces_from_signaldata(reference_signal_chatter)
         if training_intervals is not None:
-            t_stable, signal_analysis_stable, _, _ = \
-                _extract_training_segments(t_analysis, signal_analysis, training_intervals)
+            stable_pieces, _ = _extract_training_segments(t_analysis, signal_analysis, training_intervals)
         elif cut_start_time is not None:
-            t_stable, signal_analysis_stable = _cut_signal(
-                t_analysis, signal_analysis, (cut_start_time, t_stable_total)
-            )
+            t_s, x_s = _cut_signal(t_analysis, signal_analysis, (cut_start_time, t_stable_total))
+            stable_pieces = [(t_s, x_s, "legacy_cut:stable")]
         else:
-            t_stable, signal_analysis_stable = np.array([]), np.array([])
+            stable_pieces = []
     elif training_intervals is not None:
         # General mode: arbitrary list of [(t0, t1, "stable"|"chatter"), ...]
-        t_stable, signal_analysis_stable, t_chatter, signal_analysis_chatter = \
-            _extract_training_segments(t_analysis, signal_analysis, training_intervals)
+        stable_pieces, chatter_pieces = _extract_training_segments(t_analysis, signal_analysis, training_intervals)
     else:
         # Legacy mode: [cut_start_time, t_stable_total] = stable
         #              [t_stable_total, cut_end_time]   = chatter
-        t_stable, signal_analysis_stable = _cut_signal(
-            t_analysis, signal_analysis, (cut_start_time, t_stable_total)
-        )
-        t_chatter, signal_analysis_chatter = _cut_signal(
-            t_analysis, signal_analysis, (t_stable_total, cut_end_time)
-        )
+        t_s, x_s = _cut_signal(t_analysis, signal_analysis, (cut_start_time, t_stable_total))
+        t_c, x_c = _cut_signal(t_analysis, signal_analysis, (t_stable_total, cut_end_time))
+        stable_pieces = [(t_s, x_s, "legacy_cut:stable")]
+        chatter_pieces = [(t_c, x_c, "legacy_cut:chatter")]
 
     if reference_signal is not None or reference_signal_chatter is not None:
         logger.info_plus(
@@ -592,6 +602,9 @@ def _maxent_sprt_pipeline(
             f"stable={training_source}, chatter={chatter_source} "
             "(training_intervals/legacy cut only used for whichever side has no external reference).",
         )
+
+    size_stable  = sum(x.size for _, x, _ in stable_pieces)
+    size_chatter = sum(x.size for _, x, _ in chatter_pieces)
 
     logger.info_plus(_section("Signal loaded:"))
     logger.info_plus("  %-24s %s", " - Samples:", f"{signal_analysis.size}")
@@ -608,34 +621,43 @@ def _maxent_sprt_pipeline(
         logger.info_plus("  %-24s %s", " - Total segments available:", f"{int(t_total*fr/N_seg)}")
 
     logger.info_plus(_section("Generated chatter-free and chatter-included signals."))
-    logger.info_plus("  %-24s %s", "Size of signal free:", f"{signal_analysis_stable.size} samples")
-    logger.info_plus("  %-24s %s", "Size of signal chatter:", f"{signal_analysis_chatter.size} samples")
+    logger.info_plus("  %-24s %s", "Size of signal free:", f"{size_stable} samples ({len(stable_pieces)} pieces)")
+    logger.info_plus("  %-24s %s", "Size of signal chatter:", f"{size_chatter} samples ({len(chatter_pieces)} pieces)")
 
 
-    # =========== Fase Offline : OPR / raw segmentation training ==========
+    # =========== Fase Offline : OPR / raw segmentation training (per piece) ==========
+    ids_free  = [pid for _, _, pid in stable_pieces]
+    ids_chat  = [pid for _, _, pid in chatter_pieces]
+
     if segmentation == "raw":
-        # Skip OPR decimation — train directly on raw signal blocks
-        train_free, t_train_free   = signal_analysis_stable, t_stable
-        train_chat, t_train_chat   = signal_analysis_chatter, t_chatter
+        # Skip OPR decimation — train directly on raw signal blocks, per piece
+        train_free, t_train_free   = [x for _, x, _ in stable_pieces], [t for t, _, _ in stable_pieces]
+        train_chat, t_train_chat   = [x for _, x, _ in chatter_pieces], [t for t, _, _ in chatter_pieces]
         opr_free = opr_chat = t_opr_free = t_opr_chat = None
         logger.info_plus("  %-24s %s", "Segmentation (raw):",
                          f"N_samples_per_seg={N_samples_per_seg}, "
-                         f"free={signal_analysis_stable.size} samp, "
-                         f"chat={signal_analysis_chatter.size} samp.")
+                         f"free={size_stable} samp, "
+                         f"chat={size_chatter} samp.")
     else:
-        opr_free, t_opr_free = sample_opr(signal_analysis_stable, t_stable, fs=fs, fr=fr)
-        opr_chat, t_opr_chat = sample_opr(signal_analysis_chatter, t_chatter, fs=fs, fr=fr)
+        opr_pairs_free = [sample_opr(x, t, fs=fs, fr=fr) for t, x, _ in stable_pieces]
+        opr_pairs_chat = [sample_opr(x, t, fs=fs, fr=fr) for t, x, _ in chatter_pieces]
+        opr_free      = [pair[0] for pair in opr_pairs_free]
+        t_opr_free    = [pair[1] for pair in opr_pairs_free]
+        opr_chat      = [pair[0] for pair in opr_pairs_chat]
+        t_opr_chat    = [pair[1] for pair in opr_pairs_chat]
         train_free, t_train_free = opr_free, t_opr_free
         train_chat, t_train_chat = opr_chat, t_opr_chat
         logger.info_plus("  %-24s %s", "Sampled OPR:",
-                         f"{opr_free.size} samples free, {opr_chat.size} samples chatter.")
+                         f"{sum(a.size for a in opr_free)} samples free, "
+                         f"{sum(a.size for a in opr_chat)} samples chatter.")
 
     # ============ Offline Phase:END-TO-END GAUSSIAN ===========
     detector_cfg = MaxEntSPRTConfig(alpha=alpha, beta=beta, reset_on_H0=reset_on_H0)
     gaussian_estimator = GaussianMaxEntEstimator()
     detector = MaxEntSPRTDetector(config=detector_cfg, estimator=gaussian_estimator)
 
-    # Offline phase: OPR / raw Training
+    # Offline phase: OPR / raw Training -- each piece windowed independently,
+    # only the resulting entropy values are pooled (see offline.py).
     detector.fit_offline_from_opr(
         opr_free=train_free,
         opr_t_free=t_train_free,
@@ -645,6 +667,8 @@ def _maxent_sprt_pipeline(
         step=step_seg,
         segmentation=segmentation,
         N_samples_per_seg=N_samples_per_seg,
+        piece_ids_free=ids_free,
+        piece_ids_chat=ids_chat,
     )
 
     models_trained = detector._check_models()
@@ -744,18 +768,22 @@ def _maxent_sprt_pipeline(
             "rpm": rpm,
             "training_source": training_source,
             "chatter_source": chatter_source,
-            "reference_signal_meta": dict(reference_signal.meta) if reference_signal is not None else None,
-            "reference_signal_chatter_meta": (
-                dict(reference_signal_chatter.meta) if reference_signal_chatter is not None else None
-            ),
+            "reference_signal_meta": _reference_meta_list(reference_signal),
+            "reference_signal_chatter_meta": _reference_meta_list(reference_signal_chatter),
+            "reference_n_pieces": len(reference_signal) if isinstance(reference_signal, list)
+                                  else (1 if reference_signal is not None else 0),
+            "reference_n_pieces_chatter": len(reference_signal_chatter) if isinstance(reference_signal_chatter, list)
+                                  else (1 if reference_signal_chatter is not None else 0),
+            "n_windows_per_piece_free": detector.n_windows_free,
+            "n_windows_per_piece_chat": detector.n_windows_chat,
             "ratio_sampling": ratio_sampling,
             "use_sprt": use_sprt,
             "H_threshold_used": _H_thr_used,
             "Total_segments": int(t_total*fr/N_seg),
-            "Size_signal_free": signal_analysis_stable.size,
-            "Size_signal_chatter": signal_analysis_chatter.size,
-            "Sampled OPR free":    opr_free.size if opr_free is not None else None,
-            "Sampled OPR chatter": opr_chat.size if opr_chat is not None else None,
+            "Size_signal_free": size_stable,
+            "Size_signal_chatter": size_chatter,
+            "Sampled OPR free":    sum(a.size for a in opr_free) if opr_free is not None else None,
+            "Sampled OPR chatter": sum(a.size for a in opr_chat) if opr_chat is not None else None,
             "P0_mu": models_trained.p0.mu,
             "P0_sigma": models_trained.p0.sigma,
             "P1_mu": models_trained.p1.mu,
@@ -766,16 +794,18 @@ def _maxent_sprt_pipeline(
             "models_trained": models_trained,
             "H_seq_online": H_seq_online,
             "chatter_points_values": chatter_points_values,
-            "t_stable": t_stable,
-            "signal_analysis_stable": signal_analysis_stable,
-            "t_chatter": t_chatter,
-            "signal_analysis_chatter": signal_analysis_chatter,
-            "t_opr_free": t_opr_free,
-            "opr_free":   opr_free,
-            "t_opr_chat": t_opr_chat,
-            "opr_chat":   opr_chat,
-            "train_free": train_free,
-            "train_chat": train_chat,
+            # Flat concatenated views for plotting only (display-only, computed
+            # after windowing/entropy already ran correctly per piece above).
+            "t_stable": np.concatenate([t for t, _, _ in stable_pieces]) if stable_pieces else np.array([]),
+            "signal_analysis_stable": np.concatenate([x for _, x, _ in stable_pieces]) if stable_pieces else np.array([]),
+            "t_chatter": np.concatenate([t for t, _, _ in chatter_pieces]) if chatter_pieces else np.array([]),
+            "signal_analysis_chatter": np.concatenate([x for _, x, _ in chatter_pieces]) if chatter_pieces else np.array([]),
+            "t_opr_free": np.concatenate(t_opr_free) if t_opr_free else None,
+            "opr_free":   np.concatenate(opr_free) if opr_free else None,
+            "t_opr_chat": np.concatenate(t_opr_chat) if t_opr_chat else None,
+            "opr_chat":   np.concatenate(opr_chat) if opr_chat else None,
+            "train_free": np.concatenate(train_free) if train_free else np.array([]),
+            "train_chat": np.concatenate(train_chat) if train_chat else np.array([]),
             "training_intervals": training_intervals,
 
         },

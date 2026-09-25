@@ -63,6 +63,49 @@ def _base_config(
     return cfg
 
 
+def _seam_test() -> None:
+    """Two reference pieces at very different noise levels (sigma=1 vs sigma=10),
+    lengths not multiples of N_samples_per_seg. If windowing ever concatenated
+    the pieces before segmenting (the seam-contamination bug), a window
+    straddling the seam would mix both noise levels and land strictly between
+    the two pieces' theoretical entropies -- this asserts that never happens.
+    """
+    fs = 5000.0
+    N_samples_per_seg = 200
+
+    def _noise_piece(sigma: float, n_samples: int, seed: int) -> SignalData:
+        rng = np.random.default_rng(seed)
+        t = np.arange(n_samples) / fs
+        x = rng.normal(0.0, sigma, size=n_samples)
+        return SignalData(t_analysis=t, signal_analysis=x, path=f"synthetic_sigma{sigma}",
+                           fs=fs, meta={"signal_id": f"sigma{sigma}_{n_samples}"})
+
+    piece_low  = _noise_piece(sigma=1.0,  n_samples=950, seed=10)
+    piece_high = _noise_piece(sigma=10.0, n_samples=730, seed=11)
+    signal = _make_signal(fs=fs, t_total=4.0, seed=99, chatter_from=2.0)
+
+    result = run_maxent_sprt(signal, _base_config(reference_signal=[piece_low, piece_high]))
+
+    assert result.meta["reference_n_pieces"] == 2, result.meta["reference_n_pieces"]
+    n_windows = result.meta["n_windows_per_piece_free"]
+    assert n_windows == [950 // N_samples_per_seg, 730 // N_samples_per_seg], n_windows
+
+    detector = result.meta["detector"]
+    assert detector.H_free.size == sum(n_windows)
+
+    H_low_theory  = 0.5 * np.log(2 * np.pi * np.e * 1.0 ** 2)
+    H_high_theory = 0.5 * np.log(2 * np.pi * np.e * 10.0 ** 2)
+    for h in detector.H_free:
+        near_low  = abs(h - H_low_theory)  < 0.5
+        near_high = abs(h - H_high_theory) < 0.5
+        assert near_low or near_high, (
+            f"H={h:.4f} falls between the two pieces' entropy bands "
+            f"({H_low_theory:.4f} / {H_high_theory:.4f}) -> seam contamination"
+        )
+
+    print("test_reference_signal (seam pool): OK")
+
+
 def main() -> None:
     signal = _make_signal(fs=5000.0, t_total=4.0, seed=0, chatter_from=2.0)
 
@@ -95,6 +138,8 @@ def main() -> None:
     assert result_both.meta["Size_signal_chatter"] == reference_chatter.signal_analysis.size
 
     print("test_reference_signal: OK")
+
+    _seam_test()
 
 
 if __name__ == "__main__":

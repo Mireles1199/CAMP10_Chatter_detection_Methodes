@@ -1,7 +1,7 @@
 
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Iterable, Tuple, Optional
+from typing import Iterable, List, Tuple, Optional, Sequence, Union
 import numpy as np
 
 from ..models.maxent import MaxEntModels
@@ -10,6 +10,8 @@ from .sprt import SPRTConfig, SPRTResult
 from .entropy import entropy_from_segments, EntropyEstimator, GaussianMaxEntEstimator
 from ..utils.opr import sample_opr, segment_opr, segment_signal_raw
 from ..lib.offline import offline_train_maxent_sprt
+
+ArrayOrPieces = Union[np.ndarray, Sequence[np.ndarray]]
 
 
 
@@ -133,6 +135,10 @@ class MaxEntSPRTDetector:
     """Time midpoints of the stable training segments."""
     t_mid_chat: np.ndarray | None = field(default=None, init=False)
     """Time midpoints of the chatter training segments."""
+    n_windows_free: list | None = field(default=None, init=False)
+    """Per-piece window count for the stable training data (seam-safe pooling diagnostic)."""
+    n_windows_chat: list | None = field(default=None, init=False)
+    """Per-piece window count for the chatter training data (seam-safe pooling diagnostic)."""
 
     def _build_sprt_config(self) -> SPRTConfig:
         """
@@ -168,14 +174,16 @@ class MaxEntSPRTDetector:
 
     def fit_offline_from_opr(
         self,
-        opr_free: np.ndarray,
-        opr_t_free: np.ndarray,
-        opr_chat: np.ndarray,
-        opr_t_chat: np.ndarray,
+        opr_free: ArrayOrPieces,
+        opr_t_free: ArrayOrPieces,
+        opr_chat: ArrayOrPieces,
+        opr_t_chat: ArrayOrPieces,
         N_seg: int,
         step: int | None = None,
         segmentation: str = "opr",
         N_samples_per_seg: int | None = None,
+        piece_ids_free: List[str] | None = None,
+        piece_ids_chat: List[str] | None = None,
     ) -> "MaxEntSPRTDetector":
         """
         Fit the MaxEnt SPRT detector offline using operational deflection shape (OPR) data.
@@ -185,9 +193,12 @@ class MaxEntSPRTDetector:
         for both state conditions.
 
         :param opr_free: OPR-resampled signal representing the stable reference condition.
-        :param opr_t_free: Time vector aligned with ``opr_free``.
-        :param opr_chat: OPR-resampled signal representing the chatter reference condition.
-        :param opr_t_chat: Time vector aligned with ``opr_chat``.
+            A bare array is one continuous piece; a list of arrays is several
+            physically-disjoint pieces, each windowed independently so no
+            window straddles the seam between two pieces.
+        :param opr_t_free: Time vector(s) aligned with ``opr_free`` (same shape as ``opr_free``).
+        :param opr_chat: OPR-resampled signal representing the chatter reference condition. Same shape rules as ``opr_free``.
+        :param opr_t_chat: Time vector(s) aligned with ``opr_chat`` (same shape as ``opr_chat``).
         :param N_seg: Number of OPR samples per segment used to build the offline training windows.
         :param step: Hop size in OPR samples between consecutive segment starts.
             ``None`` (default) is equivalent to ``step = N_seg`` (no overlap).
@@ -196,13 +207,16 @@ class MaxEntSPRTDetector:
             OPR decimation using ``N_samples_per_seg``.
         :param N_samples_per_seg: Block length in raw samples.  Required when
             ``segmentation="raw"``.
+        :param piece_ids_free: Optional identifier per stable piece, used only
+            for the too-short-for-one-window warning message.
+        :param piece_ids_chat: Optional identifier per chatter piece, mirrors ``piece_ids_free``.
 
         Returns:
             MaxEntSPRTDetector: ``self`` with trained models and diagnostic
             arrays populated.
         """
 
-        models, H_free, H_chat, t_mid_free, t_mid_chat = offline_train_maxent_sprt(
+        models, H_free, H_chat, t_mid_free, t_mid_chat, n_windows_free, n_windows_chat = offline_train_maxent_sprt(
             opr_free=opr_free,
             opr_chat=opr_chat,
             opr_t_free=opr_t_free,
@@ -212,12 +226,16 @@ class MaxEntSPRTDetector:
             step=step,
             segmentation=segmentation,
             N_samples_per_seg=N_samples_per_seg,
+            piece_ids_free=piece_ids_free,
+            piece_ids_chat=piece_ids_chat,
         )
         self.models = models
         self.H_free = H_free
         self.H_chat = H_chat
         self.t_mid_free = t_mid_free
         self.t_mid_chat = t_mid_chat
+        self.n_windows_free = n_windows_free
+        self.n_windows_chat = n_windows_chat
         return self
 
     def fit_offline_from_signals(
