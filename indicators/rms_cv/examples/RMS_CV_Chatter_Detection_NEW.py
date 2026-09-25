@@ -1,5 +1,5 @@
 import logging
-from typing import Tuple
+from typing import List, Tuple
 import os
 import sys
 import numpy as np
@@ -47,10 +47,18 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 # FASE 3 -- reference_signal externo (Convergency_Simulation/4_DOE_Data_Training_Tube)
 #
-#   True  -> arma INDICATOR_CONFIG["reference_signal"] desde reference_combined.h5
-#            (grupo "stable/Axial_vel"); reemplaza stable_time/frac_stable como
-#            region de entrenamiento del CV.
+#   True  -> arma INDICATOR_CONFIG["reference_signal"] como una lista de
+#            tramos (uno por caso) leidos de reference_dataset.h5; cada tramo
+#            se ventanea y se monitorea con su propio CVOnlineMonitor (nunca
+#            se concatena la senal cruda entre casos -- solo los resultados
+#            de CV por tramo se juntan para el pool de mu/sigma). Reemplaza
+#            stable_time/frac_stable como region de entrenamiento del CV.
 #   False -> comportamiento normal (stable_time/frac_stable de _COMMON, sin tocar).
+#
+# El combinado reference_combined.h5 NO se toca aqui -- sigue siendo la
+# entrada del visor doe_unified_selector.py, solo deja de usarse para
+# aprendizaje (mezclaba los tramos en una sola senal, contaminando la costura
+# entre casos con el buffer n_max del CV).
 #
 # Para comparar ambos modos alternar solo esta linea.
 # =============================================================================
@@ -60,7 +68,7 @@ _REFERENCE_H5 = (
     r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\Chatter-Criteria"
     r"\CAMP10_Chatter_detection_Methodes\Convergency_Simulation"
     r"\4_DOE_Data_Training_Tube\DOE_Training_Tube_dxl_20e-5_RUN_10_0.5-2.0"
-    r"\reference_combined.h5"
+    r"\reference_dataset.h5"
 )
 
 
@@ -71,24 +79,31 @@ def _cut_signal(t, x, time_range: Tuple[float, float]) -> Tuple[np.ndarray, np.n
     return t[mask], x[mask]
 
 
-def _load_reference_signal(path: str, label: str = "stable", channel: str = "Axial_vel") -> SignalData:
-    """Read one `save_combined`/`load_combined` group (Repo-DOE's
-    reference_dataset.py) directly with h5py -- never import that package
-    from here (indicators/COMMON_TEMPLATE.md prohibits cross-indicator imports). 
+def _load_reference_pieces(path: str, label: str = "stable", channel: str = "Axial_vel") -> List[SignalData]:
+    """Read every per-case piece of one label/channel from `reference_dataset.py
+    build`'s output (Repo-DOE) directly with h5py -- never import that package
+    from here (indicators/COMMON_TEMPLATE.md prohibits cross-indicator imports).
+
+    Layout: /<label>/<case>/<channel>__NNN/{t, y}, attrs channel/fs/signal_id.
+    Returns one SignalData per piece (case), kept separate on purpose -- the
+    caller windows/monitors each piece independently instead of concatenating
+    the raw signals, so the CV pool never mixes the tail of one case with the
+    head of the next.
     """
     import h5py
 
-    group_name = f"{label}__{channel}"
+    out: List[SignalData] = []
     with h5py.File(path, "r") as f:
-        grp = f[group_name]
-        t = grp["t"][()]
-        y = grp["y"][()]
-        fs = float(grp.attrs["fs"])
-        n_pieces = int(grp.attrs.get("n_pieces", -1))
-    return SignalData(
-        t_analysis=t, signal_analysis=y, path=path, fs=fs,
-        meta={"label": label, "channel": channel, "n_pieces": n_pieces},
-    )
+        for case in f[label]:
+            for piece in f[label][case].values():
+                if piece.attrs["channel"] != channel:
+                    continue
+                out.append(SignalData(
+                    t_analysis=piece["t"][()], signal_analysis=piece["y"][()],
+                    path=path, fs=float(piece.attrs["fs"]),
+                    meta={"label": label, "channel": channel, "signal_id": piece.attrs["signal_id"]},
+                ))
+    return out
 
 
 def _section(title: str, width: int = 54) -> str:
@@ -124,11 +139,20 @@ def main() -> None:
             r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
             r"\2DOF_Cone_New\Cono_dexel_20e-5_dt_200\0\1DOF_150Hz\sens_out.hdf5"
         ),
+
+        "tubo_stable_6_88e_5" : (
+            r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
+            r"\Chatter-Criteria\CAMP10_Chatter_detection_Methodes"
+            r"\Convergency_Simulation\1_Detection_Limite_Lobes"
+            r"\DOE_Detection_Limite_Lobes_dxl_20e-5_RUN_10"
+            r"\4\1DOF_150Hz\sens_out.hdf5"
+        ),
+
     }
 
     # See COMMON_TEMPLATE.md §11 -- forma estándar de declarar el origen de la señal.
     _SIGNAL_SOURCE = {
-        "hdf5_path": _DATA_DIRS["cono_dexel_20e_5"],
+        "hdf5_path": _DATA_DIRS["tubo_stable_6_88e_5"],
         "case_name": None,  # None (layout crudo) | "case_003" (layout DOE)
         "disp_name": "Axial_disp",
         "vel_name": "Axial_vel",
@@ -150,9 +174,10 @@ def main() -> None:
     v  = tool_dyn_vel
     fs = 1.0 / (t[1] - t[0])
 
-    t_cut, v_cut  = _cut_signal(t, v,        (0.00, 15))
-    _,     x_cut  = _cut_signal(t, tool_dyn, (0.00, 15))
-    _,     f_cut  = _cut_signal(t, force_N,  (0.00, 15))
+    _CUT_START = 0.05
+    t_cut, v_cut  = _cut_signal(t, v,        (_CUT_START, 15))
+    _,     x_cut  = _cut_signal(t, tool_dyn, (_CUT_START, 15))
+    _,     f_cut  = _cut_signal(t, force_N,  (_CUT_START, 15))
 
     # =============================================================================
     # INDICATOR_CONFIG -- cuatro modos de parametrizacion
@@ -210,8 +235,8 @@ def main() -> None:
         "param_mode": "by_revolution",
         "params_physical": {
             "T_rev":        _T_REV,
-            "N_rev_window": 4,
-            "step_rev":     1,
+            "N_rev_window": 32,
+            "step_rev":     4,
             "n_max_mode":   "frames",
             "n_max_rev":    4,
             **_COMMON,
@@ -268,7 +293,7 @@ def main() -> None:
     # Alternar con USE_EXTERNAL_REFERENCE (arriba del archivo) para comparar con y
     # sin la referencia externa. Comentar esta linea tambien vuelve al modo normal.
     if USE_EXTERNAL_REFERENCE:
-        INDICATOR_CONFIG["reference_signal"] = _load_reference_signal(
+        INDICATOR_CONFIG["reference_signal"] = _load_reference_pieces(
             _REFERENCE_H5, label="stable", channel="Axial_vel"
         )
 
