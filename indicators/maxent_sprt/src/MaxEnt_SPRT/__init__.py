@@ -39,7 +39,7 @@ from .lib.llr import LLRModel, GaussianIndicatorLLR
 from .lib.sprt import SPRTConfig, SPRTResult, SequentialProbabilityRatioTest
 from .lib.detector import MaxEntSPRTConfig, MaxEntSPRTDetector
 from .utils.types import SignalData, IndicatorResult
-from .utils.hdf5_utils import HDF5Reader
+from .utils.hdf5_utils import HDF5Reader, load_signal
 from .lib.runner import run_maxent_sprt
 from .viz.maxent_sprt_plots import plots_maxent_sprt
 from .logging_setup import LOGGING_LEVELS
@@ -63,6 +63,7 @@ __all__ = [
     "SignalData",
     "IndicatorResult",
     "HDF5Reader",
+    "load_signal",
     "run_maxent_sprt",
     "plots_maxent_sprt",
     "INFO_PLUS_LEVEL",

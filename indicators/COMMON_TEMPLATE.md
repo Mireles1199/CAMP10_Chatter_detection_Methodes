@@ -51,7 +51,7 @@ Claves de primer nivel: `id` (opcional, label de logging), `func` (`"Default"` |
 | `by_revolution` | `T_rev`, `N_rev_window`, `step_rev` | `segmentation` |
 | `by_modal` | `T_modal`, `N_modal_window`, `step_modal` | `T_rev` (informativo, no afecta la ventana), `segmentation` |
 
-`param_mode` es **obligatorio** en los 4 indicadores (Green lo adopta en su propia sesión — ver checklist §10).
+`param_mode` es **obligatorio** en los 4 indicadores (Green lo adopta en su propia sesión — ver checklist §12).
 
 ### Reglas comunes de validación
 
@@ -104,7 +104,7 @@ def run_<ind>(signal: SignalData, INDICATOR_CONFIG: dict) -> IndicatorResult:
     result.meta["Total_window"] = <ventanas totales, propio de cada indicador>
     return result
 ```
-Nótese que `params_physical` queda **siempre definido** (dict vacío en modo `native`), y el diagnóstico se ramifica explícitamente por `param_mode` en vez de asumir que `params_physical` tiene ciertas claves. Esto corrige un `NameError` idéntico presente hoy en los tres runners existentes (ver checklist §10).
+Nótese que `params_physical` queda **siempre definido** (dict vacío en modo `native`), y el diagnóstico se ramifica explícitamente por `param_mode` en vez de asumir que `params_physical` tiene ciertas claves. Esto corrige un `NameError` idéntico presente hoy en los tres runners existentes (ver checklist §12).
 
 ## 5. Claves estándar de `result.meta`
 
@@ -138,7 +138,7 @@ if _SRC not in sys.path:
 from <Paquete> import ...
 ```
 
-Es relativo a `__file__`, así que sigue resolviendo bien después de mergear (converge con la instalación editable en vez de competir con ella — ver checklist §10 para el estado real de cada paquete).
+Es relativo a `__file__`, así que sigue resolviendo bien después de mergear (converge con la instalación editable en vez de competir con ella — ver checklist §12 para el estado real de cada paquete).
 
 Esto no aplica solo a scripts de un solo indicador: cualquier script que combine varios (`pareto_stage1.py`, `Noise_SNR.py`, `effective_window/`, `Optimizacion/*`) necesita insertar el `src/` de **cada** indicador que use, antes del primer `import`. Los que ya lo hacen bien en este repo (patrón a copiar): `Optimizacion/study_phase3/study_phase3.py` y `Optimizacion/study_phase1/study_phase1.py` (calculan la raíz del repo vía `__file__`, no hardcodean el nombre del checkout).
 
@@ -151,7 +151,109 @@ grep -rhoE "^(import|from) [a-zA-Z0-9_]+" src/<paquete>/**/*.py | sort -u
 ```
 y comparar contra `dependencies` en `pyproject.toml`. Un `pip install .` en un entorno limpio (p. ej. el de un director/colaborador que nunca tocó este repo) debe funcionar sin `ModuleNotFoundError`.
 
-## 10. Checklist de migración por indicador
+## 10. `reference_signal` como punto de extensión (calibración contra referencia externa)
+
+Clave opcional de primer nivel en `INDICATOR_CONFIG` (hermana de `func`/`param_mode`/`params`/`params_physical`, no va dentro de ninguna de esas):
+
+```python
+INDICATOR_CONFIG = {
+    "func": "Default",
+    "param_mode": "native",  # o "by_revolution" / "by_modal"
+    "params": {...},          # o "params_physical": {...}
+    "reference_signal": SignalData(...),  # opcional
+}
+```
+
+- **Si está presente**: el indicador usa `reference_signal.t_analysis`/`reference_signal.signal_analysis` como su región de entrenamiento/referencia completa, en reemplazo de lo que hoy carva internamente de `training_intervals`/`cut_start_time`+`t_stable_total` (legacy cut) de la señal analizada. Son arrays crudos ya etiquetados por un pipeline externo (p. ej. Repo-DOE, fase de etiquetado + combinado por label) — no hace falta re-correr ningún pipeline de ventaneo propio sobre ellos.
+- **Si NO está presente (default)**: comportamiento 100% idéntico al actual, cero impacto en nada existente. La firma de `func(signal, **params)` no cambia — `reference_signal` solo se agrega como kwarg cuando está presente, para no romper `func` personalizados que no lo declaren.
+- Si además vienen `training_intervals`/legacy cut, `reference_signal` tiene prioridad para la región de referencia/entrenamiento; qué hacer con la contraparte que cada indicador necesite además de esa referencia (p. ej. una contraparte "chatter" para un modelo de dos hipótesis) queda a criterio de cada indicador — documentarlo en su propia sección. Loguear un aviso cuando ambos estén presentes es recomendable, no obligatorio.
+- Agregar a `result.meta`: `"training_source": "external_reference" | "internal"`.
+
+**Referencia de implementación**: `maxent_sprt` (`lib/runner.py`, `run_maxent_sprt` + `_maxent_sprt_pipeline`, sección "Training signal split"). Ahí `reference_signal` reemplaza `t_stable`/`signal_analysis_stable` (P0/stable). MaxEnt además define su propia extensión (no forma parte del contrato común) para la contraparte chatter/P1: `reference_signal_chatter`, mismo tipo `SignalData`, misma clave de primer nivel en `INDICATOR_CONFIG`. Si `reference_signal_chatter` viene, reemplaza `t_chatter`/`signal_analysis_chatter`; si no, esa contraparte sigue derivándose de `training_intervals` (solo las entradas `"chatter"`) o del `cut_end_time` legacy si vienen, si no queda vacía. Cada lado (`reference_signal`/`reference_signal_chatter`) es independiente — se puede dar uno solo o los dos. `result.meta` agrega también `"chatter_source": "external_reference" | "internal"` (espejo de `training_source`, propio de MaxEnt). Self-check: `maxent_sprt/examples/test_reference_signal.py`. Ejemplo end-to-end: `maxent_sprt/examples/MaxEnt_Detection_NEW.py` (flags `USE_EXTERNAL_REFERENCE`/`USE_EXTERNAL_REFERENCE_CHATTER`, lee `reference_combined.h5` con h5py directo, grupos `"stable__<canal>"`/`"unstable__<canal>"`).
+
+## 11. `load_signal` y `SIGNAL_SOURCE` — lectura uniforme de la señal a analizar (layout crudo o DOE)
+
+Punto de extensión común para que los 4 indicadores lean la señal a analizar de la misma forma, sea que venga del layout crudo del simulador (`sens_out.hdf5`/`out.hdf5`) o del layout repackagado de DOE (`doe_results.h5`/`doe_noise_results.h5`, con grupos por caso).
+
+### Función `load_signal`
+
+```python
+def load_signal(
+    reader: "HDF5Reader",
+    signal_name: str,
+    case_name: str | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Lee (t, y) de un HDF5Reader ya cargado.
+
+    - case_name=None  -> layout crudo del simulador (sens_out.hdf5/out.hdf5):
+      "<signal_name>/data" como array (N,2): col 0 = tiempo, col 1 = valor.
+    - case_name="<grupo>" -> layout DOE (doe_results.h5/doe_noise_results.h5):
+      "<case_name>/<signal_name>/time" + "<case_name>/<signal_name>/values"
+      como datasets separados.
+    """
+    if case_name:
+        t = np.asarray(reader.get_element(f"{case_name}/{signal_name}/time"), dtype=float)
+        y = np.asarray(reader.get_element(f"{case_name}/{signal_name}/values"), dtype=float)
+    else:
+        arr = np.asarray(reader.get_element(f"{signal_name}/data"), dtype=float)
+        t, y = arr[:, 0], arr[:, 1]
+    return t, y
+```
+
+Cada indicador implementa esta MISMA función en su propio paquete (`utils/hdf5_utils.py`, junto a su propio `HDF5Reader`) — sin cross-import, por la misma convención de §8.
+
+### Convención `SIGNAL_SOURCE`
+
+Forma estándar de declarar el origen de la señal a analizar en cualquier script de `examples/`, en vez de variables sueltas (`data_dir`/`CASE_NAME`, etc.):
+
+```python
+SIGNAL_SOURCE = {
+    "hdf5_path": r"...\sens_out.hdf5",   # o doe_results.h5 / doe_noise_results.h5
+    "case_name": None,                    # None (layout crudo) | "case_003" / "snr_005.00" (layout DOE)
+    "disp_name": "Axial_disp",
+    "vel_name":  "Axial_vel",
+    "force_name": "force_N",              # opcional -- mantener el nombre de canal que ya usa cada paquete
+}
+```
+
+Uso:
+```python
+data    = HDF5Reader(SIGNAL_SOURCE["hdf5_path"])
+t, disp = load_signal(data, SIGNAL_SOURCE["disp_name"], SIGNAL_SOURCE["case_name"])
+_, vel  = load_signal(data, SIGNAL_SOURCE["vel_name"],  SIGNAL_SOURCE["case_name"])
+```
+
+Las claves `disp_name`/`vel_name`/`force_name` son las que ya usa cada paquete (p. ej. distinto nombre de canal en Green Integral si aplica) — no se fuerza un nombre común, solo la forma del dict.
+
+### Convención `CASES` / `ACTIVE_CASE` (forma estándar final)
+
+En cualquier script de `examples/` que arma el `INDICATOR_CONFIG` completo y llama a `run_<indicador>` (no solo lee la señal), `signal_source` e `indicator_config` van **juntos**, anidados dentro de un `CASES` nombrado — misma estructura en los 4 paquetes, el contenido de `indicator_config` sigue siendo propio de cada uno:
+
+```python
+CASES: dict[str, dict] = {
+    "default": {
+        "signal_source": {
+            "hdf5_path": ..., "case_name": None,
+            "disp_name": "Axial_disp", "vel_name": "Axial_vel", "force_name": "force_N",
+        },
+        "indicator_config": {
+            # claves propias del indicador (lo que hoy arma tu INDICATOR_CONFIG)
+            "id": "...", "func": "Default", "param_mode": "...", "params_physical": {...},
+        },
+    },
+    # ... otras entradas nombradas (presets alternativos)
+}
+
+ACTIVE_CASE      = "default"          # <- cambiar solo esta línea para elegir señal + config
+SIGNAL_SOURCE    = CASES[ACTIVE_CASE]["signal_source"]
+INDICATOR_CONFIG = CASES[ACTIVE_CASE]["indicator_config"]   # se pasa directo a run_<indicador>(signal, INDICATOR_CONFIG)
+```
+
+`signal_source` tiene la misma forma que la convención `SIGNAL_SOURCE` de arriba, solo que anidada dentro de cada caso en vez de suelta a nivel de módulo — así una sola variable (`ACTIVE_CASE`) alcanza para elegir señal + config juntos. Un script puede seguir exponiendo un flag de CLI para elegir entre varios `CASES` en tiempo de ejecución (conveniencia adicional) — `CASES`/`ACTIVE_CASE` sigue siendo la fuente de verdad, el flag no reemplaza la convención.
+
+**Referencia de implementación**: `maxent_sprt` (`utils/hdf5_utils.py::load_signal`, exportada desde `MaxEnt_SPRT/__init__.py`). `examples/read_hdf_signals.py` (solo lee la señal: usa `SIGNAL_SOURCE` + `load_signal` para leer disp/vel/force, con fallback a ceros si `force_name` no está presente). `examples/MaxEnt_Detection_NEW.py` (arma el `INDICATOR_CONFIG` completo y corre el indicador: usa `CASES`/`ACTIVE_CASE`, con 5 entradas — una por variante de `param_mode`/segmentación — que hoy comparten el mismo `signal_source`; mantiene además `--case NAME` como flag de conveniencia sobre `CASES`). Self-check: `examples/test_load_signal.py` (fixture `.h5` sintético con ambos layouts). Verificado además contra datos reales: mismo resultado exacto leyendo un caso de `2DOF_Cone_DOE` vía `sens_out.hdf5` (layout crudo) y vía `doe_results.h5` (layout DOE, mismo caso), y mismo resultado en `MaxEnt_Detection_NEW.py` antes/después de migrar a `CASES`.
+
+## 12. Checklist de migración por indicador
 
 Trazabilidad para que cada sesión de indicador sepa qué corregir en sus propios archivos. Esta sesión (MaxEnt) no los edita.
 

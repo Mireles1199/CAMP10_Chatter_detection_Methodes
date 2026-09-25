@@ -1,15 +1,17 @@
 """MaxEnt-SPRT detection example.
 
 Loads a signal from HDF5, runs ``run_maxent_sprt`` with one of five
-INDICATOR_CONFIG variants (native / by_revolution / by_modal, with and
-without raw segmentation), prints a structured summary, and plots the
-result.
+CASES presets (native / by_revolution / by_modal, with and without raw
+segmentation) -- each pairing a ``signal_source`` with an
+``indicator_config``, see COMMON_TEMPLATE.md §11/§12 -- prints a
+structured summary, and plots the result.
 
 Usage:
-    python MaxEnt_Detection_NEW.py [--config NAME]
+    python MaxEnt_Detection_NEW.py [--case NAME]
 
 ``NAME`` is one of: native, by_revolution_overlap, by_modal_overlap,
-by_revolution_raw (default), by_modal_raw.
+by_revolution_raw (default), by_modal_raw. To change the default without
+the CLI flag, edit ``ACTIVE_CASE`` below.
 """
 import argparse
 import logging
@@ -17,6 +19,7 @@ import os
 import sys
 from typing import Tuple
 
+import h5py
 import numpy as np
 import pandas as pd
 
@@ -29,7 +32,7 @@ if _SRC not in sys.path:
     sys.path.insert(0, _SRC)
 
 from MaxEnt_SPRT import SignalData
-from MaxEnt_SPRT import HDF5Reader
+from MaxEnt_SPRT import HDF5Reader, load_signal
 from MaxEnt_SPRT import run_maxent_sprt
 from MaxEnt_SPRT import plots_maxent_sprt
 from MaxEnt_SPRT.logging_setup import configure_logging, _section
@@ -68,7 +71,7 @@ _DATA_DIRS = {
     "control_sensor": (
         r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
         r"\2DOF_Cone_DOE\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_200"
-        r"\3\1DOF_150Hz\sens_out.hdf5"
+        r"\5\1DOF_150Hz\sens_out.hdf5"
     ),
     "custom": (
         r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
@@ -80,12 +83,44 @@ _DATA_DIRS = {
         r"\2DOF_Cone_DOE\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_180"
         r"\12\1DOF_150Hz\sens_out.hdf5"
     ),
-}
-DATA_DIR = _DATA_DIRS["control_sensor"]
-CASE_NAME = None
 
-_CUT_START = 0.0
+    "cono_dexel_20e_5": (
+        r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
+        r"\2DOF_Cone_New\Cono_dexel_20e-5_dt_200\0\1DOF_150Hz\sens_out.hdf5"
+    )
+
+}
+
+# See COMMON_TEMPLATE.md §11 -- forma estándar de declarar el origen de la señal.
+SIGNAL_SOURCE = {
+    "hdf5_path": _DATA_DIRS["cono_dexel_20e_5"],
+    "case_name": None,  # None (layout crudo) | "case_003" (layout DOE)
+    "disp_name": "Axial_disp",
+    "vel_name": "Axial_vel",
+    "force_name": "force_N",
+}
+
+_CUT_START = 0.05
 _CUT_END = 16
+
+# -- external reference (reference_signal / reference_signal_chatter,
+#    see COMMON_TEMPLATE.md §10; the chatter side is a MaxEnt-specific mirror
+#    of it, not part of the shared contract) --------------------------------
+# True  -> calibrate P0 (stable) training against Repo-DOE's externally-labelled
+#          "stable" region in reference_combined.h5 instead of the internal
+#          training_intervals split below.
+# False -> P0 stays internal (comment this flag or flip it to False to
+#          compare both modes on the same run).
+USE_EXTERNAL_REFERENCE = True
+# Same toggle, but for P1 (chatter) against the "unstable" region of the same file.
+USE_EXTERNAL_REFERENCE_CHATTER = True
+_REFERENCE_H5 = (
+    r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\Chatter-Criteria"
+    r"\CAMP10_Chatter_detection_Methodes\Convergency_Simulation"
+    r"\4_DOE_Data_Training_Tube\DOE_Training_Tube_dxl_20e-5_RUN_10_0.5-2.0"
+    r"\reference_combined.h5"
+)
+_REFERENCE_CHANNEL = "Axial_vel"
 
 # =============================================================================
 # INDICATOR_CONFIG -- cinco variantes de parametrizacion
@@ -110,10 +145,10 @@ _T_GT = 5.365770208787228  # [s] ground-truth chatter onset
 
 _COMMON = {
     "t_stable_total": _T_GT,  # legacy fallback (used if training_intervals=None)
-    "training_intervals": [
-        (_CUT_START, _T_GT, "stable"),  # chatter-free training region
-        (_T_GT, 10, "chatter"),  # chatter training region
-    ],
+    # "training_intervals": [
+    #     (_CUT_START, _T_GT, "stable"),  # chatter-free training region
+    #     (_T_GT, 10, "chatter"),  # chatter training region
+    # ],
     "alpha": _Z3_ALPHA,
     "beta": _Z3_ALPHA,
     "reset_on_H0": True,
@@ -189,49 +224,90 @@ INDICATOR_CONFIG_by_modal_raw = {
     },
 }
 
-CONFIGS = {
-    "native": INDICATOR_CONFIG_native,
-    "by_revolution_overlap": INDICATOR_CONFIG_by_revolution_overlap,
-    "by_modal_overlap": INDICATOR_CONFIG_by_modal_overlap,
-    "by_revolution_raw": INDICATOR_CONFIG_by_revolution_raw,
-    "by_modal_raw": INDICATOR_CONFIG_by_modal_raw,
+# CASES: mismo esqueleto signal_source + indicator_config para los 4 indicadores
+# (ver COMMON_TEMPLATE.md §11/§12) -- cada entrada pareja la señal a analizar con
+# una variante de parametrización. Todas comparten SIGNAL_SOURCE hoy (son distintos
+# esquemas de ventaneo sobre la misma señal); cambiar el diccionario de una entrada
+# puntual si hace falta analizar una señal distinta con esa variante.
+CASES: dict[str, dict] = {
+    "native": {
+        "signal_source": SIGNAL_SOURCE,
+        "indicator_config": INDICATOR_CONFIG_native,
+    },
+    "by_revolution_overlap": {
+        "signal_source": SIGNAL_SOURCE,
+        "indicator_config": INDICATOR_CONFIG_by_revolution_overlap,
+    },
+    "by_modal_overlap": {
+        "signal_source": SIGNAL_SOURCE,
+        "indicator_config": INDICATOR_CONFIG_by_modal_overlap,
+    },
+    "by_revolution_raw": {
+        "signal_source": SIGNAL_SOURCE,
+        "indicator_config": INDICATOR_CONFIG_by_revolution_raw,
+    },
+    "by_modal_raw": {
+        "signal_source": SIGNAL_SOURCE,
+        "indicator_config": INDICATOR_CONFIG_by_modal_raw,
+    },
 }
 
+ACTIVE_CASE = "by_revolution_raw"  # <- cambiar solo esta linea para elegir señal + config
+SIGNAL_SOURCE = CASES[ACTIVE_CASE]["signal_source"]
+INDICATOR_CONFIG = CASES[ACTIVE_CASE]["indicator_config"]  # se pasa directo a run_maxent_sprt(signal, INDICATOR_CONFIG)
 
-def _load_signal(data_dir: str, case_name: str | None, cut_range: Tuple[float, float]) -> SignalData:
-    data = HDF5Reader(data_dir)
 
-    if case_name is not None:
-        case_prefix = f"{case_name}/"
-        disp_path_hdf5 = f"{case_prefix}Axial_disp/values"
-        vel_path_hdf5 = f"{case_prefix}Axial_vel/values"
-        time_path_hdf5 = f"{case_prefix}Axial_disp/time"
+def _load_signal(source: dict, cut_range: Tuple[float, float]) -> SignalData:
+    reader = HDF5Reader(source["hdf5_path"])
+    case_name = source.get("case_name")
 
-        tool_dyn = data.get_element(disp_path_hdf5)
-        t = data.get_element(time_path_hdf5)
-        v = data.get_element(vel_path_hdf5)
-    else:
-        tool_dyn = data.get_element("Axial_disp/data")
-        t = tool_dyn[:, 0]
-        tool_dyn = tool_dyn[:, 1]
-        v = data.get_element("Axial_vel/data")[:, 1]
-
+    t, disp = load_signal(reader, source["disp_name"], case_name)
+    _, vel = load_signal(reader, source["vel_name"], case_name)
     try:
-        force_n = data.get_element("force_N/data")[:, 1]
+        _, force_n = load_signal(reader, source["force_name"], case_name)
     except KeyError:
         force_n = np.zeros_like(t)
 
     fs = 1.0 / (t[1] - t[0])
-    t_cut, v_cut = _cut_signal(t, v, cut_range)
-    _, x_cut = _cut_signal(t, tool_dyn, cut_range)
+    t_cut, v_cut = _cut_signal(t, vel, cut_range)
+    _, x_cut = _cut_signal(t, disp, cut_range)
     _, f_cut = _cut_signal(t, force_n, cut_range)
 
     return SignalData(
         t_analysis=t_cut,
         signal_analysis=v_cut,
-        path=data_dir,
+        path=source["hdf5_path"],
         fs=fs,
         meta={"AP": "5mm-15mm", "RPM": 12_000},
+    )
+
+
+def _load_reference_signal(h5_path: str, channel: str, label: str = "stable") -> SignalData:
+    """Build a ``reference_signal`` SignalData from Repo-DOE's reference_combined.h5.
+
+    That file follows ``reference_dataset.py``'s ``save_combined``/``load_combined``
+    layout (one group per ``"{label}__{channel}"``, datasets ``t``/``y``, attrs
+    ``fs``/``label``/``channel``/``n_pieces``/``source_ids``). Read directly with
+    h5py -- never import the Repo-DOE script, to avoid coupling packages (see
+    COMMON_TEMPLATE.md §8/§10).
+    """
+    group_name = f"{label}__{channel}"
+    with h5py.File(h5_path, "r") as f:
+        if group_name not in f:
+            raise KeyError(f"'{group_name}' not found in {h5_path}. Available: {list(f.keys())}")
+        g = f[group_name]
+        t = g["t"][:]
+        y = g["y"][:]
+        fs = float(g.attrs["fs"])
+        n_pieces = int(g.attrs.get("n_pieces", 0))
+
+    return SignalData(
+        t_analysis=t,
+        signal_analysis=y,
+        path=h5_path,
+        fs=fs,
+        meta={"label": label, "channel": channel, "n_pieces": n_pieces,
+              "source": "Repo-DOE reference_combined.h5"},
     )
 
 
@@ -255,6 +331,8 @@ def _log_config_summary(result, fr: float) -> None:
     lines = [
         _kv("Indicador", result.name),
         _kv("Modo", param_mode),
+        _kv("Training source (P0/stable)", meta.get("training_source", "internal")),
+        _kv("Chatter source (P1/unstable)", meta.get("chatter_source", "internal")),
         _kv("Segmentacion", meta.get("segmentation", "opr")),
         _sep(),
         _kv("t_stable_total", f"{_COMMON['t_stable_total']:.4f} s"),
@@ -374,18 +452,34 @@ def _log_debug_tables(result) -> None:
         logger.debug("%s\n%s", _section(f"TABLA DETECCIONES  ({t_d.size} evento(s))"), df_det.to_string())
 
 
-def main(config_name: str = "by_revolution_raw") -> None:
-    if config_name not in CONFIGS:
-        raise SystemExit(f"Config desconocida '{config_name}'. Opciones: {sorted(CONFIGS)}")
+def main(case_name: str = ACTIVE_CASE) -> None:
+    if case_name not in CASES:
+        raise SystemExit(f"Case desconocido '{case_name}'. Opciones: {sorted(CASES)}")
 
     configure_logging(level=_LOG_LEVEL)
+
+    case = CASES[case_name]
+    signal_source = case["signal_source"]
+    indicator_config = case["indicator_config"]
+
+    # "reference_signal"/"reference_signal_chatter" are top-level INDICATOR_CONFIG
+    # keys (sibling of func/params), not part of _COMMON -- inject them here,
+    # gated independently by the two USE_EXTERNAL_REFERENCE* flags above.
+    if USE_EXTERNAL_REFERENCE:
+        indicator_config["reference_signal"] = _load_reference_signal(
+            _REFERENCE_H5, _REFERENCE_CHANNEL, label="stable"
+        )
+    if USE_EXTERNAL_REFERENCE_CHATTER:
+        indicator_config["reference_signal_chatter"] = _load_reference_signal(
+            _REFERENCE_H5, _REFERENCE_CHANNEL, label="unstable"
+        )
 
     pd.set_option("display.max_colwidth", None)
     pd.set_option("display.width", 100)
 
-    sig = _load_signal(DATA_DIR, CASE_NAME, (_CUT_START, _CUT_END))
+    sig = _load_signal(signal_source, (_CUT_START, _CUT_END))
 
-    result = run_maxent_sprt(sig, CONFIGS[config_name])
+    result = run_maxent_sprt(sig, indicator_config)
 
     fr = result.meta["Rotational_Frequency_Hz"]
     _log_config_summary(result, fr)
@@ -405,10 +499,10 @@ def main(config_name: str = "by_revolution_raw") -> None:
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the MaxEnt-SPRT detection example.")
-    parser.add_argument("--config", default="by_revolution_raw", choices=sorted(CONFIGS),
-                         help="INDICATOR_CONFIG variant to run.")
+    parser.add_argument("--case", default=ACTIVE_CASE, choices=sorted(CASES),
+                         help="CASES preset (signal_source + indicator_config) to run.")
     return parser.parse_args()
 
 
 if __name__ == "__main__":
-    main(_parse_args().config)
+    main(_parse_args().case)

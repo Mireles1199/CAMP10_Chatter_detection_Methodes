@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import os
 import sys
-from pathlib import Path
 
 import numpy as np
 
@@ -22,20 +21,23 @@ _SRC = os.path.abspath(os.path.join(_HERE, "..", "src"))
 if _SRC not in sys.path:
     sys.path.insert(0, _SRC)
 
-from MaxEnt_SPRT import HDF5Reader
+from MaxEnt_SPRT import HDF5Reader, load_signal
 
 
 # -----------------------------------------------------------------------------
-# Input data
+# Input data -- see COMMON_TEMPLATE.md for the SIGNAL_SOURCE convention.
 # -----------------------------------------------------------------------------
-data_dir = Path(
-    r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
-    r"\2DOF_Cone_DOE\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_200"
-    r"\0\1DOF_150Hz\sens_out.hdf5"
-)
-
-# Set this to a case folder name like "3" if you need case-prefixed paths.
-CASE_NAME = None
+SIGNAL_SOURCE = {
+    "hdf5_path": (
+        r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
+        r"\2DOF_Cone_DOE\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_200"
+        r"\0\1DOF_150Hz\sens_out.hdf5"
+    ),
+    "case_name": None,  # None (layout crudo) | "3" / "case_003" (layout DOE)
+    "disp_name": "Axial_disp",
+    "vel_name": "Axial_vel",
+    "force_name": "force_N",
+}
 
 
 def cut_signal(t: np.ndarray, x: np.ndarray, start_time: float, end_time: float) -> tuple[np.ndarray, np.ndarray]:
@@ -43,47 +45,27 @@ def cut_signal(t: np.ndarray, x: np.ndarray, start_time: float, end_time: float)
     return t[mask], x[mask]
 
 
-def resolve_paths(case_name: str | None) -> tuple[str, str, str]:
-    case_prefix = f"{case_name}/" if case_name else ""
-    disp_path_hdf5 = f"{case_prefix}Axial_disp/values" if case_name else "Axial_disp/data"
-    vel_path_hdf5 = f"{case_prefix}Axial_vel/values" if case_name else "Axial_vel/data"
-    time_path_hdf5 = f"{case_prefix}Axial_disp/time" if case_name else "Axial_disp/data"
-    return disp_path_hdf5, vel_path_hdf5, time_path_hdf5
+def load_signals(source: dict) -> dict[str, np.ndarray]:
+    reader = HDF5Reader(source["hdf5_path"])
+    case_name = source.get("case_name")
 
-
-def load_signals(hdf5_path: Path, case_name: str | None = None) -> dict[str, np.ndarray]:
-    data = HDF5Reader(str(hdf5_path))
-    disp_path_hdf5, vel_path_hdf5, time_path_hdf5 = resolve_paths(case_name)
-
-    if case_name is not None:
-        t = np.asarray(data.get_element(time_path_hdf5), dtype=float)
-        x = np.asarray(data.get_element(disp_path_hdf5), dtype=float)
-        v = np.asarray(data.get_element(vel_path_hdf5), dtype=float)
-        if x.ndim == 2:
-            x = x[:, 1]
-        if v.ndim == 2:
-            v = v[:, 1]
-    else:
-        tool_dyn = np.asarray(data.get_element(disp_path_hdf5), dtype=float)
-        t = tool_dyn[:, 0]
-        x = tool_dyn[:, 1]
-        v = np.asarray(data.get_element(vel_path_hdf5), dtype=float)[:, 1]
-
+    t, disp = load_signal(reader, source["disp_name"], case_name)
+    _, vel = load_signal(reader, source["vel_name"], case_name)
     try:
-        force_n = np.asarray(data.get_element("force_N/data"), dtype=float)[:, 1]
+        _, force_n = load_signal(reader, source["force_name"], case_name)
     except KeyError:
         force_n = np.zeros_like(t)
 
     return {
         "t": t,
-        "disp": x,
-        "vel": v,
+        "disp": disp,
+        "vel": vel,
         "force_N": force_n,
     }
 
 
 def main() -> None:
-    signals = load_signals(data_dir, CASE_NAME)
+    signals = load_signals(SIGNAL_SOURCE)
 
     t = signals["t"]
     disp = signals["disp"]
@@ -98,7 +80,7 @@ def main() -> None:
 
     fs = 1.0 / (t[1] - t[0]) if t.size > 1 else float("nan")
 
-    print(f"HDF5: {data_dir}")
+    print(f"HDF5: {SIGNAL_SOURCE['hdf5_path']}")
     print(f"Samples: {t.size}")
     print(f"fs: {fs:.3f} Hz")
     print(f"Cut range: {cut_start} to {cut_end} s")

@@ -253,7 +253,7 @@ def run_maxent_sprt(signal: SignalData, INDICATOR_CONFIG: dict ) -> IndicatorRes
       via ``_resolve_physical_params_maxent``.
 
     :param signal: Input signal bundle containing the analysis array, aligned time axis, sampling frequency, and optional metadata.
-    :param INDICATOR_CONFIG: Dispatcher dictionary containing the selected function under ``func``, the mode under ``param_mode``, and its keyword arguments under ``params`` (native mode) or ``params_physical`` (physical modes).
+    :param INDICATOR_CONFIG: Dispatcher dictionary containing the selected function under ``func``, the mode under ``param_mode``, its keyword arguments under ``params`` (native mode) or ``params_physical`` (physical modes), and an optional ``reference_signal`` (``SignalData``) to calibrate P0/stable training against an externally-labelled "stable" reference instead of internally-derived cuts — see ``indicators/COMMON_TEMPLATE.md``. ``reference_signal_chatter`` is MaxEnt's own mirror of it for P1/chatter (not part of the shared contract).
 
     Returns:
         IndicatorResult: Result object returned by the selected indicator
@@ -297,7 +297,19 @@ def run_maxent_sprt(signal: SignalData, INDICATOR_CONFIG: dict ) -> IndicatorRes
             trace["quantization_notes"],
         )
 
-    result: IndicatorResult = func(signal, **params)
+    reference_signal: Optional[SignalData] = INDICATOR_CONFIG.get("reference_signal")
+    if reference_signal is not None:
+        logger.debug("reference_signal provided: overrides internally-derived stable/training region.")
+    # reference_signal_chatter is a MaxEnt-specific mirror of reference_signal for the
+    # chatter/P1 side (not part of the shared COMMON_TEMPLATE contract).
+    reference_signal_chatter: Optional[SignalData] = INDICATOR_CONFIG.get("reference_signal_chatter")
+    extra_kwargs: Dict[str, Any] = {}
+    if reference_signal is not None:
+        extra_kwargs["reference_signal"] = reference_signal
+    if reference_signal_chatter is not None:
+        extra_kwargs["reference_signal_chatter"] = reference_signal_chatter
+
+    result: IndicatorResult = func(signal, **params, **extra_kwargs)
 
     # ── Traceability: attach mode + standard meta keys (see COMMON_TEMPLATE.md) ──
     if param_mode == "native":
@@ -321,6 +333,12 @@ def run_maxent_sprt(signal: SignalData, INDICATOR_CONFIG: dict ) -> IndicatorRes
     result.meta["step_cycles"]  = step_cycles
     result.meta["reset_on_H0"]  = reset_on_H0
     result.meta["Total_window"] = result.meta.get("N_seg")
+    result.meta.setdefault(
+        "training_source", "external_reference" if reference_signal is not None else "internal"
+    )
+    result.meta.setdefault(
+        "chatter_source", "external_reference" if reference_signal_chatter is not None else "internal"
+    )
 
     if trace is not None:
         result.meta["physical_params_input"]  = trace["physical_params_input"]
@@ -451,7 +469,9 @@ def _maxent_sprt_pipeline(
     use_sprt: bool = True,
     H_threshold: Optional[float] = None,
     training_intervals = None,
-    t_theorical: Optional[float] = None,  # for debug/plots, not used in detection  
+    t_theorical: Optional[float] = None,  # for debug/plots, not used in detection
+    reference_signal: Optional[SignalData] = None,
+    reference_signal_chatter: Optional[SignalData] = None,
 
     ) -> IndicatorResult:
     """
@@ -481,6 +501,20 @@ def _maxent_sprt_pipeline(
     :param N_samples_per_seg: Block length in raw samples used when
         ``segmentation="raw"``.  Resolved automatically for physical modes;
         must be provided explicitly for native mode.
+    :param reference_signal: Optional externally-labelled ``SignalData`` whose
+        ``t_analysis``/``signal_analysis`` replace the internally-derived
+        stable/training region (``training_intervals`` or the legacy
+        ``cut_start_time``/``t_stable_total`` cut). When given without
+        ``reference_signal_chatter``, the chatter counterpart still comes from
+        ``training_intervals``/the legacy cut if those are also provided
+        (falls back to empty otherwise). See ``indicators/COMMON_TEMPLATE.md``
+        for the shared contract.
+    :param reference_signal_chatter: Optional externally-labelled ``SignalData``
+        (MaxEnt-specific, not part of the shared contract) whose
+        ``t_analysis``/``signal_analysis`` replace the internally-derived
+        chatter/P1 training region, mirroring ``reference_signal`` for the
+        stable/P0 side. Takes priority over ``training_intervals``/the legacy
+        cut for the chatter side when given.
 
     Returns:
         IndicatorResult: Result object with segment timestamps, SPRT statistic
@@ -506,7 +540,39 @@ def _maxent_sprt_pipeline(
     t_total = t_analysis[-1]-t_analysis[0]
 
     # ── Training signal split ─────────────────────────────────────────────────
-    if training_intervals is not None:
+    # Each side (stable/P0, chatter/P1) independently comes from its own
+    # externally-supplied reference SignalData when given, else from
+    # training_intervals/the legacy cut on the analyzed signal (unchanged
+    # behaviour when neither reference is given).
+    training_source = "external_reference" if reference_signal is not None else "internal"
+    chatter_source  = "external_reference" if reference_signal_chatter is not None else "internal"
+
+    if reference_signal is not None and reference_signal_chatter is not None:
+        t_stable, signal_analysis_stable = reference_signal.t_analysis, reference_signal.signal_analysis
+        t_chatter, signal_analysis_chatter = reference_signal_chatter.t_analysis, reference_signal_chatter.signal_analysis
+    elif reference_signal is not None:
+        t_stable, signal_analysis_stable = reference_signal.t_analysis, reference_signal.signal_analysis
+        if training_intervals is not None:
+            _, _, t_chatter, signal_analysis_chatter = \
+                _extract_training_segments(t_analysis, signal_analysis, training_intervals)
+        elif cut_end_time is not None:
+            t_chatter, signal_analysis_chatter = _cut_signal(
+                t_analysis, signal_analysis, (t_stable_total, cut_end_time)
+            )
+        else:
+            t_chatter, signal_analysis_chatter = np.array([]), np.array([])
+    elif reference_signal_chatter is not None:
+        t_chatter, signal_analysis_chatter = reference_signal_chatter.t_analysis, reference_signal_chatter.signal_analysis
+        if training_intervals is not None:
+            t_stable, signal_analysis_stable, _, _ = \
+                _extract_training_segments(t_analysis, signal_analysis, training_intervals)
+        elif cut_start_time is not None:
+            t_stable, signal_analysis_stable = _cut_signal(
+                t_analysis, signal_analysis, (cut_start_time, t_stable_total)
+            )
+        else:
+            t_stable, signal_analysis_stable = np.array([]), np.array([])
+    elif training_intervals is not None:
         # General mode: arbitrary list of [(t0, t1, "stable"|"chatter"), ...]
         t_stable, signal_analysis_stable, t_chatter, signal_analysis_chatter = \
             _extract_training_segments(t_analysis, signal_analysis, training_intervals)
@@ -518,6 +584,13 @@ def _maxent_sprt_pipeline(
         )
         t_chatter, signal_analysis_chatter = _cut_signal(
             t_analysis, signal_analysis, (t_stable_total, cut_end_time)
+        )
+
+    if reference_signal is not None or reference_signal_chatter is not None:
+        logger.info_plus(
+            "  %-24s %s", " - reference_signal priority:",
+            f"stable={training_source}, chatter={chatter_source} "
+            "(training_intervals/legacy cut only used for whichever side has no external reference).",
         )
 
     logger.info_plus(_section("Signal loaded:"))
@@ -669,6 +742,12 @@ def _maxent_sprt_pipeline(
             "alpha": alpha,
             "beta": beta,
             "rpm": rpm,
+            "training_source": training_source,
+            "chatter_source": chatter_source,
+            "reference_signal_meta": dict(reference_signal.meta) if reference_signal is not None else None,
+            "reference_signal_chatter_meta": (
+                dict(reference_signal_chatter.meta) if reference_signal_chatter is not None else None
+            ),
             "ratio_sampling": ratio_sampling,
             "use_sprt": use_sprt,
             "H_threshold_used": _H_thr_used,
