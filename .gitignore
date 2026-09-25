@@ -14,6 +14,10 @@ MaxEnt_SPRT/MaxEnt_SPRT/sphinx_docs/build/
 *.pkl
 *.csv
 *.pyc
+*.pyo
+__pycache__/
+*.nbc
+*.nbi
 TDA/tda_chatter/results/
 TDA/tda_chatter/summary/
 TDA/tda_chatter/plots/
