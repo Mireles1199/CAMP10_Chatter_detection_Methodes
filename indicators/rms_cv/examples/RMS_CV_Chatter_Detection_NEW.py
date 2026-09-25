@@ -37,149 +37,12 @@ configure_logging(level=_LOG_LEVEL)
 logger = logging.getLogger(__name__)
 
 # =============================================================================
-# CASES -- esqueleto compartido por los 4 indicadores para declarar, juntos,
-# que senal analizar (signal_source) y con que configuracion (indicator_config).
-# El contenedor es identico en los 4; el contenido de cada uno sigue siendo
-# propio de RMS-CV. Cambiar solo ACTIVE_CASE para elegir senal + modo.
-#
-#   signal_source -- ver indicators/COMMON_TEMPLATE.md:
-#     hdf5_path    -> archivo .h5: crudo (sens_out.hdf5/out.hdf5) o repackagado
-#                     DOE (doe_results.h5/doe_noise_results.h5).
-#     case_name    -> None (layout crudo, "<signal>/data" como (N,2) [t, y]) |
-#                     "case_003"/"snr_005.00" (layout DOE, "<case>/<signal>/time"
-#                     + ".../values" como datasets separados).
-#     disp_name / vel_name / force_name -> nombres de canal (mismos en ambos layouts).
-#
-#   indicator_config -- cuatro modos de parametrizacion propios de RMS-CV:
-#     native                  -> parametros nativos directos (comportamiento original)
-#     by_revolution           -> ventana y paso en revoluciones, n_max directo
-#     by_revolution_total     -> ventana y paso en revoluciones, K_rev_cv total
-#     by_modal                -> ventana y paso en periodos modales, n_max directo
+# SIGNAL_SOURCE / CASES / ACTIVE_CASE -- declarados dentro de main() (ver mas
+# abajo), misma convencion compartida por los 4 indicadores (indicators/
+# COMMON_TEMPLATE.md): que senal analizar (signal_source) + con que
+# configuracion (indicator_config), uno de los 4 modos propios de RMS-CV
+# (native / by_revolution / by_revolution_total / by_modal).
 # =============================================================================
-_RPM     = 12_000.0
-_F_MODAL = 150.0
-_T_REV   = 60.0 / _RPM        # 0.005 s -- periodo de una revolucion
-_T_MODAL = 1.0 / _F_MODAL     # 0.00667 s -- periodo del modo de chatter (150 Hz)
-_T_GT    = 5.365770208787228  # [s] ground-truth chatter onset
-
-_SIGNAL_SOURCE_DEFAULT = {
-    "hdf5_path": (
-        r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
-        r"\2DOF_Cone_New\Cono_dexel_20e-5_dt_200\0\1DOF_150Hz\sens_out.hdf5"
-    ),
-    "case_name": None,
-    "disp_name": "Axial_disp",
-    "vel_name": "Axial_vel",
-    "force_name": "force_N",
-}
-# -- otras fuentes disponibles (copiar dentro de "signal_source" de un CASES para elegir) --
-# "hdf5_path": (
-#     r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\2DOF_Cone_DOE"
-#     r"\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_180\3\1DOF_150Hz\out.hdf5"
-# ),
-# "hdf5_path": (
-#     r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\2DOF_Cone_DOE"
-#     r"\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_180\12\1DOF_150Hz\sens_out.hdf5"
-# ),
-
-_COMMON = {
-    # fixed threshold (ignored when stable_time is set)
-    "cv_threshold":         None,
-    "rms_threshold":        None,
-    "n_min_cv":             2,
-    "warmup_ignore_alerts": False,
-    "use_unbiased_std":     True,
-    "eps":                  1e-12,
-    "detrend":              False,
-    "pad_mode":             "none",
-    # ── adaptive threshold: 3-sigma on CV of stable region ──────────────
-    # "stable_time":  (0.0, _T_GT),   # seconds: region known to be stable
-    # "frac_stable":  0.3610633440512648,         # fallback if stable_time yields no frames
-    "z":            3.0,
-    "alpha":        0.05,
-    "fallback_mad": True,
-    "t_theorical":   _T_GT,  # for debug/plots, not used in detection
-}
-
-CASES: dict[str, dict] = {
-    # -- 1. Modo nativo ---------------------------------------------------------
-    "native": {
-        "signal_source": _SIGNAL_SOURCE_DEFAULT,
-        "indicator_config": {
-            "id":   "RMS_CV",
-            "func": "Default",
-            "params": {
-                "n_max":              28,
-                "samples_per_window": 4000,
-                "overlap_pct":        0.0,
-                **_COMMON,
-            },
-        },
-    },
-    # -- 2. Modo by_revolution / n_max_mode="frames" -----------------------------
-    #   N_rev_window=16, step_rev=8  -> overlap_pct = 0.5
-    #   samples_per_window = ceil(16 x 0.005 x 50000) = 4000 samples
-    #   n_max = n_max_rev = 28 (directo)
-    "by_revolution": {
-        "signal_source": _SIGNAL_SOURCE_DEFAULT,
-        "indicator_config": {
-            "id":         "RMS_CV",
-            "func":       "Default",
-            "param_mode": "by_revolution",
-            "params_physical": {
-                "T_rev":        _T_REV,
-                "N_rev_window": 4,
-                "step_rev":     1,
-                "n_max_mode":   "frames",
-                "n_max_rev":    4,
-                **_COMMON,
-            },
-        },
-    },
-    # -- 3. Modo by_revolution / n_max_mode="total_window" -----------------------
-    #   K_rev_cv = N_win + (n_max-1)*step = 16 + 27*16 = 448 revoluciones
-    #   -> n_max = ceil((448 - 16) / 16 + 1) = 28
-    "by_revolution_total": {
-        "signal_source": _SIGNAL_SOURCE_DEFAULT,
-        "indicator_config": {
-            "id":         "RMS_CV",
-            "func":       "Default",
-            "param_mode": "by_revolution",
-            "params_physical": {
-                "T_rev":        _T_REV,
-                "N_rev_window": 16,
-                "step_rev":     16,
-                "n_max_mode":   "total_window",
-                "K_rev_cv":     448,            # -> n_max = 28
-                **_COMMON,
-            },
-        },
-    },
-    # -- 4. Modo by_modal / n_max_mode="frames" -----------------------------------
-    #   N_modal_window=5, step_modal=0.5  -> overlap_pct = 0.0
-    #   samples_per_window = ceil(5 x 0.00667 x 50000) = 1667 samples
-    #   n_max = 28 (directo)
-    "by_modal": {
-        "signal_source": _SIGNAL_SOURCE_DEFAULT,
-        "indicator_config": {
-            "id":         "RMS_CV",
-            "func":       "Default",
-            "param_mode": "by_modal",
-            "params_physical": {
-                "T_modal":        _T_MODAL,
-                "N_modal_window": 1,
-                "step_modal":     1,
-                "n_max_mode":     "frames",
-                "n_max_modal":    16,
-                **_COMMON,
-            },
-        },
-    },
-}
-
-ACTIVE_CASE      = "by_revolution"          # <- cambiar solo esta linea para elegir senal + config
-SIGNAL_SOURCE    = CASES[ACTIVE_CASE]["signal_source"]
-INDICATOR_CONFIG = CASES[ACTIVE_CASE]["indicator_config"]   # se pasa directo a run_rms_cv(signal, INDICATOR_CONFIG)
 
 # =============================================================================
 # FASE 3 -- reference_signal externo (Convergency_Simulation/4_DOE_Data_Training_Tube)
@@ -234,14 +97,51 @@ def _section(title: str, width: int = 54) -> str:
 
 
 def main() -> None:
-    # -- datos --------------------------------------------------------------------
-    data = HDF5Reader(SIGNAL_SOURCE["hdf5_path"])
+    # -- datos ----------------------------------------------------------------
+    # Rutas alternativas de datasets -- cambiar DATA_DIR para usar otra.
+    _DATA_DIRS = {
+        "control": (
+            r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
+            r"\2DOF_Cone_DOE\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_200"
+            r"\3\1DOF_150Hz\out.hdf5"
+        ),
+        "control_sensor": (
+            r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
+            r"\2DOF_Cone_DOE\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_200"
+            r"\5\1DOF_150Hz\sens_out.hdf5"
+        ),
+        "custom": (
+            r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
+            r"\2DOF_Cone_DOE\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_200"
+            r"\0\1DOF_150Hz\sens_out.hdf5"
+        ),
+        "custom_dir": (
+            r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
+            r"\2DOF_Cone_DOE\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_180"
+            r"\12\1DOF_150Hz\sens_out.hdf5"
+        ),
+        "cono_dexel_20e_5": (
+            r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
+            r"\2DOF_Cone_New\Cono_dexel_20e-5_dt_200\0\1DOF_150Hz\sens_out.hdf5"
+        ),
+    }
 
-    t, tool_dyn      = load_signal(data, SIGNAL_SOURCE["disp_name"], SIGNAL_SOURCE["case_name"])
-    _, tool_dyn_vel  = load_signal(data, SIGNAL_SOURCE["vel_name"],  SIGNAL_SOURCE["case_name"])
+    # See COMMON_TEMPLATE.md §11 -- forma estándar de declarar el origen de la señal.
+    _SIGNAL_SOURCE = {
+        "hdf5_path": _DATA_DIRS["cono_dexel_20e_5"],
+        "case_name": None,  # None (layout crudo) | "case_003" (layout DOE)
+        "disp_name": "Axial_disp",
+        "vel_name": "Axial_vel",
+        "force_name": "force_N",
+    }
+
+    data = HDF5Reader(_SIGNAL_SOURCE["hdf5_path"])
+
+    t, tool_dyn      = load_signal(data, _SIGNAL_SOURCE["disp_name"], _SIGNAL_SOURCE["case_name"])
+    _, tool_dyn_vel  = load_signal(data, _SIGNAL_SOURCE["vel_name"],  _SIGNAL_SOURCE["case_name"])
 
     try:
-        _, force_N = load_signal(data, SIGNAL_SOURCE["force_name"], SIGNAL_SOURCE["case_name"])
+        _, force_N = load_signal(data, _SIGNAL_SOURCE["force_name"], _SIGNAL_SOURCE["case_name"])
     except KeyError:
         force_N = np.zeros_like(t)
 
@@ -253,6 +153,116 @@ def main() -> None:
     t_cut, v_cut  = _cut_signal(t, v,        (0.00, 15))
     _,     x_cut  = _cut_signal(t, tool_dyn, (0.00, 15))
     _,     f_cut  = _cut_signal(t, force_N,  (0.00, 15))
+
+    # =============================================================================
+    # INDICATOR_CONFIG -- cuatro modos de parametrizacion
+    #
+    #   native                  -> parametros nativos directos (comportamiento original)
+    #   by_revolution / frames  -> ventana y paso en revoluciones, n_max directo
+    #   by_revolution / total   -> ventana y paso en revoluciones, K_rev_cv total
+    #   by_modal      / frames  -> ventana y paso en periodos modales, n_max directo
+    #
+    # Cambiar ACTIVE_CASE al final del bloque para elegir modo.
+    # =============================================================================
+    _RPM     = 12_000.0
+    _F_MODAL = 150.0
+    _T_REV   = 60.0 / _RPM        # 0.005 s -- periodo de una revolucion
+    _T_MODAL = 1.0 / _F_MODAL     # 0.00667 s -- periodo del modo de chatter (150 Hz)
+    _T_GT  = 5.365770208787228   # [s] ground-truth chatter onset
+    _COMMON = {
+        # fixed threshold (ignored when stable_time is set)
+        "cv_threshold":         None,
+        "rms_threshold":        None,
+        "n_min_cv":             2,
+        "warmup_ignore_alerts": False,
+        "use_unbiased_std":     True,
+        "eps":                  1e-12,
+        "detrend":              False,
+        "pad_mode":             "none",
+        # ── adaptive threshold: 3-sigma on CV of stable region ──────────────
+        # "stable_time":  (0.0, _T_GT),   # seconds: region known to be stable
+        # "frac_stable":  0.3610633440512648,         # fallback if stable_time yields no frames
+        "z":            3.0,
+        "alpha":        0.05,
+        "fallback_mad": True,
+        "t_theorical":   _T_GT,  # for debug/plots, not used in detection
+    }
+
+    # -- 1. Modo nativo -----------------------------------------------------------
+    INDICATOR_CONFIG_native = {
+        "id":   "RMS_CV",
+        "func": "Default",
+        "params": {
+            "n_max":              28,
+            "samples_per_window": 4000,
+            "overlap_pct":        0.0,
+            **_COMMON,
+        },
+    }
+
+    # -- 2. Modo by_revolution / n_max_mode="frames" ------------------------------
+    #   N_rev_window=16, step_rev=8  -> overlap_pct = 0.5
+    #   samples_per_window = ceil(16 x 0.005 x 50000) = 4000 samples
+    #   n_max = n_max_rev = 28 (directo)
+    INDICATOR_CONFIG_by_revolution = {
+        "id":         "RMS_CV",
+        "func":       "Default",
+        "param_mode": "by_revolution",
+        "params_physical": {
+            "T_rev":        _T_REV,
+            "N_rev_window": 4,
+            "step_rev":     1,
+            "n_max_mode":   "frames",
+            "n_max_rev":    4,
+            **_COMMON,
+        },
+    }
+
+    # -- 3. Modo by_revolution / n_max_mode="total_window" ------------------------
+    #   K_rev_cv = N_win + (n_max-1)*step = 16 + 27*16 = 448 revoluciones
+    #   -> n_max = ceil((448 - 16) / 16 + 1) = 28
+    INDICATOR_CONFIG_by_revolution_total = {
+        "id":         "RMS_CV",
+        "func":       "Default",
+        "param_mode": "by_revolution",
+        "params_physical": {
+            "T_rev":        _T_REV,
+            "N_rev_window": 16,
+            "step_rev":     16,
+            "n_max_mode":   "total_window",
+            "K_rev_cv":     448,            # -> n_max = 28
+            **_COMMON,
+        },
+    }
+
+    # -- 4. Modo by_modal / n_max_mode="frames" -----------------------------------
+    #   N_modal_window=5, step_modal=0.5  -> overlap_pct = 0.0
+    #   samples_per_window = ceil(5 x 0.00667 x 50000) = 1667 samples
+    #   n_max = 28 (directo)
+    INDICATOR_CONFIG_by_modal = {
+        "id":         "RMS_CV",
+        "func":       "Default",
+        "param_mode": "by_modal",
+        "params_physical": {
+            "T_modal":        _T_MODAL,
+            "N_modal_window": 1,
+            "step_modal":     1,
+            "n_max_mode":     "frames",
+            "n_max_modal":    16,
+            **_COMMON,
+        },
+    }
+
+    CASES: dict = {
+        "native":              {"signal_source": _SIGNAL_SOURCE, "indicator_config": INDICATOR_CONFIG_native},
+        "by_revolution":       {"signal_source": _SIGNAL_SOURCE, "indicator_config": INDICATOR_CONFIG_by_revolution},
+        "by_revolution_total": {"signal_source": _SIGNAL_SOURCE, "indicator_config": INDICATOR_CONFIG_by_revolution_total},
+        "by_modal":            {"signal_source": _SIGNAL_SOURCE, "indicator_config": INDICATOR_CONFIG_by_modal},
+    }
+    ACTIVE_CASE = "by_revolution"   # <- cambiar solo esta linea para elegir senal + config
+
+    SIGNAL_SOURCE    = CASES[ACTIVE_CASE]["signal_source"]
+    INDICATOR_CONFIG = CASES[ACTIVE_CASE]["indicator_config"]
 
     # -- Fase 3: reference_signal externo (opcional) ------------------------------
     # Alternar con USE_EXTERNAL_REFERENCE (arriba del archivo) para comparar con y
