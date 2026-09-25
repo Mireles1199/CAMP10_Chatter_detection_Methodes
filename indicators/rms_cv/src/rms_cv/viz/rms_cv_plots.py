@@ -341,27 +341,17 @@ def plots_rms_cv(
         plt.tight_layout()
         return fig, axes
 
-    # ── C1: Signal split by region ──────────────────────────────────────────
+    # ── C1: Signal ───────────────────────────────────────────────────────────
     def _plot_signal_split(
         t_s: np.ndarray, x_s: np.ndarray, t_gt_val: Optional[float] = None,
         zoom_x=None, zoom_y=None, scale: float = 1.0,
         vlines=None, fig_label: Optional[str] = None,
         **kargs,
     ) -> tuple:
-        """Signal colored by region: stable (azul) before t_gt, chatter (orange) after.
-        Without t_gt_val there is no region to split by, so it plots as a single
-        series with no color forced -- matplotlib's own default cycle, not a
-        hardcoded "stable" color for data we don't actually know is stable."""
+        """Signal in a single color -- t_gt is only marked via vlines, not by
+        splitting the trace into a stable/chatter color pair."""
         fig, ax = plt.subplots(figsize=fig_size(scale=scale, ncols=1), num=fig_label)
-        if t_gt_val is not None:
-            mask_s = t_s < t_gt_val
-            mask_c = t_s >= t_gt_val
-            if np.any(mask_s):
-                ax.plot(t_s[mask_s], x_s[mask_s], color=color_azul, label="Stable")
-            if np.any(mask_c):
-                ax.plot(t_s[mask_c], x_s[mask_c], color=color_orange, label="Chatter")
-        else:
-            ax.plot(t_s, x_s)
+        ax.plot(t_s, x_s, color=color_azul)
         if zoom_x is not None:
             ax.set_xlim(zoom_x)
         if zoom_y is not None:
@@ -369,15 +359,13 @@ def plots_rms_cv(
         _draw_vlines(ax, vlines)
         ax.set_xlabel("Time (s)")
         ax.set_ylabel(r"Velocity $v(t)$ [m/s]")
-        ax.set_title("Tool Velocity — Split by Region")
+        ax.set_title("Tool Velocity")
         plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
-        if t_gt_val is not None:
-            ax.legend()
         ax.grid(False)
         plt.tight_layout()
         return fig, ax
 
-    # ── C2: RMS colored by region ───────────────────────────────────────────
+    # ── C2: RMS sequence ─────────────────────────────────────────────────────
     def _plot_rms_colored(
         t_rms_arr: np.ndarray, rms_arr: np.ndarray, t_gt_val: Optional[float] = None,
         cv_num_data: Optional[int] = None,
@@ -386,22 +374,11 @@ def plots_rms_cv(
         fig_label: Optional[str] = None,
         **kargs,
     ) -> tuple:
-        """RMS sequence colored by region + vertical CV-block boundaries every n_max frames.
-        Without t_gt_val there is no region to split by, so it plots as a single
-        series with no color forced -- matplotlib's own default cycle, not a
-        hardcoded "stable" color for data we don't actually know is stable."""
+        """RMS sequence in a single color + vertical CV-block boundaries every
+        n_max frames -- t_gt is only marked via vlines, not by splitting the
+        trace into a stable/chatter color pair."""
         fig, ax = plt.subplots(figsize=fig_size(scale=scale, ncols=1), num=fig_label)
-        if t_gt_val is not None:
-            mask_s = t_rms_arr < t_gt_val
-            mask_c = t_rms_arr >= t_gt_val
-            if np.any(mask_s):
-                ax.plot(t_rms_arr[mask_s], rms_arr[mask_s], marker="o", markersize=3,
-                        color=color_azul, label="Stable RMS")
-            if np.any(mask_c):
-                ax.plot(t_rms_arr[mask_c], rms_arr[mask_c], marker="o", markersize=3,
-                        color=color_orange, label="Chatter RMS")
-        else:
-            ax.plot(t_rms_arr, rms_arr, marker="o", markersize=3)
+        ax.plot(t_rms_arr, rms_arr, marker="o", markersize=3, color=color_azul)
         _draw_block_boundaries(ax, t_rms_arr, cv_num_data)
         if zoom_x is not None:
             ax.set_xlim(zoom_x)
@@ -414,9 +391,7 @@ def plots_rms_cv(
                     color=color_red, ha='right', va='bottom', fontsize=14)
         ax.set_xlabel("Time (s)")
         ax.set_ylabel("RMS")
-        ax.set_title("RMS Sequence — Colored by Region")
-        if t_gt_val is not None:
-            ax.legend()
+        ax.set_title("RMS Sequence")
         ax.grid(False)
         plt.tight_layout()
         return fig, ax
@@ -430,14 +405,16 @@ def plots_rms_cv(
         cv_threshold: Optional[float] = None,
         cv_threshold_low: Optional[float] = None,
         training_source: str = "internal",
-        cv_value_range: Optional[tuple[float, float]] = None,
         scale: float = 1.0,
         fig_label: Optional[str] = None,
         **kargs,
     ) -> tuple:
         """Histogram + fitted normal/MAD curve of the CV population that was actually
         used to compute mu_stable/sigma_stable (internal stable-region crop, or the
-        full external reference_signal CV series) -- never recomputed from t_gt."""
+        full external reference_signal CV series) -- never recomputed from t_gt.
+        X-limits are left to autoscale over the histogram/curve/threshold lines --
+        zoom_y is the CV *time-series* range (a different panel's semantics) and
+        must never be reused here (it can clip mu/threshold labels off-screen)."""
         fig, ax = plt.subplots(figsize=fig_size(scale=scale, ncols=1), num=fig_label)
         if training_values is not None and training_values.size > 0:
             ax.hist(training_values, bins=40, density=True, alpha=0.55,
@@ -465,8 +442,6 @@ def plots_rms_cv(
         ax.set_ylabel("Density")
         ax.set_title("CV Distribution — Training Population")
         ax.ticklabel_format(style='sci', axis='x', scilimits=(0, 0))
-        if cv_value_range is not None:
-            ax.set_xlim(cv_value_range)
         ax.legend()
         ax.grid(False)
         plt.tight_layout()
@@ -598,24 +573,11 @@ def plots_rms_cv(
             sharex=True, constrained_layout=True, num=fig_label,
         )
         fig.suptitle("Signal + CV Joint Diagnostic")
-        # Top: signal colored by region
-        if t_gt_val is not None:
-            mask_s = t_sig < t_gt_val
-            mask_c = t_sig >= t_gt_val
-            if np.any(mask_s):
-                ax_top.plot(t_sig[mask_s], x_sig[mask_s], color=color_azul, label="Stable")
-            if np.any(mask_c):
-                ax_top.plot(t_sig[mask_c], x_sig[mask_c], color=color_orange, label="Chatter")
-        else:
-            # No t_gt -> no known stable/chatter split; plot as a single series
-            # with no color forced, instead of hardcoding the "stable" color for
-            # data we don't actually know is stable.
-            ax_top.plot(t_sig, x_sig)
+        # Top: signal in a single color -- t_gt is only marked via vlines.
+        ax_top.plot(t_sig, x_sig, color=color_azul)
         ax_top.set_ylabel(r"Velocity $v(t)$ [m/s]")
-        ax_top.set_title("Signal — colored by region" if t_gt_val is not None else "Signal")
+        ax_top.set_title("Signal")
         ax_top.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
-        if t_gt_val is not None:
-            ax_top.legend()
         ax_top.grid(False)
         _draw_vlines(ax_top, vlines)
         # Bottom: CV scatter + threshold labels
@@ -738,7 +700,7 @@ def plots_rms_cv(
             np.asarray(_training_values),
             mu_stable=_mu_stable, sigma_stable=meta.get("sigma_stable"),
             cv_threshold=cv_threshold, cv_threshold_low=_cv_thr_low,
-            training_source=_training_source, cv_value_range=zoom_y, scale=scale,
+            training_source=_training_source, scale=scale,
             fig_label="C3 — CV Histogram (Training Population)",
         )
     if cv_time is not None and cv_values is not None:
