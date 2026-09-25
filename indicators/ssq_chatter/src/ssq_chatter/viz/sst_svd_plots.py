@@ -114,9 +114,12 @@ def plots_sst_svd(
     t_gt: Optional[float] = None,
     waterfall_lines: str = "time",   # "time" | "freq" | "both"
     training_intervals=None,
-    reference_signal: Optional[SignalData] = None,
+    reference_signal: Optional[Sequence[SignalData]] = None,
 
 ) -> plt.Figure:
+
+    if isinstance(reference_signal, SignalData):
+        reference_signal = [reference_signal]
 
     def _draw_vlines(ax, vlines, default_color="black", default_ls="--"):
         """Draw vertical event lines with optional rotated text labels (indicator-plot-style)."""
@@ -998,8 +1001,12 @@ def plots_sst_svd(
             # stable slice) + its own d1, so you can eyeball it directly.
             if training_t is not None and training_d1 is not None:
                 if training_source == "external_reference" and reference_signal is not None:
-                    _train_sig_t = np.asarray(reference_signal.t_analysis, dtype=float)
-                    _train_sig_x = np.asarray(reference_signal.signal_analysis, dtype=float)
+                    # Concatenated here for display only (C5 just shows the raw
+                    # waveform that trained the detector) -- the seam-safety
+                    # guarantee is about d1/SVD frames, computed per piece in
+                    # runner.py, never about this plotting concatenation.
+                    _train_sig_t = np.concatenate([np.asarray(p.t_analysis, dtype=float) for p in reference_signal])
+                    _train_sig_x = np.concatenate([np.asarray(p.signal_analysis, dtype=float) for p in reference_signal])
                 else:
                     _t0_tr, _t1_tr = float(np.min(training_t)), float(np.max(training_t))
                     _tr_mask = (t_sig_arr >= _t0_tr) & (t_sig_arr <= _t1_tr)

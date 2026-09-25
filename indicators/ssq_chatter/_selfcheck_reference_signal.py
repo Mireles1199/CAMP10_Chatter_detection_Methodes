@@ -226,4 +226,42 @@ assert any("mu" in t.get_text().lower() or "\\mu" in t.get_text() for t in _boxe
     [t.get_text() for t in fig_c3.axes[0].texts]
 plt.close("all")
 
+# 13) seam-safety: reference_signal accepts a LIST of pieces, each windowed
+# and SVD-analyzed in ISOLATION (own pipe.run call) -- only the per-piece d1/t
+# RESULTS are pooled afterwards, never the raw signal. Two pieces of very
+# different amplitude (quiet vs. loud) prove no frame spans the seam: pooling
+# them must give byte-identical per-piece d1 to analyzing each piece alone.
+piece_quiet = _make_signal(0.6, amp=1.0, seed=10)
+piece_loud = _make_signal(0.6, amp=10.0, seed=11)
+
+cfg_pool = {
+    "func": "Default", "param_mode": "native", "params": dict(NATIVE_PARAMS),
+    "reference_signal": [piece_quiet, piece_loud],
+}
+res_pool = run_sst_svd(signal, cfg_pool)
+
+res_quiet_only = run_sst_svd(signal, {
+    "func": "Default", "param_mode": "native", "params": dict(NATIVE_PARAMS),
+    "reference_signal": [piece_quiet],
+})
+res_loud_only = run_sst_svd(signal, {
+    "func": "Default", "param_mode": "native", "params": dict(NATIVE_PARAMS),
+    "reference_signal": [piece_loud],
+})
+
+frames = res_pool.meta["reference_frames_per_piece"]
+assert res_pool.meta["reference_n_pieces"] == 2
+assert len(frames) == 2
+n_quiet = res_quiet_only.meta["training_d1"].size
+n_loud = res_loud_only.meta["training_d1"].size
+assert [f["frames"] for f in frames] == [n_quiet, n_loud], frames
+
+pooled_d1 = res_pool.meta["training_d1"]
+assert pooled_d1.size == n_quiet + n_loud
+# the pooled d1's own per-piece slices must equal each piece analyzed alone --
+# if a frame had mixed the quiet tail with the loud head (or vice versa), these
+# would differ.
+assert np.array_equal(pooled_d1[:n_quiet], res_quiet_only.meta["training_d1"])
+assert np.array_equal(pooled_d1[n_quiet:], res_loud_only.meta["training_d1"])
+
 print("OK: reference_signal extension point + fixed C3/C5/zoom_y/training_mode/vlines/layout/on-demand/colors behave as specified.")

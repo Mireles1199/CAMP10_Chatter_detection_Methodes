@@ -1,5 +1,5 @@
 import logging
-from typing import Tuple
+from typing import List, Tuple
 import os
 import sys
 import h5py
@@ -49,20 +49,25 @@ def _section(title: str, width: int = 54) -> str:
     return f"\n{bar}\n  {title}\n{bar}"
 
 
-def _load_reference_signal(h5_path: str, label: str, channel: str) -> SignalData:
-    """Read a `save_combined`-style group (Repo-DOE `reference_dataset.py`) directly
-    with h5py -- group name is `{label}__{channel}`, datasets `t`/`y`, attr `fs`.
+def _load_reference_pieces(h5_path: str, label: str, channel: str) -> List[SignalData]:
+    """Read per-case, per-signal pieces from `reference_dataset.py build`'s output
+    (Repo-DOE) directly with h5py -- layout `/<label>/<case>/<canal>__NNN/{t, y}`,
+    attrs `channel`, `fs`, `signal_id`, `t0`, `t1`. One SignalData per piece, kept
+    separate so each tramo is windowed/analyzed in isolation (no seam mixing).
     Not importing that script on purpose (COMMON_TEMPLATE.md: no cross-repo imports).
     """
+    out: List[SignalData] = []
     with h5py.File(h5_path, "r") as f:
-        grp = f[f"{label}__{channel}"]
-        t_ref = grp["t"][()]
-        y_ref = grp["y"][()]
-        fs_ref = float(grp.attrs["fs"])
-    return SignalData(
-        t_analysis=t_ref, signal_analysis=y_ref, path=h5_path, fs=fs_ref,
-        meta={"label": label, "channel": channel},
-    )
+        for case in f[label]:
+            for piece in f[label][case].values():
+                if piece.attrs["channel"] != channel:
+                    continue
+                out.append(SignalData(
+                    t_analysis=piece["t"][()], signal_analysis=piece["y"][()],
+                    fs=float(piece.attrs["fs"]), path=h5_path,
+                    meta={"label": label, "channel": channel, "signal_id": piece.attrs["signal_id"]},
+                ))
+    return out
 
 
 def main() -> None:
@@ -89,6 +94,14 @@ def main() -> None:
             r"\12\1DOF_150Hz\sens_out.hdf5"
         ),
 
+        "tubo_stable_6_88e_5" : (
+            r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
+            r"\Chatter-Criteria\CAMP10_Chatter_detection_Methodes"
+            r"\Convergency_Simulation\1_Detection_Limite_Lobes"
+            r"\DOE_Detection_Limite_Lobes_dxl_20e-5_RUN_10"
+            r"\4\1DOF_150Hz\sens_out.hdf5"
+        ),
+
         "cono_dexel_20e_5": (
             r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
             r"\2DOF_Cone_New\Cono_dexel_20e-5_dt_200\0\1DOF_150Hz\sens_out.hdf5"
@@ -97,7 +110,7 @@ def main() -> None:
     }
 
     _SIGNAL_SOURCE = {
-        "hdf5_path": _DATA_DIRS["cono_dexel_20e_5"],
+        "hdf5_path": _DATA_DIRS["tubo_stable_6_88e_5"],
         "case_name": None,  # None (layout crudo) | "case_003" (layout DOE)
         "disp_name": "Axial_disp",
         "vel_name": "Axial_vel",
@@ -116,7 +129,7 @@ def main() -> None:
 
 
 
-    _CUT_START = 0.1
+    _CUT_START = 0.05
     t_cut, v_cut = _cut_signal(t, v,        (_CUT_START, 16))
     _,     x_cut = _cut_signal(t, tool_dyn, (_CUT_START, 16))
     # _,     f_cut = _cut_signal(t, force_N,  (_CUT_START, 16))
@@ -256,9 +269,12 @@ def main() -> None:
     INDICATOR_CONFIG = CASES[ACTIVE_CASE]["indicator_config"]
 
     # =============================================================================
-    # REFERENCE SIGNAL (Fase 3) -- entrenar contra una senal "stable" EXTERNA ya
-    # etiquetada (pipeline Repo-DOE, combinada por label) en vez de recortar
-    # training_intervals de la propia senal analizada. Tiene prioridad sobre
+    # REFERENCE SIGNAL (Fase 3) -- entrenar contra tramos "stable" EXTERNOS ya
+    # etiquetados (pipeline Repo-DOE, un tramo aislado por caso/senal, nunca
+    # concatenados) en vez de recortar training_intervals de la propia senal
+    # analizada. Cada tramo se ventanea por separado y solo se juntan los
+    # RESULTADOS (d1, t) -- nunca la senal -- asi ningun frame STFT/SVD mezcla
+    # el final de un caso con el inicio de otro. Tiene prioridad sobre
     # training_intervals cuando ambos estan presentes (ver runner.py).
     #
     #   USE_EXTERNAL_REFERENCE = True   -> usa reference_signal (este bloque)
@@ -270,10 +286,10 @@ def main() -> None:
         r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\Chatter-Criteria"
         r"\CAMP10_Chatter_detection_Methodes\Convergency_Simulation"
         r"\4_DOE_Data_Training_Tube\DOE_Training_Tube_dxl_20e-5_RUN_10_0.5-2.0"
-        r"\reference_combined.h5"
+        r"\reference_dataset.h5"
     )
     INDICATOR_CONFIG["reference_signal"] = (
-        _load_reference_signal(_REFERENCE_H5, label="stable", channel="Axial_vel")
+        _load_reference_pieces(_REFERENCE_H5, label="stable", channel="Axial_vel")
         if USE_EXTERNAL_REFERENCE else None
     )
 
