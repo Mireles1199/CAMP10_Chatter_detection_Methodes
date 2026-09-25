@@ -7,13 +7,12 @@ segmentation) -- each pairing a ``signal_source`` with an
 structured summary, and plots the result.
 
 Usage:
-    python MaxEnt_Detection_NEW.py [--case NAME]
+    python MaxEnt_Detection_NEW.py
 
-``NAME`` is one of: native, by_revolution_overlap, by_modal_overlap,
-by_revolution_raw (default), by_modal_raw. To change the default without
-the CLI flag, edit ``ACTIVE_CASE`` below.
+Edit ``ACTIVE_CASE`` inside ``main()`` to choose one of: native,
+by_revolution_overlap, by_modal_overlap, by_revolution_raw (default),
+by_modal_raw.
 """
-import argparse
 import logging
 import os
 import sys
@@ -60,49 +59,6 @@ def _cut_signal(t, x, time_range: Tuple[float, float]) -> Tuple[np.ndarray, np.n
     return t[mask], x[mask]
 
 
-# -- datos ----------------------------------------------------------------
-# Rutas alternativas de datasets -- cambiar DATA_DIR para usar otra.
-_DATA_DIRS = {
-    "control": (
-        r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
-        r"\2DOF_Cone_DOE\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_200"
-        r"\3\1DOF_150Hz\out.hdf5"
-    ),
-    "control_sensor": (
-        r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
-        r"\2DOF_Cone_DOE\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_200"
-        r"\5\1DOF_150Hz\sens_out.hdf5"
-    ),
-    "custom": (
-        r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
-        r"\2DOF_Cone_DOE\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_200"
-        r"\0\1DOF_150Hz\sens_out.hdf5"
-    ),
-    "custom_dir": (
-        r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
-        r"\2DOF_Cone_DOE\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_180"
-        r"\12\1DOF_150Hz\sens_out.hdf5"
-    ),
-
-    "cono_dexel_20e_5": (
-        r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
-        r"\2DOF_Cone_New\Cono_dexel_20e-5_dt_200\0\1DOF_150Hz\sens_out.hdf5"
-    )
-
-}
-
-# See COMMON_TEMPLATE.md §11 -- forma estándar de declarar el origen de la señal.
-SIGNAL_SOURCE = {
-    "hdf5_path": _DATA_DIRS["cono_dexel_20e_5"],
-    "case_name": None,  # None (layout crudo) | "case_003" (layout DOE)
-    "disp_name": "Axial_disp",
-    "vel_name": "Axial_vel",
-    "force_name": "force_N",
-}
-
-_CUT_START = 0.05
-_CUT_END = 16
-
 # -- external reference (reference_signal / reference_signal_chatter,
 #    see COMMON_TEMPLATE.md §10; the chatter side is a MaxEnt-specific mirror
 #    of it, not part of the shared contract) --------------------------------
@@ -121,165 +77,6 @@ _REFERENCE_H5 = (
     r"\reference_combined.h5"
 )
 _REFERENCE_CHANNEL = "Axial_vel"
-
-# =============================================================================
-# INDICATOR_CONFIG -- cinco variantes de parametrizacion
-#
-#   native                 -> parametros nativos directos
-#   by_revolution_overlap  -> ventana por revolucion, OPR, con overlap
-#   by_modal_overlap       -> ventana por periodo modal, OPR, con overlap
-#   by_revolution_raw      -> ventana por revolucion, senal raw
-#   by_modal_raw           -> ventana por periodo modal, senal raw
-#
-# Elegir con --config al correr el script (ver main() mas abajo).
-# =============================================================================
-_RPM = 12_000.0
-_RPM_MODAL = 150 * 60.0  # RPM equivalente a f_modal = 150 Hz
-_F_MODAL = 150.0
-_T_REV = 60.0 / _RPM  # 0.005 s -- periodo de una revolucion
-_T_MODAL = 1.0 / _F_MODAL  # s -- periodo del modo de chatter (f_modal ~ 150 Hz)
-
-# alpha = beta = norm.sf(3.0) ≈ 0.00135  →  equivalent to z=3 sigma (same FAR as RMS-CV and SSQ)
-_Z3_ALPHA = 0.00135
-_T_GT = 5.365770208787228  # [s] ground-truth chatter onset
-
-_COMMON = {
-    "t_stable_total": _T_GT,  # legacy fallback (used if training_intervals=None)
-    # "training_intervals": [
-    #     (_CUT_START, _T_GT, "stable"),  # chatter-free training region
-    #     (_T_GT, 10, "chatter"),  # chatter training region
-    # ],
-    "alpha": _Z3_ALPHA,
-    "beta": _Z3_ALPHA,
-    "reset_on_H0": True,
-    "cut_start_time": _CUT_START,
-    "cut_end_time": _CUT_END,
-    "t_theorical": _T_GT,  # for debug/plots, not used in detection
-}
-
-INDICATOR_CONFIG_native = {
-    "id": "MaxEnt_SPRT",
-    "func": "Default",
-    "params": {
-        "rpm": _RPM_MODAL,
-        "N_seg": 2,  # 1 rev/seg -> t_seg = 0.005 s
-        **_COMMON,
-    },
-}
-
-# step_rev = 1  ->  hop = 1 rev  ->  overlap = 1 - 1/5 = 80 %
-INDICATOR_CONFIG_by_revolution_overlap = {
-    "id": "MaxEnt_SPRT",
-    "func": "Default",
-    "param_mode": "by_revolution",
-    "params_physical": {
-        "T_rev": _T_REV,
-        "N_rev_window": 5,  # -> N_seg = 5
-        "step_rev": 1,  # hop de 1 rev  =>  overlap 80 %
-        "segmentation": "opr",
-        **_COMMON,
-    },
-}
-
-# step_modal = 1  ->  hop = 1 periodo modal  ->  overlap = 50 %
-INDICATOR_CONFIG_by_modal_overlap = {
-    "id": "MaxEnt_SPRT",
-    "func": "Default",
-    "param_mode": "by_modal",
-    "params_physical": {
-        "T_modal": _T_MODAL,
-        "N_modal_window": 2.0,  # -> N_seg = 2
-        "step_modal": 1,  # hop de 1 periodo modal  =>  overlap 50 %
-        **_COMMON,
-    },
-}
-
-# Usa senal raw (sin decimacion OPR) dentro de cada bloque de N_rev_window revoluciones.
-# N_samples_per_seg = N_rev_window x round(fs / fr)  (calculado por el resolver)
-INDICATOR_CONFIG_by_revolution_raw = {
-    "id": "MaxEnt_SPRT",
-    "func": "Default",
-    "param_mode": "by_revolution",
-    "params_physical": {
-        "T_rev": _T_REV,
-        "N_rev_window": 4,  # -> N_seg = 4 rev  ->  N_samples = 4 x round(fs/fr)
-        "segmentation": "raw",  # usa senal raw sin OPR, acepta fracciones
-        "step_rev": 1,  # hop de 1 rev  =>  overlap 75 %
-        "use_sprt": True,
-        **_COMMON,
-    },
-}
-
-INDICATOR_CONFIG_by_modal_raw = {
-    "id": "MaxEnt_SPRT",
-    "func": "Default",
-    "param_mode": "by_modal",
-    "params_physical": {
-        "T_modal": _T_MODAL,
-        "N_modal_window": 4.0,  # -> N_samples = 4 x round(T_modal x fs)
-        "segmentation": "raw",  # usa senal raw, acepta fracciones
-        "step_modal": 1.0,  # hop de 1 periodo modal  =>  overlap 75 %
-        "use_sprt": True,
-        **_COMMON,
-    },
-}
-
-# CASES: mismo esqueleto signal_source + indicator_config para los 4 indicadores
-# (ver COMMON_TEMPLATE.md §11/§12) -- cada entrada pareja la señal a analizar con
-# una variante de parametrización. Todas comparten SIGNAL_SOURCE hoy (son distintos
-# esquemas de ventaneo sobre la misma señal); cambiar el diccionario de una entrada
-# puntual si hace falta analizar una señal distinta con esa variante.
-CASES: dict[str, dict] = {
-    "native": {
-        "signal_source": SIGNAL_SOURCE,
-        "indicator_config": INDICATOR_CONFIG_native,
-    },
-    "by_revolution_overlap": {
-        "signal_source": SIGNAL_SOURCE,
-        "indicator_config": INDICATOR_CONFIG_by_revolution_overlap,
-    },
-    "by_modal_overlap": {
-        "signal_source": SIGNAL_SOURCE,
-        "indicator_config": INDICATOR_CONFIG_by_modal_overlap,
-    },
-    "by_revolution_raw": {
-        "signal_source": SIGNAL_SOURCE,
-        "indicator_config": INDICATOR_CONFIG_by_revolution_raw,
-    },
-    "by_modal_raw": {
-        "signal_source": SIGNAL_SOURCE,
-        "indicator_config": INDICATOR_CONFIG_by_modal_raw,
-    },
-}
-
-ACTIVE_CASE = "by_revolution_raw"  # <- cambiar solo esta linea para elegir señal + config
-SIGNAL_SOURCE = CASES[ACTIVE_CASE]["signal_source"]
-INDICATOR_CONFIG = CASES[ACTIVE_CASE]["indicator_config"]  # se pasa directo a run_maxent_sprt(signal, INDICATOR_CONFIG)
-
-
-def _load_signal(source: dict, cut_range: Tuple[float, float]) -> SignalData:
-    reader = HDF5Reader(source["hdf5_path"])
-    case_name = source.get("case_name")
-
-    t, disp = load_signal(reader, source["disp_name"], case_name)
-    _, vel = load_signal(reader, source["vel_name"], case_name)
-    try:
-        _, force_n = load_signal(reader, source["force_name"], case_name)
-    except KeyError:
-        force_n = np.zeros_like(t)
-
-    fs = 1.0 / (t[1] - t[0])
-    t_cut, v_cut = _cut_signal(t, vel, cut_range)
-    _, x_cut = _cut_signal(t, disp, cut_range)
-    _, f_cut = _cut_signal(t, force_n, cut_range)
-
-    return SignalData(
-        t_analysis=t_cut,
-        signal_analysis=v_cut,
-        path=source["hdf5_path"],
-        fs=fs,
-        meta={"AP": "5mm-15mm", "RPM": 12_000},
-    )
 
 
 def _load_reference_signal(h5_path: str, channel: str, label: str = "stable") -> SignalData:
@@ -311,7 +108,7 @@ def _load_reference_signal(h5_path: str, channel: str, label: str = "stable") ->
     )
 
 
-def _log_config_summary(result, fr: float) -> None:
+def _log_config_summary(result, fr: float, t_stable_total: float) -> None:
     """INFO-level structured summary of the config actually used to run the pipeline."""
     if not logger.isEnabledFor(logging.INFO):
         return
@@ -335,7 +132,7 @@ def _log_config_summary(result, fr: float) -> None:
         _kv("Chatter source (P1/unstable)", meta.get("chatter_source", "internal")),
         _kv("Segmentacion", meta.get("segmentation", "opr")),
         _sep(),
-        _kv("t_stable_total", f"{_COMMON['t_stable_total']:.4f} s"),
+        _kv("t_stable_total", f"{t_stable_total:.4f} s"),
         _kv("alpha / beta", f"{meta['alpha']} / {meta['beta']}"),
         _sep(),
     ]
@@ -452,37 +249,226 @@ def _log_debug_tables(result) -> None:
         logger.debug("%s\n%s", _section(f"TABLA DETECCIONES  ({t_d.size} evento(s))"), df_det.to_string())
 
 
-def main(case_name: str = ACTIVE_CASE) -> None:
-    if case_name not in CASES:
-        raise SystemExit(f"Case desconocido '{case_name}'. Opciones: {sorted(CASES)}")
-
+def main() -> None:
     configure_logging(level=_LOG_LEVEL)
 
-    case = CASES[case_name]
-    signal_source = case["signal_source"]
-    indicator_config = case["indicator_config"]
+    # -- datos ----------------------------------------------------------------
+    # Rutas alternativas de datasets -- cambiar DATA_DIR para usar otra.
+    _DATA_DIRS = {
+        "control": (
+            r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
+            r"\2DOF_Cone_DOE\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_200"
+            r"\3\1DOF_150Hz\out.hdf5"
+        ),
+        "control_sensor": (
+            r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
+            r"\2DOF_Cone_DOE\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_200"
+            r"\5\1DOF_150Hz\sens_out.hdf5"
+        ),
+        "custom": (
+            r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
+            r"\2DOF_Cone_DOE\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_200"
+            r"\0\1DOF_150Hz\sens_out.hdf5"
+        ),
+        "custom_dir": (
+            r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
+            r"\2DOF_Cone_DOE\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_180"
+            r"\12\1DOF_150Hz\sens_out.hdf5"
+        ),
+
+        "cono_dexel_20e_5": (
+            r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
+            r"\2DOF_Cone_New\Cono_dexel_20e-5_dt_200\0\1DOF_150Hz\sens_out.hdf5"
+        )
+
+    }
+
+    # See COMMON_TEMPLATE.md §11 -- forma estándar de declarar el origen de la señal.
+    _SIGNAL_SOURCE = {
+        "hdf5_path": _DATA_DIRS["cono_dexel_20e_5"],
+        "case_name": None,  # None (layout crudo) | "case_003" (layout DOE)
+        "disp_name": "Axial_disp",
+        "vel_name": "Axial_vel",
+        "force_name": "force_N",
+    }
+
+    _CUT_START = 0.05
+    _CUT_END = 16
+
+    data = HDF5Reader(_SIGNAL_SOURCE["hdf5_path"])
+    t, tool_dyn = load_signal(data, _SIGNAL_SOURCE["disp_name"], _SIGNAL_SOURCE["case_name"])
+    _, v = load_signal(data, _SIGNAL_SOURCE["vel_name"], _SIGNAL_SOURCE["case_name"])
+    try:
+        _, force_n = load_signal(data, _SIGNAL_SOURCE["force_name"], _SIGNAL_SOURCE["case_name"])
+    except KeyError:
+        force_n = np.zeros_like(t)
+
+    fs = 1.0 / (t[1] - t[0])
+    t_cut, v_cut = _cut_signal(t, v, (_CUT_START, _CUT_END))
+    _, x_cut = _cut_signal(t, tool_dyn, (_CUT_START, _CUT_END))
+    _, f_cut = _cut_signal(t, force_n, (_CUT_START, _CUT_END))
+
+    sig = SignalData(
+        t_analysis=t_cut,
+        signal_analysis=v_cut,
+        path=_SIGNAL_SOURCE["hdf5_path"],
+        fs=fs,
+        meta={"AP": "5mm-15mm", "RPM": 12_000},
+    )
+
+    # =========================================================================
+    # INDICATOR_CONFIG -- cinco variantes de parametrizacion
+    #
+    #   native                 -> parametros nativos directos
+    #   by_revolution_overlap  -> ventana por revolucion, OPR, con overlap
+    #   by_modal_overlap       -> ventana por periodo modal, OPR, con overlap
+    #   by_revolution_raw      -> ventana por revolucion, senal raw
+    #   by_modal_raw           -> ventana por periodo modal, senal raw
+    #
+    # Elegir editando ACTIVE_CASE mas abajo.
+    # =========================================================================
+    _RPM = 12_000.0
+    _RPM_MODAL = 150 * 60.0  # RPM equivalente a f_modal = 150 Hz
+    _F_MODAL = 150.0
+    _T_REV = 60.0 / _RPM  # 0.005 s -- periodo de una revolucion
+    _T_MODAL = 1.0 / _F_MODAL  # s -- periodo del modo de chatter (f_modal ~ 150 Hz)
+
+    # alpha = beta = norm.sf(3.0) ≈ 0.00135  →  equivalent to z=3 sigma (same FAR as RMS-CV and SSQ)
+    _Z3_ALPHA = 0.00135
+    _T_GT = 5.365770208787228  # [s] ground-truth chatter onset
+
+    _COMMON = {
+        "t_stable_total": _T_GT,  # legacy fallback (used if training_intervals=None)
+        # "training_intervals": [
+        #     (_CUT_START, _T_GT, "stable"),  # chatter-free training region
+        #     (_T_GT, 10, "chatter"),  # chatter training region
+        # ],
+        "alpha": _Z3_ALPHA,
+        "beta": _Z3_ALPHA,
+        "reset_on_H0": True,
+        "cut_start_time": _CUT_START,
+        "cut_end_time": _CUT_END,
+        "t_theorical": _T_GT,  # for debug/plots, not used in detection
+    }
+
+    INDICATOR_CONFIG_native = {
+        "id": "MaxEnt_SPRT",
+        "func": "Default",
+        "params": {
+            "rpm": _RPM_MODAL,
+            "N_seg": 2,  # 1 rev/seg -> t_seg = 0.005 s
+            **_COMMON,
+        },
+    }
+
+    # step_rev = 1  ->  hop = 1 rev  ->  overlap = 1 - 1/5 = 80 %
+    INDICATOR_CONFIG_by_revolution_overlap = {
+        "id": "MaxEnt_SPRT",
+        "func": "Default",
+        "param_mode": "by_revolution",
+        "params_physical": {
+            "T_rev": _T_REV,
+            "N_rev_window": 5,  # -> N_seg = 5
+            "step_rev": 1,  # hop de 1 rev  =>  overlap 80 %
+            "segmentation": "opr",
+            **_COMMON,
+        },
+    }
+
+    # step_modal = 1  ->  hop = 1 periodo modal  ->  overlap = 50 %
+    INDICATOR_CONFIG_by_modal_overlap = {
+        "id": "MaxEnt_SPRT",
+        "func": "Default",
+        "param_mode": "by_modal",
+        "params_physical": {
+            "T_modal": _T_MODAL,
+            "N_modal_window": 2.0,  # -> N_seg = 2
+            "step_modal": 1,  # hop de 1 periodo modal  =>  overlap 50 %
+            **_COMMON,
+        },
+    }
+
+    # Usa senal raw (sin decimacion OPR) dentro de cada bloque de N_rev_window revoluciones.
+    # N_samples_per_seg = N_rev_window x round(fs / fr)  (calculado por el resolver)
+    INDICATOR_CONFIG_by_revolution_raw = {
+        "id": "MaxEnt_SPRT",
+        "func": "Default",
+        "param_mode": "by_revolution",
+        "params_physical": {
+            "T_rev": _T_REV,
+            "N_rev_window": 4,  # -> N_seg = 4 rev  ->  N_samples = 4 x round(fs/fr)
+            "segmentation": "raw",  # usa senal raw sin OPR, acepta fracciones
+            "step_rev": 1,  # hop de 1 rev  =>  overlap 75 %
+            "use_sprt": True,
+            **_COMMON,
+        },
+    }
+
+    INDICATOR_CONFIG_by_modal_raw = {
+        "id": "MaxEnt_SPRT",
+        "func": "Default",
+        "param_mode": "by_modal",
+        "params_physical": {
+            "T_modal": _T_MODAL,
+            "N_modal_window": 4.0,  # -> N_samples = 4 x round(T_modal x fs)
+            "segmentation": "raw",  # usa senal raw, acepta fracciones
+            "step_modal": 1.0,  # hop de 1 periodo modal  =>  overlap 75 %
+            "use_sprt": True,
+            **_COMMON,
+        },
+    }
+
+    # CASES: mismo esqueleto signal_source + indicator_config para los 4 indicadores
+    # (ver COMMON_TEMPLATE.md §11/§12) -- cada entrada pareja la señal a analizar con
+    # una variante de parametrización. Todas comparten _SIGNAL_SOURCE hoy (son distintos
+    # esquemas de ventaneo sobre la misma señal); cambiar el diccionario de una entrada
+    # puntual si hace falta analizar una señal distinta con esa variante.
+    CASES: dict[str, dict] = {
+        "native": {
+            "signal_source": _SIGNAL_SOURCE,
+            "indicator_config": INDICATOR_CONFIG_native,
+        },
+        "by_revolution_overlap": {
+            "signal_source": _SIGNAL_SOURCE,
+            "indicator_config": INDICATOR_CONFIG_by_revolution_overlap,
+        },
+        "by_modal_overlap": {
+            "signal_source": _SIGNAL_SOURCE,
+            "indicator_config": INDICATOR_CONFIG_by_modal_overlap,
+        },
+        "by_revolution_raw": {
+            "signal_source": _SIGNAL_SOURCE,
+            "indicator_config": INDICATOR_CONFIG_by_revolution_raw,
+        },
+        "by_modal_raw": {
+            "signal_source": _SIGNAL_SOURCE,
+            "indicator_config": INDICATOR_CONFIG_by_modal_raw,
+        },
+    }
+    ACTIVE_CASE = "by_revolution_raw"  # <- cambiar solo esta linea para elegir señal + config
+
+    SIGNAL_SOURCE = CASES[ACTIVE_CASE]["signal_source"]
+    INDICATOR_CONFIG = CASES[ACTIVE_CASE]["indicator_config"]  # se pasa directo a run_maxent_sprt(signal, INDICATOR_CONFIG)
 
     # "reference_signal"/"reference_signal_chatter" are top-level INDICATOR_CONFIG
     # keys (sibling of func/params), not part of _COMMON -- inject them here,
     # gated independently by the two USE_EXTERNAL_REFERENCE* flags above.
     if USE_EXTERNAL_REFERENCE:
-        indicator_config["reference_signal"] = _load_reference_signal(
+        INDICATOR_CONFIG["reference_signal"] = _load_reference_signal(
             _REFERENCE_H5, _REFERENCE_CHANNEL, label="stable"
         )
     if USE_EXTERNAL_REFERENCE_CHATTER:
-        indicator_config["reference_signal_chatter"] = _load_reference_signal(
+        INDICATOR_CONFIG["reference_signal_chatter"] = _load_reference_signal(
             _REFERENCE_H5, _REFERENCE_CHANNEL, label="unstable"
         )
 
     pd.set_option("display.max_colwidth", None)
     pd.set_option("display.width", 100)
 
-    sig = _load_signal(signal_source, (_CUT_START, _CUT_END))
-
-    result = run_maxent_sprt(sig, indicator_config)
+    result = run_maxent_sprt(sig, INDICATOR_CONFIG)
 
     fr = result.meta["Rotational_Frequency_Hz"]
-    _log_config_summary(result, fr)
+    _log_config_summary(result, fr, _COMMON["t_stable_total"])
     _log_debug_tables(result)
 
     plots_maxent_sprt(
@@ -497,12 +483,5 @@ def main(case_name: str = ACTIVE_CASE) -> None:
     )
 
 
-def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run the MaxEnt-SPRT detection example.")
-    parser.add_argument("--case", default=ACTIVE_CASE, choices=sorted(CASES),
-                         help="CASES preset (signal_source + indicator_config) to run.")
-    return parser.parse_args()
-
-
 if __name__ == "__main__":
-    main(_parse_args().case)
+    main()
