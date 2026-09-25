@@ -162,25 +162,54 @@ def _green_integral_pipeline(
                     "(training_intervals/stable_time) were provided; "
                     "reference_signal takes priority."
                 )
-            # Run the same windowing pipeline over the external reference
-            # signal and use ALL of its windows as the training population.
+            # Run the same windowing pipeline over EACH reference piece
+            # separately (never concatenate the raw signals first — a window
+            # straddling the seam between two stitched pieces would mix
+            # windows from unrelated cases) and pool only the resulting
+            # per-window areas/times across all pieces.
+            ref_pieces = (
+                config.reference_signal if isinstance(config.reference_signal, list)
+                else [config.reference_signal]
+            )
             ref_config = replace(
                 config, reference_signal=None, use_area_threshold=False, debug_level=0,
             )
-            ref_result = _green_integral_pipeline(config.reference_signal, ref_config)
-            raw_areas_ref = np.array(
-                [dw.get("center_area_value") or dw.get("median_area") or np.nan
-                 for dw in ref_result.data_window],
-                dtype=float,
+            train_areas_parts: List[np.ndarray] = []
+            train_t_wins_parts: List[np.ndarray] = []
+            piece_window_counts: List[int] = []
+            for piece in ref_pieces:
+                ref_result = _green_integral_pipeline(piece, ref_config)
+                raw_areas_piece = np.array(
+                    [dw.get("center_area_value") or dw.get("median_area") or np.nan
+                     for dw in ref_result.data_window],
+                    dtype=float,
+                )
+                t_wins_piece = np.array(
+                    [dw["indicadores"]["t_n"] for dw in ref_result.data_window],
+                    dtype=float,
+                )
+                valid_piece = np.isfinite(raw_areas_piece) & (raw_areas_piece > 0)
+                n_valid = int(valid_piece.sum())
+                piece_window_counts.append(n_valid)
+                if n_valid == 0:
+                    logger.warning(
+                        "reference_signal piece %r produced 0 valid windows "
+                        "(shorter than one window?), skipped.",
+                        getattr(piece, "name", "?"),
+                    )
+                    continue
+                train_areas_parts.append(raw_areas_piece[valid_piece])
+                train_t_wins_parts.append(t_wins_piece[valid_piece])
+
+            train_areas = (
+                np.concatenate(train_areas_parts) if train_areas_parts else np.array([])
             )
-            t_wins_gi_ref = np.array(
-                [dw["indicadores"]["t_n"] for dw in ref_result.data_window],
-                dtype=float,
+            train_t_wins = (
+                np.concatenate(train_t_wins_parts) if train_t_wins_parts else np.array([])
             )
-            valid_ref = np.isfinite(raw_areas_ref) & (raw_areas_ref > 0)
-            train_areas = raw_areas_ref[valid_ref]
-            train_t_wins = t_wins_gi_ref[valid_ref]
             det_mask = valid_mask
+            global_data["reference_n_pieces"] = len(ref_pieces)
+            global_data["reference_piece_window_counts"] = piece_window_counts
         else:
             stab = _select_stable_mask(
                 t_wins_gi, config.training_intervals,

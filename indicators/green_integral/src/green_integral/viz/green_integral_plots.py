@@ -370,7 +370,10 @@ def plots_lyapunov(
     # C4/D1 figures, which always re-derived a "stable" slice from
     # training_intervals against THIS signal even when the threshold had
     # actually been trained on a separate reference_signal.
-    plot_training_distribution(gd, name=name, log_transform=True)
+    # figsize computed with THIS module's own fig_size() (not plots.py's
+    # same-named-but-differently-scaled helper) to match this figure set's
+    # own C1-C3/Ĝ/Ĝs sizing (plots.py's own callers use its default instead).
+    plot_training_distribution(gd, name=name, log_transform=True, figsize=fig_size(scale=3.0))
 
     # ── D1b / D4b: per-label breakdown — only meaningful for internal
     # training (needs this signal's own training_intervals labels; skipped

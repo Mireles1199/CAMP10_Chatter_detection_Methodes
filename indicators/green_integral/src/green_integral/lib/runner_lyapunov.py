@@ -954,6 +954,8 @@ def _lyapunov_pipeline(
     lower_log = None
     train_areas  = np.array([], dtype=float)
     train_t_wins = np.array([], dtype=float)
+    reference_n_pieces: Optional[int] = None
+    reference_piece_window_counts: List[int] = []
 
     training_source = "external_reference" if config.reference_signal is not None else "internal"
 
@@ -972,15 +974,42 @@ def _lyapunov_pipeline(
                     "(training_intervals/stable_time) were provided; "
                     "reference_signal takes priority."
                 )
-            # Run the same windowing pipeline over the external reference
-            # signal and use ALL of its windows as the training population.
+            # Run the same windowing pipeline over EACH reference piece
+            # separately (never concatenate the raw signals first — a window
+            # straddling the seam between two stitched pieces would mix
+            # windows from unrelated cases) and pool only the resulting
+            # per-window areas/times across all pieces.
+            ref_pieces = (
+                config.reference_signal if isinstance(config.reference_signal, list)
+                else [config.reference_signal]
+            )
             ref_config = replace(
                 config, reference_signal=None, use_area_threshold=False, debug_level=0,
             )
-            ref_result = _lyapunov_pipeline(config.reference_signal, ref_config)
-            ref_valid = np.isfinite(ref_result.areas) & (ref_result.areas > config.area_noise_eps)
-            train_areas = ref_result.areas[ref_valid]
-            train_t_wins = ref_result.t_wins[ref_valid]
+            train_areas_parts: List[np.ndarray] = []
+            train_t_wins_parts: List[np.ndarray] = []
+            for piece in ref_pieces:
+                ref_result = _lyapunov_pipeline(piece, ref_config)
+                ref_valid = np.isfinite(ref_result.areas) & (ref_result.areas > config.area_noise_eps)
+                n_valid = int(ref_valid.sum())
+                reference_piece_window_counts.append(n_valid)
+                if n_valid == 0:
+                    logger.warning(
+                        "reference_signal piece %r produced 0 valid windows "
+                        "(shorter than one window?), skipped.",
+                        getattr(piece, "name", "?"),
+                    )
+                    continue
+                train_areas_parts.append(ref_result.areas[ref_valid])
+                train_t_wins_parts.append(ref_result.t_wins[ref_valid])
+
+            train_areas = (
+                np.concatenate(train_areas_parts) if train_areas_parts else np.array([])
+            )
+            train_t_wins = (
+                np.concatenate(train_t_wins_parts) if train_t_wins_parts else np.array([])
+            )
+            reference_n_pieces = len(ref_pieces)
         else:
             stab = _select_stable_mask(
                 t_wins, config.training_intervals,
@@ -1032,6 +1061,8 @@ def _lyapunov_pipeline(
         # against the wrong signal) from training_intervals at plot time.
         "training_areas":     train_areas,
         "training_t_wins":    train_t_wins,
+        "reference_n_pieces": reference_n_pieces,
+        "reference_piece_window_counts": reference_piece_window_counts,
     }
     if t_d_detected is not None and config.t_theorical is not None:
         t_d_detected_no_FAR_idx = np.where(t_d_detected >= config.t_theorical)[0]

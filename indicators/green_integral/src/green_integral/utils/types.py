@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
@@ -81,11 +81,16 @@ class GreenIntegralConfig:
     frac_stable: float = 0.30
     stable_time: Optional[Tuple[float, float]] = None
     z_sigma: float = 3.0
-    reference_signal: Optional["SignalData"] = None
-    """External signal (already labeled "stable") windowed with the same
-    f_modal/num_T/dt and used in full as the training population for the
-    mu ± zσ area threshold, replacing training_intervals/stable_time/
-    frac_stable when set. See ``result.meta["training_source"]``."""
+    reference_signal: Optional[Union["SignalData", List["SignalData"]]] = None
+    """External signal(s) (already labeled "stable"), windowed with the same
+    f_modal/num_T/dt and used as the training population for the mu ± zσ
+    area threshold, replacing training_intervals/stable_time/frac_stable
+    when set. A list of pieces (e.g. stitched-together cases from a DOE
+    reference dataset) is windowed PIECE BY PIECE — never concatenated into
+    one raw signal first, which would let a window straddle the seam
+    between two unrelated pieces — and only the resulting per-window areas
+    are pooled. A single SignalData is treated as one piece. See
+    ``result.meta["training_source"]``/``["reference_n_pieces"]``."""
 
     # --- debug / output ---
     debug_level: int = 0
@@ -191,11 +196,14 @@ class LyapunovConfig:
     frac_stable: float = 0.30
     stable_time: Optional[Tuple[float, float]] = None
     z_sigma: float = 3.0
-    reference_signal: Optional["SignalData"] = None
-    """External signal (already labeled "stable"), windowed with the same
-    pipeline and used in full as the training population for the mu ± zσ
-    area threshold, replacing training_intervals/stable_time/frac_stable
-    when set. See ``result.meta["training_source"]``."""
+    reference_signal: Optional[Union["SignalData", List["SignalData"]]] = None
+    """External signal(s) (already labeled "stable"), windowed with the same
+    pipeline and used as the training population for the mu ± zσ area
+    threshold, replacing training_intervals/stable_time/frac_stable when
+    set. A list of pieces is windowed PIECE BY PIECE — never concatenated
+    into one raw signal first — and only the resulting per-window areas
+    are pooled; a single SignalData is treated as one piece. See
+    ``result.meta["training_source"]``/``["reference_n_pieces"]``."""
 
     # --- cycle extraction ---
     use_zero_crossing_cycles: bool = True

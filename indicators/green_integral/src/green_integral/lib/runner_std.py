@@ -283,12 +283,22 @@ def run_green_std(
     internal_sig, vel_source = _to_internal_signal(signal_data, "signal")
     logger.debug("run_green_std | velocity source: %s", vel_source)
 
-    reference_signal_std: Optional[StdSignalData] = config.get("reference_signal")
+    reference_signal_std = config.get("reference_signal")
     training_source = "external_reference" if reference_signal_std is not None else "internal"
     if reference_signal_std is not None:
-        internal_ref_sig, ref_vel_source = _to_internal_signal(reference_signal_std, "reference_signal")
-        logger.debug("run_green_std | reference_signal velocity source: %s", ref_vel_source)
-        native_params = {**native_params, "reference_signal": internal_ref_sig}
+        # A single StdSignalData is one piece; a list is windowed piece by
+        # piece downstream (see COMMON_TEMPLATE.md / runner.py|runner_lyapunov.py)
+        # — never concatenated into one raw signal first.
+        ref_pieces_std = (
+            reference_signal_std if isinstance(reference_signal_std, list)
+            else [reference_signal_std]
+        )
+        internal_ref_pieces = []
+        for i, piece_std in enumerate(ref_pieces_std):
+            internal_piece, ref_vel_source = _to_internal_signal(piece_std, f"reference_signal[{i}]")
+            logger.debug("run_green_std | reference_signal[%d] velocity source: %s", i, ref_vel_source)
+            internal_ref_pieces.append(internal_piece)
+        native_params = {**native_params, "reference_signal": internal_ref_pieces}
 
     # ── Run indicator ─────────────────────────────────────────────────────────
     if func == "Default":

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import colorsys
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -239,6 +239,7 @@ def plot_training_distribution(
     global_data: Dict[str, Any],
     name: str = "",
     log_transform: bool = True,
+    figsize: Optional[Tuple[float, float]] = None,
 ) -> List[plt.Figure]:
     """Diagnose the population that actually trained the mu +- z*sigma threshold.
 
@@ -248,6 +249,16 @@ def plot_training_distribution(
     external ``reference_signal`` (``training_source="external_reference"``).
     Unlike re-deriving a "stable" slice from ``training_intervals`` against
     whatever signal is being plotted, this can never point at the wrong one.
+
+    ``figsize`` must match the actual (width, height) inches used by the
+    sibling figures in the caller's own figure set (default: this module's
+    own ``fig_size(scale=5.0)``). Callers with a *different* figure size —
+    e.g. green_integral_plots.py's plots_lyapunov, whose C1-C3/Ĝ panels use
+    ITS OWN ``fig_size(scale=3.0)`` (a same-named but differently-scaled
+    helper — passing a bare number here would silently use the wrong
+    formula) — must compute their own size and pass the tuple explicitly,
+    otherwise these two figures render at a visibly different size than the
+    rest of the set.
 
     Returns two figures (empty list if there isn't enough trained data):
 
@@ -288,11 +299,12 @@ def plot_training_distribution(
     lo = float(thr.get("lower", mu_h - z * std_h))
     z_lbl = f"{z:.0f}"
     xlabel = r"$\log_{10}(A_k)$" if log_transform else r"$A_k$"
+    _figsize = figsize if figsize is not None else fig_size(scale=5.0)
 
     figs: List[plt.Figure] = []
 
     # ── Histogram + Gaussian PDF (mu/sigma from the real threshold) ────────
-    fig_h, ax_h = plt.subplots(figsize=fig_size(scale=5.0))
+    fig_h, ax_h = plt.subplots(figsize=_figsize)
     ax_h.set_title(f"Training Area Distribution — {name}")
     ax_h.set_xlabel(xlabel)
     ax_h.set_ylabel("Density")
@@ -309,7 +321,7 @@ def plot_training_distribution(
     figs.append(fig_h)
 
     # ── Curve: same values, in the order used to fit the normal law ────────
-    fig_c, ax_c = plt.subplots(figsize=fig_size(scale=5.0))
+    fig_c, ax_c = plt.subplots(figsize=_figsize)
     ax_c.set_title(f"Training Curve — normal-law input — {name}")
     if t_vals.size == vals.size:
         x_axis, ax_c_xlabel = t_vals, "Time [s]"

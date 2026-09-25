@@ -30,6 +30,11 @@ Integral plot for correctness:
    ("steelblue"/"darkorange"/"forestgreen"/"red"/"crimson") to the shared
    color_azul/orange/verde/red palette (same one MaxEnt uses), for visual
    consistency across the 4 indicators.
+6. plot_training_distribution() (Training Area Distribution / Training
+   Curve) hardcoded fig_size(scale=5.0), matching plots.py's own siblings
+   but NOT plots_lyapunov's (which use scale=3.0) — the two figures showed
+   up visibly larger than the rest of the Lyapunov set. Added a `fig_scale`
+   parameter; plots_lyapunov now passes 3.0 to match its own C1-C3/Ĝ/Ĝs.
 """
 
 from __future__ import annotations
@@ -176,6 +181,20 @@ for ax in fig_c1.axes:
     data_lines = [l for l in ax.get_lines() if len(l.get_xdata()) > 2]
     colors = {l.get_color() for l in data_lines}
     assert len(colors) == 1, f"C1 axes {ax.get_ylabel()!r}: expected 1 trace color, got {colors}"
+
+# ── 6. Training Area Distribution / Training Curve match the figure set's
+# own sizing (plot_training_distribution's fig_scale must match its
+# caller's sibling panels, e.g. plots_lyapunov's C1-C3/Ĝ use scale=3.0) ──
+_sizes = {}
+for fig_num in plt.get_fignums():
+    fig = plt.figure(fig_num)
+    title = fig.axes[0].get_title() if fig.axes else ""
+    _sizes[title] = tuple(fig.get_size_inches())
+_ref_size = _sizes.get("C3 — Lyapunov $\\hat{\\sigma}$(t) — analysis")
+for tag in ("Training Area Distribution", "Training Curve"):
+    _match = next((s for t, s in _sizes.items() if t.startswith(tag)), None)
+    assert _match is not None, f"{tag} figure not found"
+    assert _match == _ref_size, f"{tag} size {_match} != sibling C3 size {_ref_size}"
 
 plt.close("all")
 

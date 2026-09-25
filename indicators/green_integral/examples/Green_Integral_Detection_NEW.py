@@ -19,10 +19,12 @@ Case selector
     "lyapunov_native" | "lyapunov_by_revolution" | "lyapunov_by_modal".
 
     Set USE_EXTERNAL_REFERENCE = True  to train the mu +- z*sigma area
-    threshold from the external "stable" signal in `reference_combined.h5`
-    (DOE reference-dataset pipeline) instead of `training_intervals`.
-    Set USE_EXTERNAL_REFERENCE = False for the original internal-training
-    behavior — flip it back and forth to compare both on the same case.
+    threshold from the external "stable" pieces in `reference_dataset.h5`
+    (DOE reference-dataset pipeline, one piece per case — never the
+    stitched-together `reference_combined.h5`, see `_load_reference_pieces`)
+    instead of `training_intervals`. Set USE_EXTERNAL_REFERENCE = False for
+    the original internal-training behavior — flip it back and forth to
+    compare both on the same case.
 """
 
 from typing import Tuple
@@ -64,35 +66,45 @@ def _cut_signal(t, x, time_range: Tuple[float, float]) -> Tuple[np.ndarray, np.n
     return t[mask], x[mask]
 
 
-def _load_reference_combined(path: str, channel: str, label: str = "stable") -> StdSignalData:
-    """Minimal reader for `reference_combined.h5` (Repo-DOE Fase 1/2 pipeline).
+def _load_reference_pieces(
+    path: str, label: str, channel: str, vel_channel: str = "Axial_vel",
+) -> list:
+    """Minimal reader for `reference_dataset.h5` (Repo-DOE Fase 1/2 pipeline).
 
-    Layout written by `reference_dataset.py`'s `save_combined` (read here
-    directly with h5py instead of importing that Repo-DOE module — same rule
-    as the rest of this codebase, see COMMON_TEMPLATE.md §8): one group per
-    combined signal named ``f"{label}__{channel}"``, with datasets ``t``/``y``
-    (already stitched into one continuous, monotonic time axis) and attrs
-    ``fs``/``channel``/``label``/``n_pieces``/``source_ids``. Velocity is
-    pulled from the sibling ``f"{label}__Axial_vel"`` group when present,
-    otherwise `run_green_std` estimates it via `np.gradient`.
+    Unlike `reference_combined.h5` (still used by `doe_unified_selector.py`,
+    not touched here), this file keeps every stitched-in piece SEPARATE —
+    read here directly with h5py instead of importing the Repo-DOE module
+    (COMMON_TEMPLATE.md §8): layout is ``/<label>/<case>/<channel>__NNN/``
+    with datasets ``t``/``y`` and attrs ``channel``/``fs``/``signal_id``/
+    ``t0``/``t1``. Returns one `StdSignalData` per matching piece — the
+    runner windows each piece separately and only pools the resulting areas,
+    so a window can never straddle the seam between two unrelated pieces
+    (which concatenating the raw signals first would allow). Velocity for
+    each piece is pulled from its sibling ``<vel_channel>__NNN`` piece in the
+    same case group when present, otherwise `run_green_std` estimates it via
+    `np.gradient`.
     """
     import h5py
 
+    pieces: list = []
     with h5py.File(path, "r") as f:
-        g = f[f"{label}__{channel}"]
-        t = g["t"][()]
-        y = g["y"][()]
-        fs = float(g.attrs["fs"])
-        vel_key = f"{label}__Axial_vel"
-        velocity = f[vel_key]["y"][()] if vel_key in f else None
-
-    return StdSignalData(
-        t_analysis=t,
-        signal_analysis=y,
-        path=path,
-        fs=fs,
-        meta={"velocity": velocity, "name": f"reference_{label}_{channel}"},
-    )
+        for case_name in f[label]:
+            case_grp = f[label][case_name]
+            for piece_name, piece in case_grp.items():
+                if piece.attrs.get("channel") != channel:
+                    continue
+                suffix = piece_name.split("__", 1)[1] if "__" in piece_name else "000"
+                vel_key = f"{vel_channel}__{suffix}"
+                velocity = case_grp[vel_key]["y"][()] if vel_key in case_grp else None
+                signal_id = str(piece.attrs["signal_id"])
+                pieces.append(StdSignalData(
+                    t_analysis=piece["t"][()],
+                    signal_analysis=piece["y"][()],
+                    path=path,
+                    fs=float(piece.attrs["fs"]),
+                    meta={"velocity": velocity, "name": signal_id, "signal_id": signal_id},
+                ))
+    return pieces
 
 
 def main() -> None:
@@ -124,10 +136,28 @@ def main() -> None:
             r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
             r"\2DOF_Cone_New\Cono_dexel_20e-5_dt_200\0\1DOF_150Hz\sens_out.hdf5"
         ),
+
+        "tubo_stable_6_88e_5" : (
+            r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
+            r"\Chatter-Criteria\CAMP10_Chatter_detection_Methodes"
+            r"\Convergency_Simulation\1_Detection_Limite_Lobes"
+            r"\DOE_Detection_Limite_Lobes_dxl_20e-5_RUN_10"
+            r"\8\1DOF_150Hz\sens_out.hdf5"
+        ),
+
+        "tubo_stable_8_605e_5" : (
+            r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
+            r"\Chatter-Criteria\CAMP10_Chatter_detection_Methodes"
+            r"\Convergency_Simulation\1_Detection_Limite_Lobes"
+            r"\DOE_Detection_Limite_Lobes_dxl_20e-5_RUN_10"
+            r"\6\1DOF_150Hz\sens_out.hdf5"
+        ),
+
+
     }
 
     _SIGNAL_SOURCE = {
-        "hdf5_path": _DATA_DIRS["cono_dexel_20e_5"],
+        "hdf5_path": _DATA_DIRS["tubo_stable_8_605e_5"],
         "case_name": None,
         "disp_name": "Axial_disp",
         "vel_name": "Axial_vel",
@@ -299,24 +329,26 @@ def main() -> None:
     is_lyapunov      = INDICATOR_CONFIG["func"] == "Lyapunov"
 
     # =============================================================================
-    # REFERENCE SIGNAL (Fase 3) -- entrenar contra una señal "stable" EXTERNA ya
-    # etiquetada (pipeline Repo-DOE, combinada por label) en vez de recortar
-    # training_intervals de la propia señal analizada. Tiene prioridad sobre
-    # training_intervals cuando ambos están presentes (ver runner.py/runner_lyapunov.py).
+    # REFERENCE SIGNAL (Fase 3) -- entrenar contra piezas "stable" EXTERNAS ya
+    # etiquetadas (pipeline Repo-DOE), cada una ventaneada por separado y
+    # agrupadas solo a nivel de resultados (nunca de señal cruda -- ver
+    # runner.py/runner_lyapunov.py), en vez de recortar training_intervals de
+    # la propia señal analizada. Tiene prioridad sobre training_intervals
+    # cuando ambos están presentes.
     #
     #   USE_EXTERNAL_REFERENCE = True   -> usa reference_signal (este bloque)
     #   USE_EXTERNAL_REFERENCE = False  -> comportamiento normal, sin cambios
     #                                       (training_intervals de _COMMON_ALL)
     # =============================================================================
     USE_EXTERNAL_REFERENCE = True
-    _REFERENCE_COMBINED_H5 = (
+    _REFERENCE_DATASET_H5 = (
         r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\Chatter-Criteria"
         r"\CAMP10_Chatter_detection_Methodes\Convergency_Simulation"
         r"\4_DOE_Data_Training_Tube\DOE_Training_Tube_dxl_20e-5_RUN_10_0.5-2.0"
-        r"\reference_combined.h5"
+        r"\reference_dataset.h5"
     )
     INDICATOR_CONFIG["reference_signal"] = (
-        _load_reference_combined(_REFERENCE_COMBINED_H5, channel="Axial_disp", label="stable")
+        _load_reference_pieces(_REFERENCE_DATASET_H5, label="stable", channel="Axial_disp")
         if USE_EXTERNAL_REFERENCE else None
     )
 
