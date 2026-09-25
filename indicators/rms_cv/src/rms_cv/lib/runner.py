@@ -309,6 +309,20 @@ def run_rms_cv(signal: SignalData, INDICATOR_CONFIG: dict ) -> IndicatorResult:
             trace["quantization_notes"],
         )
 
+    # ── external reference signal (Fase 3, dataset de referencia externo) ──
+    # Optional SignalData already labeled "stable" by an outside pipeline
+    # (see Repo-DOE). When given, it replaces stable_time/stable_index/
+    # frac_stable as the training/reference region for the whole indicator.
+    reference_signal: Optional[SignalData] = INDICATOR_CONFIG.get("reference_signal")
+    if reference_signal is not None:
+        if params.get("stable_time") is not None or params.get("stable_index") is not None:
+            logger.warning(
+                "reference_signal provided together with stable_time/stable_index; "
+                "reference_signal takes priority and the internal stable-region "
+                "detector is not used."
+            )
+        params["reference_signal"] = reference_signal
+
     # print(params)  # debug rápido de parámetros nativos
     result: IndicatorResult = func(signal, **params)
 
@@ -419,6 +433,9 @@ def rms_cv_pipeline(
     fallback_mad: bool = True,
     t_theorical: Optional[float] = None,
 
+    # ── external reference signal (replaces stable_time/stable_index/frac_stable) ──
+    reference_signal: Optional[SignalData] = None,
+
 ) -> IndicatorResult:
     """Run the default RMS-CV chatter detection pipeline on a signal.
 
@@ -521,13 +538,48 @@ def rms_cv_pipeline(
         for k, v in res.items():
             results[k].append(v)
 
-    # ── Stage 3: threshold — adaptive (stable region) or fixed ─────────────
+    # ── Stage 3: threshold — external reference, adaptive (stable region), or fixed ──
     _use_stable = (stable_time is not None) or (stable_index is not None) or (frac_stable > 0)
     cv_array    = np.asarray(results["cv"])
     t_array     = np.array(results["time"], dtype=float)
 
     stable_det_meta: dict = {}
-    if _use_stable:
+    if reference_signal is not None:
+        # Run the same RMS -> CV sequence over the externally-labeled
+        # "stable" reference signal, then use ALL of the resulting CV
+        # values (no time/frac cropping) as the population for mu/sigma.
+        ref_fs         = reference_signal.fs
+        ref_window_sec = samples_per_window / ref_fs
+        ref_dt_rms     = ref_window_sec * (1.0 - overlap_pct)
+        ref_out = rms_sequence(reference_signal.signal_analysis, ref_fs,
+                                window_sec=ref_window_sec, overlap_pct=overlap_pct,
+                                detrend=detrend, pad_mode=pad_mode)
+        ref_mon = CVOnlineMonitor(CVOnlineConfig(
+            n_max=n_max, use_unbiased_std=use_unbiased_std, eps=eps,
+            n_min_cv=n_min_cv, dt_rms=ref_dt_rms, start_time=ref_window_sec,
+        ))
+        ref_results = [ref_mon.update(float(r)) for r in ref_out["rms"]]
+        ref_cv_array   = np.array([r["cv"]   for r in ref_results])
+        ref_time_array = np.array([r["time"] for r in ref_results], dtype=float)
+
+        det = CVStableRegionDetector(frac_stable=1.0, z=z, alpha=alpha, fallback_mad=fallback_mad)
+        det_res             = det.detect(ref_cv_array, idx_stable=np.arange(ref_cv_array.size))
+        cv_threshold_used   = float(det_res["threshold"])
+        cv_threshold_method = "external_reference"
+        training_source     = "external_reference"
+        _idx_est = np.asarray(det_res["idx_estable_usados"])
+        stable_det_meta = {
+            "mu_stable":          det_res["mu"],
+            "sigma_stable":       det_res["sigma"],
+            "normal_ok":          det_res["normal_ok"],
+            "p_value":            det_res["p_value"],
+            "metodo_umbral":      det_res["metodo_umbral"],
+            "idx_estable_usados": det_res["idx_estable_usados"],
+            # raw population actually used to fit mu/sigma (for plotting/verification)
+            "cv_training_values": ref_cv_array[_idx_est],
+            "cv_training_time":   ref_time_array[_idx_est],
+        }
+    elif _use_stable:
         det = CVStableRegionDetector(
             frac_stable=frac_stable,
             z=z,
@@ -539,6 +591,8 @@ def rms_cv_pipeline(
         det_res            = det.detect(cv_array, t=t_array)
         cv_threshold_used  = float(det_res["threshold"])
         cv_threshold_method = "stable_region"
+        training_source     = "internal"
+        _idx_est = np.asarray(det_res["idx_estable_usados"])
         stable_det_meta = {
             "mu_stable":          det_res["mu"],
             "sigma_stable":       det_res["sigma"],
@@ -546,10 +600,13 @@ def rms_cv_pipeline(
             "p_value":            det_res["p_value"],
             "metodo_umbral":      det_res["metodo_umbral"],
             "idx_estable_usados": det_res["idx_estable_usados"],
+            "cv_training_values": cv_array[_idx_est],
+            "cv_training_time":   t_array[_idx_est],
         }
     else:
         cv_threshold_used   = float(cv_threshold) if cv_threshold is not None else 0.0
         cv_threshold_method = "fixed"
+        training_source     = "internal"
 
     mask                = np.where(cv_array > cv_threshold_used)[0]
     chatter_points_time = t_array[mask]
@@ -581,6 +638,7 @@ def rms_cv_pipeline(
             "cv_threshold":        cv_threshold,
             "cv_threshold_used":   cv_threshold_used,
             "cv_threshold_method": cv_threshold_method,
+            "training_source":     training_source,
             "rms_threshold": rms_threshold,
             "n_max": n_max,
             "use_unbiased_std": use_unbiased_std,
