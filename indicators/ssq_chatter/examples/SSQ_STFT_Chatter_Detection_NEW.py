@@ -66,30 +66,45 @@ def _load_reference_signal(h5_path: str, label: str, channel: str) -> SignalData
 
 
 def main() -> None:
-    # -- fuente de la señal ---------------------------------------------------
-    # Forma común a los 4 indicadores (ver COMMON_TEMPLATE.md). Empaquetada más
-    # abajo en CASES/ACTIVE_CASE junto con INDICATOR_CONFIG -- se arma acá,
-    # antes, porque el indicator_config de SST depende de fs/T_REV/etc. que
-    # salen de la señal ya cargada.
-    #   case_name=None      -> layout crudo del simulador (sens_out.hdf5/out.hdf5)
-    #   case_name="<grupo>" -> layout DOE (doe_results.h5/doe_noise_results.h5)
-    #
-    # Otras rutas/casos disponibles (comentar la de arriba y descomentar):
-    #   out.hdf5:             r"...\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_200\3\1DOF_150Hz\out.hdf5"
-    #   sens_out.hdf5 (DOE):  r"...\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_200\3\1DOF_150Hz\sens_out.hdf5"
-    #   doe_noise_results.h5: r"...\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_200\doe_noise_results.h5", case_name="snr_005.00"
-    #   work_space_5mm:       "D:/Thesis/.../CAMP8-Ventanna_Glisante/Nessy2m_Case_Test_Explicit/1DOF_150Hz_5mm/1DOF_150Hz/out.hdf5"
-    _SIGNAL_SOURCE = {
-        "hdf5_path": (
+
+    _DATA_DIRS = {
+        "control": (
+            r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
+            r"\2DOF_Cone_DOE\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_200"
+            r"\3\1DOF_150Hz\out.hdf5"
+        ),
+        "control_sensor": (
+            r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
+            r"\2DOF_Cone_DOE\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_200"
+            r"\5\1DOF_150Hz\sens_out.hdf5"
+        ),
+        "custom": (
+            r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
+            r"\2DOF_Cone_DOE\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_200"
+            r"\0\1DOF_150Hz\sens_out.hdf5"
+        ),
+        "custom_dir": (
+            r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
+            r"\2DOF_Cone_DOE\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_180"
+            r"\12\1DOF_150Hz\sens_out.hdf5"
+        ),
+
+        "cono_dexel_20e_5": (
             r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
             r"\2DOF_Cone_New\Cono_dexel_20e-5_dt_200\0\1DOF_150Hz\sens_out.hdf5"
-        ),
-        "case_name": None,
+        )
+
+    }
+
+    _SIGNAL_SOURCE = {
+        "hdf5_path": _DATA_DIRS["cono_dexel_20e_5"],
+        "case_name": None,  # None (layout crudo) | "case_003" (layout DOE)
         "disp_name": "Axial_disp",
         "vel_name": "Axial_vel",
         "force_name": "force_N",
     }
 
+    
     data = HDF5Reader(_SIGNAL_SOURCE["hdf5_path"])
     t, tool_dyn = load_signal(data, _SIGNAL_SOURCE["disp_name"], _SIGNAL_SOURCE["case_name"])
     _, v        = load_signal(data, _SIGNAL_SOURCE["vel_name"],  _SIGNAL_SOURCE["case_name"])
