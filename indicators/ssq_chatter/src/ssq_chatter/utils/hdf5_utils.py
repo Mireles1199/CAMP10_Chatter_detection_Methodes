@@ -304,3 +304,28 @@ class HDF5Reader:
         """
         matches = self.find_all(key)
         return matches[0] if matches else None
+
+
+def load_signal(
+    reader: "HDF5Reader",
+    signal_name: str,
+    case_name: str | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Lee (t, y) de un HDF5Reader ya cargado.
+
+    - case_name=None  -> layout crudo del simulador (sens_out.hdf5/out.hdf5):
+      "<signal_name>/data" como array (N,2): col 0 = tiempo, col 1 = valor.
+    - case_name="<grupo>" -> layout DOE (doe_results.h5/doe_noise_results.h5):
+      "<case_name>/<signal_name>/time" + "<case_name>/<signal_name>/values"
+      como datasets separados.
+
+    Misma firma en los 4 indicadores (MaxEnt/RMS-CV/Green-Area/SST) -- ver
+    COMMON_TEMPLATE.md.
+    """
+    if case_name:
+        t = np.asarray(reader.get_element(f"{case_name}/{signal_name}/time"), dtype=float)
+        y = np.asarray(reader.get_element(f"{case_name}/{signal_name}/values"), dtype=float)
+    else:
+        arr = np.asarray(reader.get_element(f"{signal_name}/data"), dtype=float)
+        t, y = arr[:, 0], arr[:, 1]
+    return t, y

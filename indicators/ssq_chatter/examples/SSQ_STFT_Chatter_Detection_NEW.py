@@ -2,6 +2,7 @@ import logging
 from typing import Tuple
 import os
 import sys
+import h5py
 import numpy as np
 
 # ── force import of the local, editable-worktree source (see COMMON_TEMPLATE.md §8) ──
@@ -10,7 +11,7 @@ _SRC = os.path.abspath(os.path.join(_HERE, "..", "src"))
 if _SRC not in sys.path:
     sys.path.insert(0, _SRC)
 
-from ssq_chatter import SignalData, HDF5Reader
+from ssq_chatter import SignalData, HDF5Reader, load_signal
 from ssq_chatter import run_sst_svd
 from ssq_chatter import plots_sst_svd
 
@@ -48,72 +49,54 @@ def _section(title: str, width: int = 54) -> str:
     return f"\n{bar}\n  {title}\n{bar}"
 
 
+def _load_reference_signal(h5_path: str, label: str, channel: str) -> SignalData:
+    """Read a `save_combined`-style group (Repo-DOE `reference_dataset.py`) directly
+    with h5py -- group name is `{label}__{channel}`, datasets `t`/`y`, attr `fs`.
+    Not importing that script on purpose (COMMON_TEMPLATE.md: no cross-repo imports).
+    """
+    with h5py.File(h5_path, "r") as f:
+        grp = f[f"{label}__{channel}"]
+        t_ref = grp["t"][()]
+        y_ref = grp["y"][()]
+        fs_ref = float(grp.attrs["fs"])
+    return SignalData(
+        t_analysis=t_ref, signal_analysis=y_ref, path=h5_path, fs=fs_ref,
+        meta={"label": label, "channel": channel},
+    )
+
+
 def main() -> None:
-    # -- datos --------------------------------------------------------------------
-    cono_doe_control =  (
-        r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
-        r"\2DOF_Cone_DOE\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_200"
-        r"\3\1DOF_150Hz\out.hdf5"
-    )
+    # -- fuente de la señal ---------------------------------------------------
+    # Forma común a los 4 indicadores (ver COMMON_TEMPLATE.md). Empaquetada más
+    # abajo en CASES/ACTIVE_CASE junto con INDICATOR_CONFIG -- se arma acá,
+    # antes, porque el indicator_config de SST depende de fs/T_REV/etc. que
+    # salen de la señal ya cargada.
+    #   case_name=None      -> layout crudo del simulador (sens_out.hdf5/out.hdf5)
+    #   case_name="<grupo>" -> layout DOE (doe_results.h5/doe_noise_results.h5)
+    #
+    # Otras rutas/casos disponibles (comentar la de arriba y descomentar):
+    #   out.hdf5:             r"...\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_200\3\1DOF_150Hz\out.hdf5"
+    #   sens_out.hdf5 (DOE):  r"...\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_200\3\1DOF_150Hz\sens_out.hdf5"
+    #   doe_noise_results.h5: r"...\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_200\doe_noise_results.h5", case_name="snr_005.00"
+    #   work_space_5mm:       "D:/Thesis/.../CAMP8-Ventanna_Glisante/Nessy2m_Case_Test_Explicit/1DOF_150Hz_5mm/1DOF_150Hz/out.hdf5"
+    _SIGNAL_SOURCE = {
+        "hdf5_path": (
+            r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
+            r"\2DOF_Cone_New\Cono_dexel_20e-5_dt_200\0\1DOF_150Hz\sens_out.hdf5"
+        ),
+        "case_name": None,
+        "disp_name": "Axial_disp",
+        "vel_name": "Axial_vel",
+        "force_name": "force_N",
+    }
 
-    cono_doe_control_sensor =  (
-        r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
-        r"\2DOF_Cone_DOE\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_200"
-        r"\3\1DOF_150Hz\sens_out.hdf5"
-    )
-
-    custome =  (
-        r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
-        r"\2DOF_Cone_DOE\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_200\doe_noise_results.h5"
-    )
-
-    work_space_5mm   = 'D:/Thesis/03-Code_Storage/02-Altintlas_Nessy2m_Storage/Chatter-Criteria/CAMP8-Ventanna_Glisante/Nessy2m_Case_Test_Explicit/1DOF_150Hz_5mm/1DOF_150Hz/out.hdf5'
-
-    dir_path_use = custome
-
-    # Caso a probar dentro del HDF5.
-    # None -> usa las rutas globales Axial_disp/data y Axial_vel/data.
-    # Ejemplo: "case_000" -> busca case_000/Axial_disp/data y case_000/Axial_vel/data.
-
-    data     = HDF5Reader(dir_path_use)
-
-    # disp_path_hdf5 = "tool_dyn/data"
-    # vel_path_hdf5  = "tool_dyn_o/data"
-
-    # disp_path_hdf5 = "Axial_disp/data"
-    # vel_path_hdf5  = "Axial_vel/data"
-
-
-
-    CASE_NAME = "snr_005.00"
-
-
-    if CASE_NAME is not None:
-
-
-        case_prefix = f"{CASE_NAME}/" if CASE_NAME else ""
-        disp_path_hdf5 = f"{case_prefix}Axial_disp/values"
-        vel_path_hdf5  = f"{case_prefix}Axial_vel/values"
-        time_path_hdf5 = f"{case_prefix}Axial_disp/time"
-
-        tool_dyn     = data.get_element(disp_path_hdf5)
-        t            = data.get_element(time_path_hdf5)
-        v            = data.get_element(vel_path_hdf5)
-
-    else:
-        disp_path_hdf5 = f"Axial_disp/data"
-        vel_path_hdf5  = f"Axial_vel/data"
-
-
-        tool_dyn     = data.get_element(disp_path_hdf5)
-        t            = tool_dyn[:, 0]
-        tool_dyn     = tool_dyn[:, 1]
-        v            = data.get_element(vel_path_hdf5)[:, 1]
-
-        try:
-            force_N = data.get_element("force_N/data")[:, 1]
-        except KeyError:
-            force_N = np.zeros_like(t)
+    data = HDF5Reader(_SIGNAL_SOURCE["hdf5_path"])
+    t, tool_dyn = load_signal(data, _SIGNAL_SOURCE["disp_name"], _SIGNAL_SOURCE["case_name"])
+    _, v        = load_signal(data, _SIGNAL_SOURCE["vel_name"],  _SIGNAL_SOURCE["case_name"])
+    try:
+        _, force_N = load_signal(data, _SIGNAL_SOURCE["force_name"], _SIGNAL_SOURCE["case_name"])
+    except KeyError:
+        force_N = np.zeros_like(t)
 
 
 
@@ -132,7 +115,7 @@ def main() -> None:
     #   by_revolution / total   -> ventana y hop en revoluciones, K_rev_svd ²total
     #   by_modal      / frames  -> ventana y hop en periodos modales, Ai_length directo
     #
-    # Cambiar la linea INDICATOR_CONFIG = ... al final del bloque para elegir modo.
+    # Cambiar ACTIVE_CASE (bloque CASES, más abajo) para elegir modo.
     # =============================================================================
     _RPM     = 12_000.0
     _F_MODAL = 150.0
@@ -151,12 +134,13 @@ def main() -> None:
         # Usar "stable" como etiqueta para que el indicador use ese tramo como
         # region de referencia (reemplaza frac_stable cuando está definido).
         # Se pueden añadir varios intervalos con distintas etiquetas.
-        "training_intervals": [
-            (_CUT_START, _TGT, "stable"),
-            # (_TGT,      10.0,  "chatter"),
+        # "training_intervals": [
+        #     (_CUT_START, _TGT, "stable"),
+        #     # (_TGT,      10.0,  "chatter"),
 
 
-        ],
+        # ],
+
         "alpha":        0.05,
         "z":            3.0,
         "fallback_mad": False,
@@ -228,17 +212,61 @@ def main() -> None:
         },
     }
 
-    # -- Selector (descomentar el modo deseado) -----------------------------------
-    # INDICATOR_CONFIG = INDICATOR_CONFIG_native
-    INDICATOR_CONFIG = INDICATOR_CONFIG_by_revolution
-    # INDICATOR_CONFIG = INDICATOR_CONFIG_by_revolution_total
-    # INDICATOR_CONFIG = INDICATOR_CONFIG_by_modal
+    # -- CASES / ACTIVE_CASE -------------------------------------------------------
+    # Mismo esqueleto en los 4 indicadores (ver COMMON_TEMPLATE.md): cada caso
+    # empaqueta "signal_source" (misma forma en los 4) + "indicator_config"
+    # (propio de SST -- se pasa directo a run_sst_svd). Cambiar solo ACTIVE_CASE
+    # para elegir señal + modo de parametrización.
+    CASES: dict = {
+        "native": {
+            "signal_source": _SIGNAL_SOURCE,
+            "indicator_config": INDICATOR_CONFIG_native,
+        },
+        "by_revolution": {
+            "signal_source": _SIGNAL_SOURCE,
+            "indicator_config": INDICATOR_CONFIG_by_revolution,
+        },
+        "by_revolution_total": {
+            "signal_source": _SIGNAL_SOURCE,
+            "indicator_config": INDICATOR_CONFIG_by_revolution_total,
+        },
+        "by_modal": {
+            "signal_source": _SIGNAL_SOURCE,
+            "indicator_config": INDICATOR_CONFIG_by_modal,
+        },
+    }
+    ACTIVE_CASE = "by_revolution"   # <- cambiar solo esta línea para elegir señal + config
+
+    SIGNAL_SOURCE    = CASES[ACTIVE_CASE]["signal_source"]
+    INDICATOR_CONFIG = CASES[ACTIVE_CASE]["indicator_config"]
+
+    # =============================================================================
+    # REFERENCE SIGNAL (Fase 3) -- entrenar contra una senal "stable" EXTERNA ya
+    # etiquetada (pipeline Repo-DOE, combinada por label) en vez de recortar
+    # training_intervals de la propia senal analizada. Tiene prioridad sobre
+    # training_intervals cuando ambos estan presentes (ver runner.py).
+    #
+    #   USE_EXTERNAL_REFERENCE = True   -> usa reference_signal (este bloque)
+    #   USE_EXTERNAL_REFERENCE = False  -> comportamiento normal, sin cambios
+    #                                       (training_intervals/frac_stable de _COMMON)
+    # =============================================================================
+    USE_EXTERNAL_REFERENCE = True
+    _REFERENCE_H5 = (
+        r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\Chatter-Criteria"
+        r"\CAMP10_Chatter_detection_Methodes\Convergency_Simulation"
+        r"\4_DOE_Data_Training_Tube\DOE_Training_Tube_dxl_20e-5_RUN_10_0.5-2.0"
+        r"\reference_combined.h5"
+    )
+    INDICATOR_CONFIG["reference_signal"] = (
+        _load_reference_signal(_REFERENCE_H5, label="stable", channel="Axial_vel")
+        if USE_EXTERNAL_REFERENCE else None
+    )
 
     # -- Senal de entrada ---------------------------------------------------------
     sig = SignalData(
         t_analysis=t_cut,
         signal_analysis=v_cut,
-        path=dir_path_use,
+        path=SIGNAL_SOURCE["hdf5_path"],
         fs=fs,
         meta={"AP": "5mm-15mm", "RPM": 12_000},
     )
@@ -439,6 +467,8 @@ def main() -> None:
         vlines=None, hlines=None,
         t_gt=_T_GT,
         waterfall_lines="surface",  # "surface" | "time" | "freq" | "both" | "wire"
+        reference_signal=INDICATOR_CONFIG.get("reference_signal"),
+        show_spectrograms=False,
     )
 
 

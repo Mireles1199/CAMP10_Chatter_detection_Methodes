@@ -106,6 +106,7 @@ def plots_sst_svd(
     result: IndicatorResult,
     show_signal: bool = True,
     show: bool = True,
+    show_spectrograms: bool = False,  # F1/F1b/F1c/F2/F2b/F2c: heavy, on-demand only
     zoom_x: Optional[tuple[float, float]] = None,
     zoom_y: Optional[tuple[float, float]] = None,
     vlines: Optional[Sequence[float]] = None,
@@ -113,6 +114,7 @@ def plots_sst_svd(
     t_gt: Optional[float] = None,
     waterfall_lines: str = "time",   # "time" | "freq" | "both"
     training_intervals=None,
+    reference_signal: Optional[SignalData] = None,
 
 ) -> plt.Figure:
 
@@ -129,10 +131,18 @@ def plots_sst_svd(
                 vx, label, color = float(entry), None, default_color
             ax.axvline(x=vx, color=color, linestyle=default_ls, lw=1.2)
             if label:
+                # clip_on=True: without it, Text ignores axes bounds by default --
+                # when the line's value falls outside the current zoom, the label
+                # renders far off-canvas anyway, and tight_layout()/bbox_inches
+                # ="tight" then resize the axes to "make room" for it, so the same
+                # zoom produces a DIFFERENT plotted-area size depending on whether
+                # the annotated value happens to be in view. Clipping makes the
+                # label (correctly) disappear instead of silently reshaping the plot.
                 ax.text(
                     vx, 0.97, f"  {label}",
                     rotation=90, va="top", ha="right", fontsize=16,
                     color=color, transform=ax.get_xaxis_transform(),
+                    clip_on=True,
                 )
 
     def _plot_S(Sx: "np.ndarray", f: "float", t: float,
@@ -151,7 +161,8 @@ def plots_sst_svd(
         axes.set_title(title)
         axes.set_ylabel("Frequency (Hz)")
         axes.set_xlabel("Time (s)")
-        axes.set_ylim(0, 250)
+        # zoom_y overrides the default 0-250 Hz band when explicitly requested
+        axes.set_ylim(zoom_y if zoom_y is not None else (0, 250))
         if zoom_x is not None:
             axes.set_xlim(zoom_x)
         _draw_vlines(axes, vlines)
@@ -360,40 +371,42 @@ def plots_sst_svd(
         axes.set_ylabel("1st SVD Component")
         if lim_sup is not None:
             axes.axhline(y=lim_sup, color=color_red, linestyle="--", linewidth=1.4)
-            axes.text(0.99, lim_sup, rf"$\mu + 3\sigma = {lim_sup:.4g}$",
-                      transform=axes.get_yaxis_transform(),
+            axes.text(0.99, lim_sup, _thresh_label(lim_sup, True),
+                      transform=axes.get_yaxis_transform(), clip_on=True,
                       color=color_red, ha='right', va='bottom', fontsize=16)
         if lim_inf is not None:
             axes.axhline(y=lim_inf, color=color_red, linestyle=":", linewidth=1.2)
-            axes.text(0.99, lim_inf, rf"$\mu - 3\sigma = {lim_inf:.4g}$",
-                      transform=axes.get_yaxis_transform(),
+            axes.text(0.99, lim_inf, _thresh_label(lim_inf, False),
+                      transform=axes.get_yaxis_transform(), clip_on=True,
                       color=color_red, ha='right', va='top', fontsize=16)
-        if zoom_x is not None:
-            axes.set_xlim(zoom_x)
         _draw_vlines(axes, vlines)
         if hlines is not None:
             for yv in hlines:
                 if yv is not None:
                     axes.axhline(y=yv, color='gray', linestyle='--', lw=1, alpha=0.7)
         axes.grid(False)
+        # zoom applied LAST so threshold/hlines/vlines values can never stretch
+        # the view beyond what was explicitly requested (Y autoscale is otherwise
+        # left on and silently balloons to fit lim_sup/lim_inf, which can sit
+        # orders of magnitude away from the zoomed data -- e.g. an external
+        # reference_signal's threshold vs. the analyzed signal's own d1 range).
+        if zoom_x is not None:
+            axes.set_xlim(zoom_x)
+        if zoom_y is not None:
+            axes.set_ylim(zoom_y)
         plt.tight_layout()
         return fig, axes
 
-    # ── C1: Signal split by region ──────────────────────────────────────────
+    # ── C1: Tool velocity signal (t_gt marked, single color) ─────────────────
     def _plot_signal_split(
-        t_s: np.ndarray, x_s: np.ndarray, t_gt_val: float,
+        t_s: np.ndarray, x_s: np.ndarray,
         zoom_x=None, zoom_y=None, scale: float = 1.0,
         vlines=None, fig_label: Optional[str] = None,
         **kargs,
     ) -> tuple:
-        """Signal colored by region: stable (azul) before t_gt, chatter (orange) after."""
+        """Signal in a single color; t_gt marked via a vline (no stable/chatter split)."""
         fig, ax = plt.subplots(figsize=fig_size(scale=scale, ncols=1), num=fig_label)
-        mask_s = t_s < t_gt_val
-        mask_c = t_s >= t_gt_val
-        if np.any(mask_s):
-            ax.plot(t_s[mask_s], x_s[mask_s], color=color_azul, label="Stable")
-        if np.any(mask_c):
-            ax.plot(t_s[mask_c], x_s[mask_c], color=color_orange, label="Chatter")
+        ax.plot(t_s, x_s, color=color_azul)
         if zoom_x is not None:
             ax.set_xlim(zoom_x)
         if zoom_y is not None:
@@ -401,49 +414,45 @@ def plots_sst_svd(
         _draw_vlines(ax, vlines)
         ax.set_xlabel("Time (s)")
         ax.set_ylabel(r"Velocity $v(t)$ [m/s]")
-        ax.set_title("Tool Velocity — Split by Region")
+        ax.set_title("Tool Velocity")
         plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
-        ax.legend()
         ax.grid(False)
         plt.tight_layout()
         return fig, ax
 
-    # ── C2: SVD colored by region ────────────────────────────────────────────
+    # ── C2: SVD 1st component (single color, t_gt marked) ────────────────────
     def _plot_svd_colored(
-        t_svd: np.ndarray, d1_arr: np.ndarray, t_gt_val: float,
+        t_svd: np.ndarray, d1_arr: np.ndarray,
         lim_sup: Optional[float] = None,
         lim_inf: Optional[float] = None,
-        zoom_x=None, scale: float = 1.0,
+        zoom_x=None, zoom_y=None, scale: float = 1.0,
         vlines=None, fig_label: Optional[str] = None,
         **kargs,
     ) -> tuple:
-        """SVD 1st component colored by region (stable=azul / chatter=orange) + threshold labels."""
+        """SVD 1st component in a single color + threshold labels (no stable/chatter split)."""
         fig, ax = plt.subplots(figsize=fig_size(scale=scale, ncols=1), num=fig_label)
-        mask_s = t_svd < t_gt_val
-        mask_c = t_svd >= t_gt_val
-        if np.any(mask_s):
-            ax.plot(t_svd[mask_s], d1_arr[mask_s], color=color_azul, marker="o", markersize=4, linestyle="-", label="Stable")
-        if np.any(mask_c):
-            ax.plot(t_svd[mask_c], d1_arr[mask_c], color=color_orange, marker="o", markersize=4, linestyle="-", label="Chatter")
+        ax.plot(t_svd, d1_arr, color=color_purple, marker="o", markersize=4, linestyle="-")
         if lim_sup is not None:
             ax.axhline(lim_sup, color=color_red, ls="--", lw=1.4)
-            ax.text(0.99, lim_sup, rf"$\mu + 3\sigma = {lim_sup:.4g}$",
-                    transform=ax.get_yaxis_transform(),
+            ax.text(0.99, lim_sup, _thresh_label(lim_sup, True),
+                    transform=ax.get_yaxis_transform(), clip_on=True,
                     color=color_red, ha='right', va='bottom', fontsize=16)
         if lim_inf is not None:
             ax.axhline(lim_inf, color=color_red, ls=":", lw=1.2)
-            ax.text(0.99, lim_inf, rf"$\mu - 3\sigma = {lim_inf:.4g}$",
-                    transform=ax.get_yaxis_transform(),
+            ax.text(0.99, lim_inf, _thresh_label(lim_inf, False),
+                    transform=ax.get_yaxis_transform(), clip_on=True,
                     color=color_red, ha='right', va='top', fontsize=16)
-        if zoom_x is not None:
-            ax.set_xlim(zoom_x)
         ax.set_yscale('log')
         _draw_vlines(ax, vlines)
         ax.set_xlabel("Time (s)")
         ax.set_ylabel("1st SVD Component")
-        ax.set_title("SVD 1st Component — Colored by Region")
-        ax.legend()
+        ax.set_title("SVD 1st Component")
         ax.grid(False)
+        # zoom applied last -- see note in _plot_svd
+        if zoom_x is not None:
+            ax.set_xlim(zoom_x)
+        if zoom_y is not None:
+            ax.set_ylim(zoom_y)
         plt.tight_layout()
         return fig, ax
 
@@ -454,7 +463,7 @@ def plots_sst_svd(
         all_stable_ranges: list,
         lim_sup: Optional[float] = None,
         lim_inf: Optional[float] = None,
-        zoom_x=None, scale: float = 1.0,
+        zoom_x=None, zoom_y=None, scale: float = 1.0,
         vlines=None, fig_label: Optional[str] = None,
         **kargs,
     ) -> tuple:
@@ -481,18 +490,21 @@ def plots_sst_svd(
         # Threshold lines
         if lim_sup is not None:
             ax.axhline(lim_sup, color=color_red, ls="--", lw=1.4)
-            ax.text(0.99, lim_sup, rf"$\mu+3\sigma={lim_sup:.4g}$",
-                    transform=ax.get_yaxis_transform(),
+            ax.text(0.99, lim_sup, _thresh_label(lim_sup, True),
+                    transform=ax.get_yaxis_transform(), clip_on=True,
                     color=color_red, ha='right', va='bottom', fontsize=16)
         if lim_inf is not None:
             ax.axhline(lim_inf, color=color_red, ls=":", lw=1.2)
-            ax.text(0.99, lim_inf, rf"$\mu-3\sigma={lim_inf:.4g}$",
-                    transform=ax.get_yaxis_transform(),
+            ax.text(0.99, lim_inf, _thresh_label(lim_inf, False),
+                    transform=ax.get_yaxis_transform(), clip_on=True,
                     color=color_red, ha='right', va='top', fontsize=16)
         ax.set_yscale('log')
+        # _draw_vlines(ax, vlines)
+        # zoom applied last -- see note in _plot_svd
         if zoom_x is not None:
             ax.set_xlim(zoom_x)
-        # _draw_vlines(ax, vlines)
+        if zoom_y is not None:
+            ax.set_ylim(zoom_y)
         ax.set_xlabel("Time (s)")
         ax.set_ylabel("1st SVD Component")
         ax.set_title(rf"SVD — Stable | {seg_label}")
@@ -501,36 +513,30 @@ def plots_sst_svd(
         plt.tight_layout()
         return fig, ax
 
-    # ── C3: SVD histogram stable vs chatter (log₁₀ scale) ──────────────────
+    # ── C3: SVD histogram of the ACTUAL training population (log₁₀ scale) ────
     def _plot_svd_hist(
-        t_svd: np.ndarray, d1_arr: np.ndarray, t_gt_val: float,
+        training_d1: np.ndarray,
+        training_mu: Optional[float] = None,
+        training_sigma: Optional[float] = None,
         lim_sup: Optional[float] = None,
         lim_inf: Optional[float] = None,
-        all_stable_ranges=None,
         scale: float = 1.0,
         fig_label: Optional[str] = None,
         **kargs,
     ) -> tuple:
-        """Histogram of log10(SVD) values: stable (blue) + Gaussian curves."""
+        """Histogram of log10(SVD) values of the population that actually trained
+        the detector (`meta['training_d1']` — internal stable slice OR the full
+        external `reference_signal`, whichever was actually used; see
+        `meta['training_source']`/`meta['training_mode']` for traceability).
+        """
         fig, ax = plt.subplots(figsize=fig_size(scale=scale, ncols=1), num=fig_label)
-        d1_np = np.asarray(d1_arr, dtype=float)
-        t_np  = np.asarray(t_svd,  dtype=float)
-        # SVD singular values span many orders of magnitude → use log10 scale
-        pos  = d1_np > 0
-        d1_log = np.where(pos, np.log10(np.where(pos, d1_np, 1.0)), np.nan)
-        # Stable mask: union of training intervals labeled stable*, or fallback t < t_gt
-        if all_stable_ranges is not None:
-            mask_s = np.zeros(len(t_np), dtype=bool)
-            for _t0, _t1 in all_stable_ranges:
-                mask_s |= (t_np >= _t0) & (t_np <= _t1)
-            mask_s &= pos
-        else:
-            mask_s = (t_np < t_gt_val) & pos
-        mask_c = (t_np >= t_gt_val) & pos
-        if np.any(mask_s):
-            ax.hist(d1_log[mask_s], bins=40, density=True, alpha=0.55,
-                    color=color_azul, label=f"Stable")
-            mu_s, std_s = np.mean(d1_log[mask_s]), np.std(d1_log[mask_s])
+        d1_np = np.asarray(training_d1, dtype=float)
+        pos = d1_np > 0
+        d1_log = np.log10(d1_np[pos])
+        if d1_log.size > 0:
+            ax.hist(d1_log, bins=40, density=True, alpha=0.55,
+                    color=color_azul, label="Training population")
+            mu_s, std_s = float(np.mean(d1_log)), float(np.std(d1_log))
             if std_s > 0:
                 xs = np.linspace(mu_s - 4 * std_s, mu_s + 4 * std_s, 300)
                 ax.plot(xs, _scipy_norm.pdf(xs, mu_s, std_s),
@@ -539,22 +545,39 @@ def plots_sst_svd(
                 ax.axvline(mu_s, color=color_verde, ls="-", lw=1.4)
                 ax.text(mu_s, 0.97, rf"  $\mu={mu_s:.3g}$",
                         rotation=90, va="top", ha="right", fontsize=14,
-                        color=color_verde, transform=ax.get_xaxis_transform())
+                        color=color_verde, transform=ax.get_xaxis_transform(), clip_on=True)
+            # stats box (MaxEnt convention: numeric mu/sigma printed inside the
+            # plot, not just via the axvline label) -- log10-space stats (what's
+            # actually plotted here) alongside the linear-space training_mu/sigma
+            # detect() computed (what actually set lim_sup/lim_inf).
+            _txt = (
+                f"n = {d1_log.size}\n"
+                rf"$\mu_{{\log}}$ = {mu_s:.3g}   $\sigma_{{\log}}$ = {std_s:.3g}"
+            )
+            if training_mu is not None and training_sigma is not None:
+                _txt += f"\n" rf"$\mu$ = {training_mu:.4g}   $\sigma$ = {training_sigma:.4g}"
+            ax.text(0.02, 0.97, _txt, transform=ax.transAxes, fontsize=9,
+                    va="top", ha="left",
+                    bbox=dict(boxstyle="round,pad=0.4", fc="white", ec="gray", alpha=0.85),
+                    clip_on=True)
         if lim_sup is not None and lim_sup > 0:
             log_sup = np.log10(lim_sup)
             ax.axvline(log_sup, color=color_red, ls="--", lw=1.4)
-            ax.text(log_sup, 0.97, rf"  $\mu+3\sigma={lim_sup:.4g}$",
+            ax.text(log_sup, 0.97, "  " + _thresh_label(lim_sup, True),
                     rotation=90, va="top", ha="right", fontsize=16,
-                    color=color_red, transform=ax.get_xaxis_transform())
-        if lim_inf is not None:
+                    color=color_red, transform=ax.get_xaxis_transform(), clip_on=True)
+        if lim_inf is not None and lim_inf > 0:
+            # lim_inf = mu - z*sigma can go negative for small SVD populations
+            # (physically meaningless on this log10 axis -- SVD values are >= 0);
+            # skip instead of log10(negative) -> NaN, same guard as lim_sup above.
             log_inf = np.log10(lim_inf)
             ax.axvline(log_inf, color=color_red, ls=":", lw=1.2)
-            ax.text(log_inf, 0.97, rf"  $\mu-3\sigma={lim_inf:.4g}$",
+            ax.text(log_inf, 0.97, "  " + _thresh_label(lim_inf, False),
                     rotation=90, va="top", ha="right", fontsize=16,
-                    color=color_red, transform=ax.get_xaxis_transform())
+                    color=color_red, transform=ax.get_xaxis_transform(), clip_on=True)
         ax.set_xlabel(r"$\log_{10}$(1st SVD Component)")
         ax.set_ylabel("Density")
-        ax.set_title("SVD Distribution — Stable")
+        ax.set_title("SVD Distribution — Training Population")
         ax.legend()
         ax.grid(False)
         fig.tight_layout()
@@ -567,50 +590,47 @@ def plots_sst_svd(
         t_gt_val: Optional[float] = None,
         lim_sup: Optional[float] = None,
         lim_inf: Optional[float] = None,
-        zoom_x=None, scale: float = 1.0,
+        zoom_x=None, zoom_y=None, scale: float = 1.0,
         vlines=None, fig_label: Optional[str] = None,
         **kargs,
     ) -> tuple:
-        """Two stacked subplots (shared x-axis): signal (top) + SVD line (bottom)."""
+        """Two stacked subplots (shared x-axis): signal (top) + SVD line (bottom).
+        `zoom_y` applies to the bottom (SVD) subplot only -- top is raw signal
+        amplitude, a different scale."""
         fig, (ax_top, ax_bot) = plt.subplots(
             2, 1, figsize=fig_size(scale=scale, ncols=1),
             sharex=True, constrained_layout=True, num=fig_label,
         )
-        fig.suptitle("Signal + SVD Joint Diagnostic")
-        # Top: signal colored by region
-        if t_gt_val is not None:
-            mask_s = t_sig < t_gt_val
-            mask_c = t_sig >= t_gt_val
-            if np.any(mask_s):
-                ax_top.plot(t_sig[mask_s], x_sig[mask_s], color=color_azul, label="Stable")
-            if np.any(mask_c):
-                ax_top.plot(t_sig[mask_c], x_sig[mask_c], color=color_orange, label="Chatter")
-        else:
-            ax_top.plot(t_sig, x_sig, color=color_azul)
+        _gt_txt = rf" — Ground Truth $t_{{gt}}={t_gt_val:.3f}$ s" if t_gt_val is not None else ""
+        fig.suptitle(f"Signal + SVD Joint Diagnostic{_gt_txt}")
+        # Top: signal, single color (t_gt marked via vline below, no region split)
+        ax_top.plot(t_sig, x_sig, color=color_azul)
         ax_top.set_ylabel(r"Velocity $v(t)$ [m/s]")
         ax_top.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
-        ax_top.legend()
         ax_top.grid(False)
         _draw_vlines(ax_top, vlines)
         # Bottom: SVD line + threshold labels
         ax_bot.plot(t_svd, d1_arr, color=color_purple, marker="o", markersize=4, linestyle="-")
         if lim_sup is not None:
             ax_bot.axhline(lim_sup, color=color_red, ls="--", lw=1.4)
-            ax_bot.text(0.99, lim_sup, rf"$\mu+3\sigma={lim_sup:.4g}$",
-                        transform=ax_bot.get_yaxis_transform(),
+            ax_bot.text(0.99, lim_sup, _thresh_label(lim_sup, True),
+                        transform=ax_bot.get_yaxis_transform(), clip_on=True,
                         color=color_red, ha='right', va='bottom', fontsize=16)
         if lim_inf is not None:
             ax_bot.axhline(lim_inf, color=color_red, ls=":", lw=1.2)
-            ax_bot.text(0.99, lim_inf, rf"$\mu-3\sigma={lim_inf:.4g}$",
-                        transform=ax_bot.get_yaxis_transform(),
+            ax_bot.text(0.99, lim_inf, _thresh_label(lim_inf, False),
+                        transform=ax_bot.get_yaxis_transform(), clip_on=True,
                         color=color_red, ha='right', va='top', fontsize=16)
         ax_bot.set_xlabel("Time (s)")
         ax_bot.set_ylabel("1st SVD Component")
         ax_bot.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
         ax_bot.grid(False)
         _draw_vlines(ax_bot, vlines)
+        # zoom applied last -- see note in _plot_svd (sharex propagates zoom_x to ax_top too)
         if zoom_x is not None:
             ax_bot.set_xlim(zoom_x)
+        if zoom_y is not None:
+            ax_bot.set_ylim(zoom_y)
         return fig, (ax_top, ax_bot)
 
     # ── F3b: d1 time series — one stable label highlighted ──────────────────
@@ -705,35 +725,35 @@ def plots_sst_svd(
         # ── μ and μ±3σ lines ─────────────────────────────────────────────
         ax.axvline(mu_s, color=color_verde, ls="-", lw=1.4)
         ax.text(mu_s, 0.97, rf"  $\mu={mu_s:.3g}$",
-                rotation=90, va="top", ha="right",
+                rotation=90, va="top", ha="right", clip_on=True,
                 color=color_verde, transform=ax.get_xaxis_transform(), fontsize=14)
-        # μ+3σ: use runner threshold (log-converted) if available, else histogram stats
+        # μ+zσ: use runner threshold (log-converted) if available, else histogram stats
         if lim_sup is not None and lim_sup > 0:
             _sup_pos = np.log10(lim_sup)
-            _sup_lbl = rf"  $\mu+3\sigma={lim_sup:.4g}$"
+            _sup_lbl = "  " + _thresh_label(lim_sup, True)
         elif std_s > 0:
-            _sup_pos = mu_s + 3 * std_s
-            _sup_lbl = rf"  $\mu+3\sigma={_sup_pos:.3g}$"
+            _sup_pos = mu_s + z_val * std_s
+            _sup_lbl = rf"  $\mu+{z_val:g}\sigma\approx{_sup_pos:.3g}$"
         else:
             _sup_pos = None
         if _sup_pos is not None:
             ax.axvline(_sup_pos, color=color_red, ls="--", lw=1.4)
             ax.text(_sup_pos, 0.97, _sup_lbl,
-                    rotation=90, va="top", ha="right",
+                    rotation=90, va="top", ha="right", clip_on=True,
                     color=color_red, transform=ax.get_xaxis_transform(), fontsize=16)
-        # μ-3σ: use runner threshold (log-converted) if available, else histogram stats
+        # μ-zσ: use runner threshold (log-converted) if available, else histogram stats
         if lim_inf is not None and lim_inf > 0:
             _inf_pos = np.log10(lim_inf)
-            _inf_lbl = rf"  $\mu-3\sigma={lim_inf:.4g}$"
+            _inf_lbl = "  " + _thresh_label(lim_inf, False)
         elif std_s > 0:
-            _inf_pos = mu_s - 3 * std_s
-            _inf_lbl = rf"  $\mu-3\sigma={_inf_pos:.3g}$"
+            _inf_pos = mu_s - z_val * std_s
+            _inf_lbl = rf"  $\mu-{z_val:g}\sigma\approx{_inf_pos:.3g}$"
         else:
             _inf_pos = None
         if _inf_pos is not None:
             ax.axvline(_inf_pos, color=color_red, ls=":", lw=1.2)
             ax.text(_inf_pos, 0.97, _inf_lbl,
-                    rotation=90, va="top", ha="right",
+                    rotation=90, va="top", ha="right", clip_on=True,
                     color=color_red, transform=ax.get_xaxis_transform(), fontsize=16)
         ax.set_xlabel(r"$\log_{10}$(1st SVD Component)")
         ax.set_ylabel("Density")
@@ -742,6 +762,50 @@ def plots_sst_svd(
         ax.grid(False)
         fig.tight_layout()
         return fig, ax
+
+    # ── C5: Training signal confirmation (raw waveform + its own d1) ─────────
+    def _plot_training_signal(
+        train_sig_t: np.ndarray, train_sig_x: np.ndarray,
+        train_t: np.ndarray, train_d1: np.ndarray,
+        lim_sup: Optional[float] = None,
+        lim_inf: Optional[float] = None,
+        zoom_y=None, scale: float = 1.0,
+        fig_label: Optional[str] = None,
+        **kargs,
+    ) -> tuple:
+        """Two stacked subplots: the raw signal that trained the detector (top) +
+        its own SVD 1st component (bottom) — lets you confirm, by eye, which data
+        actually set the threshold (the external `reference_signal`, or the
+        internal stable slice) instead of taking `meta['training_source']` on faith.
+        """
+        fig, (ax_top, ax_bot) = plt.subplots(
+            2, 1, figsize=fig_size(scale=scale, ncols=1),
+            constrained_layout=True, num=fig_label,
+        )
+        fig.suptitle("Training Signal")
+        ax_top.plot(train_sig_t, train_sig_x, color=color_azul, lw=0.6)
+        ax_top.set_ylabel("Amplitude")
+        ax_top.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+        ax_top.grid(False)
+        ax_bot.plot(train_t, train_d1, color=color_purple, marker="o", markersize=3, linestyle="-")
+        ax_bot.set_yscale('log')
+        if lim_sup is not None:
+            ax_bot.axhline(lim_sup, color=color_red, ls="--", lw=1.4)
+            ax_bot.text(0.99, lim_sup, _thresh_label(lim_sup, True),
+                        transform=ax_bot.get_yaxis_transform(), clip_on=True,
+                        color=color_red, ha='right', va='bottom', fontsize=16)
+        if lim_inf is not None:
+            ax_bot.axhline(lim_inf, color=color_red, ls=":", lw=1.2)
+            ax_bot.text(0.99, lim_inf, _thresh_label(lim_inf, False),
+                        transform=ax_bot.get_yaxis_transform(), clip_on=True,
+                        color=color_red, ha='right', va='top', fontsize=16)
+        ax_bot.set_xlabel("Time (s)")
+        ax_bot.set_ylabel("1st SVD Component")
+        ax_bot.grid(False)
+        # zoom applied last -- see note in _plot_svd
+        if zoom_y is not None:
+            ax_bot.set_ylim(zoom_y)
+        return fig, (ax_top, ax_bot)
 
     # ────────────────────────────────────────────────────────────────────────
     meta = result.meta or {}
@@ -758,64 +822,96 @@ def plots_sst_svd(
     Tsx = meta.get("Tsx", None)
     lim_sup = meta.get("lim_sup", None)
     lim_inf = meta.get("lim_inf", None)
+    metodo_umbral = meta.get("metodo_umbral", "sigma")
+    z_val = meta.get("z", 3.0)
 
-    _ti_meta = training_intervals if training_intervals is not None else meta.get("training_intervals", None)
+    def _thresh_label(val: float, sup: bool) -> str:
+        """Threshold text that reflects what detect() actually computed --
+        previously every panel hardcoded '$\\mu\\pm3\\sigma$' even when the
+        Lilliefors test failed and detect() fell back to a median/MAD threshold
+        (metodo_umbral == "MAD"), or when z != 3 (configurable, defaults to 3.0)."""
+        sign = "+" if sup else "-"
+        if metodo_umbral == "MAD":
+            return rf"$\mathrm{{med}}{sign}{z_val:g}\cdot\mathrm{{MAD}}={val:.4g}$"
+        return rf"$\mu{sign}{z_val:g}\sigma={val:.4g}$"
+
+    training_source = meta.get("training_source", "internal")
+    training_mode   = meta.get("training_mode", "frac_stable")
+    training_t      = meta.get("training_t", None)
+    training_d1     = meta.get("training_d1", None)
+
+    # Multi-label stable-segment breakdown (F3b/C2b/C3b) is meaningful ONLY when
+    # training_intervals actually trained the detector (training_mode ==
+    # "training_intervals"). Gating on training_source == "internal" alone is
+    # NOT enough: training_intervals can be given but silently fall back to
+    # frac_stable (< 2 stable SVD frames matched) while training_source stays
+    # "internal" -- these panels would then show a population that was never
+    # used, same class of bug as the reference_signal case.
+    _ti_meta = (
+        (training_intervals if training_intervals is not None else meta.get("training_intervals", None))
+        if training_mode == "training_intervals" else None
+    )
 
     f   = np.linspace(0, fs / 2, Sx.shape[0])
     t_s = np.arange(Sx.shape[1]) * meta.get("hop_ms", 10e-3)
 
-    # ── auto vlines — labeled tuples (value, label, color) ──────────────────
+    # ── auto vlines — ONLY two lines allowed on any time-series panel: (a) the
+    # ground truth t_gt/t_theorical, and (b) a single "first detection" marker,
+    # always the RAW t_d[0] (never t_d_no_FAR[0], which by definition always
+    # falls after t_gt and would hide how early the raw detector actually fired).
+    # No line per subsequent detection past t_gt -- one detector run can flag
+    # thousands of points after onset, and a vline per point makes every panel
+    # unreadable.
     _t_d = np.asarray(result.t_d) if result.t_d is not None and len(result.t_d) > 0 else np.array([])
-    _t_first_det       = float(_t_d[0])              if _t_d.size > 0 else None
-    _t_first_det_after = float(_t_d[_t_d > t_gt][0]) if (t_gt is not None and _t_d.size > 0 and np.any(_t_d > t_gt)) else None
+    _t_first_det = float(_t_d[0]) if _t_d.size > 0 else None
     _avl = []
     if t_gt is not None:
-        _avl.append((t_gt,              f"$t_{{gt}}={t_gt:.3f}$ s",            "black"))
+        _avl.append((t_gt,         f"$t_{{gt}}={t_gt:.3f}$ s", "black"))
     if _t_first_det is not None:
-        _avl.append((_t_first_det,      f"$t_d={_t_first_det:.3f}$ s",         color_orange))
-    if _t_first_det_after is not None and _t_first_det_after != _t_first_det:
-        _avl.append((_t_first_det_after, f"$t_d^+={_t_first_det_after:.3f}$ s", color_orange))
+        _avl.append((_t_first_det, f"$t_d={_t_first_det:.3f}$ s", color_orange))
     auto_vlines = _avl if _avl else None
 
     configurar_estilo_global()
 
-    # ── Original 3 figures ───────────────────────────────────────────────────
-    fig_Sx, axes_Sx = _plot_S(
-        Sx, f, t_s, zoom_x=zoom_x, zoom_y=zoom_y,
-        title="STFT — Short Time Fourier Transform",
-        scale=scale, vlines=auto_vlines,
-        fig_label="F1 — STFT Spectrogram",
-    )
-    _plot_freq_slice(
-        Sx, f, t_s, freq_hz=150.0,
-        zoom_x=zoom_x, scale=scale, vlines=auto_vlines,
-        fig_label="F1b — Slice at 150 Hz",
-    )
-    _plot_waterfall_3d(
-        Sx, f, t_s, f_max=250.0,
-        lines=waterfall_lines,
-        zoom_x=zoom_x, scale=scale, vlines=auto_vlines,
-        fig_label="F1c — Waterfall 3D",
-    )
-    fig_Tsx, axes_Tsx = _plot_S(
-        Tsx, f, t_s, zoom_x=zoom_x, zoom_y=zoom_y,
-        title="SST — Synchrosqueezing Transform",
-        scale=scale, vlines=auto_vlines,
-        fig_label="F2 — SST Spectrogram",
-    )
-    _plot_freq_slice(
-        Tsx, f, t_s, freq_hz=150.0,
-        title="SST — Slice at 150 Hz",
-        zoom_x=zoom_x, scale=scale, vlines=auto_vlines,
-        fig_label="F2b — SST Slice at 150 Hz",
-    )
-    _plot_waterfall_3d(
-        Tsx, f, t_s, f_max=250.0,
-        title="SST — Cascade (Waterfall)",
-        lines=waterfall_lines,
-        zoom_x=zoom_x, scale=scale, vlines=auto_vlines,
-        fig_label="F2c — SST Waterfall 3D",
-    )
+    # ── F1-F2c: STFT/SST spectrograms + slices + 3D waterfalls -- heavy to
+    # render (pcolormesh/3D surfaces over the full spectrogram), on demand only.
+    if show_spectrograms:
+        _plot_S(
+            Sx, f, t_s, zoom_x=zoom_x, zoom_y=zoom_y,
+            title="STFT — Short Time Fourier Transform",
+            scale=scale, vlines=auto_vlines,
+            fig_label="F1 — STFT Spectrogram",
+        )
+        _plot_freq_slice(
+            Sx, f, t_s, freq_hz=150.0,
+            zoom_x=zoom_x, scale=scale, vlines=auto_vlines,
+            fig_label="F1b — Slice at 150 Hz",
+        )
+        _plot_waterfall_3d(
+            Sx, f, t_s, f_max=250.0,
+            lines=waterfall_lines,
+            zoom_x=zoom_x, scale=scale, vlines=auto_vlines,
+            fig_label="F1c — Waterfall 3D",
+        )
+        _plot_S(
+            Tsx, f, t_s, zoom_x=zoom_x, zoom_y=zoom_y,
+            title="SST — Synchrosqueezing Transform",
+            scale=scale, vlines=auto_vlines,
+            fig_label="F2 — SST Spectrogram",
+        )
+        _plot_freq_slice(
+            Tsx, f, t_s, freq_hz=150.0,
+            title="SST — Slice at 150 Hz",
+            zoom_x=zoom_x, scale=scale, vlines=auto_vlines,
+            fig_label="F2b — SST Slice at 150 Hz",
+        )
+        _plot_waterfall_3d(
+            Tsx, f, t_s, f_max=250.0,
+            title="SST — Cascade (Waterfall)",
+            lines=waterfall_lines,
+            zoom_x=zoom_x, scale=scale, vlines=auto_vlines,
+            fig_label="F2c — SST Waterfall 3D",
+        )
     fig_svd, axes_svd = _plot_svd(
         t_i, d1, zoom_x=zoom_x, zoom_y=zoom_y,
         title="SVD — 1st Singular Value Component",
@@ -846,7 +942,7 @@ def plots_sst_svd(
     # ── New figures C1–C4 ────────────────────────────────────────────────────
     if t_gt is not None:
         _plot_signal_split(
-            t_sig_arr, sig_arr, t_gt_val=t_gt,
+            t_sig_arr, sig_arr,
             zoom_x=zoom_x, scale=scale, vlines=auto_vlines,
             fig_label="C1 — Signal Split by Region",
         )
@@ -861,10 +957,10 @@ def plots_sst_svd(
                         _all_stable_ranges.append((_t0, _t1))
                         _stable_grps.setdefault(_lbl_lo, []).append((_t0, _t1))
             _plot_svd_colored(
-                t_i, d1, t_gt_val=t_gt,
+                t_i, d1,
                 lim_sup=lim_sup, lim_inf=lim_inf,
-                zoom_x=zoom_x, scale=scale, vlines=auto_vlines,
-                fig_label="C2 — SVD Colored by Region",
+                zoom_x=zoom_x, zoom_y=zoom_y, scale=scale, vlines=auto_vlines,
+                fig_label="C2 — SVD 1st Component",
             )
             # C2b — one figure per distinct stable label (same philosophy as C3b)
             if _all_stable_ranges and len(_stable_grps) >= 2:
@@ -875,15 +971,16 @@ def plots_sst_svd(
                         seg_label=_lbl_name,
                         all_stable_ranges=_all_stable_ranges,
                         lim_sup=lim_sup, lim_inf=lim_inf,
-                        zoom_x=zoom_x, scale=scale, vlines=auto_vlines,
+                        zoom_x=zoom_x, zoom_y=zoom_y, scale=scale, vlines=auto_vlines,
                         fig_label=f"C2b.{_gi} — {_lbl_name}",
                     )
-            _plot_svd_hist(
-                t_i, d1, t_gt_val=t_gt,
-                lim_sup=lim_sup, lim_inf=lim_inf,
-                all_stable_ranges=_all_stable_ranges if _all_stable_ranges else None,
-                scale=scale, fig_label="C3 — SVD Histogram",
-            )
+            if training_d1 is not None:
+                _plot_svd_hist(
+                    training_d1,
+                    training_mu=meta.get("training_mu"), training_sigma=meta.get("training_sigma"),
+                    lim_sup=lim_sup, lim_inf=lim_inf,
+                    scale=scale, fig_label="C3 — SVD Histogram",
+                )
             # C3b — one figure per distinct stable label
             if _all_stable_ranges and len(_stable_grps) >= 2:
                 for _gi, (_lbl_name, _ranges) in enumerate(_stable_grps.items()):
@@ -896,11 +993,36 @@ def plots_sst_svd(
                         scale=scale,
                         fig_label=f"C3b.{_gi} — {_lbl_name}",
                     )
+            # C5 — training signal confirmation: raw waveform that actually
+            # trained the detector (external reference_signal, or the internal
+            # stable slice) + its own d1, so you can eyeball it directly.
+            if training_t is not None and training_d1 is not None:
+                if training_source == "external_reference" and reference_signal is not None:
+                    _train_sig_t = np.asarray(reference_signal.t_analysis, dtype=float)
+                    _train_sig_x = np.asarray(reference_signal.signal_analysis, dtype=float)
+                else:
+                    _t0_tr, _t1_tr = float(np.min(training_t)), float(np.max(training_t))
+                    _tr_mask = (t_sig_arr >= _t0_tr) & (t_sig_arr <= _t1_tr)
+                    _train_sig_t = t_sig_arr[_tr_mask]
+                    _train_sig_x = sig_arr[_tr_mask]
+                # ponytail: flat decimation for plotting only (reference signals can
+                # be millions of samples) — upgrade to a proper downsampler (e.g.
+                # min/max envelope) if this ever needs to preserve peak amplitudes.
+                _MAX_PLOT_PTS = 50_000
+                if _train_sig_t.size > _MAX_PLOT_PTS:
+                    _step = _train_sig_t.size // _MAX_PLOT_PTS
+                    _train_sig_t = _train_sig_t[::_step]
+                    _train_sig_x = _train_sig_x[::_step]
+                _plot_training_signal(
+                    _train_sig_t, _train_sig_x, training_t, training_d1,
+                    lim_sup=lim_sup, lim_inf=lim_inf,
+                    zoom_y=zoom_y, scale=scale, fig_label="C5 — Training Signal Confirmation",
+                )
     if t_i is not None and d1 is not None:
         _plot_signal_svd_joint(
             t_sig_arr, sig_arr, t_i, d1,
             t_gt_val=t_gt, lim_sup=lim_sup, lim_inf=lim_inf,
-            zoom_x=zoom_x, scale=scale, vlines=auto_vlines,
+            zoom_x=zoom_x, zoom_y=zoom_y, scale=scale, vlines=auto_vlines,
             fig_label="C4 — Signal + SVD Joint",
         )
 
