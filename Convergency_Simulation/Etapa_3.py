@@ -422,7 +422,9 @@ ARTICLE_RCPARAMS = {
 
 FIGSIZE_SIMPLE = (3.5, 2.6)
 FIGSIZE_WIDE = (7.16, 2.6)
+FIGSIZE_WIDE_LARGE = (7.16, 3.9)
 FIGSCALE_SIMPLE = 1.5
+FIG_SIZE = FIGSIZE_SIMPLE
 PLOT_SHOW = True  # True para mostrar la figura en pantalla, False para solo guardar
 
 
@@ -480,13 +482,13 @@ def plot_dt_convergence(data: List[dict], language: str = "both",
     if has_outliers:
         fig, (ax_top, ax_bot) = plt.subplots(
             2, 1, sharex=True,
-            figsize=figsize_from_scale(FIGSIZE_SIMPLE, FIGSCALE_SIMPLE),
+            figsize=figsize_from_scale(FIG_SIZE, FIGSCALE_SIMPLE),
             gridspec_kw={"height_ratios": [1.4, 2.2], "hspace": 0.08},
             constrained_layout=True,
         )
     else:
         fig, ax_bot = plt.subplots(
-            1, 1, figsize=figsize_from_scale(FIGSIZE_SIMPLE, FIGSCALE_SIMPLE),
+            1, 1, figsize=figsize_from_scale(FIG_SIZE, FIGSCALE_SIMPLE),
             constrained_layout=True,
         )
         ax_top = None
