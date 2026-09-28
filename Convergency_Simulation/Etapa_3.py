@@ -405,7 +405,7 @@ ARTICLE_RCPARAMS = {
     "font.family": "serif", "font.size": 12,
     "axes.titlesize": 16, "axes.labelsize": 16,
     "xtick.labelsize": 14, "ytick.labelsize": 14,
-    "legend.fontsize": 10, "lines.linewidth": 1.2, "lines.markersize": 10,
+    "legend.fontsize": 12, "lines.linewidth": 1.2, "lines.markersize": 10,
     "axes.linewidth": 0.8, "grid.linewidth": 0.5,
     "xtick.major.width": 0.8, "ytick.major.width": 0.8,
     "xtick.direction": "in", "ytick.direction": "in",
@@ -424,7 +424,7 @@ FIGSIZE_SIMPLE = (3.5, 2.6)
 FIGSIZE_WIDE = (7.16, 2.6)
 FIGSIZE_WIDE_LARGE = (7.16, 3.9)
 FIGSCALE_SIMPLE = 1.5
-FIG_SIZE = FIGSIZE_SIMPLE
+FIG_SIZE = FIGSIZE_WIDE
 PLOT_SHOW = True  # True para mostrar la figura en pantalla, False para solo guardar
 
 

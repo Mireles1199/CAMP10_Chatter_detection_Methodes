@@ -108,7 +108,7 @@ def plot_epsilon_convergence(data: List[dict], language: str = "both",
 
     fig, (ax_top, ax_bot) = plt.subplots(
         2, 1, sharex=True,
-        figsize=figsize_from_scale(FIGSIZE_SIMPLE, FIGSCALE_SIMPLE),
+        figsize=figsize_from_scale(FIG_SIZE, FIG_SCALE),
         gridspec_kw={"height_ratios": [1.4, 2.2], "hspace": 0.08},
         constrained_layout=True,
     )
@@ -301,7 +301,7 @@ ARTICLE_RCPARAMS = {
     "font.family": "serif", "font.size": 12,
     "axes.titlesize": 16, "axes.labelsize": 16,
     "xtick.labelsize": 14, "ytick.labelsize": 14,
-    "legend.fontsize": 10, "lines.linewidth": 1.2, "lines.markersize": 10,
+    "legend.fontsize": 12, "lines.linewidth": 1.2, "lines.markersize": 10,
     "axes.linewidth": 0.8, "grid.linewidth": 0.5,
     "xtick.major.width": 0.8, "ytick.major.width": 0.8,
     "xtick.direction": "in", "ytick.direction": "in",
@@ -320,6 +320,9 @@ FIGSIZE_SIMPLE = (3.5, 2.6)
 FIGSIZE_WIDE = (7.16, 2.6)
 FIGSCALE_SIMPLE = 1.5
 PLOT_SHOW = True  # True para mostrar la figura en pantalla, False para solo guardar
+
+FIG_SIZE = FIGSIZE_WIDE
+FIG_SCALE = FIGSCALE_SIMPLE
 
 
 def main() -> None:
