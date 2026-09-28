@@ -156,14 +156,18 @@ def main() -> None:
 
     }
 
+    # Change only this key to switch signals -- _SIG_NAME (used in every
+    # figure title) is derived from it, instead of a name hardcoded
+    # separately that could silently go stale relative to the real signal.
+    _ACTIVE_SIGNAL_KEY = "tubo_stable_8_605e_5"
     _SIGNAL_SOURCE = {
-        "hdf5_path": _DATA_DIRS["tubo_stable_8_605e_5"],
+        "hdf5_path": _DATA_DIRS[_ACTIVE_SIGNAL_KEY],
         "case_name": None,
         "disp_name": "Axial_disp",
         "vel_name": "Axial_vel",
         "force_name": "res_R_p",
     }
-    _SIG_NAME = "cono"
+    _SIG_NAME = _ACTIVE_SIGNAL_KEY
 
     data = HDF5Reader(_SIGNAL_SOURCE["hdf5_path"])
     t, tool_dyn = load_signal(data, _SIGNAL_SOURCE["disp_name"], _SIGNAL_SOURCE["case_name"])

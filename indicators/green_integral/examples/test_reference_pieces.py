@@ -23,6 +23,10 @@ tell if concatenation ever creeps back in):
    piece's own amplitude scale — proof no window mixed the two pieces.
 4. A single bare SignalData (not a list) still works exactly as before
    (backward compatible with the Phase 3 behavior already shipped).
+5. plot_training_distribution()'s "Training Curve" breaks the line (a NaN
+   row) between two pooled pieces instead of drawing a straight segment
+   connecting the end of one piece to the start of the next — which would
+   represent nothing real, since the two are physically unrelated.
 """
 
 from __future__ import annotations
@@ -37,7 +41,12 @@ if str(_here) not in sys.path:
 from green_integral.logging_setup import configure_logging, LOGGING_LEVELS
 configure_logging(level=LOGGING_LEVELS["warning"])
 
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
 from green_integral import StdSignalData, run_green_std
+from green_integral.viz.plots import plot_training_distribution
 
 fs = 5000.0
 f_modal = 150.0
@@ -101,5 +110,42 @@ res_single = _run(piece_low)
 gd_single = res_single.meta["raw_result"].global_data
 assert gd_single["reference_n_pieces"] == 1, gd_single["reference_n_pieces"]
 assert np.asarray(gd_single["training_areas"]).size == gd_single["reference_piece_window_counts"][0]
+
+# 5. "Training Curve" line breaks between the two pieces (no seam-connecting
+# straight line) -- the two pieces' own windows are each internally regular
+# in time, so the only place a NaN can legitimately land is the boundary.
+plt.close("all")
+# log_transform=False: this test's result comes from func="Default", whose
+# area_mu_3sigma is in linear space (Lyapunov's is log10 -- see plots_lyapunov
+# vs plots_green_integral's own log_transform choice).
+figs = plot_training_distribution(gd, name="pieces", log_transform=False)
+assert len(figs) == 2, f"expected [histogram, curve], got {len(figs)} figure(s)"
+curve_ax = figs[1].axes[0]
+curve_line = next(l for l in curve_ax.get_lines() if l.get_label().startswith("Training pop."))
+y_curve = curve_line.get_ydata()
+n_nan = int(np.sum(np.isnan(y_curve)))
+assert n_nan >= 1, "expected at least one NaN break between the two pieces"
+# exactly at the piece boundary (right after the first piece's own windows)
+nan_positions = np.where(np.isnan(y_curve))[0]
+assert counts[0] in nan_positions, (
+    f"NaN break at {nan_positions}, expected at index {counts[0]} (end of piece 1)"
+)
+
+# The mu/mu+-z*sigma axhlines must still be the real threshold values, not
+# clobbered by the gap-shading loop's own (array-index) local variables --
+# regression check for exactly that bug (loop reused the names `lo`/`hi`,
+# stomping the outer threshold values with small integers like 149/100 and
+# blowing up the whole plot's Y scale).
+thr = gd["area_mu_3sigma"]
+hline_labels = {l.get_label(): l for l in curve_ax.get_lines() if l.get_label().startswith("$\\mu")}
+assert len(hline_labels) == 3, hline_labels.keys()
+for line in hline_labels.values():
+    y = float(np.asarray(line.get_ydata())[0])
+    assert y in (thr["mu"], thr["upper"], thr["lower"]), (
+        f"axhline at y={y} doesn't match any real threshold value "
+        f"(mu={thr['mu']}, upper={thr['upper']}, lower={thr['lower']}) -- "
+        f"looks like a leftover index value instead"
+    )
+plt.close("all")
 
 print("OK — reference_signal per-piece self-checks passed.")

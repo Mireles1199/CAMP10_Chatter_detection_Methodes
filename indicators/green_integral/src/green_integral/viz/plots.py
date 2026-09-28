@@ -235,6 +235,28 @@ def plot_indicator_local(result: Dict[str, Any], name: str = "") -> plt.Figure:
     return fig
 
 
+def _find_time_gaps(x: np.ndarray, gap_factor: float = 5.0) -> np.ndarray:
+    """Indices in ``x`` right before a non-monotonic or abnormally large step.
+
+    Used to find the boundaries between concatenated-but-unrelated segments
+    on a pooled time axis (isolated reference_signal pieces, or non-adjacent
+    training_intervals sub-bands) — each piece is internally regular (small,
+    ~constant positive step between consecutive windows), so a step that
+    resets (<= 0, e.g. the next piece restarting its own local time origin)
+    or that dwarfs the typical step is a seam, never a real one.
+    """
+    if x.size < 3:
+        return np.array([], dtype=int)
+    diffs = np.diff(x)
+    pos_diffs = diffs[diffs > 0]
+    if pos_diffs.size == 0:
+        return np.array([], dtype=int)
+    typical_step = np.median(pos_diffs)
+    if typical_step <= 0:
+        return np.array([], dtype=int)
+    return np.where((diffs <= 0) | (diffs > gap_factor * typical_step))[0]
+
+
 def plot_training_distribution(
     global_data: Dict[str, Any],
     name: str = "",
@@ -329,7 +351,35 @@ def plot_training_distribution(
         x_axis, ax_c_xlabel = np.arange(len(vals)), "Sample index"
     ax_c.set_xlabel(ax_c_xlabel)
     ax_c.set_ylabel(xlabel)
-    ax_c.plot(x_axis, vals, color=color_azul, lw=1.0, marker="o", markersize=2,
+
+    # The pool concatenates isolated pieces (external reference_signal) or
+    # non-contiguous training_intervals sub-bands — a plain line would draw
+    # a straight segment connecting the end of one piece/sub-band to the
+    # start of the next, which represents nothing real. Break the line
+    # (insert a NaN) wherever the time axis jumps or resets instead of
+    # advancing by its normal per-window step, and lightly shade alternating
+    # segments so each piece/sub-band is visible at a glance.
+    if ax_c_xlabel == "Time [s]":
+        gap_idx = _find_time_gaps(x_axis)
+    else:
+        gap_idx = np.array([], dtype=int)
+
+    if gap_idx.size:
+        seg_bounds = [0] + (gap_idx + 1).tolist() + [len(x_axis)]
+        for seg_i in range(0, len(seg_bounds) - 1, 2):
+            # NOTE: named seg_lo/seg_hi, not lo/hi -- those names are the
+            # outer mu-z*sigma/mu+z*sigma threshold values used below for the
+            # axhlines; reusing them here previously clobbered them with
+            # array-index integers, corrupting the whole plot's Y scale.
+            seg_lo, seg_hi = seg_bounds[seg_i], seg_bounds[seg_i + 1] - 1
+            if seg_hi >= seg_lo:
+                ax_c.axvspan(x_axis[seg_lo], x_axis[seg_hi], color=color_azul, alpha=0.06, lw=0)
+        x_plot = np.insert(x_axis.astype(float), gap_idx + 1, np.nan)
+        y_plot = np.insert(vals.astype(float), gap_idx + 1, np.nan)
+    else:
+        x_plot, y_plot = x_axis, vals
+
+    ax_c.plot(x_plot, y_plot, color=color_azul, lw=1.0, marker="o", markersize=2,
               label=f"Training pop. (n={len(vals)})")
     ax_c.axhline(mu_h, color=color_verde, ls="-", lw=1.4, label=rf"$\mu={mu_h:.3g}$")
     ax_c.axhline(hi, color=color_red, ls="--", lw=1.4, label=rf"$\mu+{z_lbl}\sigma={hi:.3g}$")
