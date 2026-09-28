@@ -1061,7 +1061,7 @@ def main() -> None:
                 FIGURE_LANGUAGE = "FR"
                 # Duracion del panel de zoom, en revoluciones del husillo (empieza en t_start,
                 # para mostrar el regimen ya establecido).
-                ZOOM_N_REVOLUTIONS = 4
+                ZOOM_N_REVOLUTIONS = 1
 
                 cases_series = _load_stage1_case_series(h5_path)
                 eta_last_stable = _stage1_eta_last_stable(h5_path)
