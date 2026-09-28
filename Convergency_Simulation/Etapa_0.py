@@ -755,7 +755,12 @@ def main():
                         help="Show Figure 3 after the analysis")
     args = parser.parse_args()
 
-    DOE_NAME = "0_Cinematique\\DOE_Dexels_Cinematique"   # nombre de la carpeta de salida  (dir_ref2exe)
+    # DOE_NAME = "0_Cinematique\\DOE_Dexels_Cinematique"
+    DOE_NAME = (
+        r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\Chatter-Criteria"
+        r"\CAMP10_Chatter_detection_Methodes\Convergency_Simulation\0_Cinematique"
+        r"\DOE_Dexels_Cinematique"
+    )   # apunta al checkout principal, mismo patron que Etapa_1.py -- sin duplicar datos DOE por worktree
 
     # Idioma del texto de las figuras (titulo, ejes, leyenda): "EN" | "FR" | "both"
     FIGURE_LANGUAGE = "FR"
@@ -766,7 +771,7 @@ def main():
 
     # Duracion del panel de zoom de fig_time_series, en revoluciones del husillo
     # (empieza en t_start, para mostrar regimen ya establecido).
-    ZOOM_N_REVOLUTIONS = 4
+    ZOOM_N_REVOLUTIONS = 0.5
 
     # ===========================================================================
     # CONSTANTES DE CORTE  (editar aqui antes de ejecutar)
