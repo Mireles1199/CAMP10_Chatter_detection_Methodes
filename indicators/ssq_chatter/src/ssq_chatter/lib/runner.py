@@ -271,7 +271,8 @@ def run_sst_svd(signal: SignalData, INDICATOR_CONFIG: dict ) -> IndicatorResult:
             f"hop_ms must be between 0% and 100% of win_length_ms.")
     # ───────────────────────────────────────────────────────────
 
-    result: IndicatorResult = func(signal, **params)
+    reference_signal: Optional[List[SignalData]] = INDICATOR_CONFIG.get("reference_signal")
+    result: IndicatorResult = func(signal, reference_signal=reference_signal, **params)
 
     # ── traceability: derive by param_mode, never by which key is present ────
     if param_mode == "native":
@@ -365,6 +366,7 @@ def _sst_svd_pipeline(
     fallback_mad: bool,
     training_intervals: Optional[List] = None,
     t_theorical: Optional[float] = None,
+    reference_signal: Optional[List[SignalData]] = None,
 ) -> IndicatorResult:
     """
     Execute Synchrosqueezing Transform (SST) with SVD-based chatter detection pipeline.
@@ -418,6 +420,9 @@ def _sst_svd_pipeline(
     signal_analysis = signal.signal_analysis
     fs = signal.fs
 
+    if isinstance(reference_signal, SignalData):
+        reference_signal = [reference_signal]
+
     # ========= Configuration SSTFT + SSQ ============
     n_fft_power = n_fft_power
     n_fft = 1024*(2**n_fft_power)
@@ -463,8 +468,61 @@ def _sst_svd_pipeline(
     # ========= Run pipeline ============
     Tsx, Sx, fs_out, tt, A_i, t_i, D, d1, res, w, dWx = pipe.run(signal_analysis, signal_time)
 
-    # ── Override detection with training_intervals if provided ────────────────────
-    if training_intervals is not None:
+    # ── Override detection with reference_signal / training_intervals if provided ──
+    training_source = "internal"
+    # Finer-grained than training_source: distinguishes WHICH internal path
+    # actually produced `res` (frac_stable default vs. a successful
+    # training_intervals cut) so the viz layer never shows a training_intervals
+    # breakdown (C2b/C3b/F3b) for a population that silently fell back and
+    # wasn't the one that actually trained the detector.
+    training_mode = "frac_stable"
+    reference_frames_per_piece: Optional[List[Dict[str, Any]]] = None
+    if reference_signal is not None:
+        if training_intervals is not None:
+            logger.warning(
+                "Both 'reference_signal' and 'training_intervals' provided; "
+                "'reference_signal' takes priority."
+            )
+        # Each piece is windowed/analyzed in isolation (own pipe.run call) so no
+        # STFT frame or SVD window ever spans the seam between two pieces/cases.
+        # Only the per-piece RESULTS (d1, t) are pooled afterwards.
+        reference_frames_per_piece = []
+        d1_ref_pieces: List[np.ndarray] = []
+        t_ref_pieces: List[np.ndarray] = []
+        for idx, piece in enumerate(reference_signal):
+            _, _, _, _, _, t_i_piece, _, d1_piece, _, _, _ = pipe.run(
+                piece.signal_analysis, piece.t_analysis
+            )
+            d1_piece = np.asarray(d1_piece, dtype=float)
+            t_i_piece = np.asarray(t_i_piece, dtype=float)
+            piece_id = str(piece.meta.get("signal_id", f"{piece.path}#{idx}"))
+            reference_frames_per_piece.append({"signal_id": piece_id, "frames": int(d1_piece.size)})
+            if d1_piece.size == 0:
+                logger.warning(
+                    "reference piece '%s' is shorter than one analysis window; "
+                    "0 frames.", piece_id,
+                )
+                continue
+            d1_ref_pieces.append(d1_piece)
+            t_ref_pieces.append(t_i_piece)
+        d1_ref = np.concatenate(d1_ref_pieces) if d1_ref_pieces else np.array([], dtype=float)
+        t_i_ref = np.concatenate(t_ref_pieces) if t_ref_pieces else np.array([], dtype=float)
+        if d1_ref.size > 1:
+            res = detect_rule.detect(
+                d1=d1_ref, t=t_i_ref,
+                idx_stable=np.arange(d1_ref.size),
+            )
+            # detect() computed its threshold/mask against d1_ref (the pooled
+            # reference population); re-apply that threshold to the analyzed
+            # signal's d1.
+            res["mask"] = ((d1 < res["lim_inf"]) | (d1 > res["lim_sup"])).astype(int)
+            training_source = "external_reference"
+            training_mode = "external_reference"
+        else:
+            logger.warning(
+                "reference_signal pool yielded < 2 SVD frames; falling back to internal training."
+            )
+    elif training_intervals is not None:
         t_i_np = np.asarray(t_i, dtype=float)
         stable_mask = np.zeros(len(t_i_np), dtype=bool)
         for entry in training_intervals:
@@ -482,10 +540,22 @@ def _sst_svd_pipeline(
         idx_stable_ti = np.nonzero(stable_mask)[0]
         if idx_stable_ti.size > 1:
             res = detect_rule.detect(d1=d1, t=t_i_np, idx_stable=idx_stable_ti)
+            training_mode = "training_intervals"
         else:
             logger.warning(
                 "training_intervals yielded < 2 stable SVD frames; falling back to frac_stable."
             )
+
+    # ── Unified training population, for plotting/traceability (whichever branch
+    # above actually produced `res`) — avoids the viz layer re-guessing it from
+    # t_gt/training_intervals, which used to silently show the wrong population.
+    if training_source == "external_reference":
+        training_t = np.asarray(t_i_ref, dtype=float)
+        training_d1 = d1_ref
+    else:
+        idx_used = np.asarray(res["idx_estable_usados"], dtype=int)
+        training_t = np.asarray(t_i, dtype=float)[idx_used]
+        training_d1 = np.asarray(d1, dtype=float)[idx_used]
 
     chatter_points_mask = np.where(d1 > res['lim_sup'])[0]
     chatter_points_time = t_i[chatter_points_mask] if chatter_points_mask.size > 0 else np.array([])
@@ -532,6 +602,12 @@ def _sst_svd_pipeline(
             "training_sigma": res["sigma"],
             "chatter": f"{100*res['mask'].mean():.2f}%",
             "training_intervals": training_intervals,
+            "training_source": training_source,
+            "training_mode": training_mode,
+            "training_t": training_t,
+            "training_d1": training_d1,
+            "reference_n_pieces": len(reference_signal) if reference_signal is not None else None,
+            "reference_frames_per_piece": reference_frames_per_piece,
         },
     )
 

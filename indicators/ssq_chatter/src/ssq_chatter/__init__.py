@@ -31,7 +31,7 @@ from .lib.runner import run_sst_svd
 from .utils.tf_windows import WindowExtractor
 from .utils.decorators import timeit
 from .utils.types import SignalData, IndicatorResult
-from .utils.hdf5_utils import HDF5Reader
+from .utils.hdf5_utils import HDF5Reader, load_signal
 from .viz.plotting import prep_binary_spectro_for_pcolormesh
 from .viz.sst_svd_plots import plots_sst_svd
 from .logging_setup import LOGGING_LEVELS
@@ -57,6 +57,7 @@ __all__ = [
     "SignalData",
     "IndicatorResult",
     "HDF5Reader",
+    "load_signal",
     "run_sst_svd",
     "plots_sst_svd",
     "INFO_PLUS_LEVEL",
