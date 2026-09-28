@@ -143,6 +143,45 @@ def configurar_estilo_global() -> None:
 #%%
 # ===========
 
+def split_with_nan_gaps(
+    x: np.ndarray, y: np.ndarray, piece_sizes: Optional[Sequence[int]],
+) -> tuple:
+    """Break a concatenated-pieces (x, y) curve into NaN-separated segments.
+
+    Used for C8 (CV Training Curve) when the training population comes from
+    several external-reference pieces pooled end to end (no real time
+    continuity between them) -- a plain line plot would draw a straight
+    segment connecting the end of one piece to the start of the next, which
+    represents nothing real.
+
+    Args:
+        x, y: Original (ungapped) 1-D arrays, same length.
+        piece_sizes: Frame count of each piece, in order. Sizes ``<= 0`` are
+            dropped (skipped pieces). ``None``/empty disables the split.
+
+    Returns:
+        tuple[np.ndarray, np.ndarray, np.ndarray]: ``(x_plot, y_plot,
+        piece_bounds)``. ``x_plot``/``y_plot`` have one ``NaN`` inserted at
+        each piece boundary (matplotlib breaks the line there). ``piece_bounds``
+        is an ``(n_pieces, 2)`` array of ``(start, end)`` sample-index pairs
+        into the *original* ``x``/``y`` (for per-piece shading). When
+        ``piece_sizes`` is empty or doesn't sum to ``len(y)`` (caller passed
+        something that doesn't actually partition the data), the input is
+        returned unchanged with an empty ``piece_bounds``.
+    """
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    sizes = [int(s) for s in piece_sizes if s > 0] if piece_sizes else []
+    if not sizes or sum(sizes) != y.size:
+        return x, y, np.empty((0, 2), dtype=int)
+    bounds = np.cumsum(sizes)
+    starts = np.concatenate(([0], bounds[:-1]))
+    piece_bounds = np.stack([starts, bounds], axis=1)
+    x_plot = np.insert(x, bounds[:-1], np.nan)
+    y_plot = np.insert(y, bounds[:-1], np.nan)
+    return x_plot, y_plot, piece_bounds
+
+
 def plots_rms_cv(
     signal: Optional[SignalData],
     result: IndicatorResult,
@@ -456,6 +495,7 @@ def plots_rms_cv(
         zoom_y: Optional[tuple[float, float]] = None,
         scale: float = 1.0,
         fig_label: Optional[str] = None,
+        piece_sizes: Optional[Sequence[int]] = None,
         **kargs,
     ) -> tuple:
         """Plot the exact CV sequence handed to CVStableRegionDetector -- lets you
@@ -466,10 +506,25 @@ def plots_rms_cv(
         recording has its own unrelated timeline, so callers must not pass
         zoom_x for that case (this function does not guess -- it just applies
         whatever range it is given).
+
+        `piece_sizes` (external-reference mode): frame count of each pooled
+        piece, in order (see meta["reference_frames_per_piece"]). The pool is
+        several unrelated pieces concatenated end to end with no real time
+        continuity between them -- without this, the line plot draws a
+        straight segment connecting the end of one piece to the start of the
+        next, which represents nothing real. When given, the line is broken
+        (NaN gap) at every piece boundary and alternate pieces get a faint
+        shaded band so the split is visible even without the gap.
         """
         fig, ax = plt.subplots(figsize=fig_size(scale=scale, ncols=1), num=fig_label)
         x = train_time if train_time is not None else np.arange(train_values.size)
-        ax.plot(x, train_values, marker="o", markersize=3, linestyle="-", color=color_azul)
+        x_plot, y_plot, piece_bounds = split_with_nan_gaps(x, train_values, piece_sizes)
+        x_arr = np.asarray(x, dtype=float)
+        for i, (s, e) in enumerate(piece_bounds):
+            if i % 2 == 1:
+                ax.axvspan(x_arr[s], x_arr[e - 1], color=color_azul, alpha=0.06, lw=0)
+
+        ax.plot(x_plot, y_plot, marker="o", markersize=3, linestyle="-", color=color_azul)
         if mu_stable is not None:
             ax.axhline(mu_stable, color=color_verde, ls="-", lw=1.4)
             ax.text(0.99, mu_stable, rf"$\mu={mu_stable:.4g}$",
@@ -734,11 +789,16 @@ def plots_rms_cv(
         # signal's own clock (internal mode) -- the external reference recording
         # has an unrelated timeline, so its own zoom_x would silently clip it wrong.
         _c8_zoom_x = zoom_x if _training_source == "internal" else None
+        _c8_piece_sizes = (
+            meta.get("reference_frames_per_piece")
+            if _training_source == "external_reference" else None
+        )
         _plot_cv_training_curve(
             meta.get("cv_training_time"), np.asarray(_training_values),
             mu_stable=_mu_stable, cv_threshold=cv_threshold,
             zoom_x=_c8_zoom_x, zoom_y=zoom_y,
             scale=scale, fig_label="C8 — CV Training Curve",
+            piece_sizes=_c8_piece_sizes,
         )
 
     plt.show(block=True)

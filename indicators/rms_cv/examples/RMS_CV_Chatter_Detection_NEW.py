@@ -244,8 +244,8 @@ def main() -> None:
         "param_mode": "by_revolution",
         "params_physical": {
             "T_rev":        _T_REV,
-            "N_rev_window": 32,
-            "step_rev":     4,
+            "N_rev_window": 4,
+            "step_rev":     1,
             "n_max_mode":   "frames",
             "n_max_rev":    4,
             **_COMMON,
