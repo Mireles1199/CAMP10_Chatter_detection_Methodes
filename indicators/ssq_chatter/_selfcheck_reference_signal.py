@@ -119,7 +119,7 @@ plots_sst_svd(
     zoom_y=_zoom_y,
 )
 fig_f3 = next(plt.figure(n) for n in plt.get_fignums()
-              if plt.figure(n).get_label().startswith("F3 "))
+              if plt.figure(n).get_label().startswith("C2 "))
 got_ylim = fig_f3.axes[0].get_ylim()
 assert np.allclose(got_ylim, _zoom_y), (got_ylim, _zoom_y)
 plt.close("all")
@@ -163,7 +163,7 @@ assert res_loud.t_d.size > 3, "test signal didn't actually produce multiple dete
 plt.close("all")
 plots_sst_svd(signal=loud_signal, result=res_loud, t_gt=0.5)
 fig_f3_loud = next(plt.figure(n) for n in plt.get_fignums()
-                    if plt.figure(n).get_label().startswith("F3 "))
+                    if plt.figure(n).get_label().startswith("C2 "))
 _vline_labels = [t for t in fig_f3_loud.axes[0].texts if t.get_rotation() == 90]
 assert len(_vline_labels) <= 2, [t.get_text() for t in _vline_labels]
 plt.close("all")
@@ -177,7 +177,7 @@ def _f3_axes_bbox(t_gt_value, zoom_x):
     plt.close("all")
     plots_sst_svd(signal=signal, result=res_internal, t_gt=t_gt_value, zoom_x=zoom_x)
     fig = next(plt.figure(n) for n in plt.get_fignums()
-               if plt.figure(n).get_label().startswith("F3 "))
+               if plt.figure(n).get_label().startswith("C2 "))
     bbox = fig.axes[0].get_position().bounds
     plt.close("all")
     return bbox
@@ -263,5 +263,28 @@ assert pooled_d1.size == n_quiet + n_loud
 # would differ.
 assert np.array_equal(pooled_d1[:n_quiet], res_quiet_only.meta["training_d1"])
 assert np.array_equal(pooled_d1[n_quiet:], res_loud_only.meta["training_d1"])
+
+# 14) F3 was a duplicate of C2 (same "SVD 1st Component" panel) -- must be gone.
+plt.close("all")
+plots_sst_svd(signal=signal, result=res_internal, t_gt=0.5)
+fig_labels_no_f3 = [plt.figure(n).get_label() for n in plt.get_fignums()]
+assert not any(lbl.startswith("F3 ") for lbl in fig_labels_no_f3), fig_labels_no_f3
+assert any(lbl.startswith("C2 ") for lbl in fig_labels_no_f3), fig_labels_no_f3
+plt.close("all")
+
+# 15) C5 seam gaps: pooling >1 reference piece must NOT draw a straight line
+# across the (non-contiguous) gap between pieces -- both the raw-waveform
+# panel (top) and the training d1 panel (bottom) must contain a NaN break.
+plt.close("all")
+plots_sst_svd(
+    signal=signal, result=res_pool, t_gt=0.5,
+    reference_signal=cfg_pool["reference_signal"],
+)
+fig_c5 = next(plt.figure(n) for n in plt.get_fignums() if plt.figure(n).get_label().startswith("C5 "))
+_top_line = fig_c5.axes[0].get_lines()[0]
+_bot_line = fig_c5.axes[1].get_lines()[0]
+assert np.isnan(_top_line.get_ydata()).any(), "C5 top panel: no seam gap between reference pieces"
+assert np.isnan(_bot_line.get_ydata()).any(), "C5 bottom panel: no seam gap between reference pieces' d1"
+plt.close("all")
 
 print("OK: reference_signal extension point + fixed C3/C5/zoom_y/training_mode/vlines/layout/on-demand/colors behave as specified.")

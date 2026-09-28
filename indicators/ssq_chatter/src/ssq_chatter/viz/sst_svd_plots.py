@@ -121,6 +121,26 @@ def plots_sst_svd(
     if isinstance(reference_signal, SignalData):
         reference_signal = [reference_signal]
 
+    def _concat_with_gaps(arrays: Sequence[np.ndarray]) -> np.ndarray:
+        """Concatenate arrays with a single NaN between consecutive pieces so
+        matplotlib breaks the line at the seam instead of drawing a straight
+        line across the (non-contiguous) gap between two reference pieces."""
+        arrays = [a for a in arrays if a.size > 0]
+        if not arrays:
+            return np.array([], dtype=float)
+        out = [arrays[0]]
+        for a in arrays[1:]:
+            out.append(np.array([np.nan]))
+            out.append(a)
+        return np.concatenate(out)
+
+    def _split_by_lengths(arr: np.ndarray, lengths: Sequence[int]) -> list:
+        pieces, idx = [], 0
+        for n in lengths:
+            pieces.append(arr[idx:idx + n])
+            idx += n
+        return pieces
+
     def _draw_vlines(ax, vlines, default_color="black", default_ls="--"):
         """Draw vertical event lines with optional rotated text labels (indicator-plot-style)."""
         if vlines is None:
@@ -355,50 +375,6 @@ def plots_sst_svd(
         fig.suptitle(title, y=1.0)                  # título fuera del área 3D
         fig.tight_layout()
         return fig, ax
-
-    def _plot_svd(times: "np.ndarray", d1: "np.ndarray",
-                  zoom_x: Optional[tuple[float, float]] = None,
-                  zoom_y: Optional[tuple[float, float]] = None, *,
-                  title: str = "SVD 1st Component", scale: float = 1.0,
-                  lim_sup: Optional[float] = None,
-                  lim_inf: Optional[float] = None,
-                  vlines: Optional[Sequence[float]] = None,
-                  hlines: Optional[Sequence[float]] = None,
-                  fig_label: Optional[str] = None,
-                  **kargs) -> tuple:
-        fig, axes = plt.subplots(figsize=fig_size(scale=scale, ncols=1), num=fig_label)
-        axes.plot(times, d1, marker="o", markersize=4, linestyle="-", color=color_purple)
-        axes.set_yscale('log')
-        axes.set_title(title)
-        axes.set_xlabel("Time (s)")
-        axes.set_ylabel("1st SVD Component")
-        if lim_sup is not None:
-            axes.axhline(y=lim_sup, color=color_red, linestyle="--", linewidth=1.4)
-            axes.text(0.99, lim_sup, _thresh_label(lim_sup, True),
-                      transform=axes.get_yaxis_transform(), clip_on=True,
-                      color=color_red, ha='right', va='bottom', fontsize=16)
-        if lim_inf is not None:
-            axes.axhline(y=lim_inf, color=color_red, linestyle=":", linewidth=1.2)
-            axes.text(0.99, lim_inf, _thresh_label(lim_inf, False),
-                      transform=axes.get_yaxis_transform(), clip_on=True,
-                      color=color_red, ha='right', va='top', fontsize=16)
-        _draw_vlines(axes, vlines)
-        if hlines is not None:
-            for yv in hlines:
-                if yv is not None:
-                    axes.axhline(y=yv, color='gray', linestyle='--', lw=1, alpha=0.7)
-        axes.grid(False)
-        # zoom applied LAST so threshold/hlines/vlines values can never stretch
-        # the view beyond what was explicitly requested (Y autoscale is otherwise
-        # left on and silently balloons to fit lim_sup/lim_inf, which can sit
-        # orders of magnitude away from the zoomed data -- e.g. an external
-        # reference_signal's threshold vs. the analyzed signal's own d1 range).
-        if zoom_x is not None:
-            axes.set_xlim(zoom_x)
-        if zoom_y is not None:
-            axes.set_ylim(zoom_y)
-        plt.tight_layout()
-        return fig, axes
 
     # ── C1: Tool velocity signal (t_gt marked, single color) ─────────────────
     def _plot_signal_split(
@@ -915,14 +891,6 @@ def plots_sst_svd(
             zoom_x=zoom_x, scale=scale, vlines=auto_vlines,
             fig_label="F2c — SST Waterfall 3D",
         )
-    fig_svd, axes_svd = _plot_svd(
-        t_i, d1, zoom_x=zoom_x, zoom_y=zoom_y,
-        title="SVD — 1st Singular Value Component",
-        scale=scale, vlines=auto_vlines,
-        lim_sup=lim_sup, lim_inf=lim_inf,
-        fig_label="F3 — SVD 1st Component",
-    )
-
     # F3b — one figure per distinct stable label (only if ≥2 distinct stable labels)
     if _ti_meta is not None and d1 is not None:
         _stable_grps_t: dict = {}
@@ -1000,28 +968,55 @@ def plots_sst_svd(
             # trained the detector (external reference_signal, or the internal
             # stable slice) + its own d1, so you can eyeball it directly.
             if training_t is not None and training_d1 is not None:
+                _bot_t, _bot_d1 = training_t, training_d1
                 if training_source == "external_reference" and reference_signal is not None:
-                    # Concatenated here for display only (C5 just shows the raw
-                    # waveform that trained the detector) -- the seam-safety
-                    # guarantee is about d1/SVD frames, computed per piece in
-                    # runner.py, never about this plotting concatenation.
-                    _train_sig_t = np.concatenate([np.asarray(p.t_analysis, dtype=float) for p in reference_signal])
-                    _train_sig_x = np.concatenate([np.asarray(p.signal_analysis, dtype=float) for p in reference_signal])
+                    # Each piece was windowed/analyzed in isolation (runner.py) and
+                    # is NOT temporally contiguous with its neighbors -- a plain
+                    # concatenation would draw a straight line across the gap
+                    # between one piece's end and the next piece's start, as if it
+                    # were real data. Decimate PER PIECE (so the NaN separator
+                    # always survives) then insert a NaN seam between pieces --
+                    # matplotlib breaks the line there, nothing else changes.
+                    # ponytail: flat per-piece decimation for plotting only
+                    # (reference pieces can be millions of samples) — upgrade to a
+                    # proper downsampler (e.g. min/max envelope) if this ever
+                    # needs to preserve peak amplitudes.
+                    _MAX_PLOT_PTS = 50_000
+                    _per_piece_cap = max(1, _MAX_PLOT_PTS // max(len(reference_signal), 1))
+                    _t_pieces, _x_pieces = [], []
+                    for _p in reference_signal:
+                        _pt = np.asarray(_p.t_analysis, dtype=float)
+                        _px = np.asarray(_p.signal_analysis, dtype=float)
+                        if _pt.size > _per_piece_cap:
+                            _pstep = _pt.size // _per_piece_cap
+                            _pt, _px = _pt[::_pstep], _px[::_pstep]
+                        _t_pieces.append(_pt)
+                        _x_pieces.append(_px)
+                    _train_sig_t = _concat_with_gaps(_t_pieces)
+                    _train_sig_x = _concat_with_gaps(_x_pieces)
+
+                    # Same seam gap for the bottom (d1) panel -- training_t/
+                    # training_d1 is the pool of per-piece SVD frames (runner.py),
+                    # so it needs the same NaN break at each piece boundary.
+                    _piece_frames = [
+                        f["frames"] for f in (meta.get("reference_frames_per_piece") or [])
+                        if f["frames"] > 0
+                    ]
+                    if sum(_piece_frames) == np.asarray(training_t).size and len(_piece_frames) > 1:
+                        _bot_t = _concat_with_gaps(_split_by_lengths(np.asarray(training_t, dtype=float), _piece_frames))
+                        _bot_d1 = _concat_with_gaps(_split_by_lengths(np.asarray(training_d1, dtype=float), _piece_frames))
                 else:
                     _t0_tr, _t1_tr = float(np.min(training_t)), float(np.max(training_t))
                     _tr_mask = (t_sig_arr >= _t0_tr) & (t_sig_arr <= _t1_tr)
                     _train_sig_t = t_sig_arr[_tr_mask]
                     _train_sig_x = sig_arr[_tr_mask]
-                # ponytail: flat decimation for plotting only (reference signals can
-                # be millions of samples) — upgrade to a proper downsampler (e.g.
-                # min/max envelope) if this ever needs to preserve peak amplitudes.
-                _MAX_PLOT_PTS = 50_000
-                if _train_sig_t.size > _MAX_PLOT_PTS:
-                    _step = _train_sig_t.size // _MAX_PLOT_PTS
-                    _train_sig_t = _train_sig_t[::_step]
-                    _train_sig_x = _train_sig_x[::_step]
+                    _MAX_PLOT_PTS = 50_000
+                    if _train_sig_t.size > _MAX_PLOT_PTS:
+                        _step = _train_sig_t.size // _MAX_PLOT_PTS
+                        _train_sig_t = _train_sig_t[::_step]
+                        _train_sig_x = _train_sig_x[::_step]
                 _plot_training_signal(
-                    _train_sig_t, _train_sig_x, training_t, training_d1,
+                    _train_sig_t, _train_sig_x, _bot_t, _bot_d1,
                     lim_sup=lim_sup, lim_inf=lim_inf,
                     zoom_y=zoom_y, scale=scale, fig_label="C5 — Training Signal Confirmation",
                 )
