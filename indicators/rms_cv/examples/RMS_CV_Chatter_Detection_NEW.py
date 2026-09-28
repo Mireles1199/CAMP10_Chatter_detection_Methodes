@@ -1,5 +1,5 @@
 import logging
-from typing import Tuple
+from typing import List, Tuple
 import os
 import sys
 import numpy as np
@@ -14,6 +14,7 @@ if _SRC not in sys.path:
 
 from rms_cv import SignalData
 from rms_cv import HDF5Reader
+from rms_cv import load_signal
 from rms_cv import run_rms_cv
 from rms_cv import plots_rms_cv
 from rms_cv import INFO_PLUS_LEVEL
@@ -35,6 +36,41 @@ _LOG_LEVEL = LOGGING_LEVELS["info"]
 configure_logging(level=_LOG_LEVEL)
 logger = logging.getLogger(__name__)
 
+# =============================================================================
+# SIGNAL_SOURCE / CASES / ACTIVE_CASE -- declarados dentro de main() (ver mas
+# abajo), misma convencion compartida por los 4 indicadores (indicators/
+# COMMON_TEMPLATE.md): que senal analizar (signal_source) + con que
+# configuracion (indicator_config), uno de los 4 modos propios de RMS-CV
+# (native / by_revolution / by_revolution_total / by_modal).
+# =============================================================================
+
+# =============================================================================
+# FASE 3 -- reference_signal externo (Convergency_Simulation/4_DOE_Data_Training_Tube)
+#
+#   True  -> arma INDICATOR_CONFIG["reference_signal"] como una lista de
+#            tramos (uno por caso) leidos de reference_dataset.h5; cada tramo
+#            se ventanea y se monitorea con su propio CVOnlineMonitor (nunca
+#            se concatena la senal cruda entre casos -- solo los resultados
+#            de CV por tramo se juntan para el pool de mu/sigma). Reemplaza
+#            stable_time/frac_stable como region de entrenamiento del CV.
+#   False -> comportamiento normal (stable_time/frac_stable de _COMMON, sin tocar).
+#
+# El combinado reference_combined.h5 NO se toca aqui -- sigue siendo la
+# entrada del visor doe_unified_selector.py, solo deja de usarse para
+# aprendizaje (mezclaba los tramos en una sola senal, contaminando la costura
+# entre casos con el buffer n_max del CV).
+#
+# Para comparar ambos modos alternar solo esta linea.
+# =============================================================================
+USE_EXTERNAL_REFERENCE = True
+
+_REFERENCE_H5 = (
+    r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\Chatter-Criteria"
+    r"\CAMP10_Chatter_detection_Methodes\Convergency_Simulation"
+    r"\4_DOE_Data_Training_Tube\DOE_Training_Tube_dxl_20e-5_RUN_10_0.5-2.0"
+    r"\reference_dataset.h5"
+)
+
 
 # -- helpers ------------------------------------------------------------------
 def _cut_signal(t, x, time_range: Tuple[float, float]) -> Tuple[np.ndarray, np.ndarray]:
@@ -43,47 +79,102 @@ def _cut_signal(t, x, time_range: Tuple[float, float]) -> Tuple[np.ndarray, np.n
     return t[mask], x[mask]
 
 
+def _load_reference_pieces(path: str, label: str = "stable", channel: str = "Axial_vel") -> List[SignalData]:
+    """Read every per-case piece of one label/channel from `reference_dataset.py
+    build`'s output (Repo-DOE) directly with h5py -- never import that package
+    from here (indicators/COMMON_TEMPLATE.md prohibits cross-indicator imports).
+
+    Layout: /<label>/<case>/<channel>__NNN/{t, y}, attrs channel/fs/signal_id.
+    Returns one SignalData per piece (case), kept separate on purpose -- the
+    caller windows/monitors each piece independently instead of concatenating
+    the raw signals, so the CV pool never mixes the tail of one case with the
+    head of the next.
+    """
+    import h5py
+
+    out: List[SignalData] = []
+    with h5py.File(path, "r") as f:
+        for case in f[label]:
+            for piece in f[label][case].values():
+                if piece.attrs["channel"] != channel:
+                    continue
+                out.append(SignalData(
+                    t_analysis=piece["t"][()], signal_analysis=piece["y"][()],
+                    path=path, fs=float(piece.attrs["fs"]),
+                    meta={"label": label, "channel": channel, "signal_id": piece.attrs["signal_id"]},
+                ))
+    return out
+
+
 def _section(title: str, width: int = 54) -> str:
     bar = "=" * width
     return f"\n{bar}\n  {title}\n{bar}"
 
 
 def main() -> None:
-    # -- datos --------------------------------------------------------------------
-    cono_doe_control =  (
-        r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
-        r"\2DOF_Cone_DOE\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_180"
-        r"\3\1DOF_150Hz\out.hdf5"
-    )
+    # -- datos ----------------------------------------------------------------
+    # Rutas alternativas de datasets -- cambiar DATA_DIR para usar otra.
+    _DATA_DIRS = {
+        "control": (
+            r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
+            r"\2DOF_Cone_DOE\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_200"
+            r"\3\1DOF_150Hz\out.hdf5"
+        ),
+        "control_sensor": (
+            r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
+            r"\2DOF_Cone_DOE\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_200"
+            r"\5\1DOF_150Hz\sens_out.hdf5"
+        ),
+        "custom": (
+            r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
+            r"\2DOF_Cone_DOE\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_200"
+            r"\0\1DOF_150Hz\sens_out.hdf5"
+        ),
+        "custom_dir": (
+            r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
+            r"\2DOF_Cone_DOE\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_180"
+            r"\12\1DOF_150Hz\sens_out.hdf5"
+        ),
+        "cono_dexel_20e_5": (
+            r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
+            r"\2DOF_Cone_New\Cono_dexel_20e-5_dt_200\0\1DOF_150Hz\sens_out.hdf5"
+        ),
 
-    cono_doe_control_sensor =  (
-        r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
-        r"\2DOF_Cone_DOE\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_180"
-        r"\12\1DOF_150Hz\sens_out.hdf5"
-    )
+        "tubo_stable_6_88e_5" : (
+            r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
+            r"\Chatter-Criteria\CAMP10_Chatter_detection_Methodes"
+            r"\Convergency_Simulation\1_Detection_Limite_Lobes"
+            r"\DOE_Detection_Limite_Lobes_dxl_20e-5_RUN_10"
+            r"\4\1DOF_150Hz\sens_out.hdf5"
+        ),
 
-    dir_custome     = r"D:\\Thesis\\03-Code_Storage\\02-Altintlas_Nessy2m_Storage\\2DOF_Cone_DOE\\DOE_Influence_dexel_RPM_12000_ftooth_005_dt_180\\12\\1DOF_150Hz\\sens_out.hdf5"
-
-    data_dir = cono_doe_control_sensor 
-
-
-    # data_dir = os.path.abspath(os.path.join(dir_path_use, "out.hdf5"))
-    data     = HDF5Reader(data_dir)
-
-    # disp_path_hdf5 = "tool_dyn/data"
-    # vel_path_hdf5  = "tool_dyn_o/data"
-
-    disp_path_hdf5 = "Axial_disp/data"
-    vel_path_hdf5  = "Axial_vel/data"
+        "tubo_stable_8_605e_5" : (
+            r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
+            r"\Chatter-Criteria\CAMP10_Chatter_detection_Methodes"
+            r"\Convergency_Simulation\1_Detection_Limite_Lobes"
+            r"\DOE_Detection_Limite_Lobes_dxl_20e-5_RUN_10"
+            r"\6\1DOF_150Hz\sens_out.hdf5"
+        ),
 
 
-    tool_dyn     = data.get_element(disp_path_hdf5)
-    t            = tool_dyn[:, 0]
-    tool_dyn     = tool_dyn[:, 1]
-    tool_dyn_vel = data.get_element(vel_path_hdf5)[:, 1]
+    }
+
+    # See COMMON_TEMPLATE.md §11 -- forma estándar de declarar el origen de la señal.
+    _SIGNAL_SOURCE = {
+        "hdf5_path": _DATA_DIRS["tubo_stable_8_605e_5"],
+        "case_name": None,  # None (layout crudo) | "case_003" (layout DOE)
+        "disp_name": "Axial_disp",
+        "vel_name": "Axial_vel",
+        "force_name": "force_N",
+    }
+
+    data = HDF5Reader(_SIGNAL_SOURCE["hdf5_path"])
+
+    t, tool_dyn      = load_signal(data, _SIGNAL_SOURCE["disp_name"], _SIGNAL_SOURCE["case_name"])
+    _, tool_dyn_vel  = load_signal(data, _SIGNAL_SOURCE["vel_name"],  _SIGNAL_SOURCE["case_name"])
 
     try:
-        force_N = data.get_element("force_N/data")[:, 1]
+        _, force_N = load_signal(data, _SIGNAL_SOURCE["force_name"], _SIGNAL_SOURCE["case_name"])
     except KeyError:
         force_N = np.zeros_like(t)
 
@@ -92,9 +183,10 @@ def main() -> None:
     v  = tool_dyn_vel
     fs = 1.0 / (t[1] - t[0])
 
-    t_cut, v_cut  = _cut_signal(t, v,        (0.00, 15))
-    _,     x_cut  = _cut_signal(t, tool_dyn, (0.00, 15))
-    _,     f_cut  = _cut_signal(t, force_N,  (0.00, 15))
+    _CUT_START = 0.05
+    t_cut, v_cut  = _cut_signal(t, v,        (_CUT_START, 15))
+    _,     x_cut  = _cut_signal(t, tool_dyn, (_CUT_START, 15))
+    _,     f_cut  = _cut_signal(t, force_N,  (_CUT_START, 15))
 
     # =============================================================================
     # INDICATOR_CONFIG -- cuatro modos de parametrizacion
@@ -104,7 +196,7 @@ def main() -> None:
     #   by_revolution / total   -> ventana y paso en revoluciones, K_rev_cv total
     #   by_modal      / frames  -> ventana y paso en periodos modales, n_max directo
     #
-    # Cambiar la linea INDICATOR_CONFIG = ... al final del bloque para elegir modo.
+    # Cambiar ACTIVE_CASE al final del bloque para elegir modo.
     # =============================================================================
     _RPM     = 12_000.0
     _F_MODAL = 150.0
@@ -122,8 +214,8 @@ def main() -> None:
         "detrend":              False,
         "pad_mode":             "none",
         # ── adaptive threshold: 3-sigma on CV of stable region ──────────────
-        "stable_time":  (0.0, _T_GT),   # seconds: region known to be stable
-        "frac_stable":  0.3610633440512648,         # fallback if stable_time yields no frames
+        # "stable_time":  (0.0, _T_GT),   # seconds: region known to be stable
+        # "frac_stable":  0.3610633440512648,         # fallback if stable_time yields no frames
         "z":            3.0,
         "alpha":        0.05,
         "fallback_mad": True,
@@ -195,17 +287,30 @@ def main() -> None:
         },
     }
 
-    # -- Selector (descomentar el modo deseado) -----------------------------------
-    # INDICATOR_CONFIG = INDICATOR_CONFIG_native
-    INDICATOR_CONFIG = INDICATOR_CONFIG_by_revolution
-    # INDICATOR_CONFIG = INDICATOR_CONFIG_by_revolution_total
-    # INDICATOR_CONFIG = INDICATOR_CONFIG_by_modal
+    CASES: dict = {
+        "native":              {"signal_source": _SIGNAL_SOURCE, "indicator_config": INDICATOR_CONFIG_native},
+        "by_revolution":       {"signal_source": _SIGNAL_SOURCE, "indicator_config": INDICATOR_CONFIG_by_revolution},
+        "by_revolution_total": {"signal_source": _SIGNAL_SOURCE, "indicator_config": INDICATOR_CONFIG_by_revolution_total},
+        "by_modal":            {"signal_source": _SIGNAL_SOURCE, "indicator_config": INDICATOR_CONFIG_by_modal},
+    }
+    ACTIVE_CASE = "by_revolution"   # <- cambiar solo esta linea para elegir senal + config
+
+    SIGNAL_SOURCE    = CASES[ACTIVE_CASE]["signal_source"]
+    INDICATOR_CONFIG = CASES[ACTIVE_CASE]["indicator_config"]
+
+    # -- Fase 3: reference_signal externo (opcional) ------------------------------
+    # Alternar con USE_EXTERNAL_REFERENCE (arriba del archivo) para comparar con y
+    # sin la referencia externa. Comentar esta linea tambien vuelve al modo normal.
+    if USE_EXTERNAL_REFERENCE:
+        INDICATOR_CONFIG["reference_signal"] = _load_reference_pieces(
+            _REFERENCE_H5, label="stable", channel="Axial_vel"
+        )
 
     # -- Senal de entrada ---------------------------------------------------------
     sig = SignalData(
         t_analysis=t_cut,
         signal_analysis=v_cut,
-        path=data_dir,
+        path=SIGNAL_SOURCE["hdf5_path"],
         fs=fs,
         meta={"AP": "5mm-15mm", "RPM": 12_000},
     )
@@ -265,6 +370,7 @@ def main() -> None:
                 _kv("n_max",              str(p["n_max"])),
                 _sep("Thresholds"),
                 _kv("cv_threshold_method", meta.get("cv_threshold_method", "-"),       indent=1),
+                _kv("training_source",     meta.get("training_source", "-"),           indent=1),
                 _kv("cv_threshold_used",   f"{meta.get('cv_threshold_used', '-'):.6g}", indent=1),
                 _kv("metodo_umbral",       str(meta.get("metodo_umbral", "-")),         indent=1),
                 _kv("mu_stable",           f"{meta.get('mu_stable',    float('nan')):.6g}", indent=1),
@@ -313,6 +419,7 @@ def main() -> None:
                     indent=1),
                 _sep("Thresholds"),
                 _kv("cv_threshold_method", meta.get("cv_threshold_method", "-"),       indent=1),
+                _kv("training_source",     meta.get("training_source", "-"),           indent=1),
                 _kv("cv_threshold_used",   f"{meta.get('cv_threshold_used', '-'):.6g}", indent=1),
                 _kv("metodo_umbral",       str(meta.get("metodo_umbral", "-")),         indent=1),
                 _kv("mu_stable",           f"{meta.get('mu_stable',    float('nan')):.6g}", indent=1),
@@ -361,6 +468,7 @@ def main() -> None:
                     indent=1),
                 _sep("Thresholds"),
                 _kv("cv_threshold_method", meta.get("cv_threshold_method", "-"),       indent=1),
+                _kv("training_source",     meta.get("training_source", "-"),           indent=1),
                 _kv("cv_threshold_used",   f"{meta.get('cv_threshold_used', '-'):.6g}", indent=1),
                 _kv("metodo_umbral",       str(meta.get("metodo_umbral", "-")),         indent=1),
                 _kv("mu_stable",           f"{meta.get('mu_stable',    float('nan')):.6g}", indent=1),
@@ -410,7 +518,6 @@ def main() -> None:
     # =============================================================================
     # GRAFICA
     # =============================================================================
-    _T_GT = 5.365770208787228   # theoretical chatter onset time [s]
     plots_rms_cv(
         signal=sig, result=resultat_rms,
         show_signal=True, zoom_x=None, zoom_y=None,
