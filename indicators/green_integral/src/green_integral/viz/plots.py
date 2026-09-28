@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import colorsys
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
+from scipy.stats import norm as _scipy_norm
 
 # ---------------------------------------------------------------------------
 # Canonical colour palette
@@ -77,7 +78,7 @@ def plot_windows_local(result: Dict[str, Any], name: str = "") -> plt.Figure:
     type_method  = result.get("global_data", {}).get("type_method", "GreenIntegral")
 
     fig, axes = plt.subplots(figsize=fig_size(scale=5.0))
-    axes.set_title(f"Signal Analysis Method: {type_method} Local Data \u2014 {name}")
+    axes.set_title(f"{type_method} \u2014 Mean Area per Cycle \u2014 {name}")
     axes.set_xlabel("Time (s)")
     axes.set_ylabel("Area")
     axes.set_yscale("log")
@@ -108,6 +109,10 @@ def plot_windows_local(result: Dict[str, Any], name: str = "") -> plt.Figure:
 
     def _update(event=None):
         xmin, xmax = axes.get_xlim()
+        # Keep the index axis synced with the time axis at every zoom level —
+        # previously this only ran when >1 point was visible, so zooming in
+        # past a single point left ax2 showing stale ticks from before the zoom.
+        ax2.set_xlim(xmin, xmax)
         visible = (t_n_values >= xmin) & (t_n_values <= xmax)
         vt = t_n_values[visible]
         vi = window_indices[visible]
@@ -115,7 +120,6 @@ def plot_windows_local(result: Dict[str, Any], name: str = "") -> plt.Figure:
             step = max(1, len(vt) // 20)
             ax2.set_xticks(vt[::step])
             ax2.set_xticklabels(vi[::step], rotation=0)
-            ax2.set_xlim(axes.get_xlim())
 
     fig.canvas.mpl_connect("draw_event", _update)
     axes.callbacks.connect("xlim_changed", _update)
@@ -189,9 +193,7 @@ def plot_indicator_local(result: Dict[str, Any], name: str = "") -> plt.Figure:
     window_indices = np.arange(len(data_windows))
 
     fig, axes = plt.subplots(figsize=fig_size(scale=5.0))
-    axes.set_title(
-        f"Signal Analysis Method: {type_method} Local Indicator \u2014 {name}"
-    )
+    axes.set_title(f"{type_method} \u2014 Delta_n per Window \u2014 {name}")
     axes.set_xlabel("Time (s)")
     axes.set_ylabel("Delta_n")
 
@@ -213,6 +215,10 @@ def plot_indicator_local(result: Dict[str, Any], name: str = "") -> plt.Figure:
 
     def _update(event=None):
         xmin, xmax = axes.get_xlim()
+        # Keep the index axis synced with the time axis at every zoom level —
+        # previously this only ran when >1 point was visible, so zooming in
+        # past a single point left ax2 showing stale ticks from before the zoom.
+        ax2.set_xlim(xmin, xmax)
         visible = (t_n_values >= xmin) & (t_n_values <= xmax)
         vt = t_n_values[visible]
         vi = window_indices[visible]
@@ -220,7 +226,6 @@ def plot_indicator_local(result: Dict[str, Any], name: str = "") -> plt.Figure:
             step = max(1, len(vt) // 20)
             ax2.set_xticks(vt[::step])
             ax2.set_xticklabels(vi[::step], rotation=0)
-            ax2.set_xlim(axes.get_xlim())
 
     fig.canvas.mpl_connect("draw_event", _update)
     axes.callbacks.connect("xlim_changed", _update)
@@ -228,3 +233,159 @@ def plot_indicator_local(result: Dict[str, Any], name: str = "") -> plt.Figure:
 
     fig.tight_layout()
     return fig
+
+
+def _find_time_gaps(x: np.ndarray, gap_factor: float = 5.0) -> np.ndarray:
+    """Indices in ``x`` right before a non-monotonic or abnormally large step.
+
+    Used to find the boundaries between concatenated-but-unrelated segments
+    on a pooled time axis (isolated reference_signal pieces, or non-adjacent
+    training_intervals sub-bands) — each piece is internally regular (small,
+    ~constant positive step between consecutive windows), so a step that
+    resets (<= 0, e.g. the next piece restarting its own local time origin)
+    or that dwarfs the typical step is a seam, never a real one.
+    """
+    if x.size < 3:
+        return np.array([], dtype=int)
+    diffs = np.diff(x)
+    pos_diffs = diffs[diffs > 0]
+    if pos_diffs.size == 0:
+        return np.array([], dtype=int)
+    typical_step = np.median(pos_diffs)
+    if typical_step <= 0:
+        return np.array([], dtype=int)
+    return np.where((diffs <= 0) | (diffs > gap_factor * typical_step))[0]
+
+
+def plot_training_distribution(
+    global_data: Dict[str, Any],
+    name: str = "",
+    log_transform: bool = True,
+    figsize: Optional[Tuple[float, float]] = None,
+) -> List[plt.Figure]:
+    """Diagnose the population that actually trained the mu +- z*sigma threshold.
+
+    Reads ``global_data["training_areas"]``/``["training_t_wins"]`` — the
+    exact windows used, populated by the runner regardless of whether the
+    source was ``training_intervals`` (``training_source="internal"``) or an
+    external ``reference_signal`` (``training_source="external_reference"``).
+    Unlike re-deriving a "stable" slice from ``training_intervals`` against
+    whatever signal is being plotted, this can never point at the wrong one.
+
+    ``figsize`` must match the actual (width, height) inches used by the
+    sibling figures in the caller's own figure set (default: this module's
+    own ``fig_size(scale=5.0)``). Callers with a *different* figure size —
+    e.g. green_integral_plots.py's plots_lyapunov, whose C1-C3/Ĝ panels use
+    ITS OWN ``fig_size(scale=3.0)`` (a same-named but differently-scaled
+    helper — passing a bare number here would silently use the wrong
+    formula) — must compute their own size and pass the tuple explicitly,
+    otherwise these two figures render at a visibly different size than the
+    rest of the set.
+
+    Returns two figures (empty list if there isn't enough trained data):
+
+    1. Histogram of the training population + the actual fitted Gaussian
+       (mu/sigma taken from ``global_data["area_mu_3sigma"]``, never
+       recomputed, so the curve always matches the real threshold).
+    2. The same values plotted as a curve (vs. their own time axis when
+       available, else sample index) — to visually verify the "roughly
+       Gaussian" assumption (trend, outliers) that fed the normal law.
+    """
+    thr = global_data.get("area_mu_3sigma") or {}
+    train_areas = np.asarray(global_data.get("training_areas", []), dtype=float)
+    train_t = np.asarray(global_data.get("training_t_wins", []), dtype=float)
+
+    valid = np.isfinite(train_areas) & (train_areas > 0)
+    if not thr or valid.sum() < 5 or not (float(thr.get("sigma", 0.0)) > 0):
+        return []
+
+    vals = np.log10(train_areas[valid]) if log_transform else train_areas[valid]
+    t_vals = train_t[valid] if train_t.shape == train_areas.shape else np.array([])
+
+    mu_h, std_h = float(thr["mu"]), float(thr["sigma"])
+    # Verify the plotted population is genuinely what trained the threshold
+    # above, not a stale/mismatched array: mu_h/std_h were derived by the
+    # runner FROM this exact `vals`, so recomputing them here must reproduce
+    # the same numbers. Catches a future regression silently decoupling the
+    # two (which is exactly the bug this function was written to fix).
+    assert np.isclose(float(np.mean(vals)), mu_h, rtol=1e-6, atol=1e-9), (
+        "plot_training_distribution: training_areas does not match the "
+        "population that trained area_mu_3sigma — mu mismatch"
+    )
+    assert np.isclose(float(np.std(vals, ddof=1)), std_h, rtol=1e-6, atol=1e-9), (
+        "plot_training_distribution: training_areas does not match the "
+        "population that trained area_mu_3sigma — sigma mismatch"
+    )
+    z = float(thr.get("z", 3.0))
+    hi = float(thr.get("upper", mu_h + z * std_h))
+    lo = float(thr.get("lower", mu_h - z * std_h))
+    z_lbl = f"{z:.0f}"
+    xlabel = r"$\log_{10}(A_k)$" if log_transform else r"$A_k$"
+    _figsize = figsize if figsize is not None else fig_size(scale=5.0)
+
+    figs: List[plt.Figure] = []
+
+    # ── Histogram + Gaussian PDF (mu/sigma from the real threshold) ────────
+    fig_h, ax_h = plt.subplots(figsize=_figsize)
+    ax_h.set_title(f"Training Area Distribution — {name}")
+    ax_h.set_xlabel(xlabel)
+    ax_h.set_ylabel("Density")
+    ax_h.hist(vals, bins=40, density=True, alpha=0.55, color=color_azul,
+              label=f"Training pop. (n={len(vals)})")
+    xs = np.linspace(mu_h - 4 * std_h, mu_h + 4 * std_h, 300)
+    ax_h.plot(xs, _scipy_norm.pdf(xs, mu_h, std_h), color=color_azul, lw=1.8,
+              label=rf"$\mathcal{{N}}(\mu={mu_h:.3g},\,\sigma={std_h:.3g})$")
+    ax_h.axvline(mu_h, color=color_verde, ls="-", lw=1.4)
+    ax_h.axvline(hi, color=color_red, ls="--", lw=1.4, label=rf"$\mu+{z_lbl}\sigma$")
+    ax_h.axvline(lo, color=color_red, ls=":", lw=1.2, label=rf"$\mu-{z_lbl}\sigma$")
+    ax_h.legend()
+    fig_h.tight_layout()
+    figs.append(fig_h)
+
+    # ── Curve: same values, in the order used to fit the normal law ────────
+    fig_c, ax_c = plt.subplots(figsize=_figsize)
+    ax_c.set_title(f"Training Curve — normal-law input — {name}")
+    if t_vals.size == vals.size:
+        x_axis, ax_c_xlabel = t_vals, "Time [s]"
+    else:
+        x_axis, ax_c_xlabel = np.arange(len(vals)), "Sample index"
+    ax_c.set_xlabel(ax_c_xlabel)
+    ax_c.set_ylabel(xlabel)
+
+    # The pool concatenates isolated pieces (external reference_signal) or
+    # non-contiguous training_intervals sub-bands — a plain line would draw
+    # a straight segment connecting the end of one piece/sub-band to the
+    # start of the next, which represents nothing real. Break the line
+    # (insert a NaN) wherever the time axis jumps or resets instead of
+    # advancing by its normal per-window step, and lightly shade alternating
+    # segments so each piece/sub-band is visible at a glance.
+    if ax_c_xlabel == "Time [s]":
+        gap_idx = _find_time_gaps(x_axis)
+    else:
+        gap_idx = np.array([], dtype=int)
+
+    if gap_idx.size:
+        seg_bounds = [0] + (gap_idx + 1).tolist() + [len(x_axis)]
+        for seg_i in range(0, len(seg_bounds) - 1, 2):
+            # NOTE: named seg_lo/seg_hi, not lo/hi -- those names are the
+            # outer mu-z*sigma/mu+z*sigma threshold values used below for the
+            # axhlines; reusing them here previously clobbered them with
+            # array-index integers, corrupting the whole plot's Y scale.
+            seg_lo, seg_hi = seg_bounds[seg_i], seg_bounds[seg_i + 1] - 1
+            if seg_hi >= seg_lo:
+                ax_c.axvspan(x_axis[seg_lo], x_axis[seg_hi], color=color_azul, alpha=0.06, lw=0)
+        x_plot = np.insert(x_axis.astype(float), gap_idx + 1, np.nan)
+        y_plot = np.insert(vals.astype(float), gap_idx + 1, np.nan)
+    else:
+        x_plot, y_plot = x_axis, vals
+
+    ax_c.plot(x_plot, y_plot, color=color_azul, lw=1.0, marker="o", markersize=2,
+              label=f"Training pop. (n={len(vals)})")
+    ax_c.axhline(mu_h, color=color_verde, ls="-", lw=1.4, label=rf"$\mu={mu_h:.3g}$")
+    ax_c.axhline(hi, color=color_red, ls="--", lw=1.4, label=rf"$\mu+{z_lbl}\sigma={hi:.3g}$")
+    ax_c.axhline(lo, color=color_red, ls=":", lw=1.2, label=rf"$\mu-{z_lbl}\sigma={lo:.3g}$")
+    ax_c.legend()
+    fig_c.tight_layout()
+    figs.append(fig_c)
+
+    return figs

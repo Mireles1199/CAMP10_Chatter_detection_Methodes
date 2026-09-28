@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import statistics
+from dataclasses import replace
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
@@ -36,6 +37,7 @@ _DEFAULT_PARAMS: Dict[str, Any] = {
     "frac_stable": 0.30,
     "stable_time": None,
     "z_sigma": 3.0,
+    "reference_signal": None,
     "debug_level": 0,
     "debug_window_range": (0, None),
     "save_figures_windows": False,
@@ -122,6 +124,8 @@ def _green_integral_pipeline(
 
     agrupamiento, delta_mediana = build_cycle_groups(windows_results)
 
+    training_source = "external_reference" if config.reference_signal is not None else "internal"
+
     global_data = {
         "q_signal": q.tolist(),
         "q_o_signal": q_o.tolist(),
@@ -129,15 +133,17 @@ def _green_integral_pipeline(
         "type_signal": "Area",
         "type_method": "GreenIntegral",
         "use_area_threshold": bool(config.use_area_threshold),
+        "training_source": training_source,
     }
 
     # ---- mu +- 3*sigma area threshold (optional) --------------------------
     t_d_detected: Optional[float] = None
     # Only compute μ±zσ area threshold when the user explicitly enabled
-    # `use_area_threshold` AND provided `training_intervals`.  If
-    # `training_intervals` is omitted we skip the area-threshold branch to
+    # `use_area_threshold` AND provided a training source (`reference_signal`
+    # or `training_intervals`).  If neither is given we skip the branch to
     # avoid inferring a training region automatically.
-    if config.use_area_threshold and config.training_intervals is not None and len(windows_results) >= 3:
+    has_training_source = config.reference_signal is not None or config.training_intervals is not None
+    if config.use_area_threshold and has_training_source and len(windows_results) >= 3:
         raw_areas = np.array(
             [dw.get("center_area_value") or dw.get("median_area") or np.nan
              for dw in windows_results],
@@ -147,32 +153,98 @@ def _green_integral_pipeline(
             [dw["indicadores"]["t_n"] for dw in windows_results],
             dtype=float,
         )
-        stab = _select_stable_mask(
-            t_wins_gi, config.training_intervals,
-            config.stable_time, config.frac_stable,
-        )
         valid_mask = np.isfinite(raw_areas) & (raw_areas > 0)
-        stab_valid = stab & valid_mask
-        if stab_valid.sum() >= 3:
-            mu = float(np.mean(raw_areas[stab_valid]))
-            sigma_v = float(np.std(raw_areas[stab_valid], ddof=1))
+
+        if config.reference_signal is not None:
+            if config.training_intervals is not None or config.stable_time is not None:
+                logger.warning(
+                    "Both 'reference_signal' and internal training selectors "
+                    "(training_intervals/stable_time) were provided; "
+                    "reference_signal takes priority."
+                )
+            # Run the same windowing pipeline over EACH reference piece
+            # separately (never concatenate the raw signals first — a window
+            # straddling the seam between two stitched pieces would mix
+            # windows from unrelated cases) and pool only the resulting
+            # per-window areas/times across all pieces.
+            ref_pieces = (
+                config.reference_signal if isinstance(config.reference_signal, list)
+                else [config.reference_signal]
+            )
+            ref_config = replace(
+                config, reference_signal=None, use_area_threshold=False, debug_level=0,
+            )
+            train_areas_parts: List[np.ndarray] = []
+            train_t_wins_parts: List[np.ndarray] = []
+            piece_window_counts: List[int] = []
+            for piece in ref_pieces:
+                ref_result = _green_integral_pipeline(piece, ref_config)
+                raw_areas_piece = np.array(
+                    [dw.get("center_area_value") or dw.get("median_area") or np.nan
+                     for dw in ref_result.data_window],
+                    dtype=float,
+                )
+                t_wins_piece = np.array(
+                    [dw["indicadores"]["t_n"] for dw in ref_result.data_window],
+                    dtype=float,
+                )
+                valid_piece = np.isfinite(raw_areas_piece) & (raw_areas_piece > 0)
+                n_valid = int(valid_piece.sum())
+                piece_window_counts.append(n_valid)
+                if n_valid == 0:
+                    logger.warning(
+                        "reference_signal piece %r produced 0 valid windows "
+                        "(shorter than one window?), skipped.",
+                        getattr(piece, "name", "?"),
+                    )
+                    continue
+                train_areas_parts.append(raw_areas_piece[valid_piece])
+                train_t_wins_parts.append(t_wins_piece[valid_piece])
+
+            train_areas = (
+                np.concatenate(train_areas_parts) if train_areas_parts else np.array([])
+            )
+            train_t_wins = (
+                np.concatenate(train_t_wins_parts) if train_t_wins_parts else np.array([])
+            )
+            det_mask = valid_mask
+            global_data["reference_n_pieces"] = len(ref_pieces)
+            global_data["reference_piece_window_counts"] = piece_window_counts
+        else:
+            stab = _select_stable_mask(
+                t_wins_gi, config.training_intervals,
+                config.stable_time, config.frac_stable,
+            )
+            train_areas = raw_areas[stab & valid_mask]
+            train_t_wins = t_wins_gi[stab & valid_mask]
+            det_mask = ~stab & valid_mask
+
+        if train_areas.size >= 3:
+            mu = float(np.mean(train_areas))
+            sigma_v = float(np.std(train_areas, ddof=1))
             upper = mu + config.z_sigma * sigma_v
             lower = max(0.0, mu - config.z_sigma * sigma_v)
             global_data["area_mu_3sigma"] = {
                 "mu": mu, "sigma": sigma_v,
                 "upper": upper, "lower": lower, "z": config.z_sigma,
             }
-            det_idx = np.where(~stab & valid_mask & (raw_areas > upper))[0]
+            # Exact population that trained the threshold above — used by
+            # plots.plot_training_distribution() so the histogram/curve always
+            # matches training_source, instead of being re-derived (possibly
+            # against the wrong signal) from training_intervals at plot time.
+            global_data["training_areas"] = train_areas
+            global_data["training_t_wins"] = train_t_wins
+            det_idx = np.where(det_mask & (raw_areas > upper))[0]
             if det_idx.size > 0:
                 t_d_detected = float(t_wins_gi[det_idx[0]])
             logger.info(
-                "Area threshold: mu=%.4g, sigma=%.4g, upper=%.4g | t_d=%s",
-                mu, sigma_v, upper, t_d_detected,
+                "Area threshold (%s): mu=%.4g, sigma=%.4g, upper=%.4g | t_d=%s",
+                training_source, mu, sigma_v, upper, t_d_detected,
             )
         else:
             logger.warning(
-                "Area threshold: not enough stable windows (%d < 3), skipped.",
-                stab_valid.sum(),
+                "Area threshold: not enough training windows (%d < 3), skipped.",
+                train_areas.size,
             )
 
     logger.info("-" * 60)
