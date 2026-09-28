@@ -553,6 +553,31 @@ def plots_maxent_sprt(
     # THEORY / DIAGNOSTIC HELPERS  (D3, D6, D7, D8, D9, H+Sk joint)
     # ──────────────────────────────────────────────────────────────────
 
+    def _nan_split(t, x, piece_sizes):
+        """Insert a NaN gap between consecutive pieces in a flat concatenated
+        (t, x) view, so a line plot breaks at the seam instead of connecting
+        the end of one physically-disjoint piece (e.g. one DOE case) to the
+        start of the next. Matplotlib skips NaN samples on its own -- no other
+        plotting logic needs to change. A no-op when there's 0-1 pieces (single
+        continuous signal, e.g. the internal/legacy-cut path), which keeps
+        that case pixel-identical to before this helper existed.
+        """
+        if t is None or x is None or not piece_sizes or len(piece_sizes) <= 1:
+            return t, x
+        t = np.asarray(t, dtype=float)
+        x = np.asarray(x, dtype=float)
+        idx = np.cumsum(piece_sizes)[:-1]
+        if idx.size == 0 or idx[-1] > len(t):
+            return t, x
+        t_parts = np.split(t, idx)
+        x_parts = np.split(x, idx)
+        t_out = [t_parts[0]]
+        x_out = [x_parts[0]]
+        for tp, xp in zip(t_parts[1:], x_parts[1:]):
+            t_out.append([np.nan]); x_out.append([np.nan])
+            t_out.append(tp); x_out.append(xp)
+        return np.concatenate(t_out), np.concatenate(x_out)
+
     def _shade_intervals_local(ax, training_intervals, alpha_bg=0.06):
         """Tint axis background by training-interval label (stable=blue, chatter=orange)."""
         if training_intervals is None:
@@ -1257,11 +1282,25 @@ def plots_maxent_sprt(
     # OFFLINE / TRAINING FIGURES (F0–F7)
     # ══════════════════════════════════════════════════════════════════
 
+    # ── Piece-gap views for F0/F1/F2/F3/F6 only: when training data comes from
+    # several physically-disjoint pieces (reference_signal pieces or multiple
+    # training_intervals of the same label), a plain line plot over the flat
+    # concatenated arrays would draw a straight line across the seam between
+    # two unrelated pieces. Splice a NaN at each piece boundary so the line
+    # breaks there instead -- display only, H_free/H_chat/t_mid_free/t_mid_chat
+    # themselves (used for the F4/F5/F7 fit histograms) are untouched.
+    _t_stable_g,  _sig_stable_g  = _nan_split(t_stable,  signal_analysis_stable,  meta.get("stable_piece_sizes"))
+    _t_chatter_g, _sig_chatter_g = _nan_split(t_chatter, signal_analysis_chatter, meta.get("chatter_piece_sizes"))
+    _t_opr_free_g, _opr_free_g   = _nan_split(t_opr_free, opr_free, meta.get("opr_free_piece_sizes"))
+    _t_opr_chat_g, _opr_chat_g   = _nan_split(t_opr_chat, opr_chat, meta.get("opr_chat_piece_sizes"))
+    _t_mid_free_g, _H_free_g     = _nan_split(t_mid_free, H_free, meta.get("n_windows_per_piece_free"))
+    _t_mid_chat_g, _H_chat_g     = _nan_split(t_mid_chat, H_chat, meta.get("n_windows_per_piece_chat"))
+
     # F0 — Verification: raw signal that actually fed the P0/P1 Gaussian fit
     # (internal cut or reference_signal[_chatter] — see meta["training_source"]).
     fig_F0, axes_F0 = _plot_opr_dual_figure(
-        t_stable, signal_analysis_stable, None, None,
-        t_chatter, signal_analysis_chatter, None, None,
+        _t_stable_g, _sig_stable_g, None, None,
+        _t_chatter_g, _sig_chatter_g, None, None,
         main_title="F0 — Training Signal Used for P0/P1 Fit",
         vlines=None,  # t_gt/t_d markers belong to the online timeline, not necessarily this one
         scale=scale,
@@ -1270,7 +1309,7 @@ def plots_maxent_sprt(
 
     # F1 — Training entropy: stable
     fig_F1, ax_F1 = _plot_H_time_segment(
-        t_mid_free, H_free, color=color_azul,
+        _t_mid_free_g, _H_free_g, color=color_azul,
         title="Training Entropy — Stable Segments",
         fig_label="F1 — Training Entropy: Stable Segments",
         **kw,
@@ -1303,7 +1342,7 @@ def plots_maxent_sprt(
 
     # F2 — Training entropy: chatter
     fig_F2, ax_F2 = _plot_H_time_segment(
-        t_mid_chat, H_chat, color=color_orange,
+        _t_mid_chat_g, _H_chat_g, color=color_orange,
         title="Training Entropy — Chatter Segments",
         fig_label="F2 — Training Entropy: Chatter Segments",
         **kw,
@@ -1343,11 +1382,11 @@ def plots_maxent_sprt(
         figsize=fig_size(scale=scale, ncols=1),
         num="F3 — Training Entropy: All Labels",
     )
-    if t_mid_free is not None and H_free is not None:
-        ax_F3.plot(t_mid_free, H_free, color=color_azul,   lw=1.2,
+    if _t_mid_free_g is not None and _H_free_g is not None:
+        ax_F3.plot(_t_mid_free_g, _H_free_g, color=color_azul,   lw=1.2,
                    marker='o', markersize=2, label="Stable")
-    if t_mid_chat is not None and H_chat is not None:
-        ax_F3.plot(t_mid_chat, H_chat, color=color_orange, lw=1.2,
+    if _t_mid_chat_g is not None and _H_chat_g is not None:
+        ax_F3.plot(_t_mid_chat_g, _H_chat_g, color=color_orange, lw=1.2,
                    marker='o', markersize=2, label="Chatter")
     # t_gt/t_d markers reference the online analyzed-signal timeline: only draw
     # them here when BOTH curves actually live on that same timeline (internal).
@@ -1439,8 +1478,8 @@ def plots_maxent_sprt(
     if chatter_source != "internal":
         _kw_auto_f6["vlines"] = None
     fig_F6, axes_F6 = _plot_opr_dual_figure(
-        t_stable, signal_analysis_stable, t_opr_free, opr_free,
-        t_chatter, signal_analysis_chatter, t_opr_chat, opr_chat,
+        _t_stable_g, _sig_stable_g, _t_opr_free_g, _opr_free_g,
+        _t_chatter_g, _sig_chatter_g, _t_opr_chat_g, _opr_chat_g,
         main_title="F6 — Signal + OPR Sampling (Training)",
         fig_label="F6 — Signal + OPR Sampling (Training)",
         **_kw_auto_f6,

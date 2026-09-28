@@ -776,6 +776,15 @@ def _maxent_sprt_pipeline(
                                   else (1 if reference_signal_chatter is not None else 0),
             "n_windows_per_piece_free": detector.n_windows_free,
             "n_windows_per_piece_chat": detector.n_windows_chat,
+            # Raw/OPR sample counts per piece, in the same order as the flat
+            # concatenated "t_stable"/"signal_analysis_stable"/"t_opr_free"/
+            # "opr_free" (etc.) views below -- lets the plotting layer insert a
+            # gap between pieces without re-deriving piece boundaries or
+            # touching the concatenated arrays themselves.
+            "stable_piece_sizes": [x.size for _, x, _ in stable_pieces],
+            "chatter_piece_sizes": [x.size for _, x, _ in chatter_pieces],
+            "opr_free_piece_sizes": [a.size for a in opr_free] if opr_free is not None else None,
+            "opr_chat_piece_sizes": [a.size for a in opr_chat] if opr_chat is not None else None,
             "ratio_sampling": ratio_sampling,
             "use_sprt": use_sprt,
             "H_threshold_used": _H_thr_used,

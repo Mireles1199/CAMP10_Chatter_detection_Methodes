@@ -119,7 +119,7 @@ def _load_reference_pieces(h5_path: str, label: str, channel: str) -> list[Signa
     return out
 
 
-def _log_config_summary(result, fr: float, t_stable_total: float) -> None:
+def _log_config_summary(result, fr: float, t_stable_total: float | None) -> None:
     """INFO-level structured summary of the config actually used to run the pipeline."""
     if not logger.isEnabledFor(logging.INFO):
         return
@@ -143,7 +143,7 @@ def _log_config_summary(result, fr: float, t_stable_total: float) -> None:
         _kv("Chatter source (P1/unstable)", meta.get("chatter_source", "internal")),
         _kv("Segmentacion", meta.get("segmentation", "opr")),
         _sep(),
-        _kv("t_stable_total", f"{t_stable_total:.4f} s"),
+        _kv("t_stable_total", f"{t_stable_total:.4f} s" if t_stable_total is not None else "n/a (unused -- both sides external_reference)"),
         _kv("alpha / beta", f"{meta['alpha']} / {meta['beta']}"),
         _sep(),
     ]
@@ -300,12 +300,21 @@ def main() -> None:
             r"\4\1DOF_150Hz\sens_out.hdf5"
         ),
 
+        "tubo_stable_8_605e_5" : (
+            r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
+            r"\Chatter-Criteria\CAMP10_Chatter_detection_Methodes"
+            r"\Convergency_Simulation\1_Detection_Limite_Lobes"
+            r"\DOE_Detection_Limite_Lobes_dxl_20e-5_RUN_10"
+            r"\6\1DOF_150Hz\sens_out.hdf5"
+        ),
+
+
 
     }
 
     # See COMMON_TEMPLATE.md §11 -- forma estándar de declarar el origen de la señal.
     _SIGNAL_SOURCE = {
-        "hdf5_path": _DATA_DIRS["tubo_stable_6_88e_5"],
+        "hdf5_path": _DATA_DIRS["tubo_stable_8_605e_5"],
         "case_name": None,  # None (layout crudo) | "case_003" (layout DOE)
         "disp_name": "Axial_disp",
         "vel_name": "Axial_vel",
@@ -355,7 +364,8 @@ def main() -> None:
 
     # alpha = beta = norm.sf(3.0) ≈ 0.00135  →  equivalent to z=3 sigma (same FAR as RMS-CV and SSQ)
     _Z3_ALPHA = 0.00135
-    _T_GT = 5.365770208787228  # [s] ground-truth chatter onset
+    # _T_GT = 5.365770208787228  # [s] ground-truth chatter onset
+    _T_GT = None
 
     _COMMON = {
         "t_stable_total": _T_GT,  # legacy fallback (used if training_intervals=None)
