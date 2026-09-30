@@ -2,9 +2,12 @@
 
 Differences from the standard green_integral indicator:
 
-* **No zero-crossing detection** — windows have a constant duration of
-  ``num_T × T_modal`` seconds, exactly as specified.
 * **No clustering** — one shoelace area per window, no cross-window grouping.
+* **Zero-crossing cycle detection IS used** — windows have a constant
+  duration of ``num_T × T_modal`` seconds, but the area of each window can
+  still be normalized by the number of complete zero-crossing cycles found
+  inside it (``use_zero_crossing_cycles``, ``zc_detrend``, ``v_cycle_mode``,
+  ``use_beta_from_cycles``, ``cycle_area_norm`` — see :class:`LyapunovConfig`).
 * **Lyapunov exponent** σ̂ estimated from consecutive log-area ratios or a
   local linear fit (frozen-time mode).
 * **Optional EWMA smoothing** of σ̂ (set ``lambda_ewma`` to a float ∈ (0,1];
@@ -14,8 +17,14 @@ Differences from the standard green_integral indicator:
 
 Decision rule
 -------------
-    σ̂ > 0   →  chatter (orbit growing)
-    Ĝ > 0   →  chatter confirmed (accumulated evidence, if enabled)
+The automatic detection time ``t_d`` comes ONLY from the μ ± zσ threshold on
+``log10(area)`` — computed only when ``use_area_threshold=True`` and a
+training source is given (``reference_signal`` or ``training_intervals``;
+see ``global_data["area_mu_3sigma"]``/``["training_source"]``).
+
+σ̂, σ̂_EWMA and Ĝ are **diagnostics only** — they do not produce ``t_d``:
+    σ̂ > 0   →  orbit growing (area increasing)
+    Ĝ > 0   →  sustained growth (accumulated evidence, if enabled)
 """
 
 from __future__ import annotations
@@ -167,7 +176,7 @@ def _estimate_sigma(
     Parameters
     ----------
     areas   : per-window shoelace areas (positive floats).
-    t_wins  : window start times.
+    t_wins  : window end times.
     T_window : window duration = num_T * T_modal [s].
     eps     : minimum valid area threshold.
     method  : ``"ratio"`` or ``"frozen_time"``.
@@ -179,17 +188,27 @@ def _estimate_sigma(
 
     Notes
     -----
-    ``A_k ∝ ‖δx_k‖² ∝ exp(2σ k T_window)``
-    → slope of ln(A) vs k*T_window = 2σ
-    → σ̂ = Δln(A) / (2 T_window)
+    ``A(t) ∝ ‖δx(t)‖² ∝ exp(2σt)``
+    → slope of ln(A) vs t = 2σ
+    → σ̂_k = Δln(A_k) / (2 Δt_k), Δt_k = t_wins[k] - t_wins[k-1]
+
+    ``Δt_k`` is the time between consecutive window ENDS, i.e. the hop
+    between windows -- equal to ``T_window`` only when windows are
+    contiguous (hop == window length). With a smaller hop (e.g.
+    ``by_revolution`` windowing with ``step_rev < N_rev_window``), using
+    ``T_window`` instead of the real ``Δt_k`` underestimates σ̂ by a factor
+    of ``T_window / hop``.
     """
     A = np.where(areas > eps, areas, np.nan)
     sigma = np.full(len(A), np.nan)
 
     if method.strip().lower() == "ratio":
         log_A = np.log(A)
-        # σ̂_k = (ln A_k - ln A_{k-1}) / (2 * T_window)
-        sigma[1:] = (log_A[1:] - log_A[:-1]) / (2.0 * T_window)
+        # σ̂_k = (ln A_k - ln A_{k-1}) / (2 * Δt_k) -- Δt_k = t_wins[k] - t_wins[k-1],
+        # NOT 2*T_window (see Notes above).
+        dt = np.diff(t_wins)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            sigma[1:] = np.where(dt > 0, (log_A[1:] - log_A[:-1]) / (2.0 * dt), np.nan)
 
     else:  # frozen_time
         n_local = max(3, int(local_n))
@@ -257,7 +276,7 @@ def _integrate_G_sliding(
     Parameters
     ----------
     sigma_ewma : smoothed Lyapunov exponent array.
-    t_wins     : window start times.
+    t_wins     : window end times.
     T_memory   : width of the sliding integration window [s].
 
     Returns
@@ -416,6 +435,19 @@ def _lyapunov_pipeline(
     config: LyapunovConfig,
 ) -> LyapunovResult:
     """Lyapunov indicator pipeline."""
+
+    if config.cycle_area_norm in ("mean", "median") and not config.use_beta_from_cycles:
+        logger.warning(
+            "cycle_area_norm=%r with use_beta_from_cycles=False is an incoherent "
+            "combination: 'mean' divides the FULL window's area by the number of "
+            "complete cycles found (which varies +-1 with phase, reintroducing the "
+            "25-33%% area jumps beta=True is meant to remove), and 'median' ignores "
+            "the full window entirely and uses only complete cycles -- the opposite "
+            "of what use_beta_from_cycles=False asks for. With beta=False the "
+            "coherent choice is cycle_area_norm='none' (the fixed window duration "
+            "already fixes the angle swept, no cycle-count normalization needed).",
+            config.cycle_area_norm,
+        )
 
     t   = np.asarray(signal.t,            dtype=float)
     q   = np.asarray(signal.displacement, dtype=float)

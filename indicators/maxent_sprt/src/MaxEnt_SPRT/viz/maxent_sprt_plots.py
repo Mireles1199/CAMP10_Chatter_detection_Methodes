@@ -1,6 +1,8 @@
 # ========= Imports =========
 from __future__ import annotations
 import matplotlib.pyplot as plt
+_MPL_PLT = plt  # unshadowed alias -- see plots_maxent_sprt's per-call `plt` shadow
+from pathlib import Path
 from typing import Dict, Any, Sequence, Optional
 
 import numpy as np
@@ -9,109 +11,33 @@ import matplotlib.patches as _mpatches
 
 from ..utils.types import IndicatorResult, SignalData
 
-import colorsys
+from .plot_style import (
+    ARTICLE_RCPARAMS, FIGSIZE_SIMPLE, FIGSIZE_WIDE, SCALE,
+    COLORS, figsize_grid, figsize_from_scale, apply_sci_yaxis,
+)
 
-r, g, b = colorsys.hls_to_rgb(346/360, 0.45, 0.99)
-color_red = (r, g, b)
-
-# Orange
-r, g, b = colorsys.hls_to_rgb(36/360, 0.45, 0.99)
-color_orange = (r, g, b)
-
-# Purple
-r, g, b = colorsys.hls_to_rgb(279/360, 0.36, 0.99)
-color_purple = (r, g, b)
-
-
-# Verde
-r, g, b = colorsys.hls_to_rgb(98/360, 0.36, 0.99)
-color_verde = (r, g, b)
-
-# Azul
-r, g, b = colorsys.hls_to_rgb(206.957/360, 0.40941, 0.55603)
-color_azul = (r, g, b)
+# Alias hacia la paleta compartida (article-plot-style, Okabe-Ito) -- se
+# mantienen estos nombres para no tocar los ~40 call-sites de este archivo.
+color_red    = COLORS["threshold"]
+color_orange = COLORS["chatter"]
+color_purple = COLORS["accent_purple"]
+color_verde  = COLORS["accent_green"]
+color_azul   = COLORS["stable"]
 
 
+def fig_size(scale=1.0, ncols=1, nrows=1, base_width=None):
+    """Compat shim: article-plot-style preset scaled, grid-generalized.
 
-def fig_size(scale=1.0, ncols=1, base_width=3.4):
+    ``base_width`` is accepted but ignored (kept only so old call sites with
+    a positional/keyword base_width don't break) -- FIGSIZE_SIMPLE's width
+    is now the single source of truth for 1 column.
     """
-    Compute a figure size scaled from a nominal single-column width.
+    return figsize_from_scale(figsize_grid(ncols, nrows), scale)
 
-    :param scale: Global multiplicative scale factor applied to the width and height.
-    :param ncols: Number of nominal columns spanned by the figure.
-    :param base_width: Reference width in inches for one column.
-
-    Returns:
-        tuple[float, float]: Figure width and height in inches.
-    """
-    width = base_width * ncols * scale
-    height = width * 0.7   # relación agradable
-    return (width, height)
 
 def configurar_estilo_global() -> None:
-    """
-    Apply the package-wide Matplotlib style for diagnostic figures.
-
-    Returns:
-        None: The function updates ``matplotlib.rcParams`` in-place.
-    """
-    # plt.style.use('dark_background')
-
-    local_style = {
-        # Tipografía general
-        'font.family': 'serif',
-        'font.size': 9,
-
-        # Tamaños de títulos y etiquetas
-        'axes.titlesize': 25,
-        'axes.labelsize': 25,
-        'xtick.labelsize': 23,
-        'ytick.labelsize': 23,
-        'legend.fontsize': 23,
-
-        # Estética de líneas
-        'lines.linewidth': 1.25,
-        'lines.markersize': 6,
-
-        # Bordes y ejes
-        'axes.linewidth': 0.8,
-        'grid.linewidth': 0.5,
-
-        # Ticks
-        'xtick.major.width': 0.8,
-        'ytick.major.width': 0.8,
-        'xtick.direction': 'in',
-        'ytick.direction': 'in',
-        'xtick.major.size': 4,
-        'ytick.major.size': 4,
-        'xtick.minor.size': 2.5,
-        'ytick.minor.size': 2.5,
-        'xtick.minor.width': 0.6,
-        'ytick.minor.width': 0.6,
-
-        # Texto matemático
-        'mathtext.fontset': 'stix',
-        'axes.formatter.use_mathtext': True,
-
-        # Leyenda
-        'legend.frameon': False,
-        'legend.loc': 'best',
-        'legend.handlelength': 2.0,
-        'legend.borderaxespad': 0.5,
-
-        # Exportación
-        'figure.dpi': 100,
-        'savefig.dpi': 300,
-        'savefig.bbox': 'tight',
-        'savefig.pad_inches': 0.02,
-        'savefig.transparent': True,
-
-        # Fondo
-        'figure.facecolor': 'white',
-        'axes.facecolor': 'white',
-        }
-
-    plt.rcParams.update(local_style)
+    """Apply the shared article-style rcParams (see plot_style.py)."""
+    plt.rcParams.update(ARTICLE_RCPARAMS)
 
 
 def plots_maxent_sprt(
@@ -124,6 +50,10 @@ def plots_maxent_sprt(
     vlines: Optional[Sequence[float]] = None,
     hlines: Optional[Sequence[float]] = None,
     t_gt: Optional[float] = None,
+    scale: float = SCALE,
+    figsize_simple: tuple[float, float] = FIGSIZE_SIMPLE,
+    figsize_wide: tuple[float, float] = FIGSIZE_WIDE,
+    grid_scale: Optional[float] = None,
 
 ) -> plt.Figure:
     """
@@ -147,6 +77,50 @@ def plots_maxent_sprt(
         plt.Figure: Final Matplotlib figure object associated with the last plot
         created by the routine.
     """
+    # Shadow the module-level preset/shim -- every nested closure below refers
+    # to `FIGSIZE_SIMPLE`/`fig_size` as a free variable, so this local redefinition
+    # (Python closure scoping) is enough to honor a per-call override without
+    # touching each of the ~40 individual `fig_size(...)` call sites.
+    FIGSIZE_SIMPLE = figsize_simple
+    FIGSIZE_WIDE = figsize_wide
+    # Per-case grid figures (F0a/F0b/F1/F2/F6a/F6b) can pack many square cells
+    # into one figure -- independent from `scale` so grids can be sized up
+    # without also inflating every single-panel figure. Defaults to `scale`
+    # (unchanged behavior) unless the caller passes its own value.
+    if grid_scale is None:
+        grid_scale = scale
+
+    # ── Case identifier -- every figure this call creates is tagged with it,
+    # both in its window identity (num=) and its visible title. Without this,
+    # every call reuses the SAME fixed num= strings ("F0a — ...", "D7 — ...",
+    # etc.), so calling this dispatcher again for a DIFFERENT case/signal in
+    # the same process (e.g. a DOE loop comparing many cases) silently
+    # overwrites the previous case's windows instead of opening new ones.
+    # Window identity only -- visible titles stay generic (curve name only,
+    # no case), so a saved/exported figure reads cleanly on its own.
+    _case_id = None
+    if signal is not None:
+        _case_id = (signal.meta or {}).get("signal_id")
+        if not _case_id and signal.path:
+            _case_id = Path(signal.path).stem
+    _case_id = _case_id or "signal"
+
+    _real_plt = _MPL_PLT
+
+    class _PltShadow:
+        @staticmethod
+        def subplots(*_args, num=None, **_kwargs):
+            if num is not None:
+                num = f"{num} — {_case_id}"
+            return _real_plt.subplots(*_args, num=num, **_kwargs)
+
+        def __getattr__(self, _name):
+            return getattr(_real_plt, _name)
+
+    plt = _PltShadow()
+
+    def fig_size(scale=1.0, ncols=1, nrows=1, base_width=None):
+        return figsize_from_scale(figsize_grid(ncols, nrows, base=FIGSIZE_SIMPLE), scale)
 
     def _plot_S_n(
         t_i, I, lim_sup: float, lim_inf: float,
@@ -161,9 +135,10 @@ def plots_maxent_sprt(
         **kwargs,
     ) -> tuple[plt.Figure, plt.Axes]:
         if size is None and scale is not None:
-            fig, ax = plt.subplots(figsize=fig_size(scale=scale, ncols=1), num=fig_label)
+            fig, ax = plt.subplots(figsize=fig_size(scale=scale, ncols=1),
+                                constrained_layout=True, num=fig_label)
         else:
-            fig, ax = plt.subplots(figsize=size, num=fig_label)
+            fig, ax = plt.subplots(figsize=size, constrained_layout=True, num=fig_label)
 
         ax.plot(t_i, I, label=r"$S_k$", marker='o', color=color_purple, markersize=1)
         ax.axhline(y=lim_sup, color=color_red,  linestyle='--', label=r"$b$ (chatter, $\alpha$)")
@@ -188,7 +163,7 @@ def plots_maxent_sprt(
                 ax.axhline(y=hy, color='gray', linestyle='--', alpha=0.7)
 
         # ── Scientific notation on y-axis ─────────────────────────────
-        ax.ticklabel_format(style="sci", axis="y", scilimits=(0, 0))
+        apply_sci_yaxis(ax)
 
         ax.set_title(title)
         ax.set_xlabel("time (s)")
@@ -213,7 +188,8 @@ def plots_maxent_sprt(
         **kwargs,
     ) -> tuple[plt.Figure, plt.Axes]:
         """Single entropy sequence vs time (for one region)."""
-        fig, ax = plt.subplots(figsize=fig_size(scale=scale, ncols=1), num=fig_label)
+        fig, ax = plt.subplots(figsize=fig_size(scale=scale, ncols=1),
+                                constrained_layout=True, num=fig_label)
         if t is not None and H is not None and len(t) > 0:
             ax.plot(t, H, marker='o', color=color)
         if zoom_x is not None:
@@ -227,7 +203,6 @@ def plots_maxent_sprt(
         ax.set_title(title)
         ax.set_xlabel("Time (s)")
         ax.set_ylabel("Entropy $H$")
-        plt.tight_layout()
         return fig, ax
 
     def _plot_H_time_one_segment(
@@ -249,7 +224,8 @@ def plots_maxent_sprt(
         - All H_free vs t_mid_free: light (alpha=0.25, no markers).
         - Label group (union of seg_ranges): full opacity + markers.
         """
-        fig, ax = plt.subplots(figsize=fig_size(scale=scale, ncols=1), num=fig_label)
+        fig, ax = plt.subplots(figsize=fig_size(scale=scale, ncols=1),
+                                constrained_layout=True, num=fig_label)
 
         # ── Full trace — faded background ─────────────────────────────────
         if t is not None and H is not None and len(t) > 0:
@@ -304,7 +280,6 @@ def plots_maxent_sprt(
         ax.set_xlabel("Time (s)")
         ax.set_ylabel("Entropy $H$")
         ax.legend()
-        plt.tight_layout()
         return fig, ax
 
     def _plot_H_time_all(
@@ -320,7 +295,8 @@ def plots_maxent_sprt(
         **kwargs,
     ) -> tuple[plt.Figure, plt.Axes]:
         """Full online entropy coloured by training_intervals (if given) or stable (blue) before t_split / chatter (orange) after."""
-        fig, ax = plt.subplots(figsize=fig_size(scale=scale, ncols=1), num=fig_label)
+        fig, ax = plt.subplots(figsize=fig_size(scale=scale, ncols=1),
+                                constrained_layout=True, num=fig_label)
         H_arr = np.asarray(H) if H is not None else np.array([])
         if t is not None and H_arr.size > 0:
             if training_intervals is not None and len(training_intervals) > 0:
@@ -386,7 +362,8 @@ def plots_maxent_sprt(
         **kwargs,
     ) -> tuple[plt.Figure, plt.Axes]:
         """Histogram of H_data with fitted Gaussian PDF and ±1σ/±2σ/±3σ lines."""
-        fig, ax = plt.subplots(figsize=fig_size(scale=scale, ncols=1), num=fig_label)
+        fig, ax = plt.subplots(figsize=fig_size(scale=scale, ncols=1),
+                                constrained_layout=True, num=fig_label)
         if H_data is not None and len(H_data) > 0:
             ax.hist(H_data, density=True, alpha=0.5, color=color_hist, bins=50,
                      label="Histogram")
@@ -445,7 +422,8 @@ def plots_maxent_sprt(
         full bars.
         - Combined Gaussian PDF (P0 or P1) + mu/sigma lines always on top.
         """
-        fig, ax = plt.subplots(figsize=fig_size(scale=scale, ncols=1), num=fig_label)
+        fig, ax = plt.subplots(figsize=fig_size(scale=scale, ncols=1),
+                                constrained_layout=True, num=fig_label)
 
         if H_data is not None and len(H_data) > 0:
             n_bins = 50
@@ -508,46 +486,95 @@ def plots_maxent_sprt(
         ax.legend()
         return fig, ax
 
-    def _plot_opr_dual_figure(
-        t_free, v_free, t_opr_free, opr_free,
-        t_chat, v_chat, t_opr_chat, opr_chat,
-        main_title: str = "Signal + OPR",
+    def _plot_pieces_grid(
+        t, v, piece_sizes,
+        t_opr, v_opr, opr_piece_sizes,
+        color: str, label: str, title: str,
         zoom_x=None, zoom_y=None,
         vlines=None, hlines=None,
         scale: float = 1.0,
         fig_label: Optional[str] = None,
-        **kwargs,
-    ) -> tuple[plt.Figure, tuple]:
-        """Two stacked subplots (rows): stable signal+OPR (top) and chatter signal+OPR (bottom)."""
-        w, h = fig_size(scale=scale, ncols=1)
-        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(w, h * 1.0),
-                                       constrained_layout=True, num=fig_label)
-        fig.suptitle(main_title, y=1.01)
-        data_pairs = [
-            (ax1, t_free, v_free, t_opr_free, opr_free,
-             color_azul, "Stable Signal", "Stable OPR", False),
-            (ax2, t_chat, v_chat, t_opr_chat, opr_chat,
-             color_orange, "Chatter Signal", "Chatter OPR", True),
-        ]
-        for ax, t_sig, v_sig, t_opr, v_opr, col_sig, lbl_sig, lbl_opr, draw_vlines in data_pairs:
-            if t_sig is not None and v_sig is not None and len(t_sig) > 0:
-                ax.plot(t_sig, v_sig, color=col_sig, alpha=0.9, label=lbl_sig)
-            if t_opr is not None and v_opr is not None and len(t_opr) > 0:
-                ax.scatter(t_opr, v_opr, color=color_red, s=7, zorder=5, label=lbl_opr)
+        ylabel: str = r"Velocity $v(t)$ [m/s]",
+    ) -> tuple[plt.Figure, np.ndarray]:
+        """Grid of square subplots, one per training piece (stable OR chatter --
+        call once per side, never mixed). Each piece is a physically-disjoint
+        case (e.g. a separate DOE reference_signal entry): plotting them apart
+        instead of one concatenated strip (the old NaN-gap view) makes every
+        case individually legible. Falls back to a single full-size panel when
+        there's <=1 piece -- nothing to break apart (internal/legacy-cut path).
+        """
+        t = np.asarray(t, dtype=float) if t is not None else np.array([])
+        v = np.asarray(v, dtype=float) if v is not None else np.array([])
+        sizes = [int(s) for s in (piece_sizes or []) if s > 0]
+        multi = len(sizes) > 1 and sum(sizes) == len(t)
+
+        opr_sizes = [int(s) for s in (opr_piece_sizes or []) if s > 0]
+        t_opr_arr = np.asarray(t_opr, dtype=float) if t_opr is not None else np.array([])
+        v_opr_arr = np.asarray(v_opr, dtype=float) if v_opr is not None else np.array([])
+
+        def _fill(ax, t_i, v_i, t_o, v_o):
+            if t_i.size > 0:
+                ax.plot(t_i, v_i, color=color, alpha=0.9, label=label)
+            if t_o is not None and t_o.size > 0:
+                ax.scatter(t_o, v_o, color=color_red, s=7, zorder=5, label=f"{label} OPR")
             if zoom_x is not None:
                 ax.set_xlim(zoom_x)
             if zoom_y is not None:
                 ax.set_ylim(zoom_y)
-            if draw_vlines:
-                _draw_vlines(ax, vlines)
+            _draw_vlines(ax, vlines)
             if hlines is not None:
                 for hy in hlines:
                     ax.axhline(y=hy, color='gray', linestyle='--', alpha=0.7)
+
+        if not multi:
+            fig, ax = plt.subplots(figsize=figsize_from_scale(FIGSIZE_SIMPLE, scale),
+                                    constrained_layout=True, num=fig_label)
+            _fill(ax, t, v, t_opr_arr if t_opr_arr.size else None, v_opr_arr)
+            ax.set_title(title)
             ax.set_xlabel("Time (s)")
-            ax.set_ylabel(r"Velocity $v(t)$ [m/s]")
+            ax.set_ylabel(ylabel)
             ax.legend()
-        plt.tight_layout()
-        return fig, (ax1, ax2)
+            return fig, np.array([[ax]])
+
+        n = len(sizes)
+        ncols = int(np.ceil(np.sqrt(n)))
+        nrows = int(np.ceil(n / ncols))
+        cell = FIGSIZE_SIMPLE[1]  # square cell, side = SIMPLE preset's height
+        # Exception to the usual figsize_grid(base=FIGSIZE_SIMPLE) grid: cells
+        # are square (each piece gets ax.set_box_aspect(1) below), not
+        # FIGSIZE_SIMPLE's 3.5:2.6 aspect -- still routed through the shared
+        # figsize_grid/figsize_from_scale helpers so scaling stays consistent.
+        fig, axes = plt.subplots(
+            nrows, ncols,
+            figsize=figsize_from_scale(figsize_grid(ncols, nrows, base=(cell, cell)), scale),
+            constrained_layout=True, num=fig_label, squeeze=False,
+        )
+        bounds  = np.cumsum(sizes)
+        starts  = np.concatenate(([0], bounds[:-1]))
+        opr_has_pieces = len(opr_sizes) == n and sum(opr_sizes) == t_opr_arr.size
+        if opr_has_pieces:
+            opr_bounds = np.cumsum(opr_sizes)
+            opr_starts = np.concatenate(([0], opr_bounds[:-1]))
+
+        for i in range(n):
+            ax = axes[i // ncols, i % ncols]
+            s0, s1 = starts[i], bounds[i]
+            t_o = v_o = None
+            if opr_has_pieces:
+                os0, os1 = opr_starts[i], opr_bounds[i]
+                t_o, v_o = t_opr_arr[os0:os1], v_opr_arr[os0:os1]
+            _fill(ax, t[s0:s1], v[s0:s1], t_o, v_o)
+            ax.set_title(f"Piece {i + 1}", fontsize=10)
+            ax.set_box_aspect(1)
+
+        for j in range(n, nrows * ncols):
+            fig.delaxes(axes[j // ncols, j % ncols])
+
+        axes[0, 0].legend(fontsize=8)
+        fig.suptitle(title, y=1.02)
+        fig.supxlabel("Time (s)")
+        fig.supylabel(ylabel)
+        return fig, axes
 
     # ──────────────────────────────────────────────────────────────────
     # THEORY / DIAGNOSTIC HELPERS  (D3, D6, D7, D8, D9, H+Sk joint)
@@ -636,12 +663,10 @@ def plots_maxent_sprt(
         y_pk = max(pdfL.max(), pdfR.max())
 
         fig, (axL, axR) = plt.subplots(
-            1, 2, figsize=(fig_size(scale)[0], fig_size(scale)[1]), sharey=True,
-            num=fig_label)
+            1, 2, figsize=figsize_from_scale(FIGSIZE_WIDE, scale), sharey=True,
+            constrained_layout=True, num=fig_label)
         fig.suptitle(
-            rf"D3 — Erreurs $\alpha$, $\beta$ et fronti\u00e8res SPRT"
-            rf"  $b=\ln\!\frac{{1-\beta}}{{\alpha}}={b_val:.2f}$,"
-            rf"  $a=\ln\!\frac{{\beta}}{{1-\alpha}}={a_val:.2f}$",
+            r"SPRT error regions ($\alpha$, $\beta$) and decision boundaries ($a$, $b$)",
             fontsize=_FS_AX + 1)
 
         for ax, H_g, pdf, mu, sig, C_body, C_tail, xlim, greek, mu_lbl, sub in [
@@ -668,6 +693,8 @@ def plots_maxent_sprt(
                         label=rf"$H_{{thr}}=\mu_0+{n_sigma:.1f}\sigma_0={H_thr:.3f}$ nat"),
                     plt.Line2D([0],[0], color=C_body, ls=":", lw=1.5,
                         label=rf"$\mu_0\pm{n_sigma:.1f}\sigma_0$"),
+                    plt.Line2D([0],[0], color="none",
+                        label=rf"$b=\ln\frac{{1-\beta}}{{\alpha}}={b_val:.2f}$"),
                 ]
             else:
                 ax.fill_between(H_g, pdf, where=(H_g >= H_thr), alpha=0.22, color=C_body)
@@ -689,6 +716,8 @@ def plots_maxent_sprt(
                         label=rf"$H_{{thr}}=\mu_0+{n_sigma:.1f}\sigma_0={H_thr:.3f}$ nat"),
                     plt.Line2D([0],[0], color=C_body, ls=":", lw=1.5,
                         label=rf"$\mu_1\pm{n_sigma:.1f}\sigma_1$"),
+                    plt.Line2D([0],[0], color="none",
+                        label=rf"$a=\ln\frac{{\beta}}{{1-\alpha}}={a_val:.2f}$"),
                 ]
             ax.plot(H_g, pdf, color=C_body, lw=_LW_PDF)
             ax.axvline(H_thr,      color="black", ls="--", lw=2.0)
@@ -712,7 +741,6 @@ def plots_maxent_sprt(
                       framealpha=0.93, edgecolor="gray")
             ax.tick_params(labelsize=_FS_TICK)
         axL.set_ylabel("Probability density")
-        fig.tight_layout()
         return fig, (axL, axR)
 
     def _plot_D6_figure(
@@ -732,8 +760,8 @@ def plots_maxent_sprt(
         H_thr   = P0_mu + n_sigma * P0_sig
         H_cross = H_r[np.argmin(np.abs(Lam_H))]
 
-        fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=(fig_size(scale)[0], fig_size(scale)[1]),
-                                          num=fig_label)
+        fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=figsize_from_scale(FIGSIZE_WIDE, scale),
+                                          constrained_layout=True, num=fig_label)
         fig.suptitle(
             r"D6 - Log-likelihoods $\ln p_0(H)$,  $\ln p_1(H)$  and  $\Lambda(H) = \ln\,p_1/p_0$",
             fontsize=13)
@@ -785,7 +813,6 @@ def plots_maxent_sprt(
         ax_b.set_title(r"Single-segment log-likelihood ratio $\Lambda(H)$", fontsize=11)
         ax_b.legend(fontsize=9, loc="upper left")
 
-        fig.tight_layout()
         return fig, (ax_a, ax_b)
 
     def _plot_D7_figure(
@@ -800,8 +827,8 @@ def plots_maxent_sprt(
         _p1_t  = _norm_dist.pdf(H_arr, P1_mu, P1_sig)
         _ratio = np.where(_p0_t > 1e-300, _p1_t / _p0_t, np.nan)
 
-        fig, (ax_a, ax_b) = plt.subplots(2, 1, figsize=fig_size(scale, ncols=1), sharex=True,
-                                          num=fig_label)
+        fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=figsize_from_scale(FIGSIZE_WIDE, scale),
+                                          constrained_layout=True, num=fig_label)
         fig.suptitle(r"D7 - $p_0(H(t))$ and $p_1(H(t))$ over time"
                      "\n(which distribution is more likely at each segment?)", fontsize=12)
 
@@ -817,6 +844,7 @@ def plots_maxent_sprt(
             ax_a.axvline(t_gt, color="black", ls="--", lw=1.2)
             ax_a.text(t_gt, 0.98, r"  $t_{gt}$", color="black", fontsize=9,
                       va="top", transform=ax_a.get_xaxis_transform(), clip_on=True)
+        ax_a.set_xlabel("Time [s]", fontsize=11)
         ax_a.set_ylabel(r"$p(H(t))$", fontsize=11)
         ax_a.set_title(r"PDF values at each segment's entropy $H(t)$", fontsize=10)
         ax_a.legend(fontsize=8, loc="upper left")
@@ -835,7 +863,6 @@ def plots_maxent_sprt(
         ax_b.legend(fontsize=8, loc="upper left")
         _shade_intervals_local(ax_b, training_intervals)
 
-        fig.tight_layout()
         return fig, (ax_a, ax_b)
 
     def _plot_D8_figure(
@@ -852,8 +879,8 @@ def plots_maxent_sprt(
         _lp1_t = np.log(np.maximum(_p1_t, 1e-300))
         _Lk_t  = _lp1_t - _lp0_t
 
-        fig, (ax_a, ax_b) = plt.subplots(2, 1, figsize=fig_size(scale, ncols=1), sharex=True,
-                                          num=fig_label)
+        fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=figsize_from_scale(FIGSIZE_WIDE, scale),
+                                          constrained_layout=True, num=fig_label)
         fig.suptitle(r"D8 - $\ln p_0(H(t))$ and $\ln p_1(H(t))$ over time"
                      "\n(log-likelihoods and their difference = $\Lambda_k$)", fontsize=12)
 
@@ -869,6 +896,7 @@ def plots_maxent_sprt(
             ax_a.axvline(t_gt, color="black", ls="--", lw=1.2)
             ax_a.text(t_gt, 0.98, r"  $t_{gt}$", color="black", fontsize=9,
                       va="top", transform=ax_a.get_xaxis_transform(), clip_on=True)
+        ax_a.set_xlabel("Time [s]", fontsize=11)
         ax_a.set_ylabel(r"$\ln p(H(t))$", fontsize=11)
         ax_a.set_title(r"Log-likelihoods at each segment  (gap = $\Lambda_k$)", fontsize=10)
         ax_a.legend(fontsize=8, loc="lower left")
@@ -891,7 +919,6 @@ def plots_maxent_sprt(
         ax_b.legend(fontsize=8, loc="upper left")
         _shade_intervals_local(ax_b, training_intervals)
 
-        fig.tight_layout()
         return fig, (ax_a, ax_b)
 
     def _plot_D9_figure(
@@ -931,8 +958,8 @@ def plots_maxent_sprt(
             _H_s = H_stable_train  if H_stable_train  is not None else np.array([])
             _H_c = H_chatter_train if H_chatter_train is not None else np.array([])
 
-        fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=(fig_size(scale)[0], fig_size(scale)[1]),
-                                          num=fig_label)
+        fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=figsize_from_scale(FIGSIZE_WIDE, scale),
+                                          constrained_layout=True, num=fig_label)
         fig.suptitle(
             r"D9 - Both distributions $P_0$ (stable) and $P_1$ (chatter): "
             "theory and measured $H$ values", fontsize=13)
@@ -1005,7 +1032,6 @@ def plots_maxent_sprt(
         ax_b.set_xlim(H_lo, H_hi)
         ax_b.legend(fontsize=8, loc="upper right", framealpha=0.93)
 
-        fig.tight_layout()
         return fig, (ax_a, ax_b)
 
     def _plot_D4_figure(
@@ -1033,7 +1059,7 @@ def plots_maxent_sprt(
         t_det_lam = float(t_arr[_cross_idx[0]]) if len(_cross_idx) > 0 else None
 
         fig, ax = plt.subplots(
-            figsize=fig_size(scale, ncols=1),
+            figsize=fig_size(scale, ncols=1), constrained_layout=True,
             num="D4 — SPRT statistic and log-likelihood increments",
         )
         ax.set_title(
@@ -1078,11 +1104,10 @@ def plots_maxent_sprt(
                     rotation=90, va="top", ha="right",
                     color=color_red, transform=ax.get_xaxis_transform(), fontsize=16, clip_on=True)
 
-        ax.ticklabel_format(style="sci", axis="y", scilimits=(0, 0))
+        apply_sci_yaxis(ax)
         ax.set_xlabel("Time [s]")
         ax.set_ylabel(r"Log-likelihood ratio")
         ax.legend(loc="best", fontsize=12)
-        fig.tight_layout()
         return fig, (ax, ax)
 
     def _plot_H_Sk_joint(
@@ -1098,8 +1123,8 @@ def plots_maxent_sprt(
         that plus ``t_gt`` are ever drawn as vertical lines here, never one per
         detection.
         """
-        fig, (ax_h, ax_s) = plt.subplots(2, 1, figsize=fig_size(scale, ncols=1), sharex=True,
-                                          num=fig_label)
+        fig, (ax_h, ax_s) = plt.subplots(1, 2, figsize=figsize_from_scale(FIGSIZE_WIDE, scale),
+                                          constrained_layout=True, num=fig_label)
         fig.suptitle(r"Entropy $H(t)$ and SPRT statistic $S_k(t)$  - joint diagnostic")
 
         # Top: H(t), single colour — just the evolution, no training-label split.
@@ -1115,6 +1140,7 @@ def plots_maxent_sprt(
                       rotation=90, va="top", ha="right", fontsize=16,
                       color=color_red, transform=ax_h.get_xaxis_transform(), clip_on=True)
             
+        ax_h.set_xlabel("Time [s]", fontsize=11)
         ax_h.set_ylabel(r"Entropy $H(t)$ [nat]", fontsize=11)
         ax_h.set_title(r"Online entropy $H(t)$", fontsize=10)
 
@@ -1126,7 +1152,7 @@ def plots_maxent_sprt(
         ax_s.axhline(lim_inf, color=color_azul, ls="--", lw=1.5,
                      label=rf"$a = {lim_inf:.2f}$ (stable, $\beta$)")
         ax_s.axhline(0, color="gray", ls=":", lw=0.9)
-        ax_s.ticklabel_format(style="sci", axis="y", scilimits=(0, 0))
+        apply_sci_yaxis(ax_s)
         if t_gt is not None:
             ax_s.axvline(t_gt, color="black", ls="--", lw=1.2)
             ax_s.text(t_gt, 0.97, f"  $t_{{gt}}={t_gt:.3f}$ s", color="black", fontsize=16,
@@ -1142,7 +1168,6 @@ def plots_maxent_sprt(
         ax_s.set_ylabel(r"$S_k$", fontsize=11)
         ax_s.set_title(r"SPRT statistic $S_k$  (accumulates $\Lambda_k$ increments)", fontsize=10)
         ax_s.legend(fontsize=8, loc="upper left")
-        fig.tight_layout()
         return fig, (ax_h, ax_s)
 
     def _plot_signal_full_online(
@@ -1157,7 +1182,8 @@ def plots_maxent_sprt(
         fig_label=None,
     ):
         """Single panel: full analysis signal with training-interval shading and OPR marks."""
-        fig, ax = plt.subplots(figsize=fig_size(scale=scale, ncols=1), num=fig_label)
+        fig, ax = plt.subplots(figsize=fig_size(scale=scale, ncols=1),
+                                constrained_layout=True, num=fig_label)
         if t_sig is not None and v_sig is not None and len(t_sig) > 0:
             ax.plot(t_sig, v_sig, color="gray", lw=0.7, alpha=0.85, label="Signal")
         if opr_t_stable is not None and opr_v_stable is not None and len(opr_t_stable) > 0:
@@ -1181,6 +1207,29 @@ def plots_maxent_sprt(
         ax.set_xlabel("Time (s)")
         ax.set_ylabel(r"$v(t)$")
         ax.legend()
+        return fig, ax
+
+    def _plot_signal_first_detection(
+        t_sig, v_sig,
+        vlines=None,
+        title="Analyzed Signal — First Detection",
+        zoom_x=None, zoom_y=None,
+        scale=1.0,
+        fig_label=None,
+    ):
+        """Single panel: the raw analyzed signal with just the first-detection vline."""
+        fig, ax = plt.subplots(figsize=fig_size(scale=scale, ncols=1),
+                                constrained_layout=True, num=fig_label)
+        if t_sig is not None and v_sig is not None and len(t_sig) > 0:
+            ax.plot(t_sig, v_sig, color="gray", lw=0.7, alpha=0.85)
+        _draw_vlines(ax, vlines)
+        if zoom_x is not None:
+            ax.set_xlim(zoom_x)
+        if zoom_y is not None:
+            ax.set_ylim(zoom_y)
+        ax.set_title(title)
+        ax.set_xlabel("Time (s)")
+        ax.set_ylabel(r"$v(t)$")
         return fig, ax
 
     # ──────────────────────────────────────────────────────────────────
@@ -1245,7 +1294,6 @@ def plots_maxent_sprt(
 
     _ti_meta = meta.get("training_intervals", None)
 
-    scale = 3.0
     kw = dict(zoom_x=zoom_x, zoom_y=zoom_y, vlines=vlines, hlines=hlines, scale=scale)
     kw_auto = dict(zoom_x=zoom_x, zoom_y=zoom_y, vlines=auto_vlines, hlines=hlines, scale=scale)
 
@@ -1278,6 +1326,21 @@ def plots_maxent_sprt(
         fig_label="O4 — Signal + OPR Sampling (Online)",
     )
 
+    # O5 — Analyzed signal, single color, only the first-detection vline
+    # (same $t_d$ style as everywhere else -- no t_gt, no OPR, no shading).
+    _vlines_first_det = (
+        [(_t_first_det, f"$t_d={_t_first_det:.3f}$ s", color_orange)]
+        if _t_first_det is not None else None
+    )
+    fig_O5, ax_O5 = _plot_signal_first_detection(
+        signal.t_analysis if signal is not None else None,
+        signal.signal_analysis if signal is not None else None,
+        vlines=_vlines_first_det,
+        title="O5 — Analyzed Signal: First Detection",
+        zoom_x=zoom_x, zoom_y=zoom_y, scale=scale,
+        fig_label="O5 — Analyzed Signal: First Detection",
+    )
+
     # ══════════════════════════════════════════════════════════════════
     # OFFLINE / TRAINING FIGURES (F0–F7)
     # ══════════════════════════════════════════════════════════════════
@@ -1298,21 +1361,32 @@ def plots_maxent_sprt(
 
     # F0 — Verification: raw signal that actually fed the P0/P1 Gaussian fit
     # (internal cut or reference_signal[_chatter] — see meta["training_source"]).
-    fig_F0, axes_F0 = _plot_opr_dual_figure(
-        _t_stable_g, _sig_stable_g, None, None,
-        _t_chatter_g, _sig_chatter_g, None, None,
-        main_title="F0 — Training Signal Used for P0/P1 Fit",
-        vlines=None,  # t_gt/t_d markers belong to the online timeline, not necessarily this one
-        scale=scale,
-        fig_label="F0 — Training Signal Verification (P0/P1 source)",
+    # One grid per side (stable/chatter never mixed in the same grid) so each
+    # contributing case (DOE reference_signal piece) is individually legible.
+    fig_F0a, axes_F0a = _plot_pieces_grid(
+        t_stable, signal_analysis_stable, meta.get("stable_piece_sizes"),
+        None, None, None,
+        color_azul, "Stable", "F0a — Training Signal Used for P0 Fit (Stable, per case)",
+        scale=grid_scale,
+        fig_label="F0a — Training Signal Verification (Stable, per case)",
+    )
+    fig_F0b, axes_F0b = _plot_pieces_grid(
+        t_chatter, signal_analysis_chatter, meta.get("chatter_piece_sizes"),
+        None, None, None,
+        color_orange, "Chatter", "F0b — Training Signal Used for P1 Fit (Chatter, per case)",
+        scale=grid_scale,
+        fig_label="F0b — Training Signal Verification (Chatter, per case)",
     )
 
-    # F1 — Training entropy: stable
-    fig_F1, ax_F1 = _plot_H_time_segment(
-        _t_mid_free_g, _H_free_g, color=color_azul,
-        title="Training Entropy — Stable Segments",
+    # F1 — Training entropy: stable, one grid cell per case (same rationale as F0a)
+    fig_F1, axes_F1 = _plot_pieces_grid(
+        t_mid_free, H_free, meta.get("n_windows_per_piece_free"),
+        None, None, None,
+        color_azul, "Stable", "F1 — Training Entropy: Stable Segments (per case)",
+        zoom_x=kw["zoom_x"], zoom_y=kw["zoom_y"], vlines=kw["vlines"], hlines=kw["hlines"],
+        scale=grid_scale,
         fig_label="F1 — Training Entropy: Stable Segments",
-        **kw,
+        ylabel="Entropy $H$",
     )
 
     # F1b — one figure per distinct stable label (only if ≥2 distinct stable labels)
@@ -1340,12 +1414,15 @@ def plots_maxent_sprt(
                     **kw,
                 )
 
-    # F2 — Training entropy: chatter
-    fig_F2, ax_F2 = _plot_H_time_segment(
-        _t_mid_chat_g, _H_chat_g, color=color_orange,
-        title="Training Entropy — Chatter Segments",
+    # F2 — Training entropy: chatter, one grid cell per case (same rationale as F0a)
+    fig_F2, axes_F2 = _plot_pieces_grid(
+        t_mid_chat, H_chat, meta.get("n_windows_per_piece_chat"),
+        None, None, None,
+        color_orange, "Chatter", "F2 — Training Entropy: Chatter Segments (per case)",
+        zoom_x=kw["zoom_x"], zoom_y=kw["zoom_y"], vlines=kw["vlines"], hlines=kw["hlines"],
+        scale=grid_scale,
         fig_label="F2 — Training Entropy: Chatter Segments",
-        **kw,
+        ylabel="Entropy $H$",
     )
 
     # F2b — one figure per distinct chatter label (only if ≥2 distinct chatter labels)
@@ -1379,7 +1456,7 @@ def plots_maxent_sprt(
     # reference_signal[_chatter] puts them on an unrelated external timeline
     # (silently dropping or truncating a curve). Just plot both full curves.
     fig_F3, ax_F3 = plt.subplots(
-        figsize=fig_size(scale=scale, ncols=1),
+        figsize=fig_size(scale=scale, ncols=1), constrained_layout=True,
         num="F3 — Training Entropy: All Labels",
     )
     if _t_mid_free_g is not None and _H_free_g is not None:
@@ -1471,23 +1548,33 @@ def plots_maxent_sprt(
                     **kw,
                 )
 
-    # F6 — Training signal + OPR (stable | chatter side by side)
-    # t_gt/t_d markers (drawn on the bottom/chatter panel only) reference the
-    # online analyzed-signal timeline: suppress them when chatter is external.
+    # F6 — Training signal + OPR (stable and chatter, one grid per side)
+    # t_gt/t_d markers (drawn on the chatter grid only, matching the old
+    # dual-figure's bottom-panel-only placement) reference the online
+    # analyzed-signal timeline: suppress them when chatter is external.
     _kw_auto_f6 = dict(kw_auto)
     if chatter_source != "internal":
         _kw_auto_f6["vlines"] = None
-    fig_F6, axes_F6 = _plot_opr_dual_figure(
-        _t_stable_g, _sig_stable_g, _t_opr_free_g, _opr_free_g,
-        _t_chatter_g, _sig_chatter_g, _t_opr_chat_g, _opr_chat_g,
-        main_title="F6 — Signal + OPR Sampling (Training)",
-        fig_label="F6 — Signal + OPR Sampling (Training)",
+    _kw_auto_f6["scale"] = grid_scale
+    fig_F6a, axes_F6a = _plot_pieces_grid(
+        t_stable, signal_analysis_stable, meta.get("stable_piece_sizes"),
+        t_opr_free, opr_free, meta.get("opr_free_piece_sizes"),
+        color_azul, "Stable", "F6a — Signal + OPR Sampling (Stable, per case)",
+        fig_label="F6a — Signal + OPR Sampling (Stable, per case)",
+        zoom_x=kw_auto["zoom_x"], zoom_y=kw_auto["zoom_y"], hlines=kw_auto["hlines"],
+        scale=grid_scale,
+    )
+    fig_F6b, axes_F6b = _plot_pieces_grid(
+        t_chatter, signal_analysis_chatter, meta.get("chatter_piece_sizes"),
+        t_opr_chat, opr_chat, meta.get("opr_chat_piece_sizes"),
+        color_orange, "Chatter", "F6b — Signal + OPR Sampling (Chatter, per case)",
+        fig_label="F6b — Signal + OPR Sampling (Chatter, per case)",
         **_kw_auto_f6,
     )
 
     # F7 — Combined PDF: stable P0 + chatter P1 overlaid in one figure
     fig_F7, ax_F7 = plt.subplots(
-        figsize=fig_size(scale=scale, ncols=1),
+        figsize=fig_size(scale=scale, ncols=1), constrained_layout=True,
         num="F7 — Training PDF: Stable vs Chatter",
     )
     if H_free is not None and len(H_free) > 0:
@@ -1616,7 +1703,6 @@ def plots_maxent_sprt(
             fig_label="D_JOINT — H(t) + Sk(t) Joint Diagnostic",
         )
 
-    plt.tight_layout()
     plt.show()
 
 

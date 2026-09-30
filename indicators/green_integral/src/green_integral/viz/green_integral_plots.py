@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import colorsys
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Sequence, Tuple
 
 import numpy as np
 import matplotlib.pyplot as plt
+_MPL_PLT = plt  # unshadowed alias -- see each dispatcher's per-call `plt` shadow
 from scipy.stats import norm as _scipy_norm
 
 from ..utils.types import SignalData, GreenIntegralResult, LyapunovResult
@@ -16,55 +16,43 @@ from .plots import (
     plot_indicator_local,
     plot_training_distribution,
 )
+from .plot_style import (
+    COLORS, FIGSIZE_SIMPLE, FIGSIZE_WIDE, SCALE,
+    apply_sci_yaxis, figsize_from_scale, figsize_grid,
+)
 
-# ── Color palette ─────────────────────────────────────────────────────────────────────────────
-r, g, b = colorsys.hls_to_rgb(346/360, 0.45, 0.99);  color_red    = (r, g, b)
-r, g, b = colorsys.hls_to_rgb(36/360,  0.45, 0.99);  color_orange = (r, g, b)
-r, g, b = colorsys.hls_to_rgb(279/360, 0.36, 0.99);  color_purple = (r, g, b)
-r, g, b = colorsys.hls_to_rgb(98/360,  0.36, 0.99);  color_verde  = (r, g, b)
-r, g, b = colorsys.hls_to_rgb(206.957/360, 0.40941, 0.55603)
-color_azul = (r, g, b)
+color_red    = COLORS["threshold"]
+color_orange = COLORS["chatter"]
+color_purple = COLORS["secondary"]
+color_verde  = COLORS["mean"]
+color_azul   = COLORS["stable"]
 
-
-def fig_size(scale=1.0, ncols=1, base_width=3.4):
-    """Return (width, height) in inches for IEEE/Elsevier journals."""
-    width = base_width * ncols * scale
-    return (width, width * 0.70)
-
-
-def configurar_estilo_global() -> None:
-    plt.rcParams.update({
-        'font.family':                 'serif',
-        'font.size':                   9,
-        'axes.titlesize':              25,
-        'axes.labelsize':              25,
-        'xtick.labelsize':             23,
-        'ytick.labelsize':             23,
-        'legend.fontsize':             23,
-        'lines.linewidth':             1.25,
-        'axes.linewidth':              0.8,
-        'grid.linewidth':              0.5,
-        'xtick.direction':             'in',
-        'ytick.direction':             'in',
-        'xtick.major.size':            4,
-        'ytick.major.size':            4,
-        'xtick.minor.size':            2.5,
-        'ytick.minor.size':            2.5,
-        'xtick.major.width':           0.8,
-        'ytick.major.width':           0.8,
-        'mathtext.fontset':            'stix',
-        'axes.formatter.use_mathtext': True,
-        'legend.frameon':              False,
-        'legend.loc':                  'best',
-        'savefig.dpi':                 300,
-        'savefig.bbox':                'tight',
-        'savefig.transparent':         True,
-        'figure.facecolor':            'white',
-        'axes.facecolor':              'white',
-    })
+# Most panels in plots_lyapunov (C2-C3, D1b/D4b, Ĝ, Ĝs) and the training
+# distribution pair share this one size — required by
+# test_plot_reliability.py's check #6 (Training figures must match the
+# sibling C-panels' size). C1 and the C6/C7 per-case grids are sized off
+# FIGSIZE_SIMPLE instead (single/grid panels, not this WIDE composite).
+_LYAP_FIGSIZE = figsize_from_scale(FIGSIZE_WIDE, SCALE)
 
 
-configurar_estilo_global()
+def _diag_figsize(
+    nrows: int = 1, ncols: int = 1, scale: float = SCALE,
+    base_wide: Tuple[float, float] = FIGSIZE_WIDE,
+) -> Tuple[float, float]:
+    """Compose a figsize for plots_signal_diagnostics' multi-panel figures.
+
+    ncols == 1 (Figs A/B: a vertical stack of full-width time-series panels)
+    keeps each row at the full WIDE preset width via ``figsize_grid`` —
+    these panels genuinely need FIGSIZE_WIDE's aspect (long time/frequency
+    axes), so this is the documented exception to the SIMPLE/WIDE-preset
+    rule rather than an ad-hoc tuple.
+    ncols > 1 (Fig C: side-by-side phase-portrait snapshots) tiles the
+    near-square SIMPLE preset per panel instead, matching a phase portrait's
+    natural aspect ratio.
+    """
+    if ncols == 1:
+        return figsize_grid(1, nrows, base=figsize_from_scale(base_wide, scale))
+    return figsize_grid(ncols, nrows, base=figsize_from_scale(FIGSIZE_SIMPLE, scale))
 
 
 def _add_hline_label(ax, y_data, text, **kwargs):
@@ -118,10 +106,69 @@ def _draw_vlines(ax, vlines, default_color="black", default_ls="--"):
             _add_vline_label(ax, x, label, fontsize=16, color=col)
 
 
+def _plot_pieces_grid(
+    pieces: Sequence[Tuple[np.ndarray, np.ndarray]],
+    color: str, title: str,
+    ylabel: str = r"$v(t)$",
+    hlines: Optional[Sequence[Tuple[float, str, str]]] = None,
+    yscale: Optional[str] = None,
+    figsize_simple: Tuple[float, float] = FIGSIZE_SIMPLE,
+    scale: float = 1.0,
+    fig_label: Optional[str] = None,
+) -> Tuple[plt.Figure, np.ndarray]:
+    """Per-case grid: one square subplot per training piece (falls back to a
+    single panel when there's only one piece) -- same per-case-grid idea as
+    MaxEnt's F0a/F1 and SST's C6/C7."""
+    pieces = [
+        (np.asarray(t, dtype=float), np.asarray(v, dtype=float))
+        for t, v in pieces if t is not None and len(t) > 0
+    ]
+    if not pieces:
+        pieces = [(np.array([]), np.array([]))]
+
+    def _fill(ax, t_i, v_i):
+        if t_i.size > 0:
+            ax.plot(t_i, v_i, color=color, alpha=0.9, lw=0.8, marker="o", markersize=2)
+        if yscale:
+            ax.set_yscale(yscale)
+        for hy, hcol, hls in (hlines or []):
+            ax.axhline(hy, color=hcol, ls=hls, lw=1.0)
+
+    if len(pieces) <= 1:
+        fig, ax = plt.subplots(figsize=figsize_from_scale(figsize_simple, scale), num=fig_label)
+        _fill(ax, *pieces[0])
+        ax.set_title(title)
+        ax.set_xlabel("Time [s]")
+        ax.set_ylabel(ylabel)
+        fig.tight_layout()  # one-shot, not layout='tight' — see C1 for why
+        return fig, np.array([[ax]])
+
+    n = len(pieces)
+    ncols = int(np.ceil(np.sqrt(n)))
+    nrows = int(np.ceil(n / ncols))
+    cell = figsize_simple[1]
+    fig, axes = plt.subplots(nrows, ncols, figsize=(cell * ncols * scale, cell * nrows * scale),
+                              num=fig_label, squeeze=False)
+    for i, (t_i, v_i) in enumerate(pieces):
+        ax = axes[i // ncols, i % ncols]
+        _fill(ax, t_i, v_i)
+        ax.set_title(f"Piece {i + 1}", fontsize=10)
+        ax.set_box_aspect(1)
+    for j in range(n, nrows * ncols):
+        fig.delaxes(axes[j // ncols, j % ncols])
+    fig.suptitle(title, y=1.02)
+    fig.supxlabel("Time [s]")
+    fig.supylabel(ylabel)
+    fig.tight_layout()  # one-shot, not layout='tight' — see C1 for why
+    return fig, axes
+
+
 def plots_green_integral(
     signal: SignalData,
     result: GreenIntegralResult,
     show: bool = True,
+    scale: float = SCALE,
+    figsize_wide: Tuple[float, float] = FIGSIZE_WIDE,
     **kwargs: Any,
 ) -> None:
     """Produce the standard set of plots for a green_integral result.
@@ -134,10 +181,18 @@ def plots_green_integral(
         Output from :func:`~green_integral.run_green_integral`.
     show   : bool, default ``True``
         Call ``plt.show()`` after creating all figures.
+    scale  : float, default ``plot_style.SCALE``
+        article-plot-style figure-size multiplier for this call, independent
+        of the shared ``plot_style.SCALE`` default (callers, e.g. the example
+        script, can expose their own editable variable and pass it here).
+    figsize_wide : tuple, default ``plot_style.FIGSIZE_WIDE``
+        Base (width, height) preset this call scales from, independent of
+        the shared ``plot_style.FIGSIZE_WIDE`` default.
     **kwargs
         Forwarded to individual plot functions (currently unused).
     """
     name = signal.name if signal.name else ""
+    local_figsize = figsize_from_scale(figsize_wide, scale)
 
     result_dict: Dict[str, Any]
     if isinstance(result, dict):
@@ -152,13 +207,14 @@ def plots_green_integral(
             "t_d": result.t_d,
         }
 
-    plot_windows_local(result_dict, name=name)
-    plot_windows_duration(result_dict, name=name)
-    plot_indicator_local(result_dict, name=name)
+    plot_windows_local(result_dict, name=name, figsize=local_figsize)
+    plot_windows_duration(result_dict, name=name, figsize=local_figsize)
+    plot_indicator_local(result_dict, name=name, figsize=local_figsize)
     # Histogram + verification curve for the mu +- z*sigma training
     # population (internal training_intervals or external reference_signal —
     # see COMMON_TEMPLATE.md Fase 3).
-    plot_training_distribution(result_dict.get("global_data", {}), name=name, log_transform=False)
+    plot_training_distribution(result_dict.get("global_data", {}), name=name, log_transform=False,
+                                figsize=local_figsize)
 
     if show:
         plt.show(block=True)
@@ -171,15 +227,20 @@ def plots_green_integral(
 def plots_lyapunov(
     signal: SignalData,
     result: LyapunovResult,
-    t_gt: Optional[float] = None,
     training_intervals=None,
+    reference_signal: Optional[Sequence[SignalData]] = None,
     show: bool = True,
+    scale: float = SCALE,
+    grid_scale: Optional[float] = None,
+    figsize_simple: Tuple[float, float] = FIGSIZE_SIMPLE,
+    figsize_wide: Tuple[float, float] = FIGSIZE_WIDE,
 ) -> None:
     """Produce the standard set of plots for a :class:`LyapunovResult`.
 
     Figures produced
     ----------------
-    C1. **Signal split** — displacement and velocity, stable (azul) vs chatter (orange).
+    C1. **Signal** — velocity, single panel, single color, with the
+        first-detection vline.
     C2. **Areas** — shoelace area per window on a log scale.
     C3. **Lyapunov** — raw σ̂ and (if available) σ̂_EWMA.
     Training population — histogram + Gaussian fit, and a verification curve
@@ -188,6 +249,8 @@ def plots_lyapunov(
         ``global_data["training_areas"]``, so it always matches whichever
         ``training_source`` ("internal" training_intervals or
         "external_reference" reference_signal) actually trained the threshold.
+    C6/C7. Per-case grid — one square subplot per training piece/case (raw
+        signal and decision variable/area, respectively). Stable only.
     D1b/D4b. Per-label breakdown — only when training_source == "internal"
         and >=2 distinct "stable*" labels were passed via training_intervals.
     Ĝ  **Accumulator** — only when ``result.G_hat`` is non-empty.
@@ -197,14 +260,43 @@ def plots_lyapunov(
     ----------
     signal             : original input signal.
     result             : output of :func:`run_lyapunov`.
-    t_gt               : ground-truth chatter onset [s] (optional).
     training_intervals : list of ``(t0, t1, label)`` tuples. Entries whose
                          label starts with ``"stable"`` define the stable
-                         training region. Falls back to ``global_data`` or
-                         ``t < t_gt`` when not provided.
+                         training region. Falls back to ``global_data``
+                         when not provided.
     show               : call ``plt.show(block=True)`` after all figures.
+    scale              : article-plot-style figure-size multiplier for this
+                         call (shadows the module-level ``_LYAP_FIGSIZE``
+                         default with ``figsize_from_scale(FIGSIZE_WIDE, scale)``
+                         for the duration of this call).
     """
-    name   = signal.name or ""
+    # Shadows the module-level _LYAP_FIGSIZE for this call only -- every use
+    # of that name below resolves to this local (Python scoping), so a
+    # caller-supplied `scale`/`figsize_wide` reaches every panel without
+    # touching each site.
+    _LYAP_FIGSIZE = figsize_from_scale(figsize_wide, scale)
+    if grid_scale is None:
+        grid_scale = scale
+    if isinstance(reference_signal, SignalData):
+        reference_signal = [reference_signal]
+    name   = signal.name or "signal"
+    # Every title in this function already embeds `name` -- but num= (window
+    # identity) is still a fixed literal ("C6 — ...", etc.), so calling this
+    # dispatcher again for a DIFFERENT case in the same process would
+    # silently reuse/overwrite this case's windows instead of opening new
+    # ones. Shadow plt.subplots to qualify every num= with `name` too.
+    _real_plt = _MPL_PLT
+    class _PltShadow:
+        @staticmethod
+        def subplots(*_args, num=None, **_kwargs):
+            if num is not None:
+                num = f"{num} — {name}"
+            return _real_plt.subplots(*_args, num=num, **_kwargs)
+
+        def __getattr__(self, _name):
+            return getattr(_real_plt, _name)
+
+    plt = _PltShadow()
     t_wins = np.asarray(result.t_wins)
     areas  = np.asarray(result.areas)
     trayectory_C = np.asarray(result.trayectory_C)
@@ -227,37 +319,22 @@ def plots_lyapunov(
         if str(_lbl).startswith("stable")
     ]
 
-    # shared event vlines
+    # shared event vlines -- only the first-detection marker, no t_gt.
     auto_vlines = []
-    if t_gt is not None:
-        auto_vlines.append((t_gt, rf"$t_{{gt}}={t_gt:.3f}$ s", "black"))
-    if t_d is not None:
-        _td_val = float(t_d[0]) if len(t_d) > 0 else float("nan")
-        _td_valid = (t_gt is None) or (_td_val > t_gt)
-        _td_lbl = rf"$t_d^+={_td_val:.3f}$ s" if _td_valid else rf"$t_d={_td_val:.3f}$ s"
-        auto_vlines.append((_td_val, _td_lbl, color_orange))
+    if t_d is not None and len(t_d) > 0:
+        _td_val = float(t_d[0])
+        auto_vlines.append((_td_val, rf"$t_d={_td_val:.3f}$ s", color_orange))
 
-    # ── C1: Signal split (displacement + velocity) ────────────────────────
+    # ── C1: Signal (single panel, article-plot-style FIGSIZE_SIMPLE) ───────
     t_arr = np.asarray(gd.get("t", []))
-    q_arr = np.asarray(gd.get("q_signal", []))
     v_arr = np.asarray(gd.get("q_o_signal", []))
-    if t_arr.size > 0 and q_arr.size == t_arr.size and v_arr.size == t_arr.size:
-        fig_c1, (ax_x, ax_v) = plt.subplots(
-            2, 1, figsize=fig_size(scale=3.0), sharex=True,
-        )
-        fig_c1.suptitle(f"C1 — Signal — {name}")
-        # Single trace, single color — stable/chatter timing is already
-        # marked by the t_gt/t_d vlines below, no need to split the line
-        # itself into two colors.
-        ax_x.plot(t_arr, q_arr, color=color_azul, lw=0.8, label="Signal")
-        ax_x.set_ylabel("Displacement [m]")
-        ax_x.legend()
-        _draw_vlines(ax_x, auto_vlines)
-        ax_v.plot(t_arr, v_arr, color=color_azul, lw=0.8, label="Signal")
-        ax_v.set_ylabel("Velocity [m/s]")
-        ax_v.set_xlabel("Time [s]")
-        ax_v.legend()
-        _draw_vlines(ax_v, auto_vlines)
+    if t_arr.size > 0 and v_arr.size == t_arr.size:
+        fig_c1, ax_c1 = plt.subplots(figsize=figsize_from_scale(figsize_simple, scale))
+        ax_c1.plot(t_arr, v_arr, color=color_azul, lw=0.8)
+        ax_c1.set_xlabel("Time [s]")
+        ax_c1.set_ylabel("Velocity [m/s]")
+        ax_c1.set_title("C1 — Signal")
+        _draw_vlines(ax_c1, auto_vlines)
         # One-shot layout, not a persistent engine (layout='tight' /
         # constrained_layout=True recompute on every draw/savefig, so
         # ax.get_position() would visibly wobble depending on which
@@ -266,8 +343,8 @@ def plots_lyapunov(
         fig_c1.tight_layout()
 
     # ── C2: Areas per window ──────────────────────────────────────────────
-    fig_c2, ax_c2 = plt.subplots(figsize=fig_size(scale=3.0))
-    ax_c2.set_title(f"C2 — Areas per Window — {name}")
+    fig_c2, ax_c2 = plt.subplots(figsize=_LYAP_FIGSIZE)
+    ax_c2.set_title("C2 — Areas per Window")
     ax_c2.set_xlabel("Time [s]")
     ax_c2.set_ylabel("Shoelace area [m·m/s]")
     valid = np.isfinite(areas)
@@ -298,8 +375,8 @@ def plots_lyapunov(
     ax_c2.legend()
 
     # ── C2-b: Trajectory per window ──────────────────────────────────────────────
-    fig_c2b, ax_c2b = plt.subplots(figsize=fig_size(scale=3.0))
-    ax_c2b.set_title(f"C2-b — Trajectory per Window — {name}")
+    fig_c2b, ax_c2b = plt.subplots(figsize=_LYAP_FIGSIZE)
+    ax_c2b.set_title("C2-b — Trajectory per Window")
     ax_c2b.set_xlabel("Time [s]")
     ax_c2b.set_ylabel("Shoelace area [m·m/s]")
     valid = np.isfinite(trayectory_C)
@@ -318,6 +395,7 @@ def plots_lyapunov(
         ax_c2b.plot(t_wins[valid], area_c_k[valid], color=color_purple,
                    lw=1.0, marker="o", markersize=2, label="$C_k+K_k$") 
         ax_c2b.set_yscale("linear")
+        apply_sci_yaxis(ax_c2b)
     if thr and area_threshold_enabled:
         z_lbl   = f"{thr['z']:.0f}"
         y_upper = 10 ** thr["upper"]
@@ -340,8 +418,8 @@ def plots_lyapunov(
 
 
     # ── C3: Lyapunov exponent σ̂ ──────────────────────────────────────────
-    fig_c3, ax_c3 = plt.subplots(figsize=fig_size(scale=3.0))
-    ax_c3.set_title(rf"C3 — Lyapunov $\hat{{\sigma}}$(t) — {name}")
+    fig_c3, ax_c3 = plt.subplots(figsize=_LYAP_FIGSIZE)
+    ax_c3.set_title(r"C3 — Lyapunov $\hat{\sigma}$(t)")
     ax_c3.set_xlabel("Time [s]")
     ax_c3.set_ylabel(r"$\hat{\sigma}$ [1/s]")
     valid_s = np.isfinite(sigma)
@@ -370,10 +448,75 @@ def plots_lyapunov(
     # C4/D1 figures, which always re-derived a "stable" slice from
     # training_intervals against THIS signal even when the threshold had
     # actually been trained on a separate reference_signal.
-    # figsize computed with THIS module's own fig_size() (not plots.py's
-    # same-named-but-differently-scaled helper) to match this figure set's
-    # own C1-C3/Ĝ/Ĝs sizing (plots.py's own callers use its default instead).
-    plot_training_distribution(gd, name=name, log_transform=True, figsize=fig_size(scale=3.0))
+    # figsize matches this figure set's own C1-C3/Ĝ/Ĝs sizing (_LYAP_FIGSIZE),
+    # not plots.py's own default (its callers use their own default instead).
+    plot_training_distribution(gd, name=name, log_transform=True, figsize=_LYAP_FIGSIZE)
+
+    # ── C6/C7: per-case grid (one square subplot per training piece), same
+    # idea as MaxEnt's F0a/F1 and SST's C6/C7. Prefer external reference_signal
+    # pieces (own case per piece); else per training_intervals stable range;
+    # else a single fallback panel. Only stable -- Green-Area, like SST, has
+    # no separate "chatter training" population to grid.
+    t_arr_gd = np.asarray(gd.get("t", []))
+    q_arr_gd = np.asarray(gd.get("q_signal", []))
+    training_areas  = np.asarray(gd.get("training_areas", []), dtype=float)
+    training_t_wins = np.asarray(gd.get("training_t_wins", []), dtype=float)
+    _piece_counts = gd.get("reference_piece_window_counts") or []
+
+    if training_areas.size > 0:
+        _grid_sig_pieces: list = []
+        _grid_area_pieces: list = []
+        if training_source == "external_reference" and reference_signal and len(reference_signal) > 1:
+            _MAX_GRID_PTS = 50_000
+            _cap = max(1, _MAX_GRID_PTS // len(reference_signal))
+            for _p in reference_signal:
+                _pt = np.asarray(_p.t_analysis, dtype=float)
+                _px = np.asarray(_p.signal_analysis, dtype=float)
+                if _pt.size > _cap:
+                    _pstep = _pt.size // _cap
+                    _pt, _px = _pt[::_pstep], _px[::_pstep]
+                _grid_sig_pieces.append((_pt, _px))
+            if len(_piece_counts) > 1 and sum(_piece_counts) == training_areas.size:
+                _bounds = np.cumsum(_piece_counts)
+                _starts = np.concatenate(([0], _bounds[:-1]))
+                for _s0, _s1 in zip(_starts, _bounds):
+                    _grid_area_pieces.append((training_t_wins[_s0:_s1], training_areas[_s0:_s1]))
+        elif _all_stable_ranges and len(_all_stable_ranges) > 1:
+            for _r0, _r1 in _all_stable_ranges:
+                _m_sig = (t_arr_gd >= _r0) & (t_arr_gd <= _r1)
+                _grid_sig_pieces.append((t_arr_gd[_m_sig], q_arr_gd[_m_sig]))
+                _m_a = (training_t_wins >= _r0) & (training_t_wins <= _r1)
+                _grid_area_pieces.append((training_t_wins[_m_a], training_areas[_m_a]))
+
+        if not _grid_sig_pieces:
+            _t0f, _t1f = float(np.min(training_t_wins)), float(np.max(training_t_wins))
+            _m_fb = (t_arr_gd >= _t0f) & (t_arr_gd <= _t1f)
+            _grid_sig_pieces = [(t_arr_gd[_m_fb], q_arr_gd[_m_fb])]
+        if not _grid_area_pieces:
+            _grid_area_pieces = [(training_t_wins, training_areas)]
+
+        _area_hlines = []
+        if thr and area_threshold_enabled:
+            _area_hlines = [
+                (10 ** thr["upper"], color_red,  "--"),
+                (10 ** thr["lower"], color_red,  ":"),
+                (10 ** thr["mu"],    color_verde, "-"),
+            ]
+        _plot_pieces_grid(
+            _grid_sig_pieces, color=color_azul,
+            title="Stable Training Signal (per case)",
+            ylabel="Displacement [m]",
+            figsize_simple=figsize_simple, scale=grid_scale,
+            fig_label="C6 — Stable Training Signal (per case)",
+        )
+        _plot_pieces_grid(
+            _grid_area_pieces, color=color_purple,
+            title="Stable Decision Variable — Area (per case)",
+            ylabel="Shoelace area [m·m/s]",
+            hlines=_area_hlines, yscale="log",
+            figsize_simple=figsize_simple, scale=grid_scale,
+            fig_label="C7 — Stable Decision Variable (per case)",
+        )
 
     # ── D1b / D4b: per-label breakdown — only meaningful for internal
     # training (needs this signal's own training_intervals labels; skipped
@@ -398,10 +541,10 @@ def plots_lyapunov(
         # D1b — one figure per stable label  [MaxEnt F1b analog]
         for _gi, (_lbl_name, _ranges) in enumerate(_stable_label_groups.items()):
                 fig_d1b, ax_d1b = plt.subplots(
-                    figsize=fig_size(scale=3.0),
+                    figsize=_LYAP_FIGSIZE,
                     num=f"D1b.{_gi} — {_lbl_name}",
                 )
-                ax_d1b.set_title(rf"D1b — Stable Areas | {_lbl_name} — {name}")
+                ax_d1b.set_title(rf"D1b — Stable Areas | {_lbl_name}")
                 ax_d1b.set_xlabel("Time [s]")
                 ax_d1b.set_ylabel(r"$\log_{10}(A_k)$")
                 # background: all stable intervals, faded (per interval, no connecting lines)
@@ -441,10 +584,10 @@ def plots_lyapunov(
             _heights_all_d = _counts_all_d / (len(log10_a) * _widths_d)
             for _gi, (_lbl_name, _ranges) in enumerate(_stable_label_groups.items()):
                 fig_d4b, ax_d4b = plt.subplots(
-                    figsize=fig_size(scale=3.0),
+                    figsize=_LYAP_FIGSIZE,
                     num=f"D4b.{_gi} — {_lbl_name}",
                 )
-                ax_d4b.set_title(rf"D4b — Area PDF | {_lbl_name} — {name}")
+                ax_d4b.set_title(rf"D4b — Area PDF | {_lbl_name}")
                 ax_d4b.set_xlabel(r"$\log_{10}(A_k)$")
                 ax_d4b.set_ylabel("Density")
                 # full stable histogram (light)
@@ -486,8 +629,8 @@ def plots_lyapunov(
     # ── Ĝ accumulator (optional) ──────────────────────────────────────────
     G = np.asarray(result.G_hat)
     if G.size > 0:
-        fig_g, ax_g = plt.subplots(figsize=fig_size(scale=3.0))
-        ax_g.set_title(rf"$\hat{{G}}$ Accumulator — {name}")
+        fig_g, ax_g = plt.subplots(figsize=_LYAP_FIGSIZE)
+        ax_g.set_title(r"$\hat{G}$ Accumulator")
         ax_g.set_xlabel("Time [s]")
         ax_g.set_ylabel(r"$\hat{G}$ [m·m/s · s]")
         ax_g.plot(t_wins[:len(G)], G, color=color_orange, lw=1.5,
@@ -500,6 +643,7 @@ def plots_lyapunov(
         ax_g.fill_between(t_wins[:len(G)], G, 0,
                           where=(G <= 0), alpha=0.10, color=color_verde,
                           label="stable")
+        apply_sci_yaxis(ax_g)
         _draw_vlines(ax_g, auto_vlines)
         ax_g.legend()
         fig_g.tight_layout()  # one-shot, not layout='tight' — see C1 for why
@@ -507,8 +651,8 @@ def plots_lyapunov(
     # ── Ĝ sliding window (optional) ───────────────────────────────────────
     Gs = np.asarray(result.G_hat_sliding)
     if Gs.size > 0:
-        fig_gs, ax_gs = plt.subplots(figsize=fig_size(scale=3.0))
-        ax_gs.set_title(rf"$\hat{{G}}$ Sliding Window — {name}")
+        fig_gs, ax_gs = plt.subplots(figsize=_LYAP_FIGSIZE)
+        ax_gs.set_title(r"$\hat{G}$ Sliding Window")
         ax_gs.set_xlabel("Time [s]")
         ax_gs.set_ylabel(r"$\hat{G}_{slide}$ [m·m/s · s]")
         ax_gs.plot(t_wins[:len(Gs)], Gs, color=color_purple, lw=1.5,
@@ -521,6 +665,7 @@ def plots_lyapunov(
         ax_gs.fill_between(t_wins[:len(Gs)], Gs, 0,
                            where=(Gs <= 0), alpha=0.10, color=color_verde,
                            label="stable")
+        apply_sci_yaxis(ax_gs)
         _draw_vlines(ax_gs, auto_vlines)
         ax_gs.legend()
         fig_gs.tight_layout()  # one-shot, not layout='tight' — see C1 for why
@@ -542,6 +687,8 @@ def plots_signal_diagnostics(
     freq_markers: Optional[Dict[str, float]] = None,
     t_beat_ms: Optional[float] = None,
     show: bool = True,
+    scale: float = SCALE,
+    figsize_wide: Tuple[float, float] = FIGSIZE_WIDE,
 ) -> None:
     """Diagnostic plots for understanding signal structure and area variability.
 
@@ -614,8 +761,9 @@ def plots_signal_diagnostics(
     v_dyn = v - v_eq
 
     # ── Fig A — FFT + autocorrelation ─────────────────────────────────────
-    figA, (aA1, aA2) = plt.subplots(2, 1, figsize=(12, 7))
-    figA.suptitle(f"Signal diagnostics — frequency content & area statistics — {name}")
+    figA, (aA1, aA2) = plt.subplots(2, 1, figsize=_diag_figsize(nrows=2, scale=scale, base_wide=figsize_wide),
+                                     constrained_layout=True)
+    figA.suptitle("Signal diagnostics — frequency content & area statistics")
 
     # A1: FFT of x in stable zone
     ms = _mask(t, *stable_range)
@@ -635,7 +783,9 @@ def plots_signal_diagnostics(
                             label=f"{lbl} {fmark:.1f} Hz")
     aA1.set_xlabel("Frequency [Hz]")
     aA1.set_ylabel("|FFT(x)|")
-    aA1.set_title(f"FFT of x in stable zone t=[{stable_range[0]:.1f}, {stable_range[1]:.1f}] s")
+    aA1.set_title("Frequency content — stable zone")
+    aA1.text(0.98, 0.95, f"t = [{stable_range[0]:.1f}, {stable_range[1]:.1f}] s",
+             transform=aA1.transAxes, ha="right", va="top", fontsize=9)
     aA1.legend(fontsize=9)
     aA1.grid(True, alpha=0.3)
 
@@ -663,22 +813,24 @@ def plots_signal_diagnostics(
     aA2.set_title("Autocorrelation of ln(areas) in stable zone")
     aA2.legend(fontsize=9)
     aA2.grid(True, alpha=0.3)
-    figA.tight_layout()
 
     # ── Fig B — Equilibrium decomposition ─────────────────────────────────
-    figB, (aB1, aB2, aB3) = plt.subplots(3, 1, figsize=(13, 10))
-    figB.suptitle(f"Quasi-static equilibrium & dynamic decomposition — {name}")
+    figB, (aB1, aB2, aB3) = plt.subplots(3, 1, figsize=_diag_figsize(nrows=3, scale=scale, base_wide=figsize_wide),
+                                          constrained_layout=True)
+    figB.suptitle("Quasi-static equilibrium & dynamic decomposition")
 
     mz = _mask(t, *zoom_range)
     tz = t[mz]; xz = x[mz]; xeqz = x_eq[mz]; xdynz = x_dyn[mz]
     vz = v[mz]; vdynz = v_dyn[mz]
 
     # B1: x with x_eq overlay
-    aB1.plot(tz * 1000, xz,    color=color_azul, lw=0.9, label="x  (absoluto)")
+    aB1.plot(tz * 1000, xz,    color=color_azul, lw=0.9, label="x  (absolute)")
     aB1.plot(tz * 1000, xeqz,  color=color_red,  lw=2.0, ls="--",
              label=f"x_eq ≈ moving avg ({eq_smooth_s*1000:.0f} ms)")
     aB1.set_ylabel("x [m]")
-    aB1.set_title(f"Señal x y equilibrio cuasi-estático — zoom t=[{zoom_range[0]:.2f}, {zoom_range[1]:.2f}] s")
+    aB1.set_title("Signal and quasi-static equilibrium")
+    aB1.text(0.98, 0.95, f"t = [{zoom_range[0]:.2f}, {zoom_range[1]:.2f}] s",
+             transform=aB1.transAxes, ha="right", va="top", fontsize=9)
     aB1.legend(fontsize=9)
     aB1.grid(True, alpha=0.3)
 
@@ -686,23 +838,22 @@ def plots_signal_diagnostics(
     aB2.plot(tz * 1000, xdynz, color=color_verde, lw=0.9, label="x_dyn = x − x_eq")
     aB2.axhline(0, color="black", lw=0.5)
     aB2.set_ylabel("x_dyn [m]")
-    aB2.set_title("Componente dinámica (vibración alrededor del equilibrio)")
+    aB2.set_title("Dynamic component (vibration about equilibrium)")
     aB2.legend(fontsize=9)
     aB2.grid(True, alpha=0.3)
 
     # B3: orbit of centered signal
     sc = aB3.scatter(xdynz, vdynz,
                      c=tz, cmap="viridis", s=4, alpha=0.8,
-                     label="órbita centrada (x_dyn, v_dyn)")
+                     label="centered orbit (x_dyn, v_dyn)")
     plt.colorbar(sc, ax=aB3, label="time [s]")
     aB3.axhline(0, color="black", lw=0.3)
     aB3.axvline(0, color="black", lw=0.3)
     aB3.set_xlabel("x_dyn [m]")
     aB3.set_ylabel("v_dyn [m/s]")
-    aB3.set_title("Diagrama de fase (centrado) — zona zoom")
+    aB3.set_title("Centered phase portrait")
     aB3.legend(fontsize=9)
     aB3.grid(True, alpha=0.2)
-    figB.tight_layout()
 
     # ── Fig C — Phase portrait snapshots: stable / transition / chatter ────
     t_total = float(t[-1] - t[0])
@@ -710,12 +861,13 @@ def plots_signal_diagnostics(
 
     # pick three snapshot times: 20 % (stable), 55 % (transition), 85 % (chatter)
     snap_fracs  = [0.20, 0.55, 0.85]
-    snap_labels = ["Estable (20%)", "Transición (55%)", "Chatter (85%)"]
+    snap_labels = ["Stable (20%)", "Transition (55%)", "Chatter (85%)"]
     snap_colors = [color_azul, color_orange, color_red]
     snap_dur    = min(0.05, t_total * 0.03)   # 50 ms per snapshot
 
-    figC, axes_c = plt.subplots(1, 3, figsize=(13, 5))
-    figC.suptitle(f"Diagrama de fase (centrado) — estable / transición / chatter — {name}")
+    figC, axes_c = plt.subplots(1, 3, figsize=_diag_figsize(ncols=3, scale=scale, base_wide=figsize_wide),
+                                 constrained_layout=True)
+    figC.suptitle("Phase portrait evolution — stable / transition / chatter")
 
     for ax_c, frac, lbl, col in zip(axes_c, snap_fracs, snap_labels, snap_colors):
         t_snap_lo = t0 + frac * t_total
@@ -732,7 +884,6 @@ def plots_signal_diagnostics(
         ax_c.set_ylabel("v_dyn [m/s]")
         ax_c.set_title(f"{lbl}\nt=[{t_snap_lo:.1f}, {t_snap_hi:.2f}] s")
         ax_c.grid(True, alpha=0.2)
-    figC.tight_layout()
 
     if show:
         plt.show()

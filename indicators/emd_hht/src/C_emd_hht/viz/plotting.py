@@ -13,6 +13,18 @@ from scipy.optimize import curve_fit
 
 from ..lib.misc import _time_axis, _smoothstep
 from ..utils.signal_chatter import amplitude_spectrum
+from .plot_style import (
+    ARTICLE_RCPARAMS,
+    FIGSIZE_SIMPLE,
+    FIGSIZE_WIDE,
+    FIGSCALE_SIMPLE,
+    SCALE,
+    figsize_grid,
+    figsize_from_scale,
+    apply_sci_yaxis,
+)
+
+plt.rcParams.update(ARTICLE_RCPARAMS)
 
 
 def plot_imfs_separados(imfs: np.ndarray, fs: Optional[float] = None, max_to_plot: Optional[int] = None, show: bool = True) -> list[Any]:
@@ -37,12 +49,13 @@ def plot_imfs_separados(imfs: np.ndarray, fs: Optional[float] = None, max_to_plo
     t, xlabel = _time_axis(N, fs)
     figs: list[Any] = []
     for k in range(max_to_plot):
-        fig = plt.figure()
+        fig = plt.figure(figsize=figsize_from_scale(FIGSIZE_SIMPLE, SCALE), constrained_layout=True)
         ax = fig.gca()
         ax.plot(t, imfs[k])
-        ax.set_title(f"IMF {k+1}")
+        ax.set_title(f"Empirical Mode Decomposition — IMF {k+1}")
         ax.set_xlabel(xlabel)
         ax.set_ylabel("Amplitude")
+        apply_sci_yaxis(ax)
         figs.append(fig)
     if show:
         plt.show()
@@ -79,44 +92,50 @@ def plot_imf_seleccionado(
 
     figs: list[Any] = []
 
-    fig1 = plt.figure()
+    fig1 = plt.figure(figsize=figsize_from_scale(FIGSIZE_SIMPLE, SCALE), constrained_layout=True)
     ax1 = fig1.gca()
     ax1.plot(t, selected_imf)
-    ax1.set_title("Selected IMF - time domain")
+    ax1.set_title("Selected intrinsic mode function — time domain")
     ax1.set_xlabel(xlabel)
     ax1.set_ylabel("Amplitude")
+    apply_sci_yaxis(ax1)
     figs.append(fig1)
 
     if A is not None and len(A) == N:
-        fig2 = plt.figure()
+        fig2 = plt.figure(figsize=figsize_from_scale(FIGSIZE_SIMPLE, SCALE), constrained_layout=True)
         ax2 = fig2.gca()
         ax2.plot(t, A)
-        ax2.set_title("Instantaneous amplitude A(t)")
+        ax2.set_title("Instantaneous amplitude of selected IMF")
         ax2.set_xlabel(xlabel)
         ax2.set_ylabel("A")
+        apply_sci_yaxis(ax2)
         figs.append(fig2)
 
     if f_inst is not None and len(f_inst) == N:
-        fig3 = plt.figure()
+        fig3 = plt.figure(figsize=figsize_from_scale(FIGSIZE_SIMPLE, SCALE), constrained_layout=True)
         ax3 = fig3.gca()
         ax3.plot(t, f_inst)
-        ax3.set_title("Instantaneous frequency f_inst(t)")
+        ax3.set_title("Instantaneous frequency of selected IMF")
         ax3.set_xlabel(xlabel)
         ax3.set_ylabel("Hz")
         figs.append(fig3)
 
     if plot_spectrum:
-        fig2, axes_2 = plt.subplots(nrows=1, ncols=1, figsize=(8, 6))
+        fig2, axes_2 = plt.subplots(
+            nrows=1, ncols=1,
+            figsize=figsize_from_scale(FIGSIZE_SIMPLE, SCALE),
+            constrained_layout=True,
+        )
         axes_2 = np.array(axes_2).reshape(-1)
         ax = axes_2[0]
         f, Pxx = amplitude_spectrum(selected_imf, fs=fs, normalize_to=0.1)  # type: ignore
         ax.plot(f, Pxx)
-        ax.set_title("Spectrum of selected IMF")
+        ax.set_title("Amplitude spectrum of selected IMF")
         ax.set_xlabel("Frequency (Hz)" if fs is not None else "Frequency (samples)")
         ax.set_ylabel("Amplitude")
         ax.set_xlim(0, f_max if fs is not None else None)
+        apply_sci_yaxis(ax)
         # ax.xaxis.set_major_locator(MultipleLocator(100))  # type: ignore
-        fig2.tight_layout()
 
     if show:
         plt.show()
@@ -158,7 +177,8 @@ def plot_imfs(
 
     t, xlabel = _time_axis(N, fs)
 
-    fig, axes = plt.subplots(nrows=nrows, ncols=ncols, sharex=True, figsize=(10, max(3, 2*nrows)))
+    grid_figsize = figsize_grid(ncols, nrows, base=figsize_from_scale(FIGSIZE_SIMPLE, SCALE))
+    fig, axes = plt.subplots(nrows=nrows, ncols=ncols, sharex=True, figsize=grid_figsize, constrained_layout=True)
     axes = np.array(axes).reshape(-1)
 
     for i in range(max_to_plot):
@@ -166,6 +186,7 @@ def plot_imfs(
         ax.plot(t, imfs[i])
         ax.set_title(f"IMF {i+1}")
         ax.set_ylabel("Amplitude")
+        apply_sci_yaxis(ax)
     for j in range(max_to_plot, len(axes)):
         axes[j].set_visible(False)
 
@@ -174,10 +195,8 @@ def plot_imfs(
     for ax in axes:
         ax.tick_params(axis='x', which='both', bottom=True, top=False, labelbottom=True)
 
-    fig.tight_layout()
-
     if plot_spectrum:
-        fig2, axes_2 = plt.subplots(nrows=nrows, ncols=ncols, sharex=True, figsize=(10, max(3, 2*nrows)))
+        fig2, axes_2 = plt.subplots(nrows=nrows, ncols=ncols, sharex=True, figsize=grid_figsize, constrained_layout=True)
         axes_2 = np.array(axes_2).reshape(-1)
         for i in range(max_to_plot):
             ax = axes_2[i]
@@ -188,13 +207,13 @@ def plot_imfs(
             ax.set_xlim(0, f_max if fs is not None else None)
             ax.tick_params(axis='x', )
             ax.tick_params(axis='y', )
+            apply_sci_yaxis(ax)
             # ax.xaxis.set_major_locator(MultipleLocator(100))  # type: ignore
 
         for j in range(max_to_plot, len(axes_2)):
             axes_2[j].set_visible(False)
 
         axes_2[min(max_to_plot-1, len(axes_2)-1)].set_xlabel("Frequency (Hz)" if fs is not None else "Frequency (samples)")
-        fig2.tight_layout()
         for ax in axes_2:
             ax.tick_params(axis='x', which='both', bottom=True, top=False, labelbottom=True)
 
@@ -323,13 +342,15 @@ def plot_tendencia(
         # Nicer dashes (segments 6, spaces 3) and rounded caps
         trend_kwargs = dict(dashes=(6, 3), dash_capstyle='round')
 
-    plt.figure()
-    plt.scatter(t, y, **scatter_kwargs)
-    plt.plot(t, trend, ls=ls, lw=lw, alpha=alpha, color=color, **trend_kwargs)
-    plt.xlabel("Time (s)")
-    plt.ylabel("Counts")
-    plt.title("Band energy counts per window")
-    plt.grid(True)
+    fig = plt.figure(figsize=figsize_from_scale(FIGSIZE_SIMPLE, SCALE), constrained_layout=True)
+    ax = fig.gca()
+    ax.scatter(t, y, **scatter_kwargs)
+    ax.plot(t, trend, ls=ls, lw=lw, alpha=alpha, color=color, **trend_kwargs)
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel("Counts")
+    ax.set_title("Windowed data with fitted trend curve")
+    ax.grid(True)
+    apply_sci_yaxis(ax)
 
     if devolver:
         return t, trend
@@ -365,14 +386,13 @@ def plot_HHS(
     if cmap is None:
         cmap = ListedColormap(['blue', 'yellow'])
 
-    fig = plt.figure()
+    fig = plt.figure(figsize=figsize_from_scale(FIGSIZE_SIMPLE, SCALE), constrained_layout=True)
     ax = fig.add_subplot(1, 1, 1)
     ax.pcolormesh(t, fgrid, HHS, shading='nearest', cmap=cmap, vmin=None, vmax=None)
-    ax.set_title("Hilbert-Huang Spectrum")
+    ax.set_title("Hilbert-Huang spectrum (time-frequency-amplitude)")
     ax.set_xlabel("Time (s)")
     ax.set_ylabel("Frequency (Hz)")
     ax.set_ylim(0, fmax if fmax is not None else fgrid.max())
-    plt.show()
 
     if show:
         plt.show()

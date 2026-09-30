@@ -7,9 +7,10 @@ Use :func:`plots_rms_cv` to produce a three-panel figure that shows:
 2. The windowed RMS sequence with optional CV-block boundaries.
 3. The online CV sequence with the detection threshold.
 
-All sub-plots share the same x-axis limits and styling defined by the
-:func:`configurar_estilo_global` helper.  The helper function
-:func:`fig_size` provides IEEE/Elsevier compatible figure dimensions.
+All sub-plots share the same x-axis limits and styling defined by
+``plot_style.ARTICLE_RCPARAMS``.  ``plot_style.figsize_from_scale`` sizes
+each figure from the article-plot-style presets (``FIGSIZE_SIMPLE``/
+``FIGSIZE_WIDE``).
 """
 
 #%%
@@ -18,8 +19,8 @@ from __future__ import annotations
 # import matplotlib
 # matplotlib.use("Qt5Agg")
 import matplotlib.pyplot as plt
-
-import colorsys
+_MPL_PLT = plt  # unshadowed alias -- see plots_rms_cv's per-call `plt` shadow
+from pathlib import Path
 
 from typing import Dict, Any, Sequence, Optional
 
@@ -27,113 +28,16 @@ import numpy as np
 from scipy.stats import norm as _scipy_norm
 
 from ..utils.types import IndicatorResult, SignalData
+from .plot_style import (
+    FIGSIZE_SIMPLE, FIGSIZE_WIDE, SCALE, COLORS,
+    figsize_from_scale, figsize_grid, apply_sci_yaxis,
+)
 
-import colorsys
-
-r, g, b = colorsys.hls_to_rgb(346/360, 0.45, 0.99)
-color_red    = (r, g, b)   # alarm / upper threshold
-
-r, g, b = colorsys.hls_to_rgb(36/360, 0.45, 0.99)
-color_orange = (r, g, b)   # chatter signal / detection td / CV scatter
-
-r, g, b = colorsys.hls_to_rgb(279/360, 0.36, 0.99)
-color_purple = (r, g, b)   # auxiliary curves
-
-r, g, b = colorsys.hls_to_rgb(98/360, 0.36, 0.99)
-color_verde  = (r, g, b)   # stable threshold / mu_stable
-
-r, g, b = colorsys.hls_to_rgb(206.957/360, 0.40941, 0.55603)
-color_azul   = (r, g, b)   # stable signal / RMS sequence
-
-
-
-def fig_size(scale=1.0, ncols=1, base_width=3.4):
-    """Return a Matplotlib-compatible figure size tuple.
-
-    Computes width and height so that figures fit the standard column widths
-    used by IEEE and Elsevier journals.  The height is always 70 % of the
-    computed width.
-
-    Args:
-        scale (float, optional): Global scaling factor applied to both
-            dimensions.  ``1.0`` gives the nominal journal column width.
-            Defaults to ``1.0``.
-        ncols (int, optional): Number of journal columns the figure should
-            span (``1`` = single-column, ``2`` = double-column).  Defaults
-            to ``1``.
-        base_width (float, optional): Width [inches] of a single journal
-            column.  Defaults to ``3.4`` (IEEE single-column).
-
-    Returns:
-        tuple[float, float]: ``(width, height)`` in inches.
-
-    Example:
-        >>> fig_size(scale=1.5, ncols=2)
-        (10.2, 7.140000000000001)
-    """
-    width = base_width * ncols * scale
-    height = width * 0.8   # relación agradable
-    return (width, height)
-
-def configurar_estilo_global() -> None:
-    """Configura el estilo global de los gráficos."""
-    # plt.style.use('dark_background')
-
-    local_style = {
-        # Tipografía general
-        'font.family': 'serif',
-        'font.size': 9,
-
-        # Tamaños de títulos y etiquetas
-        'axes.titlesize': 25,
-        'axes.labelsize': 25,
-        'xtick.labelsize': 23,
-        'ytick.labelsize': 23,
-        'legend.fontsize': 23,
-
-        # Estética de líneas
-        'lines.linewidth': 1.25,
-        'lines.markersize': 6,
-
-        # Bordes y ejes
-        'axes.linewidth': 0.8,
-        'grid.linewidth': 0.5,
-
-        # Ticks
-        'xtick.major.width': 0.8,
-        'ytick.major.width': 0.8,
-        'xtick.direction': 'in',
-        'ytick.direction': 'in',
-        'xtick.major.size': 4,
-        'ytick.major.size': 4,
-        'xtick.minor.size': 2.5,
-        'ytick.minor.size': 2.5,
-        'xtick.minor.width': 0.6,
-        'ytick.minor.width': 0.6,
-
-        # Texto matemático
-        'mathtext.fontset': 'stix',
-        'axes.formatter.use_mathtext': True,
-
-        # Leyenda
-        'legend.frameon': False,
-        'legend.loc': 'best',
-        'legend.handlelength': 2.0,
-        'legend.borderaxespad': 0.5,
-
-        # Exportación
-        'figure.dpi': 100,
-        'savefig.dpi': 300,
-        'savefig.bbox': 'tight',
-        'savefig.pad_inches': 0.02,
-        'savefig.transparent': True,
-
-        # Fondo
-        'figure.facecolor': 'white',
-        'axes.facecolor': 'white',
-        }
-
-    plt.rcParams.update(local_style)
+color_red    = COLORS["threshold"]   # alarm / upper threshold
+color_orange = COLORS["chatter"]     # chatter signal / detection td / CV scatter
+color_purple = "#CC79A7"             # auxiliary curves (Okabe-Ito reddish purple)
+color_verde  = COLORS["reference"]   # stable threshold / mu_stable
+color_azul   = COLORS["stable"]      # stable signal / RMS sequence
 
 # %%
 # ========= Configuración global de estilo de gráficos =========
@@ -192,6 +96,9 @@ def plots_rms_cv(
     vlines: Optional[Sequence[float]] = None,
     hlines: Optional[Sequence[float]] = None,
     t_gt: Optional[float] = None,
+    scale: float = SCALE,
+    figsize_simple: tuple[float, float] = FIGSIZE_SIMPLE,
+    figsize_wide: tuple[float, float] = FIGSIZE_WIDE,
 ) -> plt.Figure:
     """Generate the three-panel RMS-CV diagnostic figure.
 
@@ -239,6 +146,41 @@ def plots_rms_cv(
         >>> from rms_cv.viz.rms_cv_plots import plots_rms_cv
         >>> fig = plots_rms_cv(signal_data, result, zoom_x=(0.5, 2.0))
     """
+    # Shadow the module-level presets -- every nested closure below refers to
+    # `FIGSIZE_SIMPLE`/`figsize_grid` as a free variable, so this local
+    # redefinition (Python closure scoping) is enough to honor a per-call
+    # override without touching each `figsize_from_scale(FIGSIZE_SIMPLE, ...)`
+    # call site individually.
+    FIGSIZE_SIMPLE = figsize_simple
+    FIGSIZE_WIDE = figsize_wide
+
+    # ── Case identifier -- every figure this call creates is tagged with it
+    # in its window identity (num=) only. Without this, every call reuses
+    # the SAME fixed num= strings ("C1 — ...", etc.), so calling this
+    # dispatcher again for a DIFFERENT case/signal in the same process
+    # silently overwrites the previous case's windows instead of opening new
+    # ones. Visible titles stay generic (curve name only, no case), so a
+    # saved/exported figure reads cleanly on its own.
+    _case_id = None
+    if signal is not None:
+        _case_id = (signal.meta or {}).get("signal_id")
+        if not _case_id and signal.path:
+            _case_id = Path(signal.path).stem
+    _case_id = _case_id or "signal"
+
+    _real_plt = _MPL_PLT
+
+    class _PltShadow:
+        @staticmethod
+        def subplots(*_args, num=None, **_kwargs):
+            if num is not None:
+                num = f"{num} — {_case_id}"
+            return _real_plt.subplots(*_args, num=num, **_kwargs)
+
+        def __getattr__(self, _name):
+            return getattr(_real_plt, _name)
+
+    plt = _PltShadow()
 
     def _draw_vlines(ax, vlines, default_color="black", default_ls="--"):
         """Draw vertical event lines with optional rotated text labels (indicator-plot-style)."""
@@ -282,11 +224,11 @@ def plots_rms_cv(
                   block_times: Optional[np.ndarray] = None,
                   block_size: Optional[int] = None,
                   **kargs) -> tuple:
-        fig, axes = plt.subplots(figsize=fig_size(scale=scale, ncols=1))
+        fig, axes = plt.subplots(figsize=figsize_from_scale(FIGSIZE_SIMPLE, scale), constrained_layout=True)
         axes.plot(times, rms, marker="o", color=color_azul)
         axes.set_xlabel("Time (s)")
         axes.set_ylabel("RMS")
-        plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+        apply_sci_yaxis(axes)
         if zoom_x is not None:
             axes.set_xlim(zoom_x)
         if zoom_y is not None:
@@ -303,7 +245,6 @@ def plots_rms_cv(
                 axes.axhline(y=yv, color='gray', linestyle='--', lw=1, alpha=0.7)
         axes.set_title(title)
         axes.grid(False)
-        plt.tight_layout()
         return fig, axes
 
     def _plot_cv(time_seq: Sequence[float], cv_seq: Sequence[float],
@@ -315,7 +256,7 @@ def plots_rms_cv(
                  cv_mu_stable: Optional[float] = None,
                  vlines: Optional[Sequence[float]] = None,
                  hlines: Optional[Sequence[float]] = None) -> tuple:
-        fig, axes = plt.subplots(figsize=fig_size(scale=scale, ncols=1))
+        fig, axes = plt.subplots(figsize=figsize_from_scale(FIGSIZE_SIMPLE, scale), constrained_layout=True)
         axes.scatter(time_seq, cv_seq, color=color_orange, marker="o", s=30)
         if cv_threshold is not None:
             axes.axhline(y=cv_threshold, color=color_red, linestyle="--", linewidth=1.4)
@@ -339,7 +280,7 @@ def plots_rms_cv(
         axes.set_ylabel("CV")
         axes.set_title(title)
         axes.grid(False)
-        plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+        apply_sci_yaxis(axes)
         if zoom_x is not None:
             axes.set_xlim(zoom_x)
         if zoom_y is not None:
@@ -348,7 +289,6 @@ def plots_rms_cv(
         if hlines is not None:
             for yv in hlines:
                 axes.axhline(y=yv, color='gray', linestyle='--', lw=1, alpha=0.7)
-        plt.tight_layout()
         return fig, axes
 
     def _plot_signal(t: "np.ndarray", x: "np.ndarray", *,
@@ -361,11 +301,11 @@ def plots_rms_cv(
                      block_times: Optional[np.ndarray] = None,
                      block_size: Optional[int] = None,
                      **kargs) -> tuple:
-        fig, axes = plt.subplots(figsize=fig_size(scale=scale, ncols=1))
+        fig, axes = plt.subplots(figsize=figsize_from_scale(FIGSIZE_SIMPLE, scale), constrained_layout=True)
         axes.plot(t, x, color=color_azul)
         axes.set_xlabel("Time (s)")
         axes.set_ylabel(r"Velocity $v(t)$ [m/s]")
-        plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+        apply_sci_yaxis(axes)
         if zoom_x is not None:
             axes.set_xlim(zoom_x)
         if zoom_y is not None:
@@ -377,7 +317,6 @@ def plots_rms_cv(
                 axes.axhline(y=yv, color='gray', linestyle='--', lw=1, alpha=0.7)
         axes.set_title(title)
         axes.grid(False)
-        plt.tight_layout()
         return fig, axes
 
     # ── C1: Signal ───────────────────────────────────────────────────────────
@@ -389,7 +328,7 @@ def plots_rms_cv(
     ) -> tuple:
         """Signal in a single color -- t_gt is only marked via vlines, not by
         splitting the trace into a stable/chatter color pair."""
-        fig, ax = plt.subplots(figsize=fig_size(scale=scale, ncols=1), num=fig_label)
+        fig, ax = plt.subplots(figsize=figsize_from_scale(FIGSIZE_SIMPLE, scale), num=fig_label, constrained_layout=True)
         ax.plot(t_s, x_s, color=color_azul)
         if zoom_x is not None:
             ax.set_xlim(zoom_x)
@@ -399,9 +338,8 @@ def plots_rms_cv(
         ax.set_xlabel("Time (s)")
         ax.set_ylabel(r"Velocity $v(t)$ [m/s]")
         ax.set_title("Tool Velocity")
-        plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+        apply_sci_yaxis(ax)
         ax.grid(False)
-        plt.tight_layout()
         return fig, ax
 
     # ── C2: RMS sequence ─────────────────────────────────────────────────────
@@ -416,12 +354,12 @@ def plots_rms_cv(
         """RMS sequence in a single color + vertical CV-block boundaries every
         n_max frames -- t_gt is only marked via vlines, not by splitting the
         trace into a stable/chatter color pair."""
-        fig, ax = plt.subplots(figsize=fig_size(scale=scale, ncols=1), num=fig_label)
+        fig, ax = plt.subplots(figsize=figsize_from_scale(FIGSIZE_SIMPLE, scale), num=fig_label, constrained_layout=True)
         ax.plot(t_rms_arr, rms_arr, marker="o", markersize=3, color=color_azul)
         _draw_block_boundaries(ax, t_rms_arr, cv_num_data)
         if zoom_x is not None:
             ax.set_xlim(zoom_x)
-        plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+        apply_sci_yaxis(ax)
         _draw_vlines(ax, vlines)
         if rms_threshold is not None:
             ax.axhline(y=rms_threshold, color=color_red, ls="--", lw=1.2)
@@ -432,7 +370,6 @@ def plots_rms_cv(
         ax.set_ylabel("RMS")
         ax.set_title("RMS Sequence")
         ax.grid(False)
-        plt.tight_layout()
         return fig, ax
 
     # ── C3: CV histogram of the actual training population (internal or external
@@ -454,7 +391,7 @@ def plots_rms_cv(
         X-limits are left to autoscale over the histogram/curve/threshold lines --
         zoom_y is the CV *time-series* range (a different panel's semantics) and
         must never be reused here (it can clip mu/threshold labels off-screen)."""
-        fig, ax = plt.subplots(figsize=fig_size(scale=scale, ncols=1), num=fig_label)
+        fig, ax = plt.subplots(figsize=figsize_from_scale(FIGSIZE_SIMPLE, scale), num=fig_label, constrained_layout=True)
         if training_values is not None and training_values.size > 0:
             ax.hist(training_values, bins=40, density=True, alpha=0.55,
                     color=color_azul, label=f"Training ({training_source})")
@@ -483,7 +420,6 @@ def plots_rms_cv(
         ax.ticklabel_format(style='sci', axis='x', scilimits=(0, 0))
         ax.legend()
         ax.grid(False)
-        plt.tight_layout()
         return fig, ax
 
     # ── C8: raw training curve (verification of what fed the normal/MAD fit) ──
@@ -516,7 +452,7 @@ def plots_rms_cv(
         (NaN gap) at every piece boundary and alternate pieces get a faint
         shaded band so the split is visible even without the gap.
         """
-        fig, ax = plt.subplots(figsize=fig_size(scale=scale, ncols=1), num=fig_label)
+        fig, ax = plt.subplots(figsize=figsize_from_scale(FIGSIZE_SIMPLE, scale), num=fig_label, constrained_layout=True)
         x = train_time if train_time is not None else np.arange(train_values.size)
         x_plot, y_plot, piece_bounds = split_with_nan_gaps(x, train_values, piece_sizes)
         x_arr = np.asarray(x, dtype=float)
@@ -538,13 +474,12 @@ def plots_rms_cv(
         ax.set_xlabel("Time (s)" if train_time is not None else "Sample index (training population)")
         ax.set_ylabel("CV")
         ax.set_title("CV Training Curve")
-        ax.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+        apply_sci_yaxis(ax)
         if zoom_x is not None:
             ax.set_xlim(zoom_x)
         if zoom_y is not None:
             ax.set_ylim(zoom_y)
         ax.grid(False)
-        plt.tight_layout()
         return fig, ax
 
     # ── C5: μ and σ per CV window evolution ────────────────────────────────
@@ -558,31 +493,29 @@ def plots_rms_cv(
     ) -> tuple:
         """Two separate figures: \u03bc(t) (azul) and \u03c3(t) (purple) per CV window."""
         # — Figure \u03bc(t) —
-        fig_mu, ax_mu = plt.subplots(figsize=fig_size(scale=scale, ncols=1), num=fig_label_mu)
+        fig_mu, ax_mu = plt.subplots(figsize=figsize_from_scale(FIGSIZE_SIMPLE, scale), num=fig_label_mu, constrained_layout=True)
         ax_mu.plot(cv_time_arr, mu_arr, color=color_azul,
                    marker="o", markersize=3, linestyle="-")
         ax_mu.set_xlabel("Time (s)")
         ax_mu.set_ylabel(r"$\mu$ (RMS mean)")
         ax_mu.set_title(r"Per-Window RMS Mean $\mu(t)$ — Online CV Monitor")
-        ax_mu.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+        apply_sci_yaxis(ax_mu)
         ax_mu.grid(False)
         _draw_vlines(ax_mu, vlines)
         if zoom_x is not None:
             ax_mu.set_xlim(zoom_x)
-        fig_mu.tight_layout()
         # — Figure \u03c3(t) —
-        fig_sig, ax_sig = plt.subplots(figsize=fig_size(scale=scale, ncols=1), num=fig_label_sigma)
+        fig_sig, ax_sig = plt.subplots(figsize=figsize_from_scale(FIGSIZE_SIMPLE, scale), num=fig_label_sigma, constrained_layout=True)
         ax_sig.plot(cv_time_arr, sigma_arr, color=color_purple,
                     marker="o", markersize=3, linestyle="-")
         ax_sig.set_xlabel("Time (s)")
         ax_sig.set_ylabel(r"$\sigma$ (RMS std)")
         ax_sig.set_title(r"Per-Window RMS Std $\sigma(t)$ — Online CV Monitor")
-        ax_sig.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+        apply_sci_yaxis(ax_sig)
         ax_sig.grid(False)
         _draw_vlines(ax_sig, vlines)
         if zoom_x is not None:
             ax_sig.set_xlim(zoom_x)
-        fig_sig.tight_layout()
         return (fig_mu, ax_mu), (fig_sig, ax_sig)
 
     # ── C7: μ and σ per window — combined single figure ─────────────────────
@@ -593,21 +526,20 @@ def plots_rms_cv(
         **kargs,
     ) -> tuple:
         """Single figure, shared Y axis: μ(t) (azul) and σ(t) (purple) per CV window."""
-        fig, ax = plt.subplots(figsize=fig_size(scale=scale, ncols=1), num=fig_label)
+        fig, ax = plt.subplots(figsize=figsize_from_scale(FIGSIZE_SIMPLE, scale), num=fig_label, constrained_layout=True)
         ax.plot(cv_time_arr, mu_arr, color=color_azul,
                 marker="o", markersize=3, linestyle="-", label=r"$\mu(t)$")
         ax.plot(cv_time_arr, sigma_arr, color=color_purple,
                 marker="s", markersize=3, linestyle="--", label=r"$\sigma(t)$")
         ax.set_xlabel("Time (s)")
         ax.set_ylabel(r"RMS statistics")
-        ax.ticklabel_format(style="sci", axis="y", scilimits=(0, 0))
+        apply_sci_yaxis(ax)
         ax.set_title(r"Per-Window RMS Mean $\mu(t)$ and Std $\sigma(t)$ — Online CV Monitor")
         ax.legend(loc="upper left")
         ax.grid(False)
         _draw_vlines(ax, vlines)
         if zoom_x is not None:
             ax.set_xlim(zoom_x)
-        fig.tight_layout()
         return fig, ax
 
     # ── C4: Signal + CV joint (2 stacked subplots) ──────────────────────────
@@ -624,7 +556,7 @@ def plots_rms_cv(
     ) -> tuple:
         """Two stacked subplots (shared x-axis): signal (top) + CV scatter (bottom)."""
         fig, (ax_top, ax_bot) = plt.subplots(
-            2, 1, figsize=fig_size(scale=scale, ncols=1),
+            2, 1, figsize=figsize_from_scale(figsize_grid(1, 2, base=FIGSIZE_SIMPLE), scale),
             sharex=True, constrained_layout=True, num=fig_label,
         )
         fig.suptitle("Signal + CV Joint Diagnostic")
@@ -632,7 +564,7 @@ def plots_rms_cv(
         ax_top.plot(t_sig, x_sig, color=color_azul)
         ax_top.set_ylabel(r"Velocity $v(t)$ [m/s]")
         ax_top.set_title("Signal")
-        ax_top.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+        apply_sci_yaxis(ax_top)
         ax_top.grid(False)
         _draw_vlines(ax_top, vlines)
         # Bottom: CV scatter + threshold labels
@@ -657,7 +589,7 @@ def plots_rms_cv(
                             color=color_verde, ha='right', va='bottom', fontsize=16)
         ax_bot.set_xlabel("Time (s)")
         ax_bot.set_ylabel("CV")
-        ax_bot.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+        apply_sci_yaxis(ax_bot)
         ax_bot.grid(False)
         _draw_vlines(ax_bot, vlines)
         if hlines is not None:
@@ -670,8 +602,6 @@ def plots_rms_cv(
         return fig, (ax_top, ax_bot)
 
     # ────────────────────────────────────────────────────────────────────────
-    configurar_estilo_global()
-
     meta = result.meta or {}
     t = signal.t_analysis
     signal_analysis = signal.signal_analysis
@@ -709,8 +639,6 @@ def plots_rms_cv(
     if _t_first_detection is not None:
         _avl.append((_t_first_detection, f"$t_d={_t_first_detection:.3f}$ s", color_orange))
     auto_vlines = _avl if _avl else None
-
-    scale = 3.0
 
     # ── Original 3 figures ───────────────────────────────────────────────────
     # NB: zoom_y is documented/scoped to the CV panels only (values there share a

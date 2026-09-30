@@ -244,7 +244,7 @@ config_std_lyapunov = {
 result_std = run_green_std(sig_std, config_std_lyapunov)
 
 # Extraer campos desde IndicatorResult (interfaz estándar)
-# result_std.t    = t_wins (tiempos de inicio de ventana)
+# result_std.t    = t_wins (tiempos de fin de ventana)
 # result_std.I_t  = sigma_ewma (exponente de Lyapunov suavizado)
 # result_std.t_d  = tiempo de detección
 # result_std.meta["raw_result"] = LyapunovResult (acceso a areas, sigma, global_data)

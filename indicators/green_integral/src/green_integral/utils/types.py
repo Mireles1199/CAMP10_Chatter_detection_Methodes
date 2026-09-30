@@ -268,7 +268,7 @@ class LyapunovResult:
 
     Attributes
     ----------
-    t_wins : Window start times [s].
+    t_wins : Window end times [s].
     areas : Shoelace area per window [m·m/s].
     sigma : Raw instantaneous Lyapunov exponent σ̂ [1/s].
     sigma_ewma : EWMA-smoothed σ̂ (equals *sigma* if lambda_ewma is None).

@@ -2,8 +2,9 @@
 # ========= Imports =========
 from __future__ import annotations
 import matplotlib.pyplot as plt
+_MPL_PLT = plt  # unshadowed alias -- see plots_sst_svd's per-call `plt` shadow
 import matplotlib.colors as _mcolors
-import colorsys
+from pathlib import Path
 
 from typing import Dict, Any, Sequence, Optional
 
@@ -11,92 +12,16 @@ import numpy as np
 from scipy.stats import norm as _scipy_norm
 
 from ..utils.types import IndicatorResult, SignalData
+from .plot_style import (
+    FIGSIZE_SIMPLE, FIGSIZE_WIDE, SCALE, COLORS,
+    figsize_grid, figsize_from_scale, apply_sci_yaxis,
+)
 
-r, g, b = colorsys.hls_to_rgb(346/360, 0.45, 0.99)
-color_red    = (r, g, b)   # alarm / upper threshold
-
-r, g, b = colorsys.hls_to_rgb(36/360, 0.45, 0.99)
-color_orange = (r, g, b)   # chatter signal / detection td
-
-r, g, b = colorsys.hls_to_rgb(279/360, 0.36, 0.99)
-color_purple = (r, g, b)   # SVD curve / auxiliary
-
-r, g, b = colorsys.hls_to_rgb(98/360, 0.36, 0.99)
-color_verde  = (r, g, b)   # stable threshold / mu_stable
-
-r, g, b = colorsys.hls_to_rgb(206.957/360, 0.40941, 0.55603)
-color_azul   = (r, g, b)   # stable signal / raw time series
-
-
-def fig_size(scale=1.0, ncols=1, base_width=3.4):
-    """
-    scale: factor de escala (1 = tamaño normal)
-    ncols: 1=single, 2=double, 3=triple
-    base_width: ancho de una columna típica
-    """
-    width = base_width * ncols * scale
-    height = width * 0.8   # relación agradable
-    return (width, height)
-
-def configurar_estilo_global() -> None:
-    """Configura el estilo global de los gráficos."""
-    # plt.style.use('dark_background')
-
-    local_style = {
-        # Tipografía general
-        'font.family': 'serif',
-        'font.size': 9,
-
-        # Tamaños de títulos y etiquetas
-        'axes.titlesize': 25,
-        'axes.labelsize': 25,
-        'xtick.labelsize': 23,
-        'ytick.labelsize': 23,
-        'legend.fontsize': 23,
-
-        # Estética de líneas
-        'lines.linewidth': 1.25,
-        'lines.markersize': 6,
-
-        # Bordes y ejes
-        'axes.linewidth': 0.8,
-        'grid.linewidth': 0.5,
-
-        # Ticks
-        'xtick.major.width': 0.8,
-        'ytick.major.width': 0.8,
-        'xtick.direction': 'in',
-        'ytick.direction': 'in',
-        'xtick.major.size': 4,
-        'ytick.major.size': 4,
-        'xtick.minor.size': 2.5,
-        'ytick.minor.size': 2.5,
-        'xtick.minor.width': 0.6,
-        'ytick.minor.width': 0.6,
-
-        # Texto matemático
-        'mathtext.fontset': 'stix',
-        'axes.formatter.use_mathtext': True,
-
-        # Leyenda
-        'legend.frameon': False,
-        'legend.loc': 'best',
-        'legend.handlelength': 2.0,
-        'legend.borderaxespad': 0.5,
-
-        # Exportación
-        'figure.dpi': 100,
-        'savefig.dpi': 300,
-        'savefig.bbox': 'tight',
-        'savefig.pad_inches': 0.02,
-        'savefig.transparent': True,
-
-        # Fondo
-        'figure.facecolor': 'white',
-        'axes.facecolor': 'white',
-        }
-
-    plt.rcParams.update(local_style)
+color_red             = COLORS["threshold"]
+color_orange           = COLORS["chatter"]
+color_purple           = COLORS["decision_variable"]
+color_verde            = COLORS["mean"]
+color_azul             = COLORS["stable"]
 
 # %%
 # ========= Configuración global de estilo de gráficos =========
@@ -111,12 +36,52 @@ def plots_sst_svd(
     zoom_y: Optional[tuple[float, float]] = None,
     vlines: Optional[Sequence[float]] = None,
     hlines: Optional[Sequence[float]] = None,
-    t_gt: Optional[float] = None,
     waterfall_lines: str = "time",   # "time" | "freq" | "both"
     training_intervals=None,
     reference_signal: Optional[Sequence[SignalData]] = None,
+    scale: float = SCALE,
+    grid_scale: Optional[float] = None,
+    figsize_simple: tuple[float, float] = FIGSIZE_SIMPLE,
+    figsize_wide: tuple[float, float] = FIGSIZE_WIDE,
 
 ) -> plt.Figure:
+    # Shadow the module-level presets -- every nested closure below refers to
+    # `FIGSIZE_SIMPLE`/`figsize_grid` as a free variable, so this local
+    # redefinition (Python closure scoping) is enough to honor a per-call
+    # override without touching each `figsize_from_scale(FIGSIZE_SIMPLE, ...)`
+    # call site individually.
+    FIGSIZE_SIMPLE = figsize_simple
+    FIGSIZE_WIDE = figsize_wide
+    if grid_scale is None:
+        grid_scale = scale
+
+    # ── Case identifier -- every figure this call creates is tagged with it
+    # in its window identity (num=) only. Without this, every call reuses
+    # the SAME fixed num= strings ("C1 — ...", "C6 — ...", etc.), so calling
+    # this dispatcher again for a DIFFERENT case/signal in the same process
+    # silently overwrites the previous case's windows instead of opening new
+    # ones. Visible titles stay generic (curve name only, no case), so a
+    # saved/exported figure reads cleanly on its own.
+    _case_id = None
+    if signal is not None:
+        _case_id = (signal.meta or {}).get("signal_id")
+        if not _case_id and signal.path:
+            _case_id = Path(signal.path).stem
+    _case_id = _case_id or "signal"
+
+    _real_plt = _MPL_PLT
+
+    class _PltShadow:
+        @staticmethod
+        def subplots(*_args, num=None, **_kwargs):
+            if num is not None:
+                num = f"{num} — {_case_id}"
+            return _real_plt.subplots(*_args, num=num, **_kwargs)
+
+        def __getattr__(self, _name):
+            return getattr(_real_plt, _name)
+
+    plt = _PltShadow()
 
     if isinstance(reference_signal, SignalData):
         reference_signal = [reference_signal]
@@ -178,7 +143,8 @@ def plots_sst_svd(
                   **kargs) -> tuple:
         t = t / 1000  # convertir ms a s
         Sabs = np.abs(Sx)
-        fig, axes = plt.subplots(figsize=fig_size(scale=scale, ncols=1), num=fig_label)
+        fig, axes = plt.subplots(figsize=figsize_from_scale(FIGSIZE_SIMPLE, scale),
+                                  constrained_layout=True, num=fig_label)
         mesh = axes.pcolormesh(t, f, Sabs, shading='gouraud', cmap='viridis')
         fig.colorbar(mesh, ax=axes, label="Amplitude")
         axes.set_title(title)
@@ -193,7 +159,6 @@ def plots_sst_svd(
             for yv in hlines:
                 if yv is not None:
                     axes.axhline(y=yv, color='gray', linestyle='--', lw=1, alpha=0.7)
-        plt.tight_layout()
         return fig, axes
 
     def _plot_freq_slice(
@@ -214,7 +179,8 @@ def plots_sst_svd(
         f_real = float(f_arr[idx_f])
         slice_amp = Sabs[idx_f, :]                  # (n_time,)
         _title = title or f"STFT — Slice at {f_real:.0f} Hz"
-        fig, ax = plt.subplots(figsize=fig_size(scale=scale, ncols=1), num=fig_label)
+        fig, ax = plt.subplots(figsize=figsize_from_scale(FIGSIZE_SIMPLE, scale),
+                                constrained_layout=True, num=fig_label)
         ax.plot(t_s, slice_amp, color=color_azul, linewidth=0.9)
         ax.set_title(_title)
         ax.set_xlabel("Time (s)")
@@ -225,7 +191,6 @@ def plots_sst_svd(
         if zoom_x is not None:
             ax.set_xlim(zoom_x)
         _draw_vlines(ax, vlines)
-        fig.tight_layout()
         return fig, ax
 
     def _plot_waterfall_3d(
@@ -275,8 +240,8 @@ def plots_sst_svd(
         s_min, s_max = float(S_d.min()), float(S_d.max())
 
         # figura — 3D necesita más espacio que los plots 2D
-        _w, _h = fig_size(scale=scale, ncols=1)
-        fig = plt.figure(figsize=(_w * 1.0, _h * 1.0), num=fig_label)
+        _w, _h = figsize_from_scale(FIGSIZE_SIMPLE, scale)
+        fig = plt.figure(figsize=(_w * 1.0, _h * 1.0), constrained_layout=True, num=fig_label)
         ax  = fig.add_subplot(111, projection='3d')
 
         # ══ SURFACE (modo principal) ══════════════════════════════════════
@@ -373,18 +338,18 @@ def plots_sst_svd(
         ax.set_zlabel("")                            # cubierto por la colorbar
         ax.ticklabel_format(style="sci", axis="z", scilimits=(0, 0))
         fig.suptitle(title, y=1.0)                  # título fuera del área 3D
-        fig.tight_layout()
         return fig, ax
 
-    # ── C1: Tool velocity signal (t_gt marked, single color) ─────────────────
+    # ── C1: Tool velocity signal (single color) ───────────────────────────────
     def _plot_signal_split(
         t_s: np.ndarray, x_s: np.ndarray,
         zoom_x=None, zoom_y=None, scale: float = 1.0,
         vlines=None, fig_label: Optional[str] = None,
         **kargs,
     ) -> tuple:
-        """Signal in a single color; t_gt marked via a vline (no stable/chatter split)."""
-        fig, ax = plt.subplots(figsize=fig_size(scale=scale, ncols=1), num=fig_label)
+        """Signal in a single color (no stable/chatter split)."""
+        fig, ax = plt.subplots(figsize=figsize_from_scale(FIGSIZE_SIMPLE, scale),
+                                constrained_layout=True, num=fig_label)
         ax.plot(t_s, x_s, color=color_azul)
         if zoom_x is not None:
             ax.set_xlim(zoom_x)
@@ -394,12 +359,11 @@ def plots_sst_svd(
         ax.set_xlabel("Time (s)")
         ax.set_ylabel(r"Velocity $v(t)$ [m/s]")
         ax.set_title("Tool Velocity")
-        plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+        apply_sci_yaxis(ax)
         ax.grid(False)
-        plt.tight_layout()
         return fig, ax
 
-    # ── C2: SVD 1st component (single color, t_gt marked) ────────────────────
+    # ── C2: SVD 1st component (single color) ──────────────────────────────────
     def _plot_svd_colored(
         t_svd: np.ndarray, d1_arr: np.ndarray,
         lim_sup: Optional[float] = None,
@@ -409,7 +373,8 @@ def plots_sst_svd(
         **kargs,
     ) -> tuple:
         """SVD 1st component in a single color + threshold labels (no stable/chatter split)."""
-        fig, ax = plt.subplots(figsize=fig_size(scale=scale, ncols=1), num=fig_label)
+        fig, ax = plt.subplots(figsize=figsize_from_scale(FIGSIZE_SIMPLE, scale),
+                                constrained_layout=True, num=fig_label)
         ax.plot(t_svd, d1_arr, color=color_purple, marker="o", markersize=4, linestyle="-")
         if lim_sup is not None:
             ax.axhline(lim_sup, color=color_red, ls="--", lw=1.4)
@@ -432,7 +397,6 @@ def plots_sst_svd(
             ax.set_xlim(zoom_x)
         if zoom_y is not None:
             ax.set_ylim(zoom_y)
-        plt.tight_layout()
         return fig, ax
 
     # ── C2b: SVD time-series — one stable label highlighted (log Y) ─────────
@@ -447,7 +411,8 @@ def plots_sst_svd(
         **kargs,
     ) -> tuple:
         """d1(t): all-stable faded (azul) + one label highlighted. Log Y + threshold lines."""
-        fig, ax = plt.subplots(figsize=fig_size(scale=scale, ncols=1), num=fig_label)
+        fig, ax = plt.subplots(figsize=figsize_from_scale(FIGSIZE_SIMPLE, scale),
+                                constrained_layout=True, num=fig_label)
         t_np  = np.asarray(t_svd,  dtype=float)
         d1_np = np.asarray(d1_arr, dtype=float)
         # Background: each stable interval plotted separately → no connecting line across gaps
@@ -489,7 +454,6 @@ def plots_sst_svd(
         ax.set_title(rf"SVD — Stable | {seg_label}")
         ax.legend(loc="lower left")
         ax.grid(False)
-        plt.tight_layout()
         return fig, ax
 
     # ── C3: SVD histogram of the ACTUAL training population (log₁₀ scale) ────
@@ -508,7 +472,8 @@ def plots_sst_svd(
         external `reference_signal`, whichever was actually used; see
         `meta['training_source']`/`meta['training_mode']` for traceability).
         """
-        fig, ax = plt.subplots(figsize=fig_size(scale=scale, ncols=1), num=fig_label)
+        fig, ax = plt.subplots(figsize=figsize_from_scale(FIGSIZE_SIMPLE, scale),
+                                constrained_layout=True, num=fig_label)
         d1_np = np.asarray(training_d1, dtype=float)
         pos = d1_np > 0
         d1_log = np.log10(d1_np[pos])
@@ -559,14 +524,12 @@ def plots_sst_svd(
         ax.set_title("SVD Distribution — Training Population")
         ax.legend()
         ax.grid(False)
-        fig.tight_layout()
         return fig, ax
 
     # ── C4: Signal + SVD joint (2 stacked subplots) ──────────────────────────
     def _plot_signal_svd_joint(
         t_sig: np.ndarray, x_sig: np.ndarray,
         t_svd: np.ndarray, d1_arr: np.ndarray,
-        t_gt_val: Optional[float] = None,
         lim_sup: Optional[float] = None,
         lim_inf: Optional[float] = None,
         zoom_x=None, zoom_y=None, scale: float = 1.0,
@@ -577,15 +540,14 @@ def plots_sst_svd(
         `zoom_y` applies to the bottom (SVD) subplot only -- top is raw signal
         amplitude, a different scale."""
         fig, (ax_top, ax_bot) = plt.subplots(
-            2, 1, figsize=fig_size(scale=scale, ncols=1),
+            2, 1, figsize=figsize_from_scale(figsize_grid(1, 2, base=FIGSIZE_SIMPLE), scale),
             sharex=True, constrained_layout=True, num=fig_label,
         )
-        _gt_txt = rf" — Ground Truth $t_{{gt}}={t_gt_val:.3f}$ s" if t_gt_val is not None else ""
-        fig.suptitle(f"Signal + SVD Joint Diagnostic{_gt_txt}")
-        # Top: signal, single color (t_gt marked via vline below, no region split)
+        fig.suptitle("Signal + SVD Joint Diagnostic")
+        # Top: signal, single color
         ax_top.plot(t_sig, x_sig, color=color_azul)
         ax_top.set_ylabel(r"Velocity $v(t)$ [m/s]")
-        ax_top.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+        apply_sci_yaxis(ax_top)
         ax_top.grid(False)
         _draw_vlines(ax_top, vlines)
         # Bottom: SVD line + threshold labels
@@ -602,7 +564,7 @@ def plots_sst_svd(
                         color=color_red, ha='right', va='top', fontsize=16)
         ax_bot.set_xlabel("Time (s)")
         ax_bot.set_ylabel("1st SVD Component")
-        ax_bot.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+        apply_sci_yaxis(ax_bot)
         ax_bot.grid(False)
         _draw_vlines(ax_bot, vlines)
         # zoom applied last -- see note in _plot_svd (sharex propagates zoom_x to ax_top too)
@@ -621,7 +583,8 @@ def plots_sst_svd(
         **kargs,
     ) -> tuple:
         """d1(t): full trace faded, one stable label group highlighted."""
-        fig, ax = plt.subplots(figsize=fig_size(scale=scale, ncols=1), num=fig_label)
+        fig, ax = plt.subplots(figsize=figsize_from_scale(FIGSIZE_SIMPLE, scale),
+                                constrained_layout=True, num=fig_label)
         t_np  = np.asarray(t_svd, dtype=float)
         d1_np = np.asarray(d1_arr, dtype=float)
         ax.plot(t_np, d1_np, color=color_azul, alpha=0.25, lw=0.8, label="All d1")
@@ -641,10 +604,9 @@ def plots_sst_svd(
         ax.set_xlabel("Time (s)")
         ax.set_ylabel("1st SVD Component")
         ax.set_title(rf"Training d1 — Stable Segments | {seg_label}")
-        ax.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+        apply_sci_yaxis(ax)
         ax.legend()
         ax.grid(False)
-        plt.tight_layout()
         return fig, ax
 
     # ── C3b: log10(d1) histogram — one stable label highlighted + Gaussian ──
@@ -659,7 +621,8 @@ def plots_sst_svd(
         **kargs,
     ) -> tuple:
         """log10(d1): C3 stable background (faded) + label contribution highlighted + μ/3σ lines."""
-        fig, ax = plt.subplots(figsize=fig_size(scale=scale, ncols=1), num=fig_label)
+        fig, ax = plt.subplots(figsize=figsize_from_scale(FIGSIZE_SIMPLE, scale),
+                                constrained_layout=True, num=fig_label)
         d1_np  = np.asarray(d1_arr, dtype=float)
         t_np   = np.asarray(t_svd,  dtype=float)
         pos    = d1_np > 0
@@ -670,7 +633,6 @@ def plots_sst_svd(
             mask_s |= (t_np >= _t0) & (t_np <= _t1)
         mask_s &= pos & np.isfinite(d1_log)
         if not mask_s.any():
-            fig.tight_layout()
             return fig, ax
         # shared bin edges from all stable data (same as C3 auto-bins on mask_s)
         n_bins = 40
@@ -739,7 +701,6 @@ def plots_sst_svd(
         ax.set_title(rf"Training PDF — Stable d1 | {seg_label}")
         ax.legend(loc='lower left')
         ax.grid(False)
-        fig.tight_layout()
         return fig, ax
 
     # ── C5: Training signal confirmation (raw waveform + its own d1) ─────────
@@ -758,13 +719,13 @@ def plots_sst_svd(
         internal stable slice) instead of taking `meta['training_source']` on faith.
         """
         fig, (ax_top, ax_bot) = plt.subplots(
-            2, 1, figsize=fig_size(scale=scale, ncols=1),
+            2, 1, figsize=figsize_from_scale(figsize_grid(1, 2, base=FIGSIZE_SIMPLE), scale),
             constrained_layout=True, num=fig_label,
         )
         fig.suptitle("Training Signal")
         ax_top.plot(train_sig_t, train_sig_x, color=color_azul, lw=0.6)
         ax_top.set_ylabel("Amplitude")
-        ax_top.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+        apply_sci_yaxis(ax_top)
         ax_top.grid(False)
         ax_bot.plot(train_t, train_d1, color=color_purple, marker="o", markersize=3, linestyle="-")
         ax_bot.set_yscale('log')
@@ -786,6 +747,67 @@ def plots_sst_svd(
             ax_bot.set_ylim(zoom_y)
         return fig, (ax_top, ax_bot)
 
+    # ── C6/C7: per-case grid (one square subplot per training piece) --
+    # same idea as MaxEnt's F0a/F1 per-case grids. Falls back to a single
+    # panel when there's only one piece/case (e.g. plain frac_stable).
+    def _plot_pieces_grid(
+        pieces: Sequence[tuple],
+        color: str, title: str,
+        ylabel: str = r"$v(t)$",
+        lim_sup: Optional[float] = None,
+        lim_inf: Optional[float] = None,
+        zoom_x=None, zoom_y=None,
+        scale: float = 1.0,
+        fig_label: Optional[str] = None,
+    ) -> tuple[plt.Figure, np.ndarray]:
+        pieces = [
+            (np.asarray(t, dtype=float), np.asarray(v, dtype=float))
+            for t, v in pieces if t is not None and len(t) > 0
+        ]
+        if not pieces:
+            pieces = [(np.array([]), np.array([]))]
+
+        def _fill(ax, t_i, v_i):
+            if t_i.size > 0:
+                ax.plot(t_i, v_i, color=color, alpha=0.9, lw=0.8)
+            if lim_sup is not None:
+                ax.axhline(lim_sup, color=color_red, ls="--", lw=1.0)
+            if lim_inf is not None:
+                ax.axhline(lim_inf, color=color_red, ls=":", lw=0.9)
+            if zoom_x is not None:
+                ax.set_xlim(zoom_x)
+            if zoom_y is not None:
+                ax.set_ylim(zoom_y)
+            apply_sci_yaxis(ax)
+
+        if len(pieces) <= 1:
+            fig, ax = plt.subplots(figsize=figsize_from_scale(FIGSIZE_SIMPLE, scale),
+                                    constrained_layout=True, num=fig_label)
+            _fill(ax, *pieces[0])
+            ax.set_title(title)
+            ax.set_xlabel("Time (s)")
+            ax.set_ylabel(ylabel)
+            return fig, np.array([[ax]])
+
+        n = len(pieces)
+        ncols = int(np.ceil(np.sqrt(n)))
+        nrows = int(np.ceil(n / ncols))
+        fig, axes = plt.subplots(
+            nrows, ncols,
+            figsize=figsize_grid(ncols, nrows, base=figsize_from_scale(FIGSIZE_SIMPLE, scale)),
+            constrained_layout=True, num=fig_label, squeeze=False)
+        for i, (t_i, v_i) in enumerate(pieces):
+            ax = axes[i // ncols, i % ncols]
+            _fill(ax, t_i, v_i)
+            ax.set_title(f"Piece {i + 1}", fontsize=10)
+            ax.set_box_aspect(1)
+        for j in range(n, nrows * ncols):
+            fig.delaxes(axes[j // ncols, j % ncols])
+        fig.suptitle(title, y=1.02)
+        fig.supxlabel("Time (s)")
+        fig.supylabel(ylabel)
+        return fig, axes
+
     # ────────────────────────────────────────────────────────────────────────
     meta = result.meta or {}
     t_sig_arr = signal.t_analysis
@@ -794,8 +816,6 @@ def plots_sst_svd(
 
     t_i = result.t
     d1  = result.I_t
-
-    scale = 3.0
 
     Sx  = meta.get("Sx", None)
     Tsx = meta.get("Tsx", None)
@@ -834,23 +854,16 @@ def plots_sst_svd(
     f   = np.linspace(0, fs / 2, Sx.shape[0])
     t_s = np.arange(Sx.shape[1]) * meta.get("hop_ms", 10e-3)
 
-    # ── auto vlines — ONLY two lines allowed on any time-series panel: (a) the
-    # ground truth t_gt/t_theorical, and (b) a single "first detection" marker,
-    # always the RAW t_d[0] (never t_d_no_FAR[0], which by definition always
-    # falls after t_gt and would hide how early the raw detector actually fired).
-    # No line per subsequent detection past t_gt -- one detector run can flag
-    # thousands of points after onset, and a vline per point makes every panel
-    # unreadable.
+    # ── auto vlines — ONLY one line allowed on any time-series panel: a single
+    # "first detection" marker, always the RAW t_d[0] (never t_d_no_FAR[0]).
+    # No line per subsequent detection -- one detector run can flag thousands
+    # of points, and a vline per point makes every panel unreadable.
     _t_d = np.asarray(result.t_d) if result.t_d is not None and len(result.t_d) > 0 else np.array([])
     _t_first_det = float(_t_d[0]) if _t_d.size > 0 else None
     _avl = []
-    if t_gt is not None:
-        _avl.append((t_gt,         f"$t_{{gt}}={t_gt:.3f}$ s", "black"))
     if _t_first_det is not None:
         _avl.append((_t_first_det, f"$t_d={_t_first_det:.3f}$ s", color_orange))
     auto_vlines = _avl if _avl else None
-
-    configurar_estilo_global()
 
     # ── F1-F2c: STFT/SST spectrograms + slices + 3D waterfalls -- heavy to
     # render (pcolormesh/3D surfaces over the full spectrogram), on demand only.
@@ -911,119 +924,173 @@ def plots_sst_svd(
                 )
 
     # ── New figures C1–C4 ────────────────────────────────────────────────────
-    if t_gt is not None:
-        _plot_signal_split(
-            t_sig_arr, sig_arr,
-            zoom_x=zoom_x, scale=scale, vlines=auto_vlines,
-            fig_label="C1 — Signal Split by Region",
+    _plot_signal_split(
+        t_sig_arr, sig_arr,
+        zoom_x=zoom_x, scale=scale, vlines=auto_vlines,
+        fig_label="C1 — Signal Split by Region",
+    )
+    if t_i is not None and d1 is not None:
+        # precompute stable ranges (shared by C2b, C3, C3b)
+        _all_stable_ranges: list = []
+        _stable_grps: dict = {}
+        if _ti_meta is not None:
+            for _t0, _t1, _lbl in _ti_meta:
+                _lbl_lo = str(_lbl).lower().strip()
+                if _lbl_lo.startswith("stable"):
+                    _all_stable_ranges.append((_t0, _t1))
+                    _stable_grps.setdefault(_lbl_lo, []).append((_t0, _t1))
+        _plot_svd_colored(
+            t_i, d1,
+            lim_sup=lim_sup, lim_inf=lim_inf,
+            zoom_x=zoom_x, zoom_y=zoom_y, scale=scale, vlines=auto_vlines,
+            fig_label="C2 — SVD 1st Component",
         )
-        if t_i is not None and d1 is not None:
-            # precompute stable ranges (shared by C2b, C3, C3b)
-            _all_stable_ranges: list = []
-            _stable_grps: dict = {}
-            if _ti_meta is not None:
-                for _t0, _t1, _lbl in _ti_meta:
-                    _lbl_lo = str(_lbl).lower().strip()
-                    if _lbl_lo.startswith("stable"):
-                        _all_stable_ranges.append((_t0, _t1))
-                        _stable_grps.setdefault(_lbl_lo, []).append((_t0, _t1))
-            _plot_svd_colored(
-                t_i, d1,
+        # C2b — one figure per distinct stable label (same philosophy as C3b)
+        if _all_stable_ranges and len(_stable_grps) >= 2:
+            for _gi, (_lbl_name, _ranges) in enumerate(_stable_grps.items()):
+                _plot_svd_colored_one_segment(
+                    np.asarray(t_i, dtype=float), np.asarray(d1, dtype=float),
+                    seg_ranges=_ranges,
+                    seg_label=_lbl_name,
+                    all_stable_ranges=_all_stable_ranges,
+                    lim_sup=lim_sup, lim_inf=lim_inf,
+                    zoom_x=zoom_x, zoom_y=zoom_y, scale=scale, vlines=auto_vlines,
+                    fig_label=f"C2b.{_gi} — {_lbl_name}",
+                )
+        if training_d1 is not None:
+            _plot_svd_hist(
+                training_d1,
+                training_mu=meta.get("training_mu"), training_sigma=meta.get("training_sigma"),
                 lim_sup=lim_sup, lim_inf=lim_inf,
-                zoom_x=zoom_x, zoom_y=zoom_y, scale=scale, vlines=auto_vlines,
-                fig_label="C2 — SVD 1st Component",
+                scale=scale, fig_label="C3 — SVD Histogram",
             )
-            # C2b — one figure per distinct stable label (same philosophy as C3b)
-            if _all_stable_ranges and len(_stable_grps) >= 2:
-                for _gi, (_lbl_name, _ranges) in enumerate(_stable_grps.items()):
-                    _plot_svd_colored_one_segment(
-                        np.asarray(t_i, dtype=float), np.asarray(d1, dtype=float),
-                        seg_ranges=_ranges,
-                        seg_label=_lbl_name,
-                        all_stable_ranges=_all_stable_ranges,
-                        lim_sup=lim_sup, lim_inf=lim_inf,
-                        zoom_x=zoom_x, zoom_y=zoom_y, scale=scale, vlines=auto_vlines,
-                        fig_label=f"C2b.{_gi} — {_lbl_name}",
-                    )
-            if training_d1 is not None:
-                _plot_svd_hist(
-                    training_d1,
-                    training_mu=meta.get("training_mu"), training_sigma=meta.get("training_sigma"),
+        # C3b — one figure per distinct stable label
+        if _all_stable_ranges and len(_stable_grps) >= 2:
+            for _gi, (_lbl_name, _ranges) in enumerate(_stable_grps.items()):
+                _plot_d1_pdf_one_segment(
+                    np.asarray(t_i, dtype=float), np.asarray(d1, dtype=float),
+                    seg_ranges=_ranges,
+                    seg_label=_lbl_name,
+                    all_stable_ranges=_all_stable_ranges,
                     lim_sup=lim_sup, lim_inf=lim_inf,
-                    scale=scale, fig_label="C3 — SVD Histogram",
+                    scale=scale,
+                    fig_label=f"C3b.{_gi} — {_lbl_name}",
                 )
-            # C3b — one figure per distinct stable label
-            if _all_stable_ranges and len(_stable_grps) >= 2:
-                for _gi, (_lbl_name, _ranges) in enumerate(_stable_grps.items()):
-                    _plot_d1_pdf_one_segment(
-                        np.asarray(t_i, dtype=float), np.asarray(d1, dtype=float),
-                        seg_ranges=_ranges,
-                        seg_label=_lbl_name,
-                        all_stable_ranges=_all_stable_ranges,
-                        lim_sup=lim_sup, lim_inf=lim_inf,
-                        scale=scale,
-                        fig_label=f"C3b.{_gi} — {_lbl_name}",
-                    )
-            # C5 — training signal confirmation: raw waveform that actually
-            # trained the detector (external reference_signal, or the internal
-            # stable slice) + its own d1, so you can eyeball it directly.
-            if training_t is not None and training_d1 is not None:
-                _bot_t, _bot_d1 = training_t, training_d1
-                if training_source == "external_reference" and reference_signal is not None:
-                    # Each piece was windowed/analyzed in isolation (runner.py) and
-                    # is NOT temporally contiguous with its neighbors -- a plain
-                    # concatenation would draw a straight line across the gap
-                    # between one piece's end and the next piece's start, as if it
-                    # were real data. Decimate PER PIECE (so the NaN separator
-                    # always survives) then insert a NaN seam between pieces --
-                    # matplotlib breaks the line there, nothing else changes.
-                    # ponytail: flat per-piece decimation for plotting only
-                    # (reference pieces can be millions of samples) — upgrade to a
-                    # proper downsampler (e.g. min/max envelope) if this ever
-                    # needs to preserve peak amplitudes.
-                    _MAX_PLOT_PTS = 50_000
-                    _per_piece_cap = max(1, _MAX_PLOT_PTS // max(len(reference_signal), 1))
-                    _t_pieces, _x_pieces = [], []
-                    for _p in reference_signal:
-                        _pt = np.asarray(_p.t_analysis, dtype=float)
-                        _px = np.asarray(_p.signal_analysis, dtype=float)
-                        if _pt.size > _per_piece_cap:
-                            _pstep = _pt.size // _per_piece_cap
-                            _pt, _px = _pt[::_pstep], _px[::_pstep]
-                        _t_pieces.append(_pt)
-                        _x_pieces.append(_px)
-                    _train_sig_t = _concat_with_gaps(_t_pieces)
-                    _train_sig_x = _concat_with_gaps(_x_pieces)
+        # C5 — training signal confirmation: raw waveform that actually
+        # trained the detector (external reference_signal, or the internal
+        # stable slice) + its own d1, so you can eyeball it directly.
+        if training_t is not None and training_d1 is not None:
+            _bot_t, _bot_d1 = training_t, training_d1
+            if training_source == "external_reference" and reference_signal is not None:
+                # Each piece was windowed/analyzed in isolation (runner.py) and
+                # is NOT temporally contiguous with its neighbors -- a plain
+                # concatenation would draw a straight line across the gap
+                # between one piece's end and the next piece's start, as if it
+                # were real data. Decimate PER PIECE (so the NaN separator
+                # always survives) then insert a NaN seam between pieces --
+                # matplotlib breaks the line there, nothing else changes.
+                # ponytail: flat per-piece decimation for plotting only
+                # (reference pieces can be millions of samples) — upgrade to a
+                # proper downsampler (e.g. min/max envelope) if this ever
+                # needs to preserve peak amplitudes.
+                _MAX_PLOT_PTS = 50_000
+                _per_piece_cap = max(1, _MAX_PLOT_PTS // max(len(reference_signal), 1))
+                _t_pieces, _x_pieces = [], []
+                for _p in reference_signal:
+                    _pt = np.asarray(_p.t_analysis, dtype=float)
+                    _px = np.asarray(_p.signal_analysis, dtype=float)
+                    if _pt.size > _per_piece_cap:
+                        _pstep = _pt.size // _per_piece_cap
+                        _pt, _px = _pt[::_pstep], _px[::_pstep]
+                    _t_pieces.append(_pt)
+                    _x_pieces.append(_px)
+                _train_sig_t = _concat_with_gaps(_t_pieces)
+                _train_sig_x = _concat_with_gaps(_x_pieces)
 
-                    # Same seam gap for the bottom (d1) panel -- training_t/
-                    # training_d1 is the pool of per-piece SVD frames (runner.py),
-                    # so it needs the same NaN break at each piece boundary.
-                    _piece_frames = [
-                        f["frames"] for f in (meta.get("reference_frames_per_piece") or [])
-                        if f["frames"] > 0
-                    ]
-                    if sum(_piece_frames) == np.asarray(training_t).size and len(_piece_frames) > 1:
-                        _bot_t = _concat_with_gaps(_split_by_lengths(np.asarray(training_t, dtype=float), _piece_frames))
-                        _bot_d1 = _concat_with_gaps(_split_by_lengths(np.asarray(training_d1, dtype=float), _piece_frames))
-                else:
-                    _t0_tr, _t1_tr = float(np.min(training_t)), float(np.max(training_t))
-                    _tr_mask = (t_sig_arr >= _t0_tr) & (t_sig_arr <= _t1_tr)
-                    _train_sig_t = t_sig_arr[_tr_mask]
-                    _train_sig_x = sig_arr[_tr_mask]
-                    _MAX_PLOT_PTS = 50_000
-                    if _train_sig_t.size > _MAX_PLOT_PTS:
-                        _step = _train_sig_t.size // _MAX_PLOT_PTS
-                        _train_sig_t = _train_sig_t[::_step]
-                        _train_sig_x = _train_sig_x[::_step]
-                _plot_training_signal(
-                    _train_sig_t, _train_sig_x, _bot_t, _bot_d1,
-                    lim_sup=lim_sup, lim_inf=lim_inf,
-                    zoom_y=zoom_y, scale=scale, fig_label="C5 — Training Signal Confirmation",
-                )
+                # Same seam gap for the bottom (d1) panel -- training_t/
+                # training_d1 is the pool of per-piece SVD frames (runner.py),
+                # so it needs the same NaN break at each piece boundary.
+                _piece_frames = [
+                    f["frames"] for f in (meta.get("reference_frames_per_piece") or [])
+                    if f["frames"] > 0
+                ]
+                if sum(_piece_frames) == np.asarray(training_t).size and len(_piece_frames) > 1:
+                    _bot_t = _concat_with_gaps(_split_by_lengths(np.asarray(training_t, dtype=float), _piece_frames))
+                    _bot_d1 = _concat_with_gaps(_split_by_lengths(np.asarray(training_d1, dtype=float), _piece_frames))
+            else:
+                _t0_tr, _t1_tr = float(np.min(training_t)), float(np.max(training_t))
+                _tr_mask = (t_sig_arr >= _t0_tr) & (t_sig_arr <= _t1_tr)
+                _train_sig_t = t_sig_arr[_tr_mask]
+                _train_sig_x = sig_arr[_tr_mask]
+                _MAX_PLOT_PTS = 50_000
+                if _train_sig_t.size > _MAX_PLOT_PTS:
+                    _step = _train_sig_t.size // _MAX_PLOT_PTS
+                    _train_sig_t = _train_sig_t[::_step]
+                    _train_sig_x = _train_sig_x[::_step]
+            _plot_training_signal(
+                _train_sig_t, _train_sig_x, _bot_t, _bot_d1,
+                lim_sup=lim_sup, lim_inf=lim_inf,
+                zoom_y=zoom_y, scale=scale, fig_label="C5 — Training Signal Confirmation",
+            )
+
+            # C6/C7 — stable training grid: one square subplot per case, same
+            # idea as MaxEnt's F0a/F1. Prefer external reference_signal pieces
+            # (own case per piece); else per training_intervals stable range;
+            # else a single fallback panel (plain frac_stable, no multi-case
+            # training data available).
+            _grid_sig_pieces: list = []
+            _grid_d1_pieces: list = []
+            if training_source == "external_reference" and reference_signal and len(reference_signal) > 1:
+                _MAX_GRID_PTS = 50_000
+                _cap = max(1, _MAX_GRID_PTS // len(reference_signal))
+                for _p in reference_signal:
+                    _pt = np.asarray(_p.t_analysis, dtype=float)
+                    _px = np.asarray(_p.signal_analysis, dtype=float)
+                    if _pt.size > _cap:
+                        _pstep = _pt.size // _cap
+                        _pt, _px = _pt[::_pstep], _px[::_pstep]
+                    _grid_sig_pieces.append((_pt, _px))
+                _frames = [
+                    f["frames"] for f in (meta.get("reference_frames_per_piece") or [])
+                    if f["frames"] > 0
+                ]
+                if len(_frames) > 1 and sum(_frames) == np.asarray(training_t).size:
+                    _grid_d1_pieces = list(zip(
+                        _split_by_lengths(np.asarray(training_t, dtype=float), _frames),
+                        _split_by_lengths(np.asarray(training_d1, dtype=float), _frames),
+                    ))
+            elif _all_stable_ranges and len(_all_stable_ranges) > 1:
+                _tt_np, _td1_np = np.asarray(training_t, dtype=float), np.asarray(training_d1, dtype=float)
+                for _r0, _r1 in _all_stable_ranges:
+                    _m_sig = (t_sig_arr >= _r0) & (t_sig_arr <= _r1)
+                    _grid_sig_pieces.append((t_sig_arr[_m_sig], sig_arr[_m_sig]))
+                    _m_d1 = (_tt_np >= _r0) & (_tt_np <= _r1)
+                    _grid_d1_pieces.append((_tt_np[_m_d1], _td1_np[_m_d1]))
+
+            if not _grid_sig_pieces:
+                _grid_sig_pieces = [(_train_sig_t, _train_sig_x)]
+            if not _grid_d1_pieces:
+                _grid_d1_pieces = [(np.asarray(training_t, dtype=float), np.asarray(training_d1, dtype=float))]
+
+            _plot_pieces_grid(
+                _grid_sig_pieces, color=color_azul,
+                title="Stable Training Signal (per case)",
+                ylabel=r"Velocity $v(t)$ [m/s]",
+                scale=grid_scale,
+                fig_label="C6 — Stable Training Signal (per case)",
+            )
+            _plot_pieces_grid(
+                _grid_d1_pieces, color=color_purple,
+                title="Stable Decision Variable $d_1$ (per case)",
+                ylabel="1st SVD Component",
+                lim_sup=lim_sup, lim_inf=lim_inf,
+                scale=grid_scale,
+                fig_label="C7 — Stable Decision Variable (per case)",
+            )
     if t_i is not None and d1 is not None:
         _plot_signal_svd_joint(
             t_sig_arr, sig_arr, t_i, d1,
-            t_gt_val=t_gt, lim_sup=lim_sup, lim_inf=lim_inf,
+            lim_sup=lim_sup, lim_inf=lim_inf,
             zoom_x=zoom_x, zoom_y=zoom_y, scale=scale, vlines=auto_vlines,
             fig_label="C4 — Signal + SVD Joint",
         )

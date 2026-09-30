@@ -12,8 +12,10 @@ from typing import Dict, Any, Sequence
 import numpy as np
 import matplotlib.pyplot as plt
 
+from .plot_style import FIGSIZE_SIMPLE, SCALE, figsize_from_scale, apply_sci_yaxis
 
-def plot_signal(t: "np.ndarray", x: "np.ndarray", *, title: str = "Signal") -> None:
+
+def plot_signal(t: "np.ndarray", x: "np.ndarray", *, title: str = "Tool Velocity Signal") -> None:
     """Plot a time-domain signal.
 
     .. deprecated::
@@ -23,21 +25,24 @@ def plot_signal(t: "np.ndarray", x: "np.ndarray", *, title: str = "Signal") -> N
     Args:
         t (np.ndarray): Time vector [s], shape ``(T,)``.
         x (np.ndarray): Signal amplitude, shape ``(T,)``.
-        title (str, optional): Axes title.  Defaults to ``"Signal"``.
+        title (str, optional): Axes title.  Defaults to
+            ``"Tool Velocity Signal"``.
 
     Note:
         A new :class:`~matplotlib.figure.Figure` is created and left open.
         Call :func:`matplotlib.pyplot.show` or
         :func:`matplotlib.pyplot.savefig` explicitly.
     """
-    plt.figure()
-    plt.plot(t, x)
-    plt.xlabel("time (s)")
-    plt.ylabel("amplitude")
-    plt.title(title)
-    plt.grid(True)
+    fig = plt.figure(figsize=figsize_from_scale(FIGSIZE_SIMPLE, SCALE), constrained_layout=True)
+    ax = fig.gca()
+    ax.plot(t, x)
+    ax.set_xlabel("time (s)")
+    ax.set_ylabel("amplitude")
+    apply_sci_yaxis(ax)
+    ax.set_title(title)
+    ax.grid(True)
 
-def plot_rms(times: "np.ndarray", rms: "np.ndarray", *, title: str = "RMS") -> None:
+def plot_rms(times: "np.ndarray", rms: "np.ndarray", *, title: str = "RMS Envelope of the Signal") -> None:
     """Plot a windowed RMS sequence.
 
     .. deprecated::
@@ -47,17 +52,20 @@ def plot_rms(times: "np.ndarray", rms: "np.ndarray", *, title: str = "RMS") -> N
     Args:
         times (np.ndarray): Centre-of-frame timestamps [s], shape ``(F,)``.
         rms (np.ndarray): Corresponding RMS values, shape ``(F,)``.
-        title (str, optional): Axes title.  Defaults to ``"RMS"``.
+        title (str, optional): Axes title.  Defaults to
+            ``"RMS Envelope of the Signal"``.
     """
     # Traza secuencia RMS
-    plt.figure()
-    plt.plot(times, rms, marker="o")
-    plt.xlabel("time (s)")
-    plt.ylabel("rms")
-    plt.title(title)
-    plt.grid(True)
+    fig = plt.figure(figsize=figsize_from_scale(FIGSIZE_SIMPLE, SCALE), constrained_layout=True)
+    ax = fig.gca()
+    ax.plot(times, rms, marker="o")
+    ax.set_xlabel("time (s)")
+    ax.set_ylabel("rms")
+    apply_sci_yaxis(ax)
+    ax.set_title(title)
+    ax.grid(True)
 
-def plot_cv(time_seq: Sequence[float], cv_seq: Sequence[float], cv_threshold: float, *, title: str = "CV") -> None:
+def plot_cv(time_seq: Sequence[float], cv_seq: Sequence[float], cv_threshold: float, *, title: str = "Coefficient of Variation (CV) Sequence") -> None:
     """Plot the online Coefficient of Variation (CV) sequence with its threshold.
 
     .. deprecated::
@@ -69,13 +77,16 @@ def plot_cv(time_seq: Sequence[float], cv_seq: Sequence[float], cv_threshold: fl
         cv_seq (Sequence[float]): CV values per frame, length *F*.
         cv_threshold (float): Alert threshold drawn as a horizontal dashed
             red line.
-        title (str, optional): Axes title.  Defaults to ``"CV"``.
+        title (str, optional): Axes title.  Defaults to
+            ``"Coefficient of Variation (CV) Sequence"``.
     """
     # Traza CV con su umbral de alerta
-    plt.figure()
-    plt.scatter(time_seq, cv_seq)
-    plt.axhline(y=cv_threshold, color="r", linestyle="--", label="CV threshold")
-    plt.xlabel("time (s)")
-    plt.ylabel("cv")
-    plt.title(title)
-    plt.grid(True)
+    fig = plt.figure(figsize=figsize_from_scale(FIGSIZE_SIMPLE, SCALE), constrained_layout=True)
+    ax = fig.gca()
+    ax.scatter(time_seq, cv_seq)
+    ax.axhline(y=cv_threshold, color="r", linestyle="--", label="CV threshold")
+    ax.set_xlabel("time (s)")
+    ax.set_ylabel("cv")
+    apply_sci_yaxis(ax)
+    ax.set_title(title)
+    ax.grid(True)

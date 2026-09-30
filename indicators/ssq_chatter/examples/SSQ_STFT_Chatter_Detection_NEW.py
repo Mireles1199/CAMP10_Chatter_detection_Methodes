@@ -118,8 +118,10 @@ def main() -> None:
 
     }
 
+    _ACTIVE_SIGNAL_KEY = "tubo_stable_8_605e_5"
+
     _SIGNAL_SOURCE = {
-        "hdf5_path": _DATA_DIRS["tubo_stable_8_605e_5"],
+        "hdf5_path": _DATA_DIRS[_ACTIVE_SIGNAL_KEY],
         "case_name": None,  # None (layout crudo) | "case_003" (layout DOE)
         "disp_name": "Axial_disp",
         "vel_name": "Axial_vel",
@@ -158,7 +160,6 @@ def main() -> None:
     _F_MODAL = 150.0
     _T_REV   = 60.0 / _RPM        # 0.005 s -- periodo de una revolucion
     _T_MODAL = 1.0 / _F_MODAL     # 0.00667 s -- periodo modal (150 Hz)
-    _TGT     = 5.365770208787228   # [s] ground-truth chatter onset
 
 
 
@@ -172,8 +173,8 @@ def main() -> None:
         # region de referencia (reemplaza frac_stable cuando está definido).
         # Se pueden añadir varios intervalos con distintas etiquetas.
         # "training_intervals": [
-        #     (_CUT_START, _TGT, "stable"),
-        #     # (_TGT,      10.0,  "chatter"),
+        #     (_CUT_START, 5.0, "stable"),
+        #     # (5.0,       10.0,  "chatter"),
 
 
         # ],
@@ -181,7 +182,6 @@ def main() -> None:
         "alpha":        0.05,
         "z":            3.0,
         "fallback_mad": False,
-        "t_theorical":  _TGT,
     }
 
     # -- 1. Modo nativo -----------------------------------------------------------
@@ -308,7 +308,7 @@ def main() -> None:
         signal_analysis=v_cut,
         path=SIGNAL_SOURCE["hdf5_path"],
         fs=fs,
-        meta={"AP": "5mm-15mm", "RPM": 12_000},
+        meta={"signal_id": _ACTIVE_SIGNAL_KEY, "AP": "5mm-15mm", "RPM": 12_000},
     )
 
     # =============================================================================
@@ -500,15 +500,19 @@ def main() -> None:
     # =============================================================================
     # GRAFICA
     # =============================================================================
-    _T_GT = 5.365770208787228   # theoretical chatter onset time [s]
+    FIGSCALE = 1.5  # article-plot-style scale multiplier (FIGSCALE_SIMPLE default; 1.0 = FIGSIZE_SIMPLE/WIDE as-is)
+    FIGSIZE_SIMPLE = (3.5, 2.6)   # base preset, 1 column -- editable here, per-call
+    FIGSIZE_WIDE   = (7.16, 2.6)  # base preset, full page width / 2 side-by-side
     plots_sst_svd(
         signal=sig, result=results_SST_SVD,
         show_signal=True, zoom_x=None, zoom_y=None,
         vlines=None, hlines=None,
-        t_gt=_T_GT,
         waterfall_lines="surface",  # "surface" | "time" | "freq" | "both" | "wire"
         reference_signal=INDICATOR_CONFIG.get("reference_signal"),
         show_spectrograms=False,
+        scale=FIGSCALE,
+        figsize_simple=FIGSIZE_SIMPLE,
+        figsize_wide=FIGSIZE_WIDE,
     )
 
 

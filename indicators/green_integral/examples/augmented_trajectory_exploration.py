@@ -1249,7 +1249,6 @@ def main() -> None:
     plots_lyapunov(
         signal=sig,
         result=result_fw,
-        t_gt=t_gt,
         training_intervals=train_iv,
     )
 

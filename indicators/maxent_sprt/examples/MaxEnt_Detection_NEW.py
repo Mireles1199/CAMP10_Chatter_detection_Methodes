@@ -312,9 +312,15 @@ def main() -> None:
 
     }
 
+    # Change only this key to switch signals -- signal_id (in sig.meta, used
+    # by every figure's title/window tag) is derived from it, instead of a
+    # name hardcoded separately that could silently go stale relative to the
+    # real signal.
+    _ACTIVE_SIGNAL_KEY = "tubo_stable_8_605e_5"
+
     # See COMMON_TEMPLATE.md §11 -- forma estándar de declarar el origen de la señal.
     _SIGNAL_SOURCE = {
-        "hdf5_path": _DATA_DIRS["tubo_stable_8_605e_5"],
+        "hdf5_path": _DATA_DIRS[_ACTIVE_SIGNAL_KEY],
         "case_name": None,  # None (layout crudo) | "case_003" (layout DOE)
         "disp_name": "Axial_disp",
         "vel_name": "Axial_vel",
@@ -342,7 +348,7 @@ def main() -> None:
         signal_analysis=v_cut,
         path=_SIGNAL_SOURCE["hdf5_path"],
         fs=fs,
-        meta={"AP": "5mm-15mm", "RPM": 12_000},
+        meta={"signal_id": _ACTIVE_SIGNAL_KEY, "AP": "5mm-15mm", "RPM": 12_000},
     )
 
     # =========================================================================
@@ -475,7 +481,7 @@ def main() -> None:
             "indicator_config": INDICATOR_CONFIG_by_modal_raw,
         },
     }
-    ACTIVE_CASE = "by_revolution_raw"  # <- cambiar solo esta linea para elegir señal + config
+    ACTIVE_CASE = "by_revolution_overlap"  # <- cambiar solo esta linea para elegir señal + config
 
     SIGNAL_SOURCE = CASES[ACTIVE_CASE]["signal_source"]
     INDICATOR_CONFIG = CASES[ACTIVE_CASE]["indicator_config"]  # se pasa directo a run_maxent_sprt(signal, INDICATOR_CONFIG)
@@ -501,6 +507,9 @@ def main() -> None:
     _log_config_summary(result, fr, _COMMON["t_stable_total"])
     _log_debug_tables(result)
 
+    FIGSCALE = 1.5  # article-plot-style scale multiplier (FIGSCALE_SIMPLE default; 1.0 = FIGSIZE_SIMPLE/WIDE as-is)
+    FIGSIZE_SIMPLE = (3.5, 2.6)   # base preset, 1 column -- editable here, per-call
+    FIGSIZE_WIDE   = (7.16, 2.6)  # base preset, full page width / 2 side-by-side
     plots_maxent_sprt(
         signal=sig,
         result=result,
@@ -510,6 +519,9 @@ def main() -> None:
         vlines=None,
         hlines=None,
         t_gt=_T_GT,
+        scale=FIGSCALE,
+        figsize_simple=FIGSIZE_SIMPLE,
+        figsize_wide=FIGSIZE_WIDE,
     )
 
 

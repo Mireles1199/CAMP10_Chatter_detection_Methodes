@@ -195,13 +195,12 @@ def main() -> None:
     _F_MODAL = 150.0
     _T_REV   = 60.0 / _RPM        # 0.005 s -- periodo de una revolucion
     _T_MODAL = 1.0 / _F_MODAL     # s -- periodo del modo de chatter (f_modal ~ 150 Hz)
-    _T_GT    = 5.365770208787228  # [s] ground-truth chatter onset
 
     # -- parámetros compartidos por TODOS los modos y funcs ----------------------
     _COMMON_ALL = {
         "use_area_threshold": True,
         # "training_intervals": [
-        #     (_CUT_START, _T_GT, "stable_1"),
+        #     (_CUT_START, 5.0, "stable_1"),
         #     # (3.3,  4.46,    "stable_2"),   # tighter stable sub-band
         # ],
         "z_sigma":            3.0,
@@ -229,7 +228,6 @@ def main() -> None:
         "area_noise_eps":       1e-30,
         "debug_level":          1,          # overrides _COMMON_ALL's debug_level for this func
         "debug_window_range":   (3.92, 16), # overrides _COMMON_ALL's range for this func
-        "t_theorical":          _T_GT,      # para plots, no afecta la detección
         "use_zero_crossing_cycles": True,   # alpha cycles
         "use_beta_from_cycles":     False,  # beta = union de ciclos completos
         "zc_detrend":                True,
@@ -443,6 +441,9 @@ def main() -> None:
         logger.info("%s\n%s", _hdr, "\n".join(lines))
 
     # ---------- Imprimir resultados y graficar --------------------------------
+    FIGSCALE = 1.5  # article-plot-style scale multiplier (FIGSCALE_SIMPLE default; 1.0 = FIGSIZE_SIMPLE/WIDE as-is)
+    FIGSIZE_SIMPLE = (3.5, 2.6)  # base preset, 1 column -- editable here, per-call
+    FIGSIZE_WIDE = (7.16, 2.6)  # base preset, full page width -- editable here, per-call
     if not is_lyapunov:
         delta_n_median = float(np.nanmedian(result_std.I_t))
 
@@ -452,12 +453,11 @@ def main() -> None:
         )
         print(f"Windows analysed: {len(result_std.t)}")
         if t_d.size > 0:
-            _gt_str = f"{_T_GT:.5f} s" if _T_GT is not None else "N/A"
-            print(f"t_d (area thr)  : {t_d[0]:.4f} s  (t_gt = {_gt_str})")
+            print(f"t_d (area thr)  : {t_d[0]:.4f} s")
         else:
             print("t_d (area thr)  : not detected (or threshold disabled)")
 
-        plots_green_integral(signal=sig_internal, result=raw)
+        plots_green_integral(signal=sig_internal, result=raw, scale=FIGSCALE, figsize_wide=FIGSIZE_WIDE)
 
     else:
         sigma_mean = float(np.nanmean(result_std.I_t))
@@ -476,16 +476,18 @@ def main() -> None:
                 f"Interpretation  : {'UNSTABLE (chatter)' if sigma_mean > 0 else 'STABLE'}"
             )
         if t_d.size > 0:
-            _gt_str = f"{_T_GT:.5f} s" if _T_GT is not None else "N/A"
-            print(f"t_d (area thr)  : {t_d[0]:.4f} s  (t_gt = {_gt_str})")
+            print(f"t_d (area thr)  : {t_d[0]:.4f} s")
         else:
             print("t_d (area thr)  : not detected (or threshold disabled)")
 
         plots_lyapunov(
             signal=sig_internal,
             result=raw,
-            t_gt=_T_GT,                          # None → no ground-truth line
             training_intervals=_active_params.get("training_intervals", []),
+            reference_signal=INDICATOR_CONFIG.get("reference_signal"),
+            scale=FIGSCALE,
+            figsize_simple=FIGSIZE_SIMPLE,
+            figsize_wide=FIGSIZE_WIDE,
         )
         # plots_signal_diagnostics(
         #     signal=sig,

@@ -159,9 +159,15 @@ def main() -> None:
 
     }
 
+    # Change only this key to switch signals -- signal_id (in sig.meta, used
+    # by every figure's title/window tag) is derived from it, instead of a
+    # name hardcoded separately that could silently go stale relative to the
+    # real signal.
+    _ACTIVE_SIGNAL_KEY = "tubo_stable_8_605e_5"
+
     # See COMMON_TEMPLATE.md §11 -- forma estándar de declarar el origen de la señal.
     _SIGNAL_SOURCE = {
-        "hdf5_path": _DATA_DIRS["tubo_stable_8_605e_5"],
+        "hdf5_path": _DATA_DIRS[_ACTIVE_SIGNAL_KEY],
         "case_name": None,  # None (layout crudo) | "case_003" (layout DOE)
         "disp_name": "Axial_disp",
         "vel_name": "Axial_vel",
@@ -202,7 +208,7 @@ def main() -> None:
     _F_MODAL = 150.0
     _T_REV   = 60.0 / _RPM        # 0.005 s -- periodo de una revolucion
     _T_MODAL = 1.0 / _F_MODAL     # 0.00667 s -- periodo del modo de chatter (150 Hz)
-    _T_GT  = 5.365770208787228   # [s] ground-truth chatter onset
+    _T_GT  = None  # [s] ground-truth chatter onset
     _COMMON = {
         # fixed threshold (ignored when stable_time is set)
         "cv_threshold":         None,
@@ -312,7 +318,7 @@ def main() -> None:
         signal_analysis=v_cut,
         path=SIGNAL_SOURCE["hdf5_path"],
         fs=fs,
-        meta={"AP": "5mm-15mm", "RPM": 12_000},
+        meta={"signal_id": _ACTIVE_SIGNAL_KEY, "AP": "5mm-15mm", "RPM": 12_000},
     )
 
     # =============================================================================
@@ -518,11 +524,17 @@ def main() -> None:
     # =============================================================================
     # GRAFICA
     # =============================================================================
+    FIGSCALE = 1.5  # article-plot-style scale multiplier (FIGSCALE_SIMPLE default; 1.0 = FIGSIZE_SIMPLE/WIDE as-is)
+    FIGSIZE_SIMPLE = (3.5, 2.6)   # base preset, 1 column -- editable here, per-call
+    FIGSIZE_WIDE   = (7.16, 2.6)  # base preset, full page width / 2 side-by-side
     plots_rms_cv(
         signal=sig, result=resultat_rms,
         show_signal=True, zoom_x=None, zoom_y=None,
         vlines=None, hlines=None,
         t_gt=_T_GT,
+        scale=FIGSCALE,
+        figsize_simple=FIGSIZE_SIMPLE,
+        figsize_wide=FIGSIZE_WIDE,
     )
 
 

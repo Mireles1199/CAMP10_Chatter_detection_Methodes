@@ -111,7 +111,7 @@ class HMMResult:
     Attributes
     ----------
     t_wins : ndarray, shape (N,)
-        Window start times [s] (same as input t_wins).
+        Window end times [s] (same as input t_wins).
     p_chatter : ndarray, shape (N,)
         Causal chatter probability P(C | y_{1:k}) for each window.
     y_obs : ndarray, shape (N,)
@@ -295,7 +295,7 @@ def run_hmm_detector(
     areas : ndarray, shape (N,)
         Shoelace phase-space area per window  (output of run_fixed_window).
     t_wins : ndarray, shape (N,)
-        Window start times [s]  (output of run_fixed_window).
+        Window end times [s]  (output of run_fixed_window).
     config : HMMConfig
         Detector configuration.
 

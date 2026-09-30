@@ -2,52 +2,20 @@
 
 from __future__ import annotations
 
-import colorsys
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib as mpl
 from scipy.stats import norm as _scipy_norm
 
-# ---------------------------------------------------------------------------
-# Canonical colour palette
-# ---------------------------------------------------------------------------
-color_red    = colorsys.hls_to_rgb(346/360, 0.45, 0.99)
-color_orange = colorsys.hls_to_rgb(36/360,  0.45, 0.99)
-color_purple = colorsys.hls_to_rgb(279/360, 0.36, 0.99)
-color_verde  = colorsys.hls_to_rgb(98/360,  0.36, 0.99)
-color_azul   = colorsys.hls_to_rgb(206.957/360, 0.40941, 0.55603)
+from .plot_style import COLORS, FIGSIZE_WIDE, SCALE, figsize_from_scale
 
+color_red    = COLORS["threshold"]
+color_orange = COLORS["chatter"]
+color_verde  = COLORS["mean"]
+color_azul   = COLORS["stable"]
 
-def fig_size(scale: float = 5.0) -> tuple[float, float]:
-    """Return ``(width, height)`` in inches with height = width * 0.70."""
-    w = scale
-    return (w, w * 0.70)
-
-
-def _configurar_estilo() -> None:
-    mpl.rcParams.update({
-        'font.family':                 'serif',
-        'font.size':                   18,
-        'axes.titlesize':              18,
-        'axes.labelsize':              18,
-        'xtick.labelsize':             16,
-        'ytick.labelsize':             16,
-        'lines.linewidth':             1.5,
-        'mathtext.fontset':            'stix',
-        'axes.formatter.use_mathtext': True,
-        'legend.frameon':              False,
-        'legend.loc':                  'best',
-        'savefig.dpi':                 300,
-        'savefig.bbox':                'tight',
-        'savefig.transparent':         True,
-        'figure.facecolor':            'white',
-        'axes.facecolor':              'white',
-    })
-
-
-_configurar_estilo()
+_FIGSIZE = figsize_from_scale(FIGSIZE_WIDE, SCALE)
 
 
 def _draw_vlines(ax, vlines, default_color="black", default_ls="--"):
@@ -71,14 +39,17 @@ def _draw_vlines(ax, vlines, default_color="black", default_ls="--"):
 
 
 
-def plot_windows_local(result: Dict[str, Any], name: str = "") -> plt.Figure:
+def plot_windows_local(
+    result: Dict[str, Any], name: str = "",
+    figsize: Optional[Tuple[float, float]] = None,
+) -> plt.Figure:
     """Scatter/line plot of per-cycle areas, grouped by window."""
     data_windows = result["data_window"]
     agrupamiento = result["agrupamiento"]
     type_method  = result.get("global_data", {}).get("type_method", "GreenIntegral")
 
-    fig, axes = plt.subplots(figsize=fig_size(scale=5.0))
-    axes.set_title(f"{type_method} \u2014 Mean Area per Cycle \u2014 {name}")
+    fig, axes = plt.subplots(figsize=figsize if figsize is not None else _FIGSIZE)
+    axes.set_title(f"{type_method} \u2014 Mean Area per Cycle")
     axes.set_xlabel("Time (s)")
     axes.set_ylabel("Area")
     axes.set_yscale("log")
@@ -154,7 +125,10 @@ def plot_windows_local(result: Dict[str, Any], name: str = "") -> plt.Figure:
     return fig
 
 
-def plot_windows_duration(result: Dict[str, Any], name: str = "") -> List[plt.Figure]:
+def plot_windows_duration(
+    result: Dict[str, Any], name: str = "",
+    figsize: Optional[Tuple[float, float]] = None,
+) -> List[plt.Figure]:
     """Two-panel plot of window durations (by index and by time)."""
     data_windows = result["data_window"]
     type_method  = result.get("global_data", {}).get("type_method", "GreenIntegral")
@@ -162,28 +136,31 @@ def plot_windows_duration(result: Dict[str, Any], name: str = "") -> List[plt.Fi
     t_n_values = np.array([dw["indicadores"]["t_n"] for dw in data_windows])
     durations  = np.array([dw["window_duration"] for dw in data_windows])
 
+    _figsize = figsize if figsize is not None else _FIGSIZE
+
     # Figure 1: duration vs window index
-    fig1, ax1 = plt.subplots(figsize=fig_size(scale=5.0))
-    ax1.set_title(f"Window Duration \u2014 {type_method} \u2014 {name}")
+    fig1, ax1 = plt.subplots(figsize=_figsize, constrained_layout=True)
+    ax1.set_title(f"Window Duration \u2014 {type_method}")
     ax1.set_xlabel("Window Number")
     ax1.set_ylabel("Window Duration [s]")
     ax1.plot(np.arange(len(data_windows)), durations,
              color=color_azul, lw=1.5, marker="o", markersize=5)
-    fig1.tight_layout()
 
     # Figure 2: duration vs time
-    fig2, ax2 = plt.subplots(figsize=fig_size(scale=5.0))
-    ax2.set_title(f"Window Duration (Time) \u2014 {type_method} \u2014 {name}")
+    fig2, ax2 = plt.subplots(figsize=_figsize, constrained_layout=True)
+    ax2.set_title(f"Window Duration (Time) \u2014 {type_method}")
     ax2.set_xlabel("Time [s]")
     ax2.set_ylabel("Window Duration [s]")
     ax2.plot(t_n_values, durations,
              color=color_azul, lw=1.5, marker="o", markersize=3)
-    fig2.tight_layout()
 
     return [fig1, fig2]
 
 
-def plot_indicator_local(result: Dict[str, Any], name: str = "") -> plt.Figure:
+def plot_indicator_local(
+    result: Dict[str, Any], name: str = "",
+    figsize: Optional[Tuple[float, float]] = None,
+) -> plt.Figure:
     """Plot the per-window ``delta_n`` indicator over time."""
     data_windows = result["data_window"]
     type_method  = result.get("global_data", {}).get("type_method", "GreenIntegral")
@@ -192,8 +169,8 @@ def plot_indicator_local(result: Dict[str, Any], name: str = "") -> plt.Figure:
     delta_n_values = np.array([dw["indicadores"]["delta_n"] for dw in data_windows])
     window_indices = np.arange(len(data_windows))
 
-    fig, axes = plt.subplots(figsize=fig_size(scale=5.0))
-    axes.set_title(f"{type_method} \u2014 Delta_n per Window \u2014 {name}")
+    fig, axes = plt.subplots(figsize=figsize if figsize is not None else _FIGSIZE)
+    axes.set_title(f"{type_method} \u2014 Delta_n per Window")
     axes.set_xlabel("Time (s)")
     axes.set_ylabel("Delta_n")
 
@@ -274,13 +251,12 @@ def plot_training_distribution(
 
     ``figsize`` must match the actual (width, height) inches used by the
     sibling figures in the caller's own figure set (default: this module's
-    own ``fig_size(scale=5.0)``). Callers with a *different* figure size —
-    e.g. green_integral_plots.py's plots_lyapunov, whose C1-C3/Ĝ panels use
-    ITS OWN ``fig_size(scale=3.0)`` (a same-named but differently-scaled
-    helper — passing a bare number here would silently use the wrong
-    formula) — must compute their own size and pass the tuple explicitly,
-    otherwise these two figures render at a visibly different size than the
-    rest of the set.
+    own ``_FIGSIZE``). Both plot files in this package now share the same
+    ``plot_style.py`` (single source of truth for figure sizes), but a caller
+    with a differently-shaped figure set (e.g. green_integral_plots.py's
+    plots_lyapunov, whose C1-C3/Ĝ panels use their own composed size) should
+    still pass its own tuple explicitly, otherwise these two figures would
+    render at a visibly different size than the rest of that set.
 
     Returns two figures (empty list if there isn't enough trained data):
 
@@ -321,13 +297,13 @@ def plot_training_distribution(
     lo = float(thr.get("lower", mu_h - z * std_h))
     z_lbl = f"{z:.0f}"
     xlabel = r"$\log_{10}(A_k)$" if log_transform else r"$A_k$"
-    _figsize = figsize if figsize is not None else fig_size(scale=5.0)
+    _figsize = figsize if figsize is not None else _FIGSIZE
 
     figs: List[plt.Figure] = []
 
     # ── Histogram + Gaussian PDF (mu/sigma from the real threshold) ────────
-    fig_h, ax_h = plt.subplots(figsize=_figsize)
-    ax_h.set_title(f"Training Area Distribution — {name}")
+    fig_h, ax_h = plt.subplots(figsize=_figsize, constrained_layout=True)
+    ax_h.set_title("Training Area Distribution")
     ax_h.set_xlabel(xlabel)
     ax_h.set_ylabel("Density")
     ax_h.hist(vals, bins=40, density=True, alpha=0.55, color=color_azul,
@@ -339,12 +315,11 @@ def plot_training_distribution(
     ax_h.axvline(hi, color=color_red, ls="--", lw=1.4, label=rf"$\mu+{z_lbl}\sigma$")
     ax_h.axvline(lo, color=color_red, ls=":", lw=1.2, label=rf"$\mu-{z_lbl}\sigma$")
     ax_h.legend()
-    fig_h.tight_layout()
     figs.append(fig_h)
 
     # ── Curve: same values, in the order used to fit the normal law ────────
-    fig_c, ax_c = plt.subplots(figsize=_figsize)
-    ax_c.set_title(f"Training Curve — normal-law input — {name}")
+    fig_c, ax_c = plt.subplots(figsize=_figsize, constrained_layout=True)
+    ax_c.set_title("Training Curve — normal-law input")
     if t_vals.size == vals.size:
         x_axis, ax_c_xlabel = t_vals, "Time [s]"
     else:
@@ -357,23 +332,13 @@ def plot_training_distribution(
     # a straight segment connecting the end of one piece/sub-band to the
     # start of the next, which represents nothing real. Break the line
     # (insert a NaN) wherever the time axis jumps or resets instead of
-    # advancing by its normal per-window step, and lightly shade alternating
-    # segments so each piece/sub-band is visible at a glance.
+    # advancing by its normal per-window step.
     if ax_c_xlabel == "Time [s]":
         gap_idx = _find_time_gaps(x_axis)
     else:
         gap_idx = np.array([], dtype=int)
 
     if gap_idx.size:
-        seg_bounds = [0] + (gap_idx + 1).tolist() + [len(x_axis)]
-        for seg_i in range(0, len(seg_bounds) - 1, 2):
-            # NOTE: named seg_lo/seg_hi, not lo/hi -- those names are the
-            # outer mu-z*sigma/mu+z*sigma threshold values used below for the
-            # axhlines; reusing them here previously clobbered them with
-            # array-index integers, corrupting the whole plot's Y scale.
-            seg_lo, seg_hi = seg_bounds[seg_i], seg_bounds[seg_i + 1] - 1
-            if seg_hi >= seg_lo:
-                ax_c.axvspan(x_axis[seg_lo], x_axis[seg_hi], color=color_azul, alpha=0.06, lw=0)
         x_plot = np.insert(x_axis.astype(float), gap_idx + 1, np.nan)
         y_plot = np.insert(vals.astype(float), gap_idx + 1, np.nan)
     else:
@@ -385,7 +350,6 @@ def plot_training_distribution(
     ax_c.axhline(hi, color=color_red, ls="--", lw=1.4, label=rf"$\mu+{z_lbl}\sigma={hi:.3g}$")
     ax_c.axhline(lo, color=color_red, ls=":", lw=1.2, label=rf"$\mu-{z_lbl}\sigma={lo:.3g}$")
     ax_c.legend()
-    fig_c.tight_layout()
     figs.append(fig_c)
 
     return figs

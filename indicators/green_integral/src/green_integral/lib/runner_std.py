@@ -66,7 +66,7 @@ CAMP10 indicators (maxent_sprt, rms_cv, ssq_chatter) per
     - ``I_t`` = per-window ``delta_n`` values
 
   For ``func="Lyapunov"``:
-    - ``t``   = window start times (``result.t_wins``)
+    - ``t``   = window end times (``result.t_wins``)
     - ``I_t`` = instantaneous Lyapunov exponent σ̂ (``result.sigma_ewma``)
 """
 

@@ -129,7 +129,7 @@ assert raw_lyap.t_d is not None and len(raw_lyap.t_d) > 5, (
 )
 
 plt.close("all")
-plots_lyapunov(signal=sig, result=raw_lyap, t_gt=0.3,
+plots_lyapunov(signal=sig, result=raw_lyap,
                training_intervals=[(0.0, 0.3, "stable")], show=False)
 
 
@@ -149,7 +149,7 @@ for fig_num in plt.get_fignums():
         title = ax.get_title()
         if any(tag in title for tag in ("C1", "C2", "C3", "Accumulator", "Sliding")):
             n = _n_event_vlines(ax)
-            assert n <= 2, f"{title!r}: {n} vertical event lines, expected at most 2 (t_gt + first detection)"
+            assert n <= 1, f"{title!r}: {n} vertical event lines, expected at most 1 (first detection)"
 
 # ── 4. Plotting area (ax.get_position()) must not move on zoom ─────────────
 # Reuses the figures plots_lyapunov just produced above — every one of them
@@ -174,8 +174,8 @@ for fig_num in plt.get_fignums():
         )
 
 # ── 5. C1 (Signal panel) is a single trace, single color ───────────────────
-# Was stable(blue)/chatter(orange) split; user wants one color — the t_gt /
-# first-detection vlines already mark the split, the trace itself shouldn't.
+# Was stable(blue)/chatter(orange) split; user wants one color — the
+# first-detection vline already marks the event, the trace itself shouldn't.
 fig_c1 = plt.figure(1)
 for ax in fig_c1.axes:
     data_lines = [l for l in ax.get_lines() if len(l.get_xdata()) > 2]
@@ -190,7 +190,7 @@ for fig_num in plt.get_fignums():
     fig = plt.figure(fig_num)
     title = fig.axes[0].get_title() if fig.axes else ""
     _sizes[title] = tuple(fig.get_size_inches())
-_ref_size = _sizes.get("C3 — Lyapunov $\\hat{\\sigma}$(t) — analysis")
+_ref_size = _sizes.get("C3 — Lyapunov $\\hat{\\sigma}$(t)")
 for tag in ("Training Area Distribution", "Training Curve"):
     _match = next((s for t, s in _sizes.items() if t.startswith(tag)), None)
     assert _match is not None, f"{tag} figure not found"

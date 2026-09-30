@@ -1,11 +1,14 @@
 """
 test_training_plots_seam_gap.py
 ================================
-Self-check for the training-figure seam fix (F0/F1/F2/F3/F6): when the
-stable/chatter training data comes from several physically-disjoint pieces
-(reference_signal pieces, or multiple training_intervals of the same label),
-these figures must break their line at each piece boundary instead of
-drawing a straight line across the seam.
+Self-check for the training-figure seam fix (F1/F2/F3) and the per-case grid
+(F0a/F0b/F6a/F6b): when the stable/chatter training data comes from several
+physically-disjoint pieces (reference_signal pieces, or multiple
+training_intervals of the same label), F1/F2/F3 (single concatenated axis)
+must break their line at each piece boundary instead of drawing a straight
+line across the seam, and F0a/F0b/F6a/F6b (per-case grid) must instead give
+each piece its own clean subplot -- one per piece, never concatenated, so
+there's nothing to break.
 
 Uses a non-interactive matplotlib backend (Agg) so it never opens a window
 and never blocks -- safe to run headless. Synthetic signal, no real dataset
@@ -48,9 +51,15 @@ def _piece(sigma: float, n_samples: int, fs: float, seed: int) -> SignalData:
 
 
 def _get_fig(label: str) -> plt.Figure:
-    assert label in [f.get_label() for f in map(plt.figure, plt.get_fignums())], \
-        f"no open figure with label {label!r} (got {[plt.figure(n).get_label() for n in plt.get_fignums()]})"
-    return plt.figure(label)
+    # Prefix match, not exact -- every figure's num= now carries a
+    # " — {case_id}" suffix (see maxent_sprt_plots.py's per-call case
+    # tagging), so an exact plt.figure(label) lookup would silently create
+    # a new empty figure instead of finding the existing one.
+    matches = [plt.figure(n) for n in plt.get_fignums() if plt.figure(n).get_label().startswith(label)]
+    assert matches, \
+        f"no open figure with label prefix {label!r} (got {[plt.figure(n).get_label() for n in plt.get_fignums()]})"
+    assert len(matches) == 1, f"ambiguous label prefix {label!r}: {[m.get_label() for m in matches]}"
+    return matches[0]
 
 
 def main() -> None:
@@ -76,28 +85,32 @@ def main() -> None:
 
     plots_maxent_sprt(signal=signal, result=result, show_signal=True, show=True)
 
-    # ── F0: raw stable-signal line must have exactly n_pieces-1 NaN gaps ──
-    fig_F0 = _get_fig("F0 — Training Signal Verification (P0/P1 source)")
-    ax_stable_F0 = fig_F0.axes[0]
-    y_F0 = ax_stable_F0.lines[0].get_ydata()
-    assert np.sum(np.isnan(y_F0)) == n_stable_pieces - 1, (
-        f"F0 stable line: expected {n_stable_pieces - 1} NaN gap(s), got {np.sum(np.isnan(y_F0))}"
+    # ── F0a: stable per-case grid -- one clean (NaN-free) subplot per piece ──
+    fig_F0a = _get_fig("F0a — Training Signal Verification (Stable, per case)")
+    assert len(fig_F0a.axes) == n_stable_pieces, (
+        f"F0a: expected {n_stable_pieces} subplots (one per piece), got {len(fig_F0a.axes)}"
     )
+    for i, ax in enumerate(fig_F0a.axes):
+        y = ax.lines[0].get_ydata()
+        assert not np.any(np.isnan(y)), f"F0a piece {i}: subplot line should never contain NaN"
 
-    # ── F6: same stable line, side-by-side signal+OPR figure ──
-    fig_F6 = _get_fig("F6 — Signal + OPR Sampling (Training)")
-    ax_stable_F6 = fig_F6.axes[0]
-    y_F6 = ax_stable_F6.lines[0].get_ydata()
-    assert np.sum(np.isnan(y_F6)) == n_stable_pieces - 1, (
-        f"F6 stable line: expected {n_stable_pieces - 1} NaN gap(s), got {np.sum(np.isnan(y_F6))}"
+    # ── F6a: same stable pieces, signal+OPR per-case grid ──
+    fig_F6a = _get_fig("F6a — Signal + OPR Sampling (Stable, per case)")
+    assert len(fig_F6a.axes) == n_stable_pieces, (
+        f"F6a: expected {n_stable_pieces} subplots (one per piece), got {len(fig_F6a.axes)}"
     )
+    for i, ax in enumerate(fig_F6a.axes):
+        y = ax.lines[0].get_ydata()
+        assert not np.any(np.isnan(y)), f"F6a piece {i}: subplot line should never contain NaN"
 
-    # ── F1: stable training entropy vs time must also break at each piece ──
+    # ── F1: stable training entropy, per-case grid -- one clean subplot per piece ──
     fig_F1 = _get_fig("F1 — Training Entropy: Stable Segments")
-    y_F1 = fig_F1.axes[0].lines[0].get_ydata()
-    assert np.sum(np.isnan(y_F1)) == n_stable_pieces - 1, (
-        f"F1 entropy line: expected {n_stable_pieces - 1} NaN gap(s), got {np.sum(np.isnan(y_F1))}"
+    assert len(fig_F1.axes) == n_stable_pieces, (
+        f"F1: expected {n_stable_pieces} subplots (one per piece), got {len(fig_F1.axes)}"
     )
+    for i, ax in enumerate(fig_F1.axes):
+        y = ax.lines[0].get_ydata()
+        assert not np.any(np.isnan(y)), f"F1 piece {i}: subplot line should never contain NaN"
 
     # ── F3: combined stable+chatter entropy axis -- stable curve is the first line ──
     fig_F3 = _get_fig("F3 — Training Entropy: All Labels")
@@ -116,6 +129,12 @@ def main() -> None:
     fig_F2 = _get_fig("F2 — Training Entropy: Chatter Segments")
     y_F2 = fig_F2.axes[0].lines[0].get_ydata()
     assert np.sum(np.isnan(y_F2)) == 0, f"F2 (single chatter piece) should have 0 gaps, got {np.sum(np.isnan(y_F2))}"
+
+    # ── F0b/F6b: chatter side has 1 piece -> grid falls back to a single panel ──
+    fig_F0b = _get_fig("F0b — Training Signal Verification (Chatter, per case)")
+    assert len(fig_F0b.axes) == 1, f"F0b (single chatter piece) should fall back to 1 panel, got {len(fig_F0b.axes)}"
+    fig_F6b = _get_fig("F6b — Signal + OPR Sampling (Chatter, per case)")
+    assert len(fig_F6b.axes) == 1, f"F6b (single chatter piece) should fall back to 1 panel, got {len(fig_F6b.axes)}"
 
     plt.close("all")
     print("test_training_plots_seam_gap: OK")

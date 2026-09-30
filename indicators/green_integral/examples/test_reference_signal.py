@@ -135,13 +135,13 @@ _assert_training_plots(res_ref, _figure_titles())
 lyap_internal = _run("Lyapunov", {**lyap_params, "training_intervals": [(0.0, T_ONSET, "stable")]})
 plt.close("all")
 plots_lyapunov(signal=lyap_internal.meta["signal"], result=lyap_internal.meta["raw_result"],
-               t_gt=T_ONSET, training_intervals=[(0.0, T_ONSET, "stable")], show=False)
+               training_intervals=[(0.0, T_ONSET, "stable")], show=False)
 _assert_training_plots(lyap_internal, _figure_titles())
 
 lyap_ref = _run("Lyapunov", lyap_params, reference_signal=ref_std)
 plt.close("all")
 plots_lyapunov(signal=lyap_ref.meta["signal"], result=lyap_ref.meta["raw_result"],
-               t_gt=T_ONSET, training_intervals=None, show=False)
+               training_intervals=None, show=False)
 _assert_training_plots(lyap_ref, _figure_titles())
 plt.close("all")
 
