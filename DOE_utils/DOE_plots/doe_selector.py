@@ -36,7 +36,7 @@ from doe_plotter import (
     SIGNALS,
     SIGNAL_YLABELS,
     DOE_NAME,
-    SCRIPT_DIR,
+    BASE_DIR,
     DECIMATE,
     color_azul,
     color_orange,
@@ -748,7 +748,7 @@ EXAMPLES
 def main():
     args     = parse_args()
     doe_name = args.doe_name or DOE_NAME
-    h5_path  = os.path.join(SCRIPT_DIR, doe_name, "doe_results.h5")
+    h5_path  = os.path.join(BASE_DIR, doe_name, "doe_results.h5")
 
     print(f"[INFO] Loading: {h5_path}")
     cases = load_results(h5_path)

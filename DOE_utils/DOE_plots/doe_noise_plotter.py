@@ -86,7 +86,7 @@ SIGNAL_SNR_CASE = SNR_CASES_TO_PLOT   # alias para señales crudas
 # Archivos por defecto para ejecutar desde VS Code sin argumentos.
 # Se usan solo cuando no pasas parámetros por terminal.
 _DOE_DEFAULT_DIR = os.path.join(
-    os.path.dirname(__file__),
+    r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\2DOF_Cone_DOE",  # storage de datos DOE (.h5)
     "DOE_Influence_dexel_RPM_12000_ftooth_005_dt_200",
 )
 DEFAULT_NOISE_RESULTS = os.path.join(_DOE_DEFAULT_DIR, "doe_noise_results.h5")

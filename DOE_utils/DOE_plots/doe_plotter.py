@@ -102,6 +102,7 @@ SIGNAL_YLABELS = {
 }
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR   = r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\2DOF_Cone_DOE"  # storage de datos DOE (.h5)
 
 # ==============================================================================
 
@@ -560,7 +561,7 @@ CONFIGURACIÓN (editar en el script)
 def main():
     args   = parse_args()
     doe_name = args.doe_name or DOE_NAME
-    h5_path  = os.path.join(SCRIPT_DIR, doe_name, "doe_results.h5")
+    h5_path  = os.path.join(BASE_DIR, doe_name, "doe_results.h5")
 
     print(f"[INFO] Cargando: {h5_path}")
     cases = load_results(h5_path)

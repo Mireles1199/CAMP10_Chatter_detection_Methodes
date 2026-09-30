@@ -83,7 +83,7 @@ configurar_estilo_global()
 # ==============================================================================
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-BASE_DIR   = SCRIPT_DIR
+BASE_DIR   = r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\2DOF_Cone_DOE"  # storage de datos DOE (.h5)
 
 DOE_NAME   = "DOE_Influence_dexel_RPM_12000_ftooth_005_dt_200"
 CASE_NAME  = "1DOF_150Hz"
