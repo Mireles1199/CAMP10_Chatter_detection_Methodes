@@ -159,11 +159,12 @@ def detect_h5_type(h5_path: str) -> str:
         if not groups:
             return TYPE_DOE_RESULTS
 
-        # reference_dataset.py: to_hdf5() -> stable/unstable anidado (case/pieza);
-        # save_combined() -> stable__<canal>/unstable__<canal> plano, con t/y directo.
-        if groups and all(g in ("stable", "unstable") for g in groups):
+        # reference_dataset.py: to_hdf5() -> stable/unstable/gray anidado (case/pieza);
+        # save_combined() -> stable__<canal>/unstable__<canal>/gray__<canal> plano, con t/y directo.
+        # (gray se reconoce para que el archivo abra; los visores solo dibujan stable/unstable)
+        if groups and all(g in ("stable", "unstable", "gray") for g in groups):
             return TYPE_REFERENCE_DATASET
-        if groups and all(g.startswith("stable__") or g.startswith("unstable__") for g in groups):
+        if groups and all(g.startswith(("stable__", "unstable__", "gray__")) for g in groups):
             return TYPE_REFERENCE_COMBINED
 
         has_case_groups = any(g.startswith("case_") for g in groups)
@@ -2456,11 +2457,46 @@ class DoeSelectorUnifiedApp:
 # REFERENCE DATASET / COMBINED — loaders livianos (solo attrs, t/y bajo demanda)
 # ==============================================================================
 
+def _amp_limits(attrs: Dict[str, Any], channel: str) -> Optional[Tuple[float, float, float, str]]:
+    """(base, lim_inf_pct, lim_sup_pct, nombre_base) si el tramo se etiquetó con
+    `reference_dataset.py --strategy amplitude` sobre ESTE canal (attrs labeling_*
+    que copia build); None si no -- otra estrategia, otro canal (los límites están
+    en unidades de la señal etiquetada) o un .h5 generado antes del bloque labeling."""
+    if attrs.get("labeling_strategy") != "amplitude" or attrs.get("labeling_signal") != channel:
+        return None
+    try:
+        base_attr = str(attrs["labeling_base_attr"])
+        base = float(attrs[base_attr]) * float(attrs["labeling_base_scale"])
+        return base, float(attrs["labeling_lim_inf_pct"]), float(attrs["labeling_lim_sup_pct"]), base_attr.strip("$")
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _draw_amp_limits(ax, rows: List[Dict[str, Any]], vertical: bool = False) -> None:
+    """Líneas ±lim_inf / ±lim_sup del criterio max|y| de --strategy amplitude
+    (horizontales en la señal, verticales en la distribución) -- una vez por valor
+    distinto entre los tramos de `rows` (la base puede variar entre casos)."""
+    draw = ax.axvline if vertical else ax.axhline
+    seen = set()
+    for r in rows:
+        lim = r.get("amp_limits")
+        if lim is None:
+            continue
+        base, inf_pct, sup_pct, base_name = lim
+        for pct, ls in ((inf_pct, ":"), (sup_pct, "-.")):
+            v = base * pct / 100.0
+            if v in seen:
+                continue
+            seen.add(v)
+            draw(v, color="black", ls=ls, lw=1.2, label=f"±{pct:g}% {base_name}")
+            draw(-v, color="black", ls=ls, lw=1.2)
+
+
 def _index_reference_dataset(h5_path: str) -> List[Dict[str, Any]]:
     """Lee attrs de cada tramo de un reference_dataset.h5 (to_hdf5 anidado) -- sin t/y."""
     rows: List[Dict[str, Any]] = []
     with h5py.File(h5_path, "r") as f:
-        for label in ("stable", "unstable"):
+        for label in ("stable", "unstable", "gray"):
             if label not in f:
                 continue
             for case_name in f[label].keys():
@@ -2476,6 +2512,7 @@ def _index_reference_dataset(h5_path: str) -> List[Dict[str, Any]]:
                         "piece_name": piece_name,
                         "t0": float(attrs.get("t0", 0.0)), "t1": float(attrs.get("t1", 0.0)),
                         "kappa": float(kappa) if kappa is not None else None,
+                        "amp_limits": _amp_limits(attrs, str(channel)),
                     })
     return rows
 
@@ -2637,9 +2674,10 @@ class ReferenceViewerApp:
                 t, y = _load_piece_ty(self.h5_path, r["label"], r["case"], r["piece_name"])
                 y_flat = np.asarray(y).ravel()
                 mu, sigma = float(np.mean(y_flat)), float(np.std(y_flat))
-                stable = r["label"] == "stable"
-                color = plot_style.COLOR_STABLE if stable else plot_style.COLOR_UNSTABLE
-                hatch = None if stable else plot_style.HATCH_UNSTABLE
+                color, hatch = {
+                    "stable": (plot_style.COLOR_STABLE, None),
+                    "gray":   (plot_style.COLOR_GRAY, plot_style.HATCH_GRAY),
+                }.get(r["label"], (plot_style.COLOR_UNSTABLE, plot_style.HATCH_UNSTABLE))
                 piece_label = f"{r['case']} ({r['label']})"
 
                 if "signal" in axes:
@@ -2653,6 +2691,10 @@ class ReferenceViewerApp:
                     )
                     if detailed and sigma > 0:
                         axes["distribution"].axvline(mu, color=color, lw=1.2)
+
+            if len(channels) == 1:  # límites en unidades de UN canal -> no con canales mezclados
+                for kind, ax in axes.items():
+                    _draw_amp_limits(ax, pieces, vertical=(kind == "distribution"))
 
             if "signal" in axes:
                 ax = axes["signal"]
@@ -2925,11 +2967,14 @@ class ReferenceViewerApp:
             piece_label = f"{r['case']}/{r['channel']}__{r['idx']:03d} ({r['label']})"
             y_flat = np.asarray(y).ravel()
             mu, sigma = float(np.mean(y_flat)), float(np.std(y_flat))
-            stats.append((piece_label, mu, sigma))
+            lim = r["amp_limits"]
+            amp = float(np.abs(y_flat).max()) if lim else 0.0
+            amp_txt = f"max|y| = {amp:.3g} ({100.0 * amp / lim[0]:.1f}% {lim[3]})" if lim else ""
+            stats.append((piece_label, mu, sigma, amp_txt))
 
             if "signal" in axes:
                 t_dec, y_dec = _decimate_for_plot(t, y)
-                style = "-" if r["label"] == "stable" else "--"  # el label se sigue viendo por el trazo
+                style = {"stable": "-", "gray": ":"}.get(r["label"], "--")  # el label se sigue viendo por el trazo
                 axes["signal"].plot(t_dec, y_dec, color=color, ls=style, lw=1.1, alpha=0.9, label=piece_label)
 
             if "distribution" in axes:
@@ -2944,6 +2989,9 @@ class ReferenceViewerApp:
             channel = next(iter(selected_channels))
             plot_title = _channel_title(channel)
             plot_ylabel = _channel_ylabel(channel)
+            sel_rows = [self._index[int(iid)] for iid in sel]
+            for kind, ax in axes.items():
+                _draw_amp_limits(ax, sel_rows, vertical=(kind == "distribution"))
         else:
             plot_title = "Selected segments (mixed channels)"
             plot_ylabel = "value"
@@ -2978,11 +3026,16 @@ class ReferenceViewerApp:
             self._tramos_stats_text.insert(tk.END, "(no segments selected)\n")
             return
         self._tramos_stats_text.insert(tk.END, "== Mean (μ) ==\n")
-        for piece_label, mu, _sigma in stats:
+        for piece_label, mu, _sigma, _amp_txt in stats:
             self._tramos_stats_text.insert(tk.END, f"{piece_label}\n  μ = {mu:.4g}\n\n")
         self._tramos_stats_text.insert(tk.END, "== Std (σ) ==\n")
-        for piece_label, _mu, sigma in stats:
+        for piece_label, _mu, sigma, _amp_txt in stats:
             self._tramos_stats_text.insert(tk.END, f"{piece_label}\n  σ = {sigma:.4g}\n\n")
+        if any(amp_txt for *_, amp_txt in stats):
+            self._tramos_stats_text.insert(tk.END, "== Amplitude (--strategy amplitude) ==\n")
+            for piece_label, _mu, _sigma, amp_txt in stats:
+                if amp_txt:
+                    self._tramos_stats_text.insert(tk.END, f"{piece_label}\n  {amp_txt}\n\n")
 
     # ══════════════════════════════ PESTAÑA "COMBINADO" ════════════════════════════
     def _build_combinado_ui(self) -> None:

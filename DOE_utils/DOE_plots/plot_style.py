@@ -47,6 +47,8 @@ FIGSIZE_WIDE   = (7.16, 2.6)  # ancho de página completa — misma altura que S
 COLOR_STABLE   = "#0072B2"   # azul
 COLOR_UNSTABLE = "#E69F00"   # naranja
 HATCH_UNSTABLE = "//"
+COLOR_GRAY     = "#7F7F7F"   # gris neutro -- zona gris (reference_dataset.py --strategy amplitude)
+HATCH_GRAY     = ".."
 
 
 def figsize_grid(ncols: int, nrows: int = 1) -> tuple[float, float]:

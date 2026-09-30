@@ -1,45 +1,42 @@
-"""doe_indicators.py — Aplica indicadores de chatter a cada caso de
-doe_results.h5 (case_000 … case_NNN) y guarda los resultados en
-doe_indicator_results.h5.
+"""doe_indicators.py — Aplica los indicadores de chatter (MaxEnt-SPRT, RMS-CV,
+SST-SVD, Green Integral) a cada caso de un HDF5 del DOE y guarda los
+resultados en otro HDF5.
 
-Uso desde terminal:
-    python doe_indicators.py --doe_results .\\DOE_xxx\\doe_results.h5
-    python doe_indicators.py --doe_results ...  --out resultados.h5
-    python doe_indicators.py --doe_results ...  --label_key "$dxl_size$"
-    python doe_indicators.py --doe_results ...  --list
-    python doe_indicators.py --doe_results ...  --dry_run
-    python doe_indicators.py --doe_results ...  --workers 4
+Acepta los dos formatos de entrada (se detecta solo por los nombres de grupo):
+    doe_results.h5        grupos case_000 …        -> doe_indicator_results.h5
+    doe_noise_results.h5  grupos control / snr_*   -> doe_noise_indicator_results.h5
 
-Uso desde VS Code (sin argumentos):
-    Editar el bloque CONFIG y ejecutar directamente.
+Todo lo editable está en el bloque CONFIG al inicio de main(); los indicadores
+se declaran igual que en indicators/*/examples/*_NEW.py.
 
-Configuración (editar bloques CONFIG e INDICATOR_CONFIGS):
-    DOE_NAME         : nombre de la carpeta DOE dentro de BASE_DIR
-    LABEL_KEY        : None → auto-detección desde attrs del HDF5
-                       str  → clave explícita ej. "$dxl_size$"
-    _T_GT            : tiempo de onset de chatter conocido [s]
-    _CUT_START/END   : ventana de análisis [s]
-    NB_WORKERS       : trabajadores paralelos (1 = secuencial)
-    ENABLED_CASES    : "all" o lista de grupos ej. ["case_000", "case_003"]
-    INDICATOR_CONFIGS: lista de configuraciones de indicadores a aplicar
+Guía completa:  python doe_indicators.py --help
 """
 
 from __future__ import annotations
 
+import argparse
 import logging
 import os
 import sys
-import argparse
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple
-import matplotlib.pyplot as plt
 
 import h5py
 import numpy as np
 
-# ==============================================================================
-# LOGGING
-# ==============================================================================
+# -- indicadores: siempre el src/ local de cada paquete (indicators/COMMON_TEMPLATE.md §8) --
+_CAMP10 = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+for _pkg in ("maxent_sprt", "rms_cv", "ssq_chatter", "green_integral"):
+    _src = os.path.join(_CAMP10, "indicators", _pkg, "src")
+    if _src not in sys.path:
+        sys.path.insert(0, _src)
+
+from MaxEnt_SPRT import run_maxent_sprt, SignalData as _SignalDataMaxEnt  # noqa: E402
+from rms_cv import run_rms_cv, SignalData as _SignalDataRMS  # noqa: E402
+from ssq_chatter import run_sst_svd, SignalData as _SignalDataSSQ  # noqa: E402
+from green_integral import run_green_std, StdSignalData as _StdSignalDataGreen  # noqa: E402
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s  %(levelname)-7s  %(message)s",
@@ -47,471 +44,522 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-# ==============================================================================
-# IMPORTS CONDICIONALES DE INDICADORES
-# ==============================================================================
-
-_AVAILABLE: Dict[str, bool] = {}
-
-try:
-    import sys as _sys
-    import os as _os
-    _CAMP10 = r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\Chatter-Criteria\CAMP10_Chatter_detection_Methodes"
-
-    # -- MaxEnt-SPRT --
-    _maxent_src = _os.path.join(_CAMP10, "indicators", "maxent_sprt", "src")
-    if _maxent_src not in _sys.path:
-        _sys.path.insert(0, _maxent_src)
-    from MaxEnt_SPRT import run_maxent_sprt as _run_maxent_sprt
-    from MaxEnt_SPRT import SignalData as _SignalData_maxent
-    _AVAILABLE["maxent"] = True
-    log.debug("maxent_sprt importado OK")
-except ImportError as _e:
-    _AVAILABLE["maxent"] = False
-    log.warning("maxent_sprt no disponible: %s", _e)
-
-try:
-    _rms_src = _os.path.join(_CAMP10, "indicators", "rms_cv", "src")
-    if _rms_src not in _sys.path:
-        _sys.path.insert(0, _rms_src)
-    from rms_cv import run_rms_cv as _run_rms_cv
-    from rms_cv import SignalData as _SignalData_rms
-    _AVAILABLE["rms_cv"] = True
-    log.debug("rms_cv importado OK")
-except ImportError as _e:
-    _AVAILABLE["rms_cv"] = False
-    log.warning("rms_cv no disponible: %s", _e)
-
-try:
-    _ssq_src = _os.path.join(_CAMP10, "indicators", "ssq_chatter", "src")
-    if _ssq_src not in _sys.path:
-        _sys.path.insert(0, _ssq_src)
-    from ssq_chatter import run_sst_svd as _run_sst_svd
-    from ssq_chatter import SignalData as _SignalData_ssq
-    _AVAILABLE["ssq"] = True
-    log.debug("ssq_chatter importado OK")
-except ImportError as _e:
-    _AVAILABLE["ssq"] = False
-    log.warning("ssq_chatter no disponible: %s", _e)
-
-try:
-    _green_src = _os.path.join(_CAMP10, "indicators", "green_integral", "src")
-    if _green_src not in _sys.path:
-        _sys.path.insert(0, _green_src)
-    from green_integral import run_green_std as _run_green_std
-    from green_integral import StdSignalData as _StdSignalData_green
-    _AVAILABLE["green_default"] = True
-    _AVAILABLE["green_fixed"]   = True
-    log.debug("green_integral importado OK")
-except ImportError as _e:
-    _AVAILABLE["green_default"] = False
-    _AVAILABLE["green_fixed"]   = False
-    log.warning("green_integral no disponible: %s", _e)
 
 # ==============================================================================
-# CONFIG GLOBAL — editar aquí para lanzar desde VS Code sin argumentos
+# MAIN — el bloque CONFIG es lo único que se edita
 # ==============================================================================
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-BASE_DIR   = r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\2DOF_Cone_DOE"  # storage de datos DOE (.h5)
+def main() -> None:
+    # ==========================================================================
+    # CONFIG
+    # ==========================================================================
 
-# DOE_NAME   = "DOE_Influence_dexel_RPM_12000_ftooth_005_dt_200"
-DOE_NAME   = "DOE_Influence_dexel_RPM_12000_ftooth_005_dt_200_AP_9mm"
-CASE_NAME  = "1DOF_150Hz"
+    # -- entrada (si no se pasa --doe_results) ---------------------------------
+    BASE_DIR  = r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\2DOF_Cone_DOE"
+    DOE_NAME  = "DOE_Influence_dexel_RPM_12000_ftooth_005_dt_200_AP_9mm"
+    H5_NAME   = "doe_results.h5"   # "doe_results.h5" (case_*) | "doe_noise_results.h5" (control/snr_*)
+    LABEL_KEY = None               # None -> auto-detectar el parámetro que varía | ej. "$dxl_size$"
+                                   # (en ruido siempre es "snr_db")
 
-# LABEL_KEY: None → auto-detectar desde attrs del HDF5
-#            str  → clave explícita ej. "$dxl_size$" o "$nb_dt_rev$"
-LABEL_KEY = None
+    # -- ejecución --------------------------------------------------------------
+    NB_WORKERS       = 6       # 1 = secuencial; >1 = paralelo (un proceso por worker)
+    ENABLED_CASES    = "all"   # "all" | ["case_000", "case_003"] | ["control", "snr_040.00"]
+    SAVE_META_ARRAYS = False   # True -> guarda también los arrays 1D de meta como datasets
 
-_T_GT       = 5.365770208787228   # [s] tiempo de onset de chatter (ground truth)
+    # -- señal / física ---------------------------------------------------------
+    _CUT_START = 0.05                # [s] inicio de la ventana de análisis
+    _CUT_END   = 16.0                # [s] fin de la ventana de análisis
+    _RPM       = 12_000.0
+    _F_MODAL   = 150.0               # [Hz] frecuencia modal del chatter
+    _T_REV     = 60.0 / _RPM         # 0.005 s -- periodo de una revolución
+    _T_MODAL   = 1.0 / _F_MODAL      # 0.00667 s -- periodo modal
+    _T_GT      = 5.365770208787228   # [s] onset de chatter: t_d_no_FAR = detecciones > _T_GT
+                                     #     (y región estable si USE_EXTERNAL_REFERENCE = False)
 
-_CUT_START  = 0.05               # [s] inicio de la ventana de análisis
-_CUT_END    = 16.0                # [s] fin de la ventana de análisis
-_RPM        = 12_000.0            # RPM de la simulación
-_F_MODAL    = 150.0               # Hz — frecuencia modal del chatter
-_T_REV      = 60.0 / _RPM        # [s] periodo de una revolución  (≈ 0.005 s)
-_F_REV      = 1.0 / _T_REV       # [Hz] frecuencia de revolución (≈ 200 Hz)
-_T_MODAL    = 1.0 / _F_MODAL     # [s] periodo modal (≈ 0.00667 s)
+    # -- entrenamiento de umbrales -------------------------------------------------
+    #   True  -> tramos "stable" (y "unstable" en MaxEnt) de _REFERENCE_H5, uno por
+    #            caso, nunca concatenados (COMMON_TEMPLATE.md §10)
+    #   False -> tramo (_CUT_START, _T_GT) de la propia señal de cada caso
+    USE_EXTERNAL_REFERENCE = True
+    _REFERENCE_H5 = (
+        r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\Chatter-Criteria"
+        r"\CAMP10_Chatter_detection_Methodes\Convergency_Simulation"
+        r"\4_DOE_Data_Training_Tube\DOE_Training_Tube_dxl_20e-5_RUN_10_0.5-2.0"
+        r"\reference_dataset_amp.h5"
+    )
+    _INTERNAL = not USE_EXTERNAL_REFERENCE
 
-NB_WORKERS       = 6    # 1 = secuencial; >1 = paralelo (ProcessPoolExecutor)
-ENABLED_CASES    = "all" # "all"  o  lista ej. ["case_000", "case_003"]
-SAVE_META_ARRAYS = False  # True → guarda arrays 1D de meta como datasets HDF5
+    # alpha = beta = norm.sf(3.0) ≈ 0.00135  ->  mismo FAR que z = 3 sigma
+    _Z3_ALPHA = 0.00135
 
-# alpha = beta ≈ norm.sf(3) = 0.00135  →  equivalente a umbral z=3σ
-_Z3_ALPHA = 0.00135
+    # -- MaxEnt-SPRT  (indicators/maxent_sprt/examples/MaxEnt_Detection_NEW.py) ----
+    _COMMON_MAXENT = {
+        "t_stable_total": _T_GT,  # legacy fallback (used if training_intervals=None)
+        "training_intervals": [
+            (_CUT_START, _T_GT, "stable"),
+            (_T_GT, 10.0, "chatter"),
+        ] if _INTERNAL else None,
+        "alpha": _Z3_ALPHA,
+        "beta": _Z3_ALPHA,
+        "reset_on_H0": True,
+        "cut_start_time": _CUT_START,
+        "cut_end_time": _CUT_END,
+        "t_theorical": _T_GT,
+    }
 
-# ==============================================================================
-# INDICATOR_CONFIGS — lista de configuraciones a aplicar
-#
-# Misma estructura que doe_noise_indicators.py.
-# Copiar/ajustar según el DOE en uso.
-# ==============================================================================
-
-_COMMON_MAXENT = {
-    "t_stable_total":     _T_GT,
-    "training_intervals": [
-        (_CUT_START, _T_GT, "stable"),
-        (_T_GT,      10.0,  "chatter"),
-    ],
-    "alpha":       _Z3_ALPHA,
-    "beta":        _Z3_ALPHA,
-    "reset_on_H0": True,
-    "cut_start_time": _CUT_START,
-    "cut_end_time":   _CUT_END,
-    "t_theorical": _T_GT,
-}
-
-_COMMON_RMS = {
-    "cv_threshold":         None,
-    "rms_threshold":        None,
-    "n_min_cv":             2,
-    "warmup_ignore_alerts": False,
-    "use_unbiased_std":     True,
-    "eps":                  1e-12,
-    "detrend":              False,
-    "pad_mode":             "none",
-    "stable_time":  (0.0, _T_GT),
-    "frac_stable":  0.3610633440512648,
-    "z":            3.0,
-    "alpha":        0.05,
-    "fallback_mad": True,
-    "t_theorical":  _T_GT,
-}
-
-_COMMON_SSQ = {
-    "t_stable_total":     _T_GT,
-    "training_intervals": [
-        (_CUT_START, _T_GT, "stable"),
-    ],
-    "n_fft_power":  3,
-    "mode":         "causal_inclusive",
-    "sigma":        6.0,
-    "frac_stable":  0.3610633440512648,
-    "alpha":        0.05,
-    "z":            3.0,
-    "fallback_mad": False,
-    "t_theorical":  _T_GT,
-}
-
-_COMMON_GREEN = {
-    "training_intervals": [
-        (_CUT_START, _T_GT, "stable"),
-    ],
-    "z_sigma":            3.0,
-    "use_area_threshold": True,
-    "t_theorical":        _T_GT,
-    "use_zero_crossing_cycles": True, # alpha cycles
-    "use_beta_from_cycles": False, # Creat beta from alpha cycles
-    "zc_detrend": True,
-    "v_cycle_mode": "zero",  # "zero - 1" | "original - dentrend for v=0 , poyecion a Trayectoria Original" | 
-                            #  "detrended - detren for v=0 , trayectoria detrend"
-    "cycle_area_norm": "none",  # "none" | "mean" | "median"
-
-}
-
-INDICATOR_CONFIGS: List[Dict[str, Any]] = [
-
-    # --------------------------------------------------------------------------
-    # MaxEnt-SPRT  ·  by_revolution
-    # --------------------------------------------------------------------------
-    {
-        "enabled":   True,
-        "name":      None,
-        "indicator": "maxent",
-        "mode":      "by_revolution",
-        "signal":    "Axial_vel",
-        "common":    _COMMON_MAXENT,
+    # step_rev = 1  ->  hop = 1 rev  ->  overlap = 1 - 1/4 = 75 %
+    INDICATOR_CONFIG_maxent_by_revolution = {
+        "id": "MaxEnt_SPRT",
+        "func": "Default",
+        "param_mode": "by_revolution",
         "params_physical": {
-            "T_rev":         _T_REV,
-            "N_rev_window":  7,
-            "step_rev":      1,
-            "segmentation":  "raw",
-            "use_sprt":      True,
+            "T_rev": _T_REV,
+            "N_rev_window": 4,
+            "step_rev": 1,
+            "segmentation": "opr",
+            **_COMMON_MAXENT,
         },
-    },
+    }
 
-    # --------------------------------------------------------------------------
-    # MaxEnt-SPRT  ·  by_modal
-    # --------------------------------------------------------------------------
-    {
-        "enabled":   False,
-        "name":      None,
-        "indicator": "maxent",
-        "mode":      "by_modal",
-        "signal":    "Axial_vel",
-        "common":    _COMMON_MAXENT,
+    # step_modal = 1  ->  hop = 1 periodo modal  ->  overlap = 50 %
+    INDICATOR_CONFIG_maxent_by_modal = {
+        "id": "MaxEnt_SPRT",
+        "func": "Default",
+        "param_mode": "by_modal",
         "params_physical": {
-            "T_rev":           _T_REV,
-            "T_modal":         _T_MODAL,
-            "N_modal_window":  3.0,
-            "step_modal":      1.0,
-            "segmentation":    "raw",
-            "use_sprt":        True,
+            "T_modal": _T_MODAL,
+            "N_modal_window": 2.0,
+            "step_modal": 1,
+            **_COMMON_MAXENT,
         },
-    },
+    }
 
-    # --------------------------------------------------------------------------
-    # RMS-CV  ·  by_revolution
-    # --------------------------------------------------------------------------
-    {
-        "enabled":   True,
-        "name":      None,
-        "indicator": "rms_cv",
-        "mode":      "by_revolution",
-        "signal":    "Axial_vel",
-        "common":    _COMMON_RMS,
+    # -- RMS-CV  (indicators/rms_cv/examples/RMS_CV_Chatter_Detection_NEW.py) ------
+    _COMMON_RMS = {
+        # fixed threshold (ignored when stable_time / reference_signal is set)
+        "cv_threshold":         None,
+        "rms_threshold":        None,
+        "n_min_cv":             2,
+        "warmup_ignore_alerts": False,
+        "use_unbiased_std":     True,
+        "eps":                  1e-12,
+        "detrend":              False,
+        "pad_mode":             "none",
+        # adaptive threshold: 3-sigma on CV of the stable region
+        "stable_time":  (0.0, _T_GT) if _INTERNAL else None,
+        "z":            3.0,
+        "alpha":        0.05,
+        "fallback_mad": True,
+        "t_theorical":  _T_GT,
+    }
+
+    INDICATOR_CONFIG_rms_cv_by_revolution = {
+        "id":         "RMS_CV",
+        "func":       "Default",
+        "param_mode": "by_revolution",
         "params_physical": {
             "T_rev":        _T_REV,
             "N_rev_window": 4,
             "step_rev":     1,
             "n_max_mode":   "frames",
             "n_max_rev":    4,
+            **_COMMON_RMS,
         },
-    },
+    }
 
-    # --------------------------------------------------------------------------
-    # RMS-CV  ·  by_modal
-    # --------------------------------------------------------------------------
-    {
-        "enabled":   False,
-        "name":      None,
-        "indicator": "rms_cv",
-        "mode":      "by_modal",
-        "signal":    "Axial_vel",
-        "common":    _COMMON_RMS,
+    INDICATOR_CONFIG_rms_cv_by_modal = {
+        "id":         "RMS_CV",
+        "func":       "Default",
+        "param_mode": "by_modal",
         "params_physical": {
             "T_modal":        _T_MODAL,
             "N_modal_window": 1,
             "step_modal":     1,
             "n_max_mode":     "frames",
             "n_max_modal":    16,
+            **_COMMON_RMS,
         },
-    },
+    }
 
-    # --------------------------------------------------------------------------
-    # SSQ-STFT  ·  by_revolution
-    # --------------------------------------------------------------------------
-    {
-        "enabled":   True,
-        "name":      None,
-        "indicator": "ssq",
-        "mode":      "by_revolution",
-        "signal":    "Axial_vel",
-        "common":    _COMMON_SSQ,
+    # -- SST-SVD  (indicators/ssq_chatter/examples/SSQ_STFT_Chatter_Detection_NEW.py) --
+    _COMMON_SSQ = {
+        "n_fft_power":  3,
+        "mode":         "causal_inclusive",
+        "sigma":        6.0,
+        "frac_stable":  0.3610633440512648,  # fallback cuando training_intervals=None
+        "training_intervals": [(_CUT_START, _T_GT, "stable")] if _INTERNAL else None,
+        "alpha":        0.05,
+        "z":            3.0,
+        "fallback_mad": False,
+        "t_theorical":  _T_GT,
+    }
+
+    INDICATOR_CONFIG_ssq_by_revolution = {
+        "id":         "SST_SVD",
+        "func":       "Default",
+        "param_mode": "by_revolution",
         "params_physical": {
             "T_rev":          _T_REV,
             "N_rev_window":   4,
             "step_rev":       1,
             "Ai_length_mode": "frames",
             "Ai_length_rev":  4,
+            **_COMMON_SSQ,
         },
-    },
+    }
 
-    # --------------------------------------------------------------------------
-    # SSQ-STFT  ·  by_modal
-    # --------------------------------------------------------------------------
-    {
-        "enabled":   False,
-        "name":      None,
-        "indicator": "ssq",
-        "mode":      "by_modal",
-        "signal":    "Axial_vel",
-        "common":    _COMMON_SSQ,
+    INDICATOR_CONFIG_ssq_by_modal = {
+        "id":         "SST_SVD",
+        "func":       "Default",
+        "param_mode": "by_modal",
         "params_physical": {
             "T_modal":         _T_MODAL,
             "N_modal_window":  4,
             "step_modal":      1,
             "Ai_length_mode":  "frames",
             "Ai_length_modal": 2,
+            **_COMMON_SSQ,
         },
-    },
+    }
 
-    # --------------------------------------------------------------------------
-    # Green Integral (Default)  ·  f_cycle=f_rev
-    # --------------------------------------------------------------------------
-    {
-        "enabled":   False,
-        "name":      None,
-        "indicator": "green_default",
-        "mode":      "by_revolution",
-        "signal":    "Axial_disp",
-        "common":    _COMMON_GREEN,
-        "params_physical": {
-            "T_rev":                 _T_REV,
-            "N_rev_window":          4.0,
-            "step_rev":              1.0,
-            "data_filtrated":        True,
-            "hilbert":               False,
-            "while_loop_extend":     False,
-            "cycles_cluster_points": 35,
-            "thein_sen":             False,
-        },
-    },
+    # -- Green Integral  (indicators/green_integral/examples/Green_Integral_Detection_NEW.py) --
+    _COMMON_GREEN_ALL = {
+        "use_area_threshold": True,
+        "training_intervals": [(_CUT_START, _T_GT, "stable")] if _INTERNAL else None,
+        "z_sigma":            3.0,
+        "debug_level":        0,      # _NEW usa 2/1 (figuras por ventana); en lote siempre 0
+        "t_theorical":        _T_GT,
+    }
+    _COMMON_GREEN_STD = {
+        "data_filtrated":        True,
+        "hilbert":               False,
+        "while_loop_extend":     False,
+        "cycles_cluster_points": 35,
+        "thein_sen":             False,
+    }
+    _COMMON_GREEN_LYAPUNOV = {
+        "data_filtrated":           True,
+        "lambda_ewma":              None,     # EWMA para suavizar σ̂ (None = sin suavizado)
+        "accumulate":               False,
+        "G_memory":                 _T_REV * 10,
+        "sigma_method":             "ratio",  # "ratio" | "frozen_time"
+        "sigma_local_n":            10,
+        "area_noise_eps":           1e-30,
+        "use_zero_crossing_cycles": True,     # alpha cycles
+        "use_beta_from_cycles":     False,    # beta = unión de ciclos completos
+        "zc_detrend":               True,
+        "v_cycle_mode":             "zero",   # "zero" | "original" | "detrended"
+        "cycle_area_norm":          "none",   # "none" | "mean" | "median"
+    }
 
-    # --------------------------------------------------------------------------
-    # Green Integral (Default)  ·  f_cycle=f_modal
-    # --------------------------------------------------------------------------
-    {
-        "enabled":   False,
-        "name":      None,
-        "indicator": "green_default",
-        "mode":      "by_modal",
-        "signal":    "Axial_disp",
-        "common":    _COMMON_GREEN,
+    INDICATOR_CONFIG_green_std_by_revolution = {
+        "id":         "Green_Integral",
+        "func":       "Default",
+        "param_mode": "by_revolution",
         "params_physical": {
-            "T_modal":               _T_MODAL,
-            "N_modal_window":        4,
-            "step_modal":            1.0,
-            "data_filtrated":        True,
-            "hilbert":               False,
-            "while_loop_extend":     False,
-            "cycles_cluster_points": 35,
-            "thein_sen":             False,
+            "T_rev":        _T_REV,
+            "N_rev_window": 4,
+            "step_rev":     1.0,
+            **_COMMON_GREEN_ALL, **_COMMON_GREEN_STD,
         },
-    },
+    }
 
-    # --------------------------------------------------------------------------
-    # Green Integral (Fixed-Window)  ·  f_cycle=f_rev
-    # --------------------------------------------------------------------------
-    {
-        "enabled":   True,
-        "name":      None,
-        "indicator": "green_fixed",
-        "mode":      "by_revolution",
-        "signal":    "Axial_disp",
-        "common":    _COMMON_GREEN,
+    INDICATOR_CONFIG_green_std_by_modal = {
+        "id":         "Green_Integral",
+        "func":       "Default",
+        "param_mode": "by_modal",
         "params_physical": {
-            "T_rev":            _T_REV,
-            "N_rev_window":     7,
-            "step_rev":         1,
-            "data_filtrated":   True,
-            "lambda_ewma":      None,
-            "accumulate":       False,
-            "G_memory":         None,
-            "sigma_method":     "ratio",
-            "sigma_local_n":    5,
-            "area_noise_eps":   1e-25,
+            "T_modal":        _T_MODAL,
+            "N_modal_window": 4,
+            "step_modal":     1.0,
+            **_COMMON_GREEN_ALL, **_COMMON_GREEN_STD,
         },
-    },
+    }
 
-    # --------------------------------------------------------------------------
-    # Green Integral (Fixed-Window)  ·  f_cycle=f_modal
-    # --------------------------------------------------------------------------
-    {
-        "enabled":   False,
-        "name":      None,
-        "indicator": "green_fixed",
-        "mode":      "by_modal",
-        "signal":    "Axial_disp",
-        "common":    _COMMON_GREEN,
+    INDICATOR_CONFIG_green_lyapunov_by_revolution = {
+        "id":         "Green_Integral",
+        "func":       "Lyapunov",
+        "param_mode": "by_revolution",
         "params_physical": {
-            "T_modal":          _T_MODAL,
-            "N_modal_window":   4,
-            "step_modal":       1.0,
-            "data_filtrated":   True,
-            "lambda_ewma":      None,
-            "accumulate":       False,
-            "G_memory":         None,
-            "sigma_method":     "ratio",
-            "sigma_local_n":    5,
-            "area_noise_eps":   1e-25,
+            "T_rev":        _T_REV,
+            "N_rev_window": 4,
+            "step_rev":     1.0,
+            **_COMMON_GREEN_ALL, **_COMMON_GREEN_LYAPUNOV,
         },
-    },
-]
+    }
+
+    INDICATOR_CONFIG_green_lyapunov_by_modal = {
+        "id":         "Green_Integral",
+        "func":       "Lyapunov",
+        "param_mode": "by_modal",
+        "params_physical": {
+            "T_modal":        _T_MODAL,
+            "N_modal_window": 4,
+            "step_modal":     1.0,
+            **_COMMON_GREEN_ALL, **_COMMON_GREEN_LYAPUNOV,
+        },
+    }
+
+    # -- RUNS: qué se corre y sobre qué canal ---------------------------------------
+    # Cada entrada = una config por caso. El grupo HDF5 se nombra solo desde los
+    # parámetros (ej. maxent_revo_dec4_1step); "name": "..." lo fuerza a mano.
+    RUNS: List[Dict[str, Any]] = [
+        {"enabled": True,  "signal": "Axial_vel",  "indicator_config": INDICATOR_CONFIG_maxent_by_revolution},
+        {"enabled": False, "signal": "Axial_vel",  "indicator_config": INDICATOR_CONFIG_maxent_by_modal},
+        {"enabled": True,  "signal": "Axial_vel",  "indicator_config": INDICATOR_CONFIG_rms_cv_by_revolution},
+        {"enabled": False, "signal": "Axial_vel",  "indicator_config": INDICATOR_CONFIG_rms_cv_by_modal},
+        {"enabled": True,  "signal": "Axial_vel",  "indicator_config": INDICATOR_CONFIG_ssq_by_revolution},
+        {"enabled": False, "signal": "Axial_vel",  "indicator_config": INDICATOR_CONFIG_ssq_by_modal},
+        {"enabled": False, "signal": "Axial_disp", "indicator_config": INDICATOR_CONFIG_green_std_by_revolution},
+        {"enabled": False, "signal": "Axial_disp", "indicator_config": INDICATOR_CONFIG_green_std_by_modal},
+        {"enabled": True,  "signal": "Axial_disp", "indicator_config": INDICATOR_CONFIG_green_lyapunov_by_revolution},
+        {"enabled": False, "signal": "Axial_disp", "indicator_config": INDICATOR_CONFIG_green_lyapunov_by_modal},
+    ]
+
+    # ==========================================================================
+    # FIN CONFIG — de aquí para abajo no hace falta tocar nada
+    # ==========================================================================
+
+    args = parse_args({
+        "h5": os.path.join(BASE_DIR, DOE_NAME, H5_NAME),
+        "workers": NB_WORKERS,
+        "cases": ENABLED_CASES,
+        "reference": _REFERENCE_H5 if USE_EXTERNAL_REFERENCE else "desactivada (tramo interno)",
+        "runs": [_run_name(r) for r in RUNS if r["enabled"]],
+    })
+
+    h5_in = os.path.normpath(args.doe_results or os.path.join(BASE_DIR, DOE_NAME, H5_NAME))
+    if not os.path.isfile(h5_in):
+        log.error("Archivo no encontrado: %s", h5_in)
+        log.error("  Editar BASE_DIR / DOE_NAME / H5_NAME en CONFIG o pasar --doe_results.")
+        sys.exit(1)
+
+    layout, all_groups = _groups(h5_in)
+    label_key = "snr_db" if layout == "noise" else (args.label_key or LABEL_KEY)
+    if label_key is None:
+        try:
+            label_key = _detect_label_key(h5_in)
+        except ValueError as exc:
+            if not args.list:
+                log.error("No se pudo auto-detectar LABEL_KEY:\n  %s", exc)
+                sys.exit(1)
+
+    if args.list:
+        list_cases(h5_in, all_groups, label_key)
+        return
+
+    wanted = args.cases or ENABLED_CASES
+    groups = all_groups if wanted == "all" else [g for g in wanted if g in all_groups]
+    missing = [] if wanted == "all" else [g for g in wanted if g not in all_groups]
+    if missing:
+        log.warning("Grupos no encontrados en HDF5: %s", missing)
+
+    reference_h5 = os.path.normpath(_REFERENCE_H5) if USE_EXTERNAL_REFERENCE else None
+    if reference_h5 and not os.path.isfile(reference_h5):
+        log.error("_REFERENCE_H5 no encontrado: %s", reference_h5)
+        log.error("  Corregir la ruta en CONFIG o poner USE_EXTERNAL_REFERENCE = False.")
+        sys.exit(1)
+
+    out_path = os.path.normpath(args.out) if args.out else os.path.join(
+        os.path.dirname(h5_in), _OUT_NAME[layout])
+    workers = args.workers if args.workers is not None else NB_WORKERS
+    runs = [r for r in RUNS if r["enabled"]]
+
+    log.info("doe_indicators")
+    log.info("  Entrada     : %s  (%s)", h5_in, layout)
+    log.info("  Salida      : %s", out_path)
+    log.info("  LABEL_KEY   : %s", label_key)
+    log.info("  Referencia  : %s", reference_h5 or "desactivada (tramo interno)")
+    log.info("  Workers     : %d", workers)
+    log.info("  Dry-run     : %s", args.dry_run)
+    log.info("  Casos       : %d  %s", len(groups), "(all)" if wanted == "all" else wanted)
+    log.info("  Configs activas: %d", len(runs))
+    for r in runs:
+        log.info("    %-38s  signal=%s", _run_name(r), r["signal"])
+
+    n_done = run_all(
+        h5_path=h5_in,
+        groups=groups,
+        runs=runs,
+        settings={
+            "cut": (_CUT_START, _CUT_END),
+            "label_key": label_key,
+            "reference_h5": reference_h5,
+        },
+        nb_workers=workers,
+        dry_run=args.dry_run,
+        out_path=None if args.dry_run else out_path,
+        save_meta_arrays=SAVE_META_ARRAYS,
+    )
+
+    if args.dry_run:
+        log.info("[DRY-RUN] %d tareas planificadas — nada escrito.", n_done)
+    else:
+        log.info("Listo. %d resultados escritos incrementalmente en %s", n_done, out_path)
+
 
 # ==============================================================================
-# REGISTRY — mapea indicator key → función run_*
+# CLI / --help
 # ==============================================================================
 
-def _build_registry() -> Dict[str, Any]:
-    reg = {}
-    if _AVAILABLE.get("maxent"):
-        reg["maxent"] = _run_maxent_sprt
-    if _AVAILABLE.get("rms_cv"):
-        reg["rms_cv"] = _run_rms_cv
-    if _AVAILABLE.get("ssq"):
-        reg["ssq"] = _run_sst_svd
-    if _AVAILABLE.get("green_default"):
-        reg["green_default"] = _run_green_std
-    if _AVAILABLE.get("green_fixed"):
-        reg["green_fixed"]   = _run_green_std
-    return reg
+_HELP = r"""
+GUÍA RÁPIDA
+===========
+Qué hace
+  Corre MaxEnt-SPRT, RMS-CV, SST-SVD y Green Integral sobre cada caso de un HDF5
+  del DOE y guarda t, I_t, t_d, t_d_no_FAR por (caso, indicador). El formato de
+  entrada se detecta solo:
+    doe_results.h5        (case_*)          -> doe_indicator_results.h5
+    doe_noise_results.h5  (control, snr_*)  -> doe_noise_indicator_results.h5
+  (la salida se escribe junto a la entrada, salvo --out)
+
+Dónde se edita: bloque CONFIG al inicio de main() — nada más
+  Entrada ........ BASE_DIR, DOE_NAME, H5_NAME, LABEL_KEY
+  Ejecución ...... NB_WORKERS, ENABLED_CASES, SAVE_META_ARRAYS
+  Señal/física ... _CUT_START, _CUT_END, _RPM, _F_MODAL, _T_GT
+  Entrenamiento .. USE_EXTERNAL_REFERENCE, _REFERENCE_H5
+  Indicadores .... _COMMON_* + INDICATOR_CONFIG_*  (mismo formato que examples/*_NEW.py)
+  Qué corre ...... RUNS -> "enabled": True / False en cada entrada
+
+Recetas
+  Ver los casos del HDF5 (sin correr nada)
+    python doe_indicators.py --list
+  Ver qué se va a correr (casos x indicadores) sin calcular
+    python doe_indicators.py --dry_run
+  Correr el DOE del CONFIG  (o F5 en VS Code, sin argumentos)
+    python doe_indicators.py
+  Correr otro HDF5 (DOE o ruido)
+    python doe_indicators.py --doe_results D:\...\doe_noise_results.h5
+  Solo algunos casos
+    python doe_indicators.py --cases case_000 case_003
+  Secuencial, para depurar un error (traceback completo en el log)
+    python doe_indicators.py --workers 1 --cases case_000
+  Cambiar un parámetro de un indicador
+    editar su INDICATOR_CONFIG_* (o el _COMMON_* que comparte)
+  Agregar una variante nueva
+    copiar un INDICATOR_CONFIG_* de indicators/<indicador>/examples/*_NEW.py
+    y agregarlo a RUNS con su "signal" (Axial_vel | Axial_disp)
+  Entrenar con la propia señal en vez de la referencia externa
+    USE_EXTERNAL_REFERENCE = False   (usa el tramo (_CUT_START, _T_GT))
+
+Salida
+  <caso>/<run_name>/{t, I_t, t_d, t_d_no_FAR} + attrs (config usada, meta_*)
+  run_name se arma solo desde los parámetros, ej. maxent_revo_dec4_1step
+  Volver a correr la misma config sobreescribe ese grupo; las demás se conservan.
+  Siguiente paso: DOE_plots/doe_indicator_plotter.py | doe_noise_plotter.py
+"""
 
 
-_REGISTRY = _build_registry()
+def parse_args(defaults: Dict[str, Any]) -> argparse.Namespace:
+    current = (
+        "CONFIG actual\n"
+        f"  entrada    : {defaults['h5']}\n"
+        f"  workers    : {defaults['workers']}   casos: {defaults['cases']}\n"
+        f"  referencia : {defaults['reference']}\n"
+        f"  runs       : {', '.join(defaults['runs']) or '(ninguno activo)'}\n"
+    )
+    p = argparse.ArgumentParser(
+        description="doe_indicators — Aplica los indicadores de chatter a los casos de un DOE.\n\n" + current,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=_HELP,
+    )
+    p.add_argument("--doe_results", "--doe_noise", default=None, metavar="PATH",
+                   help="HDF5 de entrada: doe_results.h5 o doe_noise_results.h5 "
+                        "(default: BASE_DIR/DOE_NAME/H5_NAME del CONFIG)")
+    p.add_argument("--out", default=None, metavar="PATH",
+                   help="HDF5 de salida (default: junto a la entrada, nombre según el formato)")
+    p.add_argument("--label_key", default=None, metavar="KEY",
+                   help='Parámetro DOE que etiqueta cada caso, ej. "$dxl_size$" (default: auto)')
+    p.add_argument("--workers", type=int, default=None, metavar="N",
+                   help=f"Workers en paralelo (default: NB_WORKERS={defaults['workers']})")
+    p.add_argument("--cases", nargs="+", default=None, metavar="GRUPO",
+                   help="Solo estos grupos, ej. case_000 case_003 (default: ENABLED_CASES)")
+    p.add_argument("--dry_run", action="store_true",
+                   help="Imprime el plan de tareas sin correr los indicadores.")
+    p.add_argument("--list", action="store_true",
+                   help="Imprime la tabla de casos del HDF5 y sale.")
+    return p.parse_args()
+
 
 # ==============================================================================
-# AUTO-NOMBRE
+# INDICADORES — id del INDICATOR_CONFIG -> runner / señal / referencia / nombre
 # ==============================================================================
 
-_MODE_SHORT = {
-    "by_revolution": "revo",
-    "by_modal":      "modal",
-    "f_cycle":       "fcycle",
-    "":              "",
+_INDICATORS = {
+    "MaxEnt_SPRT":    (run_maxent_sprt, _SignalDataMaxEnt),
+    "RMS_CV":         (run_rms_cv, _SignalDataRMS),
+    "SST_SVD":        (run_sst_svd, _SignalDataSSQ),
+    "Green_Integral": (run_green_std, _StdSignalDataGreen),
 }
 
+# clave de referencia externa del config -> label en reference_dataset*.h5
+_REFERENCE_KEYS = {
+    "MaxEnt_SPRT":    {"reference_signal": "stable", "reference_signal_chatter": "unstable"},
+    "RMS_CV":         {"reference_signal": "stable"},
+    "SST_SVD":        {"reference_signal": "stable"},
+    "Green_Integral": {"reference_signal": "stable"},
+}
 
-def _auto_name(cfg: Dict[str, Any]) -> str:
-    ind  = cfg["indicator"]
-    pp   = cfg.get("params_physical", {})
-    mode = _MODE_SHORT.get(cfg.get("mode", ""), cfg.get("mode", ""))
-
-    if ind in ("green_default", "green_fixed"):
-        if cfg.get("mode") == "by_revolution":
-            dec = int(pp.get("N_rev_window", 0))
-            s   = int(pp.get("step_rev", 1))
-        else:
-            dec = int(pp.get("N_modal_window", 0))
-            s   = int(pp.get("step_modal", 1))
-        # green no siempre tiene mode key → omitir si vacío
-        mode_str = f"_{mode}" if mode else ""
-        return f"{ind}{mode_str}_dec{dec}_{s}step"
-
-    if ind == "maxent":
-        if cfg.get("mode") == "by_revolution":
-            dec = int(pp.get("N_rev_window", 0))
-            s   = int(pp.get("step_rev", 1))
-        else:
-            dec = int(pp.get("N_modal_window", 0))
-            s   = int(pp.get("step_modal", 1))
-        return f"{ind}_{mode}_dec{dec}_{s}step"
-
-    if cfg.get("mode") == "by_revolution":
-        aux   = int(pp.get("N_rev_window", 0))
-        n_aux = int(pp.get("n_max_rev") or pp.get("Ai_length_rev") or 0)
-        s     = int(pp.get("step_rev", 1))
-    else:
-        aux   = int(pp.get("N_modal_window", 0))
-        n_aux = int(pp.get("n_max_modal") or pp.get("Ai_length_modal") or 0)
-        s     = int(pp.get("step_modal", 1))
-
-    dec = aux + (n_aux - 1) * s
-    return f"{ind}_{mode}_aux{aux}_n_aux{n_aux}_dec{dec}_{s}step"
+# prefijo del grupo HDF5 — el mismo de corridas anteriores (los plotters filtran por él)
+_PREFIX = {
+    ("MaxEnt_SPRT", "Default"):     "maxent",
+    ("RMS_CV", "Default"):          "rms_cv",
+    ("SST_SVD", "Default"):         "ssq",
+    ("Green_Integral", "Default"):  "green_default",
+    ("Green_Integral", "Lyapunov"): "green_fixed",
+}
+_MODE_SHORT = {"by_revolution": "revo", "by_modal": "modal"}
+_OUT_NAME = {"doe": "doe_indicator_results.h5", "noise": "doe_noise_indicator_results.h5"}
 
 
-def _run_name(cfg: Dict[str, Any]) -> str:
-    return cfg["name"] if cfg.get("name") else _auto_name(cfg)
+def _run_name(run: Dict[str, Any]) -> str:
+    """Nombre del grupo HDF5 desde los parámetros clave.
+
+    MaxEnt / Green -> {ind}_{mode}_dec{N_win}_{step}step
+    RMS / SSQ      -> {ind}_{mode}_aux{N_win}_n_aux{n_aux}_dec{dec}_{step}step
+                      con dec = N_win + (n_aux - 1) * step
+    """
+    if run.get("name"):
+        return run["name"]
+    cfg = run["indicator_config"]
+    ind = _PREFIX[(cfg["id"], cfg.get("func", "Default"))]
+    mode = cfg["param_mode"]
+    pp = cfg["params_physical"]
+    u = "rev" if mode == "by_revolution" else "modal"
+    win, step = int(pp[f"N_{u}_window"]), int(pp[f"step_{u}"])
+    if ind in ("rms_cv", "ssq"):
+        n_aux = int(pp.get(f"n_max_{u}") or pp.get(f"Ai_length_{u}") or 0)
+        dec = win + (n_aux - 1) * step
+        return f"{ind}_{_MODE_SHORT[mode]}_aux{win}_n_aux{n_aux}_dec{dec}_{step}step"
+    return f"{ind}_{_MODE_SHORT[mode]}_dec{win}_{step}step"
+
 
 # ==============================================================================
-# AUTO-DETECCIÓN DE LABEL_KEY
+# LECTURA: formato, label_key, casos, referencia externa
 # ==============================================================================
+
+def _groups(h5_path: str) -> Tuple[str, List[str]]:
+    """("doe", [case_*]) o ("noise", [control, snr_*]) según los grupos del HDF5."""
+    with h5py.File(h5_path, "r") as f:
+        keys = sorted(f.keys())
+    cases = [k for k in keys if k.startswith("case_")]
+    return ("doe", cases) if cases else ("noise", keys)
+
 
 def _detect_label_key(h5_path: str) -> str:
     """Auto-detecta el parámetro DOE que varía entre casos en doe_results.h5.
 
     Reglas:
       - Solo considera atributos con formato "$...$" (parámetros DOE, excluye wall_time_s etc.)
-      - Si exactamente 1 varía → retorna ese key.
-      - Si >1 varían → lanza ValueError con lista de candidatos y sugerencia --label_key.
-      - Si 0 varían → retorna el primer attr "$...$" disponible (caso degenerado).
+      - Si exactamente 1 varía -> retorna ese key.
+      - Si >1 varían -> lanza ValueError con lista de candidatos y sugerencia --label_key.
+      - Si 0 varían -> retorna el primer attr "$...$" disponible (caso degenerado).
     """
     with h5py.File(h5_path, "r") as f:
         case_keys = [k for k in f.keys() if k.startswith("case_")]
         if not case_keys:
             raise ValueError(f"No se encontraron grupos 'case_*' en {h5_path}")
 
-        # Recopilar valores por attr (solo claves con patrón $...$)
         all_attr_keys = [
             k for k in f[case_keys[0]].attrs.keys()
             if k.startswith("$") and k.endswith("$")
@@ -524,11 +572,7 @@ def _detect_label_key(h5_path: str) -> str:
 
         varying = []
         for ak in all_attr_keys:
-            vals = set()
-            for ck in case_keys:
-                v = f[ck].attrs.get(ak)
-                if v is not None:
-                    vals.add(str(float(v)))
+            vals = {str(float(f[ck].attrs[ak])) for ck in case_keys if ak in f[ck].attrs}
             if len(vals) > 1:
                 varying.append(ak)
 
@@ -543,259 +587,170 @@ def _detect_label_key(h5_path: str) -> str:
             f"    --label_key \"{varying[0]}\""
         )
 
-    # Ninguno varía (caso degenerado): usar el primero disponible
     log.warning(
         "Ningún parámetro DOE varía entre casos. Usando '%s' como LABEL_KEY.", all_attr_keys[0]
     )
     return all_attr_keys[0]
 
-# ==============================================================================
-# HELPERS DE SEÑAL
-# ==============================================================================
 
-def _cut_signal(
-    t: np.ndarray,
-    x: np.ndarray,
-    start: float,
-    end: float,
-) -> Tuple[np.ndarray, np.ndarray]:
+def _load_case(h5_path: str, grp_name: str, signals: List[str]) -> Dict[str, Any]:
+    """Carga un grupo del HDF5 de entrada -> {"attrs": ..., "signals": {nombre: (t, y)}}."""
+    with h5py.File(h5_path, "r") as f:
+        grp = f[grp_name]
+        sigs = {s: (grp[f"{s}/time"][()], grp[f"{s}/values"][()]) for s in signals if s in grp}
+        return {"attrs": dict(grp.attrs), "signals": sigs}
+
+
+def _cut_signal(t: np.ndarray, x: np.ndarray, start: float, end: float) -> Tuple[np.ndarray, np.ndarray]:
     mask = (t >= start) & (t <= end)
     return t[mask], x[mask]
 
 
-def _load_case(h5_path: str, grp_name: str, signals: List[str]) -> Dict[str, Any]:
-    """Carga un grupo de doe_results.h5 → dict con señales y attrs."""
+# ponytail: caché sin límite por worker (~0.7 GB con vel stable+unstable y disp);
+# bajar NB_WORKERS si falta RAM.
+@lru_cache(maxsize=None)
+def _read_reference(h5_path: str, label: str, channel: str) -> Dict[Tuple[str, str], tuple]:
+    """Tramos de reference_dataset*.h5 -> {(caso, NNN): (t, y, fs, signal_id)}.
+
+    Layout /<label>/<caso>/<canal>__NNN/{t, y}. Cada tramo queda separado (nunca
+    se concatenan, COMMON_TEMPLATE.md §10). Cada worker lo lee una sola vez.
+    """
+    out = {}
     with h5py.File(h5_path, "r") as f:
-        if grp_name not in f:
-            raise KeyError(f"Grupo '{grp_name}' no encontrado en {h5_path}")
-        grp   = f[grp_name]
-        attrs = dict(grp.attrs)
-        sigs  = {}
-        for sig in signals:
-            if sig in grp:
-                t = grp[f"{sig}/time"][()]
-                y = grp[f"{sig}/values"][()]
-                sigs[sig] = (t, y)
-            else:
-                log.debug("Señal '%s' no en grupo '%s' — omitida", sig, grp_name)
-    return {"group": grp_name, "attrs": attrs, "signals": sigs}
+        for case, grp in f[label].items():
+            for name, piece in grp.items():
+                if piece.attrs["channel"] == channel:
+                    out[(case, name.split("__", 1)[-1])] = (
+                        piece["t"][()], piece["y"][()],
+                        float(piece.attrs["fs"]), str(piece.attrs["signal_id"]),
+                    )
+    return out
 
 
-def _make_signal_data(
-    t: np.ndarray,
-    y: np.ndarray,
-    path: str,
-    indicator: str,
-    meta: Optional[Dict] = None,
-):
-    fs  = 1.0 / float(t[1] - t[0])
-    m   = meta or {}
-    kw  = dict(t_analysis=t, signal_analysis=y, path=path, fs=fs, meta=m)
+def _reference_pieces(ind_id: str, h5_path: str, label: str, channel: str) -> list:
+    """Una SignalData (clase propia del indicador) por tramo; Green lleva además
+    la velocidad del tramo hermano Axial_vel__NNN en meta["velocity"]."""
+    sig_cls = _INDICATORS[ind_id][1]
+    vel = _read_reference(h5_path, label, "Axial_vel") if ind_id == "Green_Integral" else {}
+    pieces = []
+    for key, (t, y, fs, sid) in _read_reference(h5_path, label, channel).items():
+        meta = {"label": label, "channel": channel, "case": key[0], "signal_id": sid, "name": sid}
+        if key in vel:
+            meta["velocity"] = vel[key][1]
+        pieces.append(sig_cls(t_analysis=t, signal_analysis=y, path=h5_path, fs=fs, meta=meta))
+    return pieces
 
-    if indicator in ("green_default", "green_fixed"):
-        return _StdSignalData_green(**kw)
-    if indicator == "maxent" and _AVAILABLE.get("maxent"):
-        return _SignalData_maxent(**kw)
-    if indicator == "rms_cv" and _AVAILABLE.get("rms_cv"):
-        return _SignalData_rms(**kw)
-    if indicator == "ssq" and _AVAILABLE.get("ssq"):
-        return _SignalData_ssq(**kw)
-    raise RuntimeError(f"No se pudo construir SignalData para indicador '{indicator}'")
-
-# ==============================================================================
-# CONSTRUCCIÓN DEL CONFIG PARA CADA INDICADOR
-# ==============================================================================
-
-def _build_indicator_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
-    indicator = cfg["indicator"]
-    mode      = cfg.get("mode", "")
-    common    = cfg.get("common", {})
-    pp        = cfg.get("params_physical", {})
-
-    if indicator == "maxent":
-        return {
-            "id":              "MaxEnt_SPRT",
-            "func":            "Default",
-            "param_mode":      mode,
-            "params_physical": {**pp, **common},
-        }
-    elif indicator == "rms_cv":
-        return {
-            "id":              "RMS_CV",
-            "func":            "Default",
-            "param_mode":      mode,
-            "params_physical": {**pp, **common},
-        }
-    elif indicator == "ssq":
-        return {
-            "id":              "SSQ",
-            "func":            "Default",
-            "param_mode":      mode,
-            "params_physical": {**pp, **common},
-        }
-    elif indicator in ("green_default", "green_fixed"):
-        func = "Default" if indicator == "green_default" else "Lyapunov"
-        return {
-            "func":            func,
-            "param_mode":      mode,
-            "params_physical": {**pp, **common},
-        }
-    else:
-        raise ValueError(f"Indicador desconocido: '{indicator}'")
-
-# ==============================================================================
-# EXTRACCIÓN DEL RESULTADO
-# ==============================================================================
-
-def _extract_result(indicator: str, result) -> Dict[str, Any]:
-    t_arr = np.asarray(getattr(result, "t",   []), dtype=float)
-    I_arr = np.asarray(getattr(result, "I_t", []), dtype=float)
-    t_d   = np.asarray(result.t_d) if result.t_d is not None else np.array([])
-    t_d_no_FAR = (
-        np.asarray(result.t_d_no_FAR)
-        if result.t_d_no_FAR is not None
-        else np.array([])
-    )
-    meta = {
-        k: v for k, v in dict(getattr(result, "meta", {})).items()
-        if not callable(v) and k not in ("raw_result", "signal")
-    }
-    return {"t": t_arr, "I_t": I_arr, "t_d": t_d, "t_d_no_FAR": t_d_no_FAR, "meta": meta}
 
 # ==============================================================================
 # RUNNER POR (caso, config)
 # ==============================================================================
 
+def _empty(grp_name: str, run_name: str, label_key: Optional[str],
+           label_val: float = float("nan"), **meta) -> Dict[str, Any]:
+    return {
+        "case": grp_name, "run_name": run_name,
+        "t": np.array([]), "I_t": np.array([]),
+        "t_d": np.array([]), "t_d_no_FAR": np.array([]),
+        "meta": meta, "attrs": {},
+        "label_key": label_key, "label_val": label_val,
+    }
+
+
 def _run_one(
     h5_path: str,
     grp_name: str,
-    ind_cfg: Dict[str, Any],
-    label_key: str,
+    run: Dict[str, Any],
+    settings: Dict[str, Any],
     dry_run: bool = False,
 ) -> Dict[str, Any]:
-    """Corre un indicador sobre un caso DOE. Retorna dict con resultados."""
-    run_name  = _run_name(ind_cfg)
-    indicator = ind_cfg["indicator"]
-    signal    = ind_cfg["signal"]
-
-    if not _AVAILABLE.get(indicator, False):
-        log.warning("[SKIP] %s/%s — indicador '%s' no disponible", grp_name, run_name, indicator)
-        return {
-            "case": grp_name, "run_name": run_name,
-            "t": np.array([]), "I_t": np.array([]),
-            "t_d": np.array([]), "t_d_no_FAR": np.array([]),
-            "meta": {"skipped": True, "reason": "not_available"},
-            "label_key": label_key, "label_val": float("nan"),
-        }
-
-    log.info("  [%s / %s] INICIO", grp_name, run_name)
+    """Corre un indicador sobre un caso. Retorna dict con resultados."""
+    cfg = run["indicator_config"]
+    ind_id = cfg["id"]
+    signal = run["signal"]
+    run_name = _run_name(run)
+    label_key = settings["label_key"]
 
     if dry_run:
         log.info("  [%s / %s] DRY-RUN — omitido", grp_name, run_name)
-        return {
-            "case": grp_name, "run_name": run_name,
-            "t": np.array([]), "I_t": np.array([]),
-            "t_d": np.array([]), "t_d_no_FAR": np.array([]),
-            "meta": {"dry_run": True},
-            "label_key": label_key, "label_val": float("nan"),
-        }
+        return _empty(grp_name, run_name, label_key, dry_run=True)
 
-    # Cargar señal principal; para green cargar también la velocidad
-    _signals_to_load = [signal]
-    if indicator in ("green_default", "green_fixed"):
-        _signals_to_load.append("Axial_vel")
+    log.info("  [%s / %s] INICIO", grp_name, run_name)
 
-    case_data  = _load_case(h5_path, grp_name, _signals_to_load)
-    sig_tuple  = case_data["signals"].get(signal)
-    if sig_tuple is None:
+    # Green recibe la velocidad medida en meta["velocity"] (si no, usa np.gradient)
+    is_green = ind_id == "Green_Integral"
+    case = _load_case(h5_path, grp_name, [signal, "Axial_vel"] if is_green else [signal])
+    if signal not in case["signals"]:
         log.warning("  [%s / %s] señal '%s' no encontrada — SKIP", grp_name, run_name, signal)
-        return {
-            "case": grp_name, "run_name": run_name,
-            "t": np.array([]), "I_t": np.array([]),
-            "t_d": np.array([]), "t_d_no_FAR": np.array([]),
-            "meta": {"skipped": True, "reason": f"signal_{signal}_missing"},
-            "label_key": label_key, "label_val": float("nan"),
-        }
+        return _empty(grp_name, run_name, label_key, skipped=True, reason=f"signal_{signal}_missing")
 
-    # Obtener valor del LABEL_KEY para este caso
-    raw_label = case_data["attrs"].get(label_key)
     try:
-        label_val = float(raw_label) if raw_label is not None else float("nan")
-    except (TypeError, ValueError):
+        label_val = float(case["attrs"][label_key])
+    except (KeyError, TypeError, ValueError):
         label_val = float("nan")
 
-    t_raw, y_raw = sig_tuple
-    t_cut, y_cut = _cut_signal(t_raw, y_raw, _CUT_START, _CUT_END)
+    t_raw, y_raw = case["signals"][signal]
+    t_cut, y_cut = _cut_signal(t_raw, y_raw, *settings["cut"])
+    sig_meta = {"label_key": label_key, "label_val": label_val, "signal": signal}
+    if is_green and "Axial_vel" in case["signals"]:
+        sig_meta["velocity"] = _cut_signal(t_raw, case["signals"]["Axial_vel"][1], *settings["cut"])[1]
 
-    # Velocidad para green (si está disponible)
-    _vel_meta: Optional[np.ndarray] = None
-    if indicator in ("green_default", "green_fixed"):
-        vel_tuple = case_data["signals"].get("Axial_vel")
-        if vel_tuple is not None:
-            _, y_vel_raw = vel_tuple
-            _, _vel_meta = _cut_signal(t_raw, y_vel_raw, _CUT_START, _CUT_END)
-        else:
-            log.debug(
-                "  [%s / %s] Axial_vel no encontrada — green usará np.gradient",
-                grp_name, run_name,
-            )
+    runner, sig_cls = _INDICATORS[ind_id]
+    sig = sig_cls(t_analysis=t_cut, signal_analysis=y_cut, path=h5_path,
+                  fs=1.0 / float(t_raw[1] - t_raw[0]), meta=sig_meta)
 
-    sig_data = _make_signal_data(
-        t_cut, y_cut,
-        path=h5_path,
-        indicator=indicator,
-        meta={
-            "label_key": label_key,
-            "label_val": label_val,
-            "signal":    signal,
-            **( {"velocity": _vel_meta} if _vel_meta is not None else {} ),
-        },
-    )
-
-    ind_config = _build_indicator_config(ind_cfg)
-    runner     = _REGISTRY[indicator]
+    config = dict(cfg)  # copia: la referencia se agrega solo para esta llamada
+    if settings["reference_h5"]:
+        for key, label in _REFERENCE_KEYS[ind_id].items():
+            config[key] = _reference_pieces(ind_id, settings["reference_h5"], label, signal)
 
     try:
-        result    = runner(sig_data, ind_config)
-        extracted = _extract_result(indicator, result)
+        result = runner(sig, config)
     except Exception as exc:
         log.error("  [%s / %s] ERROR: %s", grp_name, run_name, exc, exc_info=True)
-        return {
-            "case": grp_name, "run_name": run_name,
-            "t": np.array([]), "I_t": np.array([]),
-            "t_d": np.array([]), "t_d_no_FAR": np.array([]),
-            "meta": {"error": str(exc)},
-            "label_key": label_key, "label_val": label_val,
-        }
+        return _empty(grp_name, run_name, label_key, label_val, error=str(exc))
 
-    t_d        = extracted["t_d"]
-    t_d_no_FAR = extracted.get("t_d_no_FAR", np.array([]))
+    t_d = np.asarray(result.t_d if result.t_d is not None else [], dtype=float)
+    t_d_no_FAR = np.asarray(result.t_d_no_FAR if result.t_d_no_FAR is not None else [], dtype=float)
+    meta = {
+        k: v for k, v in dict(getattr(result, "meta", {})).items()
+        if not callable(v) and k not in ("raw_result", "signal")
+    }
 
     if t_d.size > 0:
-        log.info("  [%s / %s] t_d = %.4f s", grp_name, run_name, t_d[0])
-        log.info("  [%s / %s] t_d_no_FAR = %.4f s", grp_name, run_name, t_d_no_FAR[0] if t_d_no_FAR.size > 0 else float("nan"))
+        log.info("  [%s / %s] t_d = %.4f s | t_d_no_FAR = %s", grp_name, run_name, t_d[0],
+                 f"{t_d_no_FAR[0]:.4f} s" if t_d_no_FAR.size > 0 else "-")
     else:
         log.info("  [%s / %s] sin detección", grp_name, run_name)
-
     log.info("  [%s / %s] FIN \n", grp_name, run_name)
+
     return {
-        "case":        grp_name,
-        "run_name":    run_name,
-        "t":           extracted["t"],
-        "I_t":         extracted["I_t"],
-        "t_d":         t_d,
-        "t_d_no_FAR":  t_d_no_FAR,
-        "meta":        extracted["meta"],
-        "ind_cfg":     ind_cfg,
-        "label_key":   label_key,
-        "label_val":   label_val,
+        "case": grp_name,
+        "run_name": run_name,
+        "t": np.asarray(getattr(result, "t", []), dtype=float),
+        "I_t": np.asarray(getattr(result, "I_t", []), dtype=float),
+        "t_d": t_d,
+        "t_d_no_FAR": t_d_no_FAR,
+        "meta": meta,
+        "attrs": {
+            "indicator": _PREFIX[(ind_id, cfg.get("func", "Default"))],
+            "id": ind_id,
+            "func": cfg.get("func", "Default"),
+            "mode": cfg["param_mode"],
+            "signal": signal,
+            "reference_h5": os.path.basename(settings["reference_h5"] or ""),
+            **{f"pp_{k}": v for k, v in cfg["params_physical"].items()},
+        },
+        "label_key": label_key,
+        "label_val": label_val,
     }
+
 
 # ==============================================================================
 # ESCRITURA HDF5
 # ==============================================================================
 
 def _safe_attr(v):
+    """Convierte un valor a un tipo aceptado como attr HDF5 (escalar, str o array 1D numérico)."""
     if isinstance(v, (bool, int, float, str, bytes)):
         return v
     if isinstance(v, np.ndarray):
@@ -813,362 +768,132 @@ def _safe_attr(v):
     return str(v)
 
 
-def write_results(out_path: str, all_results: List[Dict[str, Any]],
-                  h5_doe_path: Optional[str] = None) -> None:
-    """Escribe los resultados en HDF5. Abre en modo 'a' para acumulación incremental.
+def write_results(out_path: str, res: Dict[str, Any], h5_src: str,
+                  save_meta_arrays: bool = False) -> None:
+    """Escribe un resultado en out_path (modo 'a': se acumula entre corridas).
 
-    Si se proporciona *h5_doe_path*, copia también las señales crudas
-    (Axial_disp, Axial_vel, Axial_acc) y los atributos de caso al grupo raíz del caso.
+    La primera vez que aparece un caso copia además sus attrs y las señales
+    crudas (Axial_disp, Axial_vel, Axial_acc) desde h5_src.
     """
     with h5py.File(out_path, "a") as out_f:
-        for res in all_results:
-            case_name = res["case"]
-            run_name  = res["run_name"]
-            path      = f"{case_name}/{run_name}"
+        case_grp = out_f.require_group(res["case"])
+        if res["run_name"] in case_grp:
+            del case_grp[res["run_name"]]
 
-            if path in out_f:
-                del out_f[path]
+        if "signals_written" not in case_grp.attrs:
+            try:
+                with h5py.File(h5_src, "r") as src_f:
+                    src = src_f[res["case"]]
+                    for k, v in src.attrs.items():
+                        case_grp.attrs[k] = v
+                    for sig in ("Axial_disp", "Axial_vel", "Axial_acc"):
+                        if sig in src and sig not in case_grp:
+                            for ds in ("time", "values"):
+                                case_grp.create_dataset(f"{sig}/{ds}", data=src[f"{sig}/{ds}"][()],
+                                                        compression="gzip")
+                case_grp.attrs["signals_written"] = True
+                if res.get("label_key"):
+                    case_grp.attrs["label_key"] = res["label_key"]
+                if not np.isnan(res["label_val"]):
+                    case_grp.attrs["label_val"] = res["label_val"]
+            except Exception as exc:
+                log.warning("No se pudieron copiar señales del caso '%s': %s", res["case"], exc)
 
-            case_grp = out_f.require_group(case_name)
+        grp = case_grp.create_group(res["run_name"])
+        for ds in ("t", "I_t", "t_d", "t_d_no_FAR"):
+            if res[ds].size > 0:
+                grp.create_dataset(ds, data=res[ds], compression="gzip")
+        if "t_d_no_FAR" not in grp:
+            grp.create_dataset("t_d_no_FAR", data=np.array([]))
 
-            # ── Copiar attrs + señales crudas del HDF5 fuente (solo 1 vez por caso) ──
-            if h5_doe_path and "signals_written" not in case_grp.attrs:
-                try:
-                    with h5py.File(h5_doe_path, "r") as src_f:
-                        if case_name in src_f:
-                            for k, v in src_f[case_name].attrs.items():
-                                case_grp.attrs[k] = v
-                            for sig in ("Axial_disp", "Axial_vel", "Axial_acc"):
-                                if sig in src_f[case_name] and sig not in case_grp:
-                                    sig_grp = case_grp.require_group(sig)
-                                    sig_grp.create_dataset(
-                                        "time",
-                                        data=src_f[case_name][f"{sig}/time"][()],
-                                        compression="gzip",
-                                    )
-                                    sig_grp.create_dataset(
-                                        "values",
-                                        data=src_f[case_name][f"{sig}/values"][()],
-                                        compression="gzip",
-                                    )
-                    case_grp.attrs["signals_written"] = True
-                    # Guardar label_key como attr del caso para uso del plotter
-                    if res.get("label_key"):
-                        case_grp.attrs["label_key"] = res["label_key"]
-                    if not np.isnan(res.get("label_val", float("nan"))):
-                        case_grp.attrs["label_val"] = res["label_val"]
-                except Exception as _e:
-                    log.warning("No se pudieron copiar señales del caso '%s': %s", case_name, _e)
+        if res.get("label_key"):
+            grp.attrs["label_key"] = res["label_key"]
+        if not np.isnan(res["label_val"]):
+            grp.attrs["label_val"] = res["label_val"]
+        for k, v in res["attrs"].items():
+            grp.attrs[k] = _safe_attr(v)
 
-            grp = case_grp.require_group(run_name)
+        for k, v in res["meta"].items():
+            if isinstance(v, (list, np.ndarray)):
+                if save_meta_arrays:
+                    arr = np.asarray(v)
+                    if arr.ndim == 1 and arr.dtype.kind in ("f", "i", "u"):
+                        grp.create_dataset(f"meta_{k}", data=arr, compression="gzip")
+                continue
+            grp.attrs[f"meta_{k}"] = _safe_attr(v)
 
-            # Datasets principales
-            if res["t"].size > 0:
-                grp.create_dataset("t",   data=res["t"],   compression="gzip")
-            if res["I_t"].size > 0:
-                grp.create_dataset("I_t", data=res["I_t"], compression="gzip")
-            if res["t_d"].size > 0:
-                grp.create_dataset("t_d", data=res["t_d"], compression="gzip")
-            t_d_no_FAR = res.get("t_d_no_FAR", np.array([]))
-            if t_d_no_FAR.size > 0:
-                grp.create_dataset("t_d_no_FAR", data=t_d_no_FAR, compression="gzip")
-            else:
-                grp.create_dataset("t_d_no_FAR", data=np.array([]))
-
-            # Atributos: label_key / label_val
-            if res.get("label_key"):
-                grp.attrs["label_key"] = res["label_key"]
-            label_val = res.get("label_val", float("nan"))
-            if not np.isnan(label_val):
-                grp.attrs["label_val"] = label_val
-
-            # Atributos: config usada
-            ind_cfg = res.get("ind_cfg", {})
-            for field in ("indicator", "mode", "signal"):
-                if field in ind_cfg:
-                    grp.attrs[field] = str(ind_cfg[field])
-            for k, v in ind_cfg.get("params_physical", {}).items():
-                grp.attrs[f"pp_{k}"] = _safe_attr(v)
-
-            # Meta del resultado
-            for k, v in res.get("meta", {}).items():
-                if isinstance(v, (list, np.ndarray)):
-                    if SAVE_META_ARRAYS:
-                        try:
-                            arr = np.asarray(v)
-                            if arr.dtype.kind in ("f", "i", "u") and arr.ndim == 1:
-                                grp.create_dataset(f"meta_{k}", data=arr, compression="gzip")
-                                continue
-                        except Exception:
-                            pass
-                    continue
-                grp.attrs[f"meta_{k}"] = _safe_attr(v)
-
-    log.info("Resultados guardados en: %s", out_path)
 
 # ==============================================================================
 # EJECUCIÓN PARALELA / SECUENCIAL
 # ==============================================================================
 
 def run_all(
-    h5_doe_path: str,
-    ind_configs: List[Dict[str, Any]],
+    h5_path: str,
+    groups: List[str],
+    runs: List[Dict[str, Any]],
+    settings: Dict[str, Any],
     nb_workers: int,
-    enabled_cases: Any,
     dry_run: bool,
-    label_key: str,
-    out_path: Optional[str] = None,
-) -> List[Dict[str, Any]]:
-    """Corre todos los indicadores sobre todos los casos habilitados.
+    out_path: Optional[str],
+    save_meta_arrays: bool,
+) -> int:
+    """Corre cada config de *runs* sobre cada caso de *groups*.
 
-    Escribe resultados incrementalmente al HDF5 si se pasa *out_path*.
+    Cada resultado se escribe al HDF5 en cuanto llega (no se acumulan en
+    memoria). Retorna el número de tareas terminadas.
     """
-    with h5py.File(h5_doe_path, "r") as f:
-        all_groups = sorted(k for k in f.keys() if k.startswith("case_"))
-
-    if enabled_cases == "all":
-        groups = all_groups
-    else:
-        groups  = [g for g in enabled_cases if g in all_groups]
-        missing = [g for g in enabled_cases if g not in all_groups]
-        if missing:
-            log.warning("Grupos no encontrados en HDF5: %s", missing)
-
-    active_cfgs = [
-        c for c in ind_configs
-        if c.get("enabled", True) and _AVAILABLE.get(c["indicator"], False)
-    ]
-
-    tasks = [(grp, cfg) for grp in groups for cfg in active_cfgs]
+    tasks = [(grp, run) for grp in groups for run in runs]
     total = len(tasks)
-    log.info("Total tareas: %d casos × %d configs = %d", len(groups), len(active_cfgs), total)
+    log.info("Total tareas: %d casos × %d configs = %d", len(groups), len(runs), total)
+    n_done = 0
 
-    results: List[Dict[str, Any]] = []
-
-    def _handle_result(res: Dict[str, Any]) -> None:
-        results.append(res)
-        if out_path and not dry_run:
-            write_results(out_path, [res], h5_doe_path=h5_doe_path)
+    def _handle(res: Dict[str, Any]) -> None:
+        nonlocal n_done
+        n_done += 1
+        log.info("[%d/%d] completado: %s / %s", n_done, total, res["case"], res["run_name"])
+        if out_path:
+            write_results(out_path, res, h5_path, save_meta_arrays)
 
     if nb_workers == 1 or dry_run:
-        for i, (grp, cfg) in enumerate(tasks, 1):
-            log.info("[%d/%d] %s / %s", i, total, grp, _run_name(cfg))
-            res = _run_one(h5_doe_path, grp, cfg, label_key=label_key, dry_run=dry_run)
-            _handle_result(res)
+        for grp, run in tasks:
+            _handle(_run_one(h5_path, grp, run, settings, dry_run))
     else:
         with ProcessPoolExecutor(max_workers=nb_workers) as executor:
             future_map = {
-                executor.submit(_run_one, h5_doe_path, grp, cfg, label_key, dry_run): (grp, cfg)
-                for grp, cfg in tasks
+                executor.submit(_run_one, h5_path, grp, run, settings): (grp, run)
+                for grp, run in tasks
             }
-            done = 0
             for future in as_completed(future_map):
-                grp, cfg = future_map[future]
+                grp, run = future_map[future]
                 try:
-                    res = future.result()
-                    _handle_result(res)
+                    _handle(future.result())
                 except Exception as exc:
-                    log.error("Tarea %s / %s falló: %s", grp, _run_name(cfg), exc)
-                done += 1
-                log.info("[%d/%d] completado: %s / %s", done, total, grp, _run_name(cfg))
+                    log.error("Tarea %s / %s falló: %s", grp, _run_name(run), exc)
+    return n_done
 
-    return results
 
 # ==============================================================================
 # --list
 # ==============================================================================
 
-def list_cases(h5_path: str, label_key: Optional[str] = None) -> None:
-    """Muestra tabla de grupos disponibles en doe_results.h5."""
+def list_cases(h5_path: str, groups: List[str], label_key: Optional[str]) -> None:
+    """Tabla: grupo | valor de label_key | señales."""
     with h5py.File(h5_path, "r") as f:
-        groups = sorted(k for k in f.keys() if k.startswith("case_"))
-        if not groups:
-            print("  (sin grupos case_*)")
-            return
-
-        # Auto-detectar label_key si no se pasa
-        if label_key is None:
-            try:
-                label_key = _detect_label_key(h5_path)
-            except ValueError:
-                label_key = None
-
-        rows = []
-        for grp_name in groups:
-            attrs = dict(f[grp_name].attrs)
-            signals = [k for k in f[grp_name].keys() if isinstance(f[grp_name][k], h5py.Group)]
-            rows.append((grp_name, attrs, signals))
-
-    # Columnas: group | label_key=val | señales
-    col_group  = max(len("group"), max(len(r[0]) for r in rows))
-    col_label  = 16
-    col_sig    = 30
-
-    lk_header = label_key if label_key else "label_key"
-
-    print()
-    header = f"{'group':<{col_group}}  {lk_header:>{col_label}}  {'signals':<{col_sig}}"
-    print(header)
-    print("-" * len(header))
-    for grp_name, attrs, signals in rows:
-        if label_key:
-            raw = attrs.get(label_key)
-            try:
-                lv = f"{float(raw):>{col_label}g}" if raw is not None else f"{'N/A':>{col_label}}"
-            except (TypeError, ValueError):
-                lv = f"{str(raw):>{col_label}}"
-        else:
-            lv = f"{'(auto??)':>{col_label}}"
-        sig_str = ", ".join(signals[:4]) + ("..." if len(signals) > 4 else "")
-        print(f"{grp_name:<{col_group}}  {lv}  {sig_str:<{col_sig}}")
-
-    print()
-    print(f"  Total: {len(rows)} casos  |  label_key: {label_key}")
-    print()
-
-# ==============================================================================
-# CLI
-# ==============================================================================
-
-def parse_args():
-    epilog = """\
-Ejemplos:
-  python doe_indicators.py --doe_results .\\DOE_xxx\\doe_results.h5 --list
-      Muestra los grupos disponibles y sale.
-
-  python doe_indicators.py --doe_results .\\DOE_xxx\\doe_results.h5 --dry_run
-      Simula la ejecución (no corre indicadores, solo imprime plan).
-
-  python doe_indicators.py --doe_results .\\DOE_xxx\\doe_results.h5 --workers 4
-      Corre 4 workers en paralelo con LABEL_KEY auto-detectado.
-
-  python doe_indicators.py --doe_results ... --label_key "$nb_dt_rev$"
-      Sobreescribe la auto-detección de LABEL_KEY.
-
-  python doe_indicators.py --doe_results ... --out resultados.h5
-      Guarda en un archivo personalizado.
-
-Configuración (editar en el script):
-  DOE_NAME, LABEL_KEY, NB_WORKERS, ENABLED_CASES, INDICATOR_CONFIGS
-"""
-    p = argparse.ArgumentParser(
-        description="doe_indicators — Aplica indicadores de chatter a casos del DOE.",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=epilog,
-    )
-    p.add_argument(
-        "--doe_results", default=None, metavar="PATH",
-        help="Ruta a doe_results.h5 (si se omite: usa DOE_NAME del CONFIG)",
-    )
-    p.add_argument(
-        "--out", default=None, metavar="PATH",
-        help="Ruta del HDF5 de salida (default: doe_indicator_results.h5 junto a --doe_results)",
-    )
-    p.add_argument(
-        "--label_key", default=None, metavar="KEY",
-        help="Clave DOE para etiquetar cada caso (default: auto-detectar). Ej: \"$dxl_size$\"",
-    )
-    p.add_argument(
-        "--workers", type=int, default=None, metavar="N",
-        help=f"Número de workers paralelos (default: NB_WORKERS={NB_WORKERS})",
-    )
-    p.add_argument(
-        "--dry_run", action="store_true",
-        help="Simula sin correr indicadores — imprime plan de tareas.",
-    )
-    p.add_argument(
-        "--list", action="store_true",
-        help="Imprime la tabla de casos disponibles y sale.",
-    )
-    return p.parse_args()
-
-# ==============================================================================
-# MAIN
-# ==============================================================================
-
-def main():
-    global LABEL_KEY, NB_WORKERS  # noqa: PLW0603
-
-    args = parse_args()
-
-    # -- Detectar si se lanzó desde terminal o desde VS Code --
-    has_cli = any([
-        args.doe_results, args.out, args.label_key,
-        args.workers, args.dry_run, args.list,
-    ])
-
-    # -- Resolver ruta al HDF5 de entrada --
-    if args.doe_results:
-        h5_doe = os.path.normpath(args.doe_results)
-    else:
-        doe_dir = os.path.normpath(os.path.join(BASE_DIR, DOE_NAME))
-        h5_doe  = os.path.join(doe_dir, "doe_results.h5")
-
-    if not os.path.isfile(h5_doe):
-        log.error("Archivo no encontrado: %s", h5_doe)
-        if not has_cli:
-            log.error("  Edita DOE_NAME en el bloque CONFIG del script.")
-        sys.exit(1)
-
-    # -- --list --
-    if args.list:
-        lk = args.label_key or LABEL_KEY
-        list_cases(h5_doe, label_key=lk)
-        sys.exit(0)
-
-    # -- Resolver LABEL_KEY --
-    if args.label_key:
-        LABEL_KEY = args.label_key
-    if LABEL_KEY is None:
+        rows = [
+            (g, f[g].attrs.get(label_key) if label_key else None,
+             [k for k in f[g].keys() if isinstance(f[g][k], h5py.Group)])
+            for g in groups
+        ]
+    w = max([len("group")] + [len(r[0]) for r in rows])
+    print(f"\n{'group':<{w}}  {str(label_key):>16}  signals")
+    print("-" * (w + 50))
+    for g, lv, sigs in rows:
         try:
-            LABEL_KEY = _detect_label_key(h5_doe)
-        except ValueError as exc:
-            log.error("No se pudo auto-detectar LABEL_KEY:\n  %s", exc)
-            sys.exit(1)
-
-    # -- Otros overrides de CLI --
-    if args.workers is not None:
-        NB_WORKERS = args.workers
-    workers = NB_WORKERS
-
-    # -- Ruta de salida --
-    out_path = (
-        os.path.normpath(args.out)
-        if args.out
-        else os.path.join(os.path.dirname(h5_doe), "doe_indicator_results.h5")
-    )
-
-    log.info("doe_indicators")
-    log.info("  Entrada    : %s", h5_doe)
-    log.info("  Salida     : %s", out_path)
-    log.info("  LABEL_KEY  : %s", LABEL_KEY)
-    log.info("  Workers    : %d", workers)
-    log.info("  Dry-run    : %s", args.dry_run)
-    log.info("  Casos      : %s", ENABLED_CASES)
-    log.info("  Indicadores disponibles: %s", [k for k, v in _AVAILABLE.items() if v])
-
-    active = [c for c in INDICATOR_CONFIGS if c.get("enabled", True)]
-    log.info("  Configs activas: %d", len(active))
-    for c in active:
-        log.info(
-            "    %-20s  mode=%-14s  signal=%s  name=%s",
-            c["indicator"], c.get("mode", "f_cycle"), c["signal"], _run_name(c),
-        )
-
-    results = run_all(
-        h5_doe_path   = h5_doe,
-        ind_configs   = active,
-        nb_workers    = workers,
-        enabled_cases = ENABLED_CASES,
-        dry_run       = args.dry_run,
-        label_key     = LABEL_KEY,
-        out_path      = out_path if not args.dry_run else None,
-    )
-
-    if not args.dry_run:
-        log.info("Listo. %d resultados escritos incrementalmente en %s", len(results), out_path)
-    else:
-        log.info("[DRY-RUN] %d tareas planificadas — nada escrito.", len(results))
+            lv_str = f"{float(lv):g}"
+        except (TypeError, ValueError):
+            lv_str = "N/A" if lv is None else str(lv)
+        print(f"{g:<{w}}  {lv_str:>16}  {', '.join(sigs[:4])}{'...' if len(sigs) > 4 else ''}")
+    print(f"\n  Total: {len(rows)} casos  |  label_key: {label_key}\n")
 
 
 if __name__ == "__main__":

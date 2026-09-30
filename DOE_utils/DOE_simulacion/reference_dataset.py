@@ -4,17 +4,20 @@
 
 Hoy los indicadores (MaxEnt, RMS-CV, SST, Green-Area) calculan su umbral de
 detección cortando un tramo de la MISMA señal que analizan. Este módulo arma
-un dataset de referencia EXTERNO — señales ya etiquetadas (stable/unstable)
-por intervalos de tiempo — que en una fase futura los indicadores podrán
-consumir en lugar de recortar su propia señal.
+un dataset de referencia EXTERNO — señales ya etiquetadas (stable/unstable,
+y gray = zona gris de la estrategia "amplitude") por intervalos de tiempo —
+que en una fase futura los indicadores podrán consumir en lugar de recortar
+su propia señal.
 
 Es agnóstico del origen de los datos: `ReferenceDataset`/`ReferenceSignal` no
 saben nada de DOE. `from_doe_h5` es el único adaptador que sabe leer
 doe_results.h5 / doe_noise_results.h5 (layout de doe_runner.py).
 
 Secuencia de uso:
-    1. make_label_template(doe_results.h5, reference_labels.yaml)
-    2. (a mano) completar intervalos en reference_labels.yaml
+    1. make_label_template(doe_results.h5, reference_labels.yaml, strategy=...)
+       "manual" (vacío), "kappa" (umbral teórico kappa) o "amplitude"
+       (práctico/operacional: max|señal| vs % de una variable base del caso)
+    2. (a mano) completar/corregir intervalos en reference_labels.yaml
     3. from_doe_h5(doe_results.h5, reference_labels.yaml, channels) -> ReferenceDataset
     4. dataset.to_hdf5("reference_dataset.h5")                      -> portable
     5. (en cualquier lado) ReferenceDataset.from_hdf5(...)
@@ -22,13 +25,13 @@ Secuencia de uso:
        continua por label+canal) -> save_combined("reference_combined.h5")
     7. (en cualquier lado) load_combined(...)
 
-Fuera de alcance por ahora: etiquetado automático, features/GMM/GP por pedazo
-(Fase 2, opción B), y cualquier cambio en doe_indicators.py /
-doe_noise_indicators.py o en los indicadores.
+Fuera de alcance por ahora: etiquetado por ventanas de tiempo, features/GMM/GP por pedazo
+(Fase 2, opción B), y cualquier cambio en doe_indicators.py o en los indicadores.
 """
 
 from __future__ import annotations
 
+import inspect
 import logging
 import os
 from dataclasses import dataclass, field
@@ -40,7 +43,7 @@ import yaml
 
 log = logging.getLogger(__name__)
 
-VALID_LABELS = {"stable", "unstable"}
+VALID_LABELS = {"stable", "unstable", "gray"}  # gray: zona gris de la estrategia "amplitude"
 
 # ==============================================================================
 # CONFIG — editar acá los defaults del CLI; los flags de línea de comandos
@@ -53,12 +56,18 @@ DEFAULT_H5_PATH = (
     r"\doe_results.h5"
 )
 
-DEFAULT_LABELS_PATH     = None   # None -> "<carpeta de h5_path>/reference_labels.yaml"
+DEFAULT_LABELS_PATH     = "label_amp.yaml"   # None -> "<carpeta de h5_path>/reference_labels.yaml"
 DEFAULT_OUT_H5          = None   # None -> "<carpeta de h5_path>/reference_dataset.h5"
 DEFAULT_CHANNELS        = None   # None -> autodetecta todos los canales de cada caso
-DEFAULT_STRATEGY        = "kappa" #manual, kappa
+DEFAULT_STRATEGY        = "amplitude" #manual, kappa, amplitude
 DEFAULT_KAPPA_THRESHOLD = 1.0
 DEFAULT_WARMUP          = 0.0
+# --strategy amplitude: max|y| de DEFAULT_AMP_SIGNAL vs % de la base (attr del caso x escala)
+DEFAULT_BASE_ATTR       = "$f_tooth$"   # avance por diente, en mm en var_val.py
+DEFAULT_BASE_SCALE      = 1e-3          # lleva la base a las unidades de la señal (mm -> m)
+DEFAULT_AMP_SIGNAL      = "Axial_disp"  # "Axial_disp_out_deflex" si la deflexión estática pesa
+DEFAULT_LIM_INF_PCT     = 10.0          # amp < 10% base -> stable
+DEFAULT_LIM_SUP_PCT     = 40.0          # amp > 40% base -> unstable; entre medio -> gray
 DEFAULT_IN_H5           = None   # None -> "<carpeta de h5_path>/reference_dataset.h5" (entrada de "combine")
 DEFAULT_OUT_COMBINED    = None   # None -> "<carpeta de h5_path>/reference_combined.h5" (salida de "combine")
 DEFAULT_T_START         = 0.05   # None -> sin corte al inicio. Recorte fijo de señal (ej. quitar entrada de herramienta)
@@ -95,14 +104,14 @@ class ReferenceDataset:
         return out
 
     def to_hdf5(self, path: str) -> None:
-        """Guarda cada TRAMO etiquetado ya recortado, agrupado por label (stable/unstable).
+        """Guarda cada TRAMO etiquetado ya recortado, agrupado por label (stable/unstable/gray).
 
         Pierde a propósito los tramos sin etiquetar de cada señal (esa cruda
         sigue en el doe_results.h5 de origen) — este .h5 es el material de
         entrenamiento ya recortado, no un espejo lossless de la señal completa.
         """
         with h5py.File(path, "w") as f:
-            top = {"stable": f.create_group("stable"), "unstable": f.create_group("unstable")}
+            top = {label: f.create_group(label) for label in sorted(VALID_LABELS)}
             counters: Dict[Tuple[str, str], int] = {}  # (signal_id, label) -> próximo índice
             for sig in self.signals:
                 case_name, _, rest = sig.id.partition("/")
@@ -132,7 +141,7 @@ class ReferenceDataset:
         """Reconstruye un ReferenceSignal por tramo guardado (cada uno con su único intervalo)."""
         signals = []
         with h5py.File(path, "r") as f:
-            for label in ("stable", "unstable"):
+            for label in sorted(VALID_LABELS):
                 if label not in f:
                     continue
                 for case_name in f[label].keys():
@@ -157,13 +166,13 @@ class ReferenceDataset:
 # PIEZA 1 — Etiquetado
 # ==============================================================================
 
-def _label_manual(grp_name: str, attrs: dict, t_range: Tuple[float, float]) -> List[Tuple[float, float, str]]:
+def _label_manual(grp_name: str, attrs: dict, t_range: Tuple[float, float], grp) -> List[Tuple[float, float, str]]:
     """Estrategia por defecto: no etiqueta nada, el usuario completa a mano."""
     return []
 
 
 def _label_by_kappa(
-    grp_name: str, attrs: dict, t_range: Tuple[float, float],
+    grp_name: str, attrs: dict, t_range: Tuple[float, float], grp,
     threshold: float = 1.0, warmup: float = 0.0,
 ) -> List[Tuple[float, float, str]]:
     """Etiqueta la señal entera (menos `warmup` al inicio) por umbral de kappa."""
@@ -174,11 +183,58 @@ def _label_by_kappa(
     return [(t_range[0] + warmup, t_range[1], label)]
 
 
-# Punto de extensión: sumar acá una estrategia nueva (ej. "por aplicación", a
-# definir más adelante) sin tocar make_label_template.
+def _label_by_amplitude(
+    grp_name: str, attrs: dict, t_range: Tuple[float, float], grp,
+    base_attr: str = DEFAULT_BASE_ATTR, base_scale: float = DEFAULT_BASE_SCALE,
+    signal: str = DEFAULT_AMP_SIGNAL, lim_inf_pct: float = DEFAULT_LIM_INF_PCT,
+    lim_sup_pct: float = DEFAULT_LIM_SUP_PCT, warmup: float = 0.0,
+) -> List[Tuple[float, float, str]]:
+    """Criterio práctico/operacional: etiqueta la señal entera (menos `warmup`)
+    por su amplitud cruda max|y| frente a un % de una variable base del caso
+    (ej. avance por diente): amp > lim_sup% -> unstable, amp < lim_inf% ->
+    stable, entre medio -> gray.
+
+    base = attrs[base_attr] * base_scale -- `base_scale` lleva la base a las
+    unidades de `signal` ($f_tooth$ en mm, Axial_disp en m -> 1e-3). Solo
+    tiene sentido si base y señal son la misma magnitud (avance <-> desplazamiento).
+    max|y| incluye el offset de deflexión estática; si pesa frente a lim_inf,
+    usar signal="Axial_disp_out_deflex".
+    """
+    if not 0 <= lim_inf_pct < lim_sup_pct:
+        raise ValueError(f"se espera 0 <= lim_inf_pct < lim_sup_pct, dio {lim_inf_pct} / {lim_sup_pct}")
+    base = float(attrs.get(base_attr, 0.0)) * base_scale
+    if base <= 0:
+        log.warning("Grupo '%s' sin attr '%s' válido — se deja sin etiquetar", grp_name, base_attr)
+        return []
+    ch_grp = _resolve_channel_group(grp, signal)
+    if ch_grp is None:
+        log.warning("Grupo '%s' sin señal '%s' — se deja sin etiquetar", grp_name, signal)
+        return []
+
+    t0, t1 = t_range[0] + warmup, t_range[1]
+    t = ch_grp["time"][()]
+    mask = (t >= t0) & (t <= t1)
+    if not mask.any():
+        log.warning("Grupo '%s': '%s' sin muestras en [%s, %s] — se deja sin etiquetar", grp_name, signal, t0, t1)
+        return []
+    amp = float(np.abs(ch_grp["values"][()][mask]).max())
+
+    if amp > lim_sup_pct / 100.0 * base:
+        label = "unstable"
+    elif amp < lim_inf_pct / 100.0 * base:
+        label = "stable"
+    else:
+        label = "gray"
+    log.info("%s: max|%s| = %.3e = %.1f%% de base %.3e -> %s", grp_name, signal, amp, 100.0 * amp / base, base, label)
+    return [(t0, t1, label)]
+
+
+# Punto de extensión: sumar acá una estrategia nueva sin tocar make_label_template.
+# Firma: (grp_name, attrs, t_range, grp, **kwargs) -> [(t0, t1, label), ...]
 LABEL_STRATEGIES = {
-    "manual": _label_manual,
-    "kappa":  _label_by_kappa,
+    "manual":    _label_manual,
+    "kappa":     _label_by_kappa,
+    "amplitude": _label_by_amplitude,
 }
 
 
@@ -270,7 +326,20 @@ def make_label_template(
         )
     label_fn = LABEL_STRATEGIES[strategy]
 
-    lines = [f"source: {os.path.basename(h5_path)}", "cases:"]
+    # Parámetros efectivos de la estrategia (defaults de la función + los pasados) ->
+    # bloque "labeling" del YAML; build lo copia a cada tramo (el visor dibuja con
+    # eso los límites de "amplitude").
+    labeling = {"strategy": strategy}
+    labeling.update({
+        k: p.default for k, p in inspect.signature(label_fn).parameters.items()
+        if p.default is not inspect.Parameter.empty
+    })
+    labeling.update(strategy_kwargs)
+    labeling_line = yaml.safe_dump(
+        {"labeling": labeling}, default_flow_style=None, sort_keys=False, width=10**6,
+    ).strip()
+
+    lines = [f"source: {os.path.basename(h5_path)}", labeling_line, "cases:"]
     with h5py.File(h5_path, "r") as f:
         for grp_name in sorted(f.keys()):
             grp = f[grp_name]
@@ -283,7 +352,7 @@ def make_label_template(
                 first_ch_grp = _resolve_channel_group(grp, case_channels[0])
                 t_range = _masked_range(first_ch_grp["time"], t_start, t_end)
 
-            intervals = label_fn(grp_name, attrs, t_range, **strategy_kwargs) if t_range is not None else []
+            intervals = label_fn(grp_name, attrs, t_range, grp, **strategy_kwargs) if t_range is not None else []
 
             comment_bits = []
             if kappa_bits:
@@ -350,10 +419,16 @@ def from_doe_h5(
     que quede tras el recorte, si no, ValueError (mismo chequeo que si
     cayeran fuera del rango real de la señal).
 
+    El bloque "labeling" del YAML (cómo se etiquetó, lo escribe make_label_template)
+    se copia a los attrs de cada señal como `labeling_<clave>`; YAML sin ese
+    bloque (viejos o hechos a mano) -> no se agrega nada.
+
     NO importa doe_indicators.py (acoplaría el dataset a los 4 indicadores) —
     la lectura de señal/attrs se replica acá, igual layout que `_load_case`.
     """
     cases = _parse_labels_file(labels_path)
+    with open(labels_path, "r", encoding="utf-8") as f:
+        labeling = (yaml.safe_load(f) or {}).get("labeling") or {}
     signals: List[ReferenceSignal] = []
 
     with h5py.File(h5_path, "r") as f:
@@ -398,6 +473,7 @@ def from_doe_h5(
                 attrs["source_file"] = os.path.basename(h5_path)
                 attrs["group"] = grp_name
                 attrs["channel"] = ch
+                attrs.update({f"labeling_{k}": v for k, v in labeling.items()})
 
                 signals.append(ReferenceSignal(
                     id=f"{grp_name}/{ch}",
@@ -566,6 +642,59 @@ def _self_test() -> None:
         assert kappa_cases["case_high"] == [(0.5, 10.0, "unstable")], kappa_cases["case_high"]
         assert kappa_cases["case_no_kappa"] == [], kappa_cases["case_no_kappa"]
 
+        # 2c. estrategia "amplitude": max|y| vs % de $f_tooth$ (0.05 mm -> 5e-5 m):
+        # 10% = 5e-6 m, 40% = 2e-5 m -> stable / gray / unstable / sin base (-> [])
+        amp_h5 = os.path.join(tmp, "amp_doe.h5")
+        amp_yaml = os.path.join(tmp, "amp_labels.yaml")
+        with h5py.File(amp_h5, "w") as f:
+            for name, amp in (("case_stable", 1e-6), ("case_gray", 1e-5), ("case_unstable", 3e-5), ("case_no_base", 3e-5)):
+                grp = f.create_group(name)
+                if name != "case_no_base":
+                    grp.attrs["$f_tooth$"] = 0.05
+                y = amp * np.sin(2 * np.pi * 5 * t)
+                if name == "case_stable":
+                    y[t < 0.3] = 1.0  # pico antes del warmup -> no cuenta
+                sub = grp.create_group("Axial_disp")
+                sub.create_dataset("time", data=t)
+                sub.create_dataset("values", data=y)
+
+        make_label_template(amp_h5, amp_yaml, strategy="amplitude", warmup=0.5)
+        amp_cases = _parse_labels_file(amp_yaml)
+        assert amp_cases["case_stable"] == [(0.5, 10.0, "stable")], amp_cases["case_stable"]
+        assert amp_cases["case_gray"] == [(0.5, 10.0, "gray")], amp_cases["case_gray"]
+        assert amp_cases["case_unstable"] == [(0.5, 10.0, "unstable")], amp_cases["case_unstable"]
+        assert amp_cases["case_no_base"] == [], amp_cases["case_no_base"]
+
+        try:
+            make_label_template(amp_h5, os.path.join(tmp, "amp_bad.yaml"), strategy="amplitude",
+                                lim_inf_pct=40.0, lim_sup_pct=10.0)
+            raise AssertionError("debía fallar: lim_inf_pct >= lim_sup_pct")
+        except ValueError:
+            pass
+
+        # "gray" pasa build -> to_hdf5 -> from_hdf5 -> combine como un label más
+        amp_out = os.path.join(tmp, "amp_dataset.h5")
+        from_doe_h5(amp_h5, amp_yaml).to_hdf5(amp_out)
+        ds_amp = ReferenceDataset.from_hdf5(amp_out)
+        assert [sid.split("#")[0] for sid, _, _ in ds_amp.segments("gray")] == ["case_gray/Axial_disp"]
+
+        # bloque "labeling": el YAML guarda los parámetros efectivos (defaults + pasados)
+        # y build los copia a cada tramo -> el visor puede dibujar ±lim_inf/±lim_sup
+        with open(amp_yaml, encoding="utf-8") as f:
+            amp_labeling = yaml.safe_load(f)["labeling"]
+        assert amp_labeling == {
+            "strategy": "amplitude", "base_attr": "$f_tooth$", "base_scale": 1e-3, "signal": "Axial_disp",
+            "lim_inf_pct": 10.0, "lim_sup_pct": 40.0, "warmup": 0.5,
+        }, amp_labeling
+        gray_piece = next(s for s in ds_amp.signals if s.intervals[0][2] == "gray")
+        assert gray_piece.attrs["labeling_strategy"] == "amplitude"
+        assert gray_piece.attrs["labeling_signal"] == "Axial_disp"
+        assert gray_piece.attrs["labeling_lim_sup_pct"] == 40.0
+        assert gray_piece.attrs[gray_piece.attrs["labeling_base_attr"]] == 0.05
+        assert {s.id for s in combine_by_label(ds_amp).signals} == {
+            "stable/Axial_disp", "gray/Axial_disp", "unstable/Axial_disp",
+        }
+
         # 3. completar el YAML programáticamente
         labels = {
             "source": "doe_results.h5",
@@ -589,6 +718,7 @@ def _self_test() -> None:
         assert sig1.attrs["group"] == "case_001"
         assert sig1.attrs["channel"] == "Axial_vel"
         assert abs(sig1.attrs["kappa"] - 1.4) < 1e-9
+        assert not any(k.startswith("labeling_") for k in sig1.attrs)  # YAML a mano, sin bloque "labeling"
 
         # 5. segments("stable") -> 2 tramos; segments("unstable") -> 1 tramo, rango correcto
         stable = ds.segments("stable")
@@ -816,17 +946,25 @@ def _main() -> None:
     parser = argparse.ArgumentParser(
         prog="reference_dataset.py",
         description=(
-            "Dataset externo de señales de referencia (stable/unstable) para los "
+            "Dataset externo de señales de referencia (stable/unstable/gray) para los "
             "indicadores de chatter. Todo argumento posicional es opcional: si no "
             "se pasa, cae a la constante DEFAULT_* de la sección CONFIG arriba del "
             "script (editable ahí); si se pasa por línea de comandos, éste gana."
         ),
         epilog=(
             "Flujo típico:\n"
-            "  reference_dataset.py template   doe_results.h5 reference_labels.yaml\n"
-            "  (completar reference_labels.yaml a mano)\n"
+            "  reference_dataset.py template   doe_results.h5 reference_labels.yaml [--strategy ...]\n"
+            "  (completar/corregir reference_labels.yaml a mano)\n"
             "  reference_dataset.py build      doe_results.h5 reference_labels.yaml reference_dataset.h5\n"
             "  reference_dataset.py combine    reference_dataset.h5 reference_combined.h5\n"
+            "\n"
+            "Criterio práctico por amplitud (avance 0.05 mm, <10% stable, >40% unstable, entre medio gray):\n"
+            "  reference_dataset.py template   doe_results.h5 labels_amp.yaml --strategy amplitude \\\n"
+            "                                  --base-attr '$f_tooth$' --base-scale 1e-3 --amp-signal Axial_disp \\\n"
+            "                                  --lim-inf-pct 10 --lim-sup-pct 40\n"
+            "  reference_dataset.py build      doe_results.h5 labels_amp.yaml reference_dataset_amp.h5\n"
+            "\n"
+            "Ojo: template nunca pisa un YAML existente, pero build y combine SÍ sobrescriben su .h5 de salida.\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -850,7 +988,8 @@ def _main() -> None:
     p_template.add_argument(
         "--strategy", choices=sorted(LABEL_STRATEGIES), default=DEFAULT_STRATEGY,
         help=f"cómo pre-llenar el YAML por caso (default: {DEFAULT_STRATEGY!r}); "
-             "'manual' deja todo vacío para completar a mano, 'kappa' etiqueta por umbral de kappa",
+             "'manual' deja todo vacío para completar a mano, 'kappa' etiqueta por umbral de kappa, "
+             "'amplitude' por max|señal| vs %% de una variable base del caso (stable/gray/unstable)",
     )
     p_template.add_argument(
         "--kappa-threshold", type=float, default=DEFAULT_KAPPA_THRESHOLD,
@@ -858,7 +997,30 @@ def _main() -> None:
     )
     p_template.add_argument(
         "--warmup", type=float, default=DEFAULT_WARMUP,
-        help=f"segundos a excluir al inicio de la señal en --strategy kappa (default: {DEFAULT_WARMUP})",
+        help=f"segundos a excluir al inicio de la señal en --strategy kappa/amplitude (default: {DEFAULT_WARMUP})",
+    )
+    p_template.add_argument(
+        "--base-attr", default=DEFAULT_BASE_ATTR,
+        help=f"--strategy amplitude: attr del caso usado como base del %% (default: {DEFAULT_BASE_ATTR!r}; "
+             "entre comillas simples en la terminal por el '$')",
+    )
+    p_template.add_argument(
+        "--base-scale", type=float, default=DEFAULT_BASE_SCALE,
+        help=f"--strategy amplitude: factor que lleva la base a las unidades de la señal (default: {DEFAULT_BASE_SCALE}, mm -> m)",
+    )
+    p_template.add_argument(
+        "--amp-signal", default=DEFAULT_AMP_SIGNAL,
+        help=f"--strategy amplitude: canal cuya max|y| se compara, ej. Axial_disp, Axial_vel, Axial_acc, "
+             f"Axial_disp_out_deflex (default: {DEFAULT_AMP_SIGNAL!r})",
+    )
+    p_template.add_argument(
+        "--lim-inf-pct", type=float, default=DEFAULT_LIM_INF_PCT,
+        help=f"--strategy amplitude: max|y| < este %% de la base -> stable (default: {DEFAULT_LIM_INF_PCT})",
+    )
+    p_template.add_argument(
+        "--lim-sup-pct", type=float, default=DEFAULT_LIM_SUP_PCT,
+        help=f"--strategy amplitude: max|y| > este %% de la base -> unstable; entre medio -> gray "
+             f"(default: {DEFAULT_LIM_SUP_PCT})",
     )
     p_template.add_argument(
         "--t-start", type=float, default=DEFAULT_T_START,
@@ -873,7 +1035,8 @@ def _main() -> None:
 
     p_build = sub.add_parser(
         "build",
-        help="Paso 2: lee el YAML ya etiquetado a mano y arma+guarda el ReferenceDataset (tramos recortados)",
+        help="Paso 2: lee el YAML ya etiquetado (a mano o pre-llenado por template --strategy) y "
+             "arma+guarda el ReferenceDataset (tramos recortados, un grupo por label)",
     )
     p_build.add_argument(
         "h5_path", nargs="?", default=DEFAULT_H5_PATH,
@@ -881,13 +1044,13 @@ def _main() -> None:
     )
     p_build.add_argument(
         "labels_yaml", nargs="?", default=DEFAULT_LABELS_PATH,
-        help="YAML de etiquetas ya completado a mano (default: DEFAULT_LABELS_PATH, o si es "
+        help="YAML de etiquetas ya completado (default: DEFAULT_LABELS_PATH, o si es "
              "None, '<carpeta de h5_path>/reference_labels.yaml')",
     )
     p_build.add_argument(
         "out_h5", nargs="?", default=DEFAULT_OUT_H5,
-        help="reference_dataset.h5 a escribir (default: DEFAULT_OUT_H5, o si es None, "
-             "'<carpeta de h5_path>/reference_dataset.h5')",
+        help="reference_dataset.h5 a escribir -- SOBRESCRIBE si ya existe (default: DEFAULT_OUT_H5, "
+             "o si es None, '<carpeta de h5_path>/reference_dataset.h5')",
     )
     p_build.add_argument(
         "--channels", nargs="+", default=DEFAULT_CHANNELS,
@@ -949,7 +1112,14 @@ def _main() -> None:
 
     if args.cmd == "template":
         out_yaml = args.out_yaml or os.path.join(h5_dir, "reference_labels.yaml")
-        kwargs = {"threshold": args.kappa_threshold, "warmup": args.warmup} if args.strategy == "kappa" else {}
+        kwargs = {}
+        if args.strategy == "kappa":
+            kwargs = {"threshold": args.kappa_threshold, "warmup": args.warmup}
+        elif args.strategy == "amplitude":
+            kwargs = {
+                "base_attr": args.base_attr, "base_scale": args.base_scale, "signal": args.amp_signal,
+                "lim_inf_pct": args.lim_inf_pct, "lim_sup_pct": args.lim_sup_pct, "warmup": args.warmup,
+            }
         make_label_template(
             args.h5_path, out_yaml, strategy=args.strategy,
             t_start=args.t_start, t_end=args.t_end, **kwargs,

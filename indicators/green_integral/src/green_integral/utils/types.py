@@ -334,7 +334,7 @@ class IndicatorResult:
     """Standard result compatible with other CAMP10 indicators.
 
     Mirrors the ``IndicatorResult`` of MaxEnt-SPRT so downstream analysis
-    (``doe_noise_indicators.py``, plotters) can handle all indicators uniformly.
+    (``doe_indicators.py``, plotters) can handle all indicators uniformly.
     """
     name: str
     """Human-readable identifier of the indicator/variant that produced this result."""

@@ -56,8 +56,12 @@ def _resolve_config(
 ) -> GreenIntegralConfig:
     """Merge *params* on top of defaults and return a :class:`GreenIntegralConfig`."""
     merged = {**_DEFAULT_PARAMS, **params}
+    # Keep only GreenIntegralConfig fields (same filter as runner_lyapunov):
+    # run_green_std's pass-through also carries Lyapunov-only keys and
+    # t_theorical, which the Default dataclass does not define.
     return GreenIntegralConfig(f_modal=f_modal, **{
-        k: merged[k] for k in merged if k != "f_modal"
+        k: merged[k] for k in merged
+        if k != "f_modal" and k in GreenIntegralConfig.__dataclass_fields__
     })
 
 
