@@ -21,6 +21,9 @@ LANGUAGE = "EN"   # "EN" | "FR" | "both"
 FIGSCALE = 1.5    # multiplicador de FIGSIZE_SIMPLE (mismo criterio que los plots de indicadores)
 DEFAULT_XLIM = (7000.0, 15000.0)   # rpm, si ningún caso trae spin_rate
 COLORS = ["#0072B2", "#D55E00", "#009E73", "#CC79A7"]   # Okabe-Ito: un color por modo
+# resultado de validación por caso (attr $outcome_<run>$ de doe_validation_results.h5): color, marcador, texto
+OUTCOMES = {"TP": ("#009E73", "o", "TP detected"), "TN": ("#56B4E9", "s", "TN no alarm"),
+            "FN": ("#CC79A7", "X", "FN missed"), "FP": ("#F0E442", "^", "FP false alarm")}
 
 # preset -> modos (f_n [Hz], k [N/m], zeta, theta [deg]) + Kf [N/m^2] + nº de lóbulos k
 MODELS = {
@@ -87,14 +90,16 @@ def ap_lim(preset: str, rpm: float) -> float:
                      f"({lo:.0f}-{hi:.0f} rpm, k < {lb.shape[1]})")
 
 
-def case_points(cases):
-    """[(rpm, ap_ini mm, ap_fin mm)] por caso; omite los que no traen spin_rate/Ap_*."""
+def case_points(cases, outcome_run=None):
+    """[(rpm, ap_ini mm, ap_fin mm)] por caso; omite los que no traen spin_rate/Ap_*.
+    Con outcome_run, cada tupla lleva un 4º elemento: el outcome de ese indicador ("" si el caso no lo trae)."""
     out = []
     for c in cases:
         v = c.get("var_val", {})
         g = lambda k: v.get(k, v.get(f"${k}$"))
         try:
-            out.append((float(g("spin_rate")), 1e3 * float(g("Ap_start")), 1e3 * float(g("Ap_end"))))
+            pt = (float(g("spin_rate")), 1e3 * float(g("Ap_start")), 1e3 * float(g("Ap_end")))
+            out.append(pt + (str(v.get(f"outcome_{outcome_run}", "")),) if outcome_run else pt)
         except (TypeError, ValueError):
             pass
     return out
@@ -165,15 +170,17 @@ def intersections(preset: str):
     return tuple((float(x * x1), float(y * YCAP)) for x, y in out)
 
 
-def plot_sld(cases, preset: str, seg=None, out_dir=None, language: str | None = None):
+def plot_sld(cases, preset: str, seg=None, out_dir=None, language: str | None = None, outcome_run=None):
     """Figura SLD del preset (seg=None: todos los modos; seg=j: solo el modo j) con los casos del DOE.
 
     Cada caso es un punto (rpm, Ap); si Ap_start != Ap_end, un segmento vertical. out_dir se ignora:
     el visor lo pasa a todas las figuras de resumen.
+    outcome_run: nombre de un indicador de doe_validation_results.h5; los puntos se colorean por su resultado
+    (TP/TN/FN/FP, ver OUTCOMES) en vez de todos del mismo color.
     """
     lang = language or LANGUAGE
     lb, f_peaks = lobes(preset)
-    pts = case_points(cases)
+    pts = case_points(cases, outcome_run)
 
     with plt.rc_context(ps.ARTICLE_RCPARAMS):
         fig, ax = plt.subplots(figsize=ps.figsize_from_scale(ps.FIGSIZE_SIMPLE, FIGSCALE),
@@ -183,7 +190,7 @@ def plot_sld(cases, preset: str, seg=None, out_dir=None, language: str | None = 
         if pts:
             r = [p[0] for p in pts]
             pad = max(0.3 * (max(r) - min(r)), 3000.0)
-            x0, x1 = max(min(r) - pad, 0.0), max(r) + pad
+            x0, x1 = max(min(r) - pad, 0.0), max(r) + (2 * pad if outcome_run else pad)   # outcome: margen a la derecha para la leyenda
         else:
             x0, x1 = DEFAULT_XLIM
         for j in _segs(preset, seg):
@@ -208,19 +215,31 @@ def plot_sld(cases, preset: str, seg=None, out_dir=None, language: str | None = 
                             arrowprops=dict(arrowstyle="-", linewidth=0.6))
 
         if pts:
-            for r_, a0, a1 in pts:
+            for r_, a0, a1, *_ in pts:
                 if a0 != a1:
                     ax.plot([r_, r_], [a0, a1], color="crimson", linewidth=1.2)
-            ax.scatter([p[0] for p in pts for _ in (0, 1)], [a for p in pts for a in p[1:]],
-                       color="crimson", s=30, edgecolor="k", linewidths=0.6, zorder=5,
-                       label=ps.lang_text("DOE cases", "Cas du DOE", lang, sep=" / "))
+            if outcome_run:
+                for oc in [*OUTCOMES, ""]:   # "" = caso sin resultado para este indicador
+                    sel = [p for p in pts if p[3] == oc]
+                    if not sel:
+                        continue
+                    col, mk, txt = OUTCOMES.get(oc, ("crimson", "o", "no result"))
+                    ax.scatter([p[0] for p in sel for _ in (0, 1)], [a for p in sel for a in p[1:3]],
+                               color=col, marker=mk, s=45, edgecolor="k", linewidths=0.8, zorder=5,
+                               label=f"{txt}  [{len(sel)}]")
+            else:
+                ax.scatter([p[0] for p in pts for _ in (0, 1)], [a for p in pts for a in p[1:3]],
+                           color="crimson", s=30, edgecolor="k", linewidths=0.6, zorder=5,
+                           label=ps.lang_text("DOE cases", "Cas du DOE", lang, sep=" / "))
 
         ax.set_xlim(x0, x1)
         ax.set_ylim(0, ymax)
         ax.set_xlabel(ps.lang_text(r"Spindle speed $\Omega$ [rpm]", r"Vitesse de broche $\Omega$ [tr/min]", lang))
         ax.set_ylabel(ps.lang_text(r"Depth of cut $a_p$ [mm]", r"Profondeur de passe $a_p$ [mm]", lang))
-        ax.set_title(f"SLD — {preset}")
-        ax.legend(loc="lower left")   # los lóbulos quedan sobre a_p,min: abajo no hay curvas
+        ax.set_title(f"SLD — {preset}" + (f" — {outcome_run}" if outcome_run else ""))
+        # los lóbulos quedan sobre a_p,min: abajo no hay curvas (con outcome, a la derecha: los puntos de un DOE
+        # a una sola velocidad caen en el centro)
+        ax.legend(loc="lower right" if outcome_run else "lower left")
     return fig
 
 
@@ -253,6 +272,11 @@ if __name__ == "__main__":
              {"var_val": {"$spin_rate$": 12100.0, "$Ap_start$": 9e-3, "$Ap_end$": 9e-3}},  # fijo, con $
              {"var_val": {}}]                                                          # sin datos: se omite
     assert len(case_points(cases)) == 2
+    oc = [{"var_val": {"spin_rate": 12100.0, "Ap_start": 9e-3, "Ap_end": 9e-3, "outcome_run1": "TP"}},
+          {"var_val": {"spin_rate": 12100.0, "Ap_start": 5e-3, "Ap_end": 5e-3}}]   # este no trae outcome
+    assert [p[3] for p in case_points(oc, "run1")] == ["TP", ""] and len(case_points(oc)[0]) == 3
+    leg = [t.get_text() for t in plot_sld(oc, "1DOF_150", outcome_run="run1").axes[0].get_legend().get_texts()]
+    assert any(t.startswith("TP") and t.endswith("[1]") for t in leg) and any("no result" in t for t in leg), leg
     # cruces: con 1 modo no hay; con 2 modos cada punto cae sobre las dos curvas
     assert intersections("1DOF_150") == ()
     cr = intersections("2DOF_150_250")

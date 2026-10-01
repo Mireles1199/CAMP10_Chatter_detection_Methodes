@@ -61,7 +61,8 @@ flowchart TD
 | 5b | (a mano) | `reference_labels.yaml` | YAML corregido | Intervalos stable/unstable/gray por caso |
 | 5c | `reference_dataset.py build` | `doe_results.h5` + YAML | `reference_dataset*.h5` (`/stable`, `/unstable`, `/gray` → `caso/canal__NNN/{t,y}`) | `--channels`, `--t-start`, `--t-end` (SOBRESCRIBE) |
 | 5d | `reference_dataset.py combine` | `reference_dataset.h5` | `reference_combined.h5` | Solo para el visor; los indicadores ya no lo usan |
-| 6 | `DOE_analisis/doe_indicators.py` | `doe_results.h5` **o** `doe_noise_results.h5` + `reference_dataset*.h5` | `doe_indicator_results.h5` **o** `doe_noise_indicator_results.h5` (`caso/run_name/{t, I_t, t_d, t_d_no_FAR}` + attrs `pp_*`, `meta_*`) | CONFIG: `RUNS`, `INDICATOR_CONFIG_*`, `_T_GT`, `USE_EXTERNAL_REFERENCE`. CLI: `--doe_results`, `--cases`, `--workers`, `--label_key`, `--list`, `--dry_run` |
+| 6 | `DOE_analisis/doe_indicators.py` | `doe_results.h5` **o** `doe_noise_results.h5` + `reference_dataset*.h5` | `doe_indicator_results.h5` **o** `doe_noise_indicator_results.h5` (`caso/run_name/{t, I_t, t_d}` + attrs `pp_*`, `meta_*`) | CONFIG: `RUNS`, `INDICATOR_CONFIG_*`, `_T_GT`, `USE_EXTERNAL_REFERENCE`. CLI: `--doe_results`, `--cases`, `--workers`, `--label_key`, `--list`, `--dry_run` |
+| 6b | `DOE_analisis/validate_indicators.py` | `doe_indicator_results.h5` del DOE de **validación** + `reference_dataset*.h5` de validación (verdad) | `doe_validation_results.h5` (mismo layout que `doe_indicator_results.h5` + `pred`, `truth_w`, `$zone$`, `$truth$`, `$outcome_<run>$`, `/summary`, `/training`); abre en `doe_unified_selector.py` (resumen `SLD — <modelo> [outcome <run>]`: casos coloreados por TP/TN/FN/FP) | `--ind_results`, `--labels`, `--reference`, `--out`, `--channel`, `--selftest` |
 | 7 | `DOE_analisis/doe_model_snr.py` | Carpetas del DOE (`sens_out.hdf5` por índice) | `doe_model_snr_results.h5` (attrs `snr_mod_dB` por señal y caso) | `DOE_NAME`, `CASE_NAME`, `CONTROL_IDX`, `BASE_DIR`; `--doe_name`, `--control_idx`, `--out`, `--list`, `--dry_run` |
 | 8 | `DOE_plots/*` | Ver tabla de abajo | Figuras / ventana interactiva | — |
 
@@ -72,7 +73,7 @@ flowchart TD
 | `doe_plotter.py` | `doe_results.h5` | Overlay `Axial_disp`/`Axial_vel`, convergencia RMS y máximo. `--doe_name` |
 | `doe_selector.py` | `doe_results.h5` | Tabla de casos + 2 subplots (importa `doe_plotter`) |
 | `doe_indicator_plotter.py` | `doe_indicator_results.h5` | `t_d` vs parámetro DOE, `I_t(t)` overlay, RMS/Hilbert. `--ind_results`, `--plot-td`, `--plot-It`, `--run_name`, `--t_gt` |
-| `doe_noise_plotter.py` | `doe_noise_results.h5` y `doe_noise_indicator_results.h5` | Señales con ruido, `t_d` vs SNR, lollipop, delay, costo FAR. `--noise_results`, `--indicator_results`, `--plot-all` |
+| `doe_noise_plotter.py` | `doe_noise_results.h5` y `doe_noise_indicator_results.h5` | Señales con ruido, `t_d` vs SNR, lollipop, delay. `--noise_results`, `--indicator_results`, `--plot-all` |
 | `doe_model_snr_plotter.py` | `doe_model_snr_results.h5` | SNR_mod_dB vs parámetro, overlay de señales. `--snr_results` |
 | `doe_unified_selector.py` | Cualquiera de los 5 `.h5` | Ventana Tk: tabla, señales/`I_t` y resúmenes (importa los 4 plotters y `plot_style`). `--h5` |
 | `plot_style.py` | — | `ARTICLE_RCPARAMS`, `FIGSIZE_SIMPLE/WIDE` (solo módulo) |
