@@ -5,13 +5,16 @@ DOE Runner for Nessy2m
 ======================
 Automatiza la ejecucion de un DOE con el simulador Nessy2m.
 
+TODA la configuracion vive en configs/*.yaml (un YAML por DOE; base.yaml lleva lo comun).
+Este script no se edita para cambiar de DOE.
+
 Uso:
-    python doe_runner.py --case 1DOF_150Hz
-    python doe_runner.py --case 1DOF_150Hz --dry-run
-    python doe_runner.py --case 1DOF_150Hz --n2m_bat <ruta\n2m.bat>
+    python doe_runner.py --list-configs
+    python doe_runner.py --config tube_ap17 --case 1DOF_150Hz
+    python doe_runner.py --config tube_ap17 --case 1DOF_150Hz --dry-run
 
 El script:
-  1. Genera val_var segun DOE_MODE (factorial / sweep / manual).
+  1. Genera val_var segun el modo del YAML (factorial / sweep / manual).
   2. Sobreescribe p/param.py del caso con los valores generados.
   3. Llama a n2m_sch.py (equivalente al comando n2m_sch).
   4. Restaura p/param.py original al terminar.
@@ -41,301 +44,437 @@ logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Rutas por defecto
+# CONFIGURACION: todo vive en configs/*.yaml (un YAML por DOE; base.yaml = lo comun).
+#   python doe_runner.py --list-configs        # ver los DOE disponibles
+#   python doe_runner.py --config tube_ap17    # usar uno (o CONFIG_FILE = "tube_ap17" mas abajo)
+# Las variables de abajo son el estado interno que rellena el YAML (apply_config):
+# NO llevan valores de ejemplo y NO hay que editarlas.
 # ---------------------------------------------------------------------------
-# SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-
-# Step 0 - Dexels - Cinematique
-# SCRIPT_DIR = os.path.abspath(os.path.join(
-#     r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage",
-#     "Chatter-Criteria",
-#     "CAMP10_Chatter_detection_Methodes",
-#     "Convergency_Simulation",
-#     "0_Cinematique",
-# ))
-
-# Step 1 - Detection Limite Lobes
-# SCRIPT_DIR = os.path.abspath(os.path.join(
-#     r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage",
-#     "Chatter-Criteria",
-#     "CAMP10_Chatter_detection_Methodes",
-#     "Convergency_Simulation",
-#     "1_Detection_Limite_Lobes",
-# ))
-
-# Step 2 - Senitivity Dexels
-# SCRIPT_DIR = os.path.abspath(os.path.join(
-#     r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage",
-#     "Chatter-Criteria",
-#     "CAMP10_Chatter_detection_Methodes",
-#     "Convergency_Simulation",
-#     "2_Sensitivity_Dexels",
-# ))
-
-# Step 3 - Senitivity dt
-# SCRIPT_DIR = os.path.abspath(os.path.join(
-#     r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage",
-#     "Chatter-Criteria",
-#     "CAMP10_Chatter_detection_Methodes",
-#     "Convergency_Simulation",
-#     "3_Sensitivity_dt",
-# ))
-
-
-# Training - Tube
-# SCRIPT_DIR = os.path.abspath(os.path.join(
-#     r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage",
-#     "Chatter-Criteria",
-#     "CAMP10_Chatter_detection_Methodes",
-#     "Convergency_Simulation",
-#     "4_DOE_Data_Training_Tube",
-# ))
-
-# Training - Tube
-SCRIPT_DIR = os.path.abspath(os.path.join(
-    r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\2DOF_Cone_New"
-))
-
-
-
-
-
-
-print("Script directory:", SCRIPT_DIR)
-
-DEFAULT_N2M_BAT = os.path.join(
+DEFAULT_N2M_BAT = os.path.join(          # solo si el YAML no trae n2m_bat
     r"C:\Users\quiqu\OneDrive-ensam.eu\Desktop\Thesis\03-Code\01-Nessy2m"
     r"\VP2025.1.0\VP2025.1.0\nessy2m",
     "n2m.bat",
 )
 
-DOE_NAME = "Cono_dexel_20e-5_dt_200"
-
-# ==============================================================================
-# CONFIGURACION DEL DOE
-# ==============================================================================
-
-# DOE_NAME = "DOE_Dexels_Cinematique_path"   # nombre de la carpeta de salida  (dir_ref2exe)
-# DOE_NAME = "DOE_Influence_dexel_RPM_12000_ftooth_005_dt_200"   # nombre de la carpeta de salida  (dir_ref2exe)
-# DOE_NAME = "DOE_Influence_dt_RPM_12000_f_005_dexel_005"   # nombre de la carpeta de salida  (dir_ref2exe)
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dt_200"   # nombre de la carpeta de salida  (dir_ref2exe)
-# DOE_NAME = "DOE_Sensitivity_Dexels_factor_4_sup"   # nombre de la carpeta de salida  (dir_ref2exe)
-
-# 2  Campana
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dxl_20e-5_RUN_10_patch_0.95"
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dxl_20e-5_RUN_5"
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dxl_20e-5_RUN_1_patch_0.96-0.97"
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dxl_20e-5_RUN_1_patch_0.985"
-
-
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dxl_10e-5_RUN_10_patch_0.95"
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dxl_10e-5_RUN_5"
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dxl_10e-5_RUN_1_patch_0.97-0.99"
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dxl_10e-5_RUN_1_patch_0.985"
-
-
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dxl_5e-5_RUN_10_patch_0.95"
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dxl_5e-5_RUN_5"
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dxl_5e-5_RUN_1_patch_0.97-0.99"
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dxl_5e-5_RUN_1_patch_0.985"
-
-
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dxl_2.5e-5_RUN_10_patch_0.95"
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dxl_2.5e-5_RUN_5"
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dxl_2.5e-5_RUN_1"
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dxl_2.5e-5_RUN_1_patch_0.985"
-
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dxl_1.25e-5_RUN_10_patch_0.95"
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dxl_1.25e-5_RUN_5"
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dxl_1.25e-5_RUN_1"
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dxl_1.25e-5_RUN_1_patch_0.985"
-
-
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dxl_40e-5_RUN_10_patch_0.95"
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dxl_40e-5_RUN_5"
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dxl_40e-5_RUN_1_patch_0.985"
-
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dxl_80e-5_RUN_10_patch_0.95"
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dxl_80e-5_RUN_5"
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dxl_80e-5_RUN_1_patch_0.985"
-
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dxl_160e-5_RUN_10_patch_0.95"
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dxl_160e-5_RUN_5"
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dxl_160e-5_RUN_1"
-
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dxl_320e-5_RUN_10_patch_1.55"
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dxl_320e-5_RUN_5"
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dxl_320e-5_RUN_1"
-
-
-# ============ Sensibility DT ===================
-
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dt_3200_RUN_10"
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dt_3200_RUN_5"
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dt_3200_RUN_1"
-
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dt_1600_RUN_10"
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dt_1600_RUN_5"
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dt_1600_RUN_1"
-
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dt_800_RUN_10"
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dt_800_RUN_5"
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dt_800_RUN_1"
-
-
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dt_400_RUN_10"
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dt_400_RUN_5"
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dt_400_RUN_1"
-
-
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dt_200_RUN_10"
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dt_200_RUN_5"
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dt_200_RUN_1"
-
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dt_100_RUN_10"
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dt_100_RUN_5"
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dt_100_RUN_1"
-
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dt_50_RUN_10"
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dt_50_RUN_5"
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dt_50_RUN_1"
-
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dt_25_RUN_10"
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dt_25_RUN_5"
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dt_25_RUN_1"
-
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dt_12.5_RUN_10"
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dt_12.5_RUN_5"
-# DOE_NAME = "DOE_Detection_Limite_Lobes_dt_12.5_RUN_1"
-
-
-
-# ============== Training Tube ============
-# DOE_NAME = "DOE_Training_Tube_dxl_20e-5_RUN_10_0.91-1.09"
-
-
-
-
-
-
-
-NB_PROC  = 1     # numero de procesos paralelos
-
-# ------------------------------------------------------------------------------
-# MODO 1 - FACTORIAL COMPLETO (producto cartesiano)
-#   N casos = producto de len(valores) de cada variable.
-#   Variables con 1 valor quedan fijas.
-# ------------------------------------------------------------------------------
-DOE_FACTORIAL = {
-    "$Ap_start$"  : [15e-3],
-    "$Ap_end$"    : [15e-3],
-    "$spin_rate$" : [12099.28],
-
-    # ------------ Influence de dt (nb_dt_rev) --------------------------------
-    # "$f_tooth$"   : [0.05],
-    # "$dxl_size$"  : [0.05e-3,],
-    # "$nb_dt_rev$" : [20, 30, 45, 60, 90, 120, 180, 360, 720, 1440],
-
-    #  ------------ Influence de f_tooth --------------------------------
-    # "$f_tooth$"   : [0.005, 0.01, 0.02, 0.03, 0.05, 0.06, 0.08, 0.12, 0.15, 0.2],
-    # "$nb_dt_rev$" : [180,],
-    # "$dxl_size$"  : [0.05e-3,],
-
-    # # ------------ Influence de dexel_size --------------------------------
-    "$f_tooth$"   : [ 0.05,],
-    "$nb_dt_rev$" : [200,],
-    # RUN 10
-    "$dxl_size$"  : [4.302600e-03, 4.732860e-03, 5.163120e-03, 6.023640e-03, 6.884160e-03, 7.744680e-03, 8.605200e-03],
-
-    # # RUN 5
-    # "$dxl_size$"  : [],
-
-    # # RUN 1
-    # "$dxl_size$"  : [],
-
-
-
-
-
-
-}
-
-# ------------------------------------------------------------------------------
-# MODO 2 - BARRIDO PAREADO (zip, posicion a posicion)
-#   Todas las listas deben tener el mismo numero de elementos.
-# ------------------------------------------------------------------------------
-# Ap_tube = [
-#         # 4.30E-03, #0.5
-#         # 5.16E-03, #0.6
-#         # 6.02E-03, #0.7
-#         # 6.88E-03, #0.8
-#         # 7.74E-03, #0.9
-#         # 8.61E-03, #1.0
-#         # 9.47E-03, #1.1
-#         # 1.03E-02, #1.2
-#         # 1.12E-02, #1.3
-#         # 1.20E-02, #1.4
-#         # 1.29E-02, #1.5
-#         # 1.38E-02, #1.6
-#         # 1.46E-02, #1.7
-#         # 1.55E-02, #1.8
-#         # 1.63E-02, #1.9
-#         # 1.72E-02  #2.0
-
-
-# ]
-Ap_tube = [ 5.0E-03 ]  # 0.985
-spin_rate_sweep = 12098.28
-f_tooth_sweep = 0.05
-dxl_size_sweep = 20e-5
-nb_dt_rev_sweep = 200
-
-DOE_SWEEP = {
-    # Training Tube 0.5-2
-    "$Ap_start$"  : Ap_tube,
-    "$Ap_end$"    : [15.0e-3],
-
-    "$spin_rate$" : np.linspace(spin_rate_sweep, spin_rate_sweep, len(Ap_tube)).tolist(),
-
-    "$f_tooth$"   : np.linspace(f_tooth_sweep, f_tooth_sweep, len(Ap_tube)).tolist(),
-
-    "$dxl_size$"  : np.linspace(dxl_size_sweep, dxl_size_sweep, len(Ap_tube)).tolist(),
-
-    "$nb_dt_rev$" : np.linspace(nb_dt_rev_sweep, nb_dt_rev_sweep, len(Ap_tube)).tolist(),
-
-}
-
-# ------------------------------------------------------------------------------
-# MODO 3 - MANUAL (formato original de n2m_sch)
-# ------------------------------------------------------------------------------
-DOE_MANUAL_LST = ["$Ap_start$", "$Ap_end$", "$spin_rate$", "$f_tooth$", "$dxl_size$", "$nb_dt_rev$"]
-DOE_MANUAL_VAL = [
-    [5e-3, 15e-3, 12000.0, 0.05, 0.1e-3, 100],
-]
-
-# ► SELECCIONA EL MODO:  "factorial"  |  "sweep"  |  "manual"
-DOE_MODE = "sweep"
-
-# ==============================================================================
-# LIMPIEZA POST-SIMULACION
-#   Directorios a borrar dentro de cada copia de caso tras la simulacion.
-#   Dejar [] para no borrar nada.
-#   Opciones: 'db', 'out', 'p', 's', 'tmp', 'tool', 'wp'
-# ==============================================================================
-POST_CLEANUP_DIRS = ['db', 'out', 'p', 's', 'tmp', 'tool', 'wp']
-
-# ==============================================================================
-# EXTRACCION DE RESULTADOS
-#   Señales a extraer del sens_out.hdf5 de cada caso.
-#   Columna 0 = tiempo, columna 1 = valores.
-# ==============================================================================
-DOE_EXTRACT_SIGNALS = ["Axial_disp", "Axial_vel", "Axial_acc"]
-DOE_FORCE_SIGNAL = "res_R_p"
-
-# kappa = Ap / AP_REF (adimensional). None = no calcular.
+SCRIPT_DIR = None       # <- base_dir
+DOE_NAME = None         # <- doe_name
+NB_PROC = 1             # <- nb_proc
+DOE_MODE = None         # <- mode (factorial | sweep | manual)
+DOE_FACTORIAL = None    # <- factorial
+DOE_SWEEP = None        # <- sweep
+DOE_MANUAL_LST = None   # <- manual.variables
+DOE_MANUAL_VAL = None   # <- manual.values
+DOE_EXTRACT_SIGNALS = ["Axial_disp", "Axial_vel", "Axial_acc"]   # <- extract_signals
+DOE_FORCE_SIGNAL = "res_R_p"                                      # <- force_signal
+
+# kappa = Ap / AP_REF (adimensional).
 # Ap_start == Ap_end (profundidad fija)  -> attr 'kappa'
 # Ap_start != Ap_end (barrido en el caso) -> attrs 'kappa_start' / 'kappa_end'
-AP_REF = 8.605e-3
+AP_REF_MODE = "none"    # <- ap_ref.mode: none | manual | model | model_at_spin
+AP_REF_MANUAL = None    # <- ap_ref.manual [m]
+AP_REF_MODEL = None     # <- ap_ref.model: preset de DOE_plots/sld_model.py (necesita sld_tools)
+
+
+def _sld_model():
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "DOE_plots"))
+    import sld_model  # pyright: ignore[reportMissingImports]
+    return sld_model
+
+
+def resolve_ap_ref(spin: float | None = None) -> float | None:
+    """AP_REF [m] segun AP_REF_MODE (None o "none": sin kappa). `spin` [rpm] solo lo usa model_at_spin."""
+    mode = AP_REF_MODE or "none"
+    if mode == "none":
+        return None
+    if mode == "manual":
+        return AP_REF_MANUAL
+    if mode == "model":
+        return _sld_model().ap_crit(AP_REF_MODEL) * 1e-3   # mm -> m: minimo global del SLD, sin rpm
+    if mode == "model_at_spin":
+        if spin is None:
+            raise ValueError("AP_REF_MODE='model_at_spin' necesita el spin_rate del caso")
+        return _sld_model().ap_lim(AP_REF_MODEL, spin) * 1e-3   # mm -> m: limite del lobulo a esas rpm
+    raise ValueError(f"AP_REF_MODE invalido: {AP_REF_MODE!r} (usa 'none', 'manual', 'model' o 'model_at_spin')")
+
+
+# ==============================================================================
+# ARCHIVO DE CONFIGURACION (opcional)
+#   Precedencia: --config en la CLI  >  CONFIG_FILE  >  las variables de arriba.
+#   El YAML debe declarar base_dir, doe_name y mode (+ la tabla de ese modo), directamente
+#   o por 'extends'; ver doe_config_example.yaml. Lo opcional (nb_proc, ap_ref, senales)
+#   tiene los defaults de arriba.
+# ==============================================================================
+CONFIG_FILE = None   # ruta o nombre corto de configs/ (o una lista de ellos); None -> sin YAML (salvo --config)
+CONFIGS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "configs")   # un YAML por DOE
+
+_CONFIG_KEYS = ("base_dir", "case", "n2m_bat", "doe_name", "nb_proc", "mode", "factorial",
+                "sweep", "manual", "ap_ref", "extract_signals", "force_signal")
+
+
+CONFIG_HELP = """
+CONFIGURACION DE UN DOE (YAML)
+==============================
+Donde:   DOE_simulacion/configs/*.yaml   (un archivo por DOE; base.yaml = lo comun a todos)
+Elegir:  --config <nombre|ruta> [<otro> ...]     o     CONFIG_FILE = "nombre" (o lista) en doe_runner.py
+         --config gana a CONFIG_FILE. Sin ninguno de los dos el runner se detiene (no hay DOE por defecto).
+         Un nombre corto se busca como ruta tal cual, como <nombre>.yaml y dentro de configs/.
+         python doe_runner.py --list-configs   muestra los disponibles (DOE, modo, casos, spin, Ap).
+
+CLAVES                                                                         obligatoria  default
+  base_dir         carpeta que contiene el caso (resultados: base_dir/doe_name)      SI
+  doe_name         nombre de la carpeta de salida (sin separadores de ruta)          SI
+  mode             factorial | sweep | manual: la tabla con ese nombre debe existir  SI
+  factorial/sweep/manual   tabla de variables (ver abajo)                            la del mode
+  case             subcarpeta del caso Nessy2m                                       no           1DOF_150Hz
+  n2m_bat          ruta del n2m.bat                                                  no           DEFAULT_N2M_BAT
+  nb_proc          procesos en paralelo (entero >= 1)                                no           1
+  ap_ref           referencia de kappa (ver abajo)                                   no           mode: none
+  extract_signals  senales a extraer de sens_out.hdf5                                no           [Axial_disp, Axial_vel, Axial_acc]
+  force_signal     senal de fuerza de out.hdf5                                       no           res_R_p
+  extends          otro YAML del que hereda (ver abajo)                              no
+  Cualquier otra clave se rechaza. base_dir y extends relativos: respecto al archivo que los declara. Usa / tambien en Windows.
+
+TABLAS DE VARIABLES
+  Las claves van entre $...$ y los valores en SI (Ap en metros, spin en rpm). Numeros con exponente: 2.0e-4.
+  Habituales: $Ap_start$ y $Ap_end$ (iguales = profundidad fija; distintos = rampa dentro del caso),
+              $spin_rate$, $f_tooth$, $dxl_size$, $nb_dt_rev$.
+  sweep      un caso por posicion. Las listas deben tener el MISMO largo (si no, error); un escalar se repite.
+  factorial  producto cartesiano de todas las listas (una variable con 1 valor queda fija).
+  manual     variables: [$a$, $b$]  y  values: [[1, 2], [3, 4]]  (una fila por caso).
+
+AP_REF  (kappa = Ap / AP_REF; Ap fijo -> attr kappa, rampa -> kappa_start y kappa_end)
+  ap_ref: {mode: none}                                 sin kappa
+  ap_ref: {mode: manual, manual: 8.605e-3}             Ap de referencia en metros, igual para todo el DOE
+  ap_ref: {mode: model, model: 1DOF_150}               Ap critico MINIMO del SLD del preset (un valor, sin rpm)
+  ap_ref: {mode: model_at_spin, model: 2DOF_150_250}   limite del SLD A LAS RPM de cada caso ($spin_rate$):
+                                                       cambia con el spin; en un bolsillo entre lobulos el
+                                                       limite es infinito (kappa 0); fuera de los lobulos
+                                                       calculados el caso queda sin kappa (con aviso)
+  Los presets (modos, k, zeta, theta, Kf) se declaran en DOE_plots/sld_model.py (MODELS). Se guarda ap_ref_m
+  (por caso) y ap_ref_mode / ap_ref_model en el doe_results.h5.
+
+HERENCIA (extends: base)
+  El DOE hereda todo de base.yaml y solo declara lo suyo (doe_name, mode, la tabla...).
+  Si una clave esta en los dos, gana la del DOE. Las secciones (sweep, ap_ref, extract_signals...) se
+  reemplazan COMPLETAS, no se mezclan por dentro: si redefines ap_ref, escribelo entero.
+  Cadenas permitidas (A extiende B, B extiende C): gana el mas cercano al DOE. Un ciclo es un error.
+
+QUE GANA (de mayor a menor)
+  CLI (--case, --n2m_bat, --doe_name, --workers)  >  YAML del DOE  >  base.yaml  >  defaults de la tabla.
+
+ANTES DE SIMULAR
+  - Se valida todo y los errores salen juntos (listas de distinto largo, variables sin $...$, modo sin su
+    tabla, preset inexistente...).
+  - Se muestra un resumen (DOE, carpeta, casos, variables, AP_REF, si la salida ya existe) y se pide [y/N].
+    --yes lo omite y confirma tambien reemplazar un DOE existente (su carpeta se borra). --dry-run no pregunta.
+  - Varios DOE (--config a b c): se validan todos antes de lanzar el primero, una sola confirmacion, cada uno
+    en su proceso, y se detiene si uno falla. No se admiten dos con el mismo doe_name ni --doe_name.
+  - Al terminar se copia el YAML usado a <DOE>/doe_config.yaml.
+
+DOE NUEVO EN 3 PASOS
+  1. Copia un YAML de configs/ (el mas parecido) con otro nombre.
+  2. Cambia doe_name y la tabla de variables (y mode si cambia de tipo).
+  3. python doe_runner.py --list-configs   (debe aparecer sin ERROR)   y luego   --config <nombre>
+     Antes de gastar horas: python doe_planner.py <nombre>  muestra los casos sobre el SLD (zona estable o
+     inestable de cada uno), valida el YAML y lanza el runner en una consola aparte (boton Lanzar).
+     Despues, para extraer:  --config <nombre> --command extract
+"""
+
+
+def _num(x):
+    """float(x) si es numero (o texto numerico: PyYAML lee 2e-4 como texto), si no None."""
+    if isinstance(x, str):
+        try:
+            return float(x)
+        except ValueError:
+            return None
+    return x if isinstance(x, (int, float)) and not isinstance(x, bool) else None
+
+
+def find_config(name: str, rel_to: str | None = None) -> str:
+    """Ruta del YAML: la ruta tal cual, relativa a rel_to, o un nombre corto de configs/ (con o sin .yaml)."""
+    for base in (None, rel_to, CONFIGS_DIR):
+        for cand in (name, name + ".yaml"):
+            f = cand if base is None else os.path.join(base, cand)
+            if os.path.isfile(f):
+                return os.path.abspath(f)
+    avail = sorted(os.path.splitext(f)[0] for f in os.listdir(CONFIGS_DIR)) if os.path.isdir(CONFIGS_DIR) else []
+    raise ValueError(f"config '{name}' no encontrada (ruta, relativa o nombre en {CONFIGS_DIR}); disponibles: {avail}")
+
+
+def _read_yaml(path: str, seen: tuple = ()) -> dict:
+    """YAML crudo. Con 'extends: otro' parte de ese YAML y le pone encima lo propio (las secciones
+    completas se reemplazan, no se mezclan por dentro)."""
+    import yaml
+    path = os.path.abspath(path)
+    if path in seen:
+        raise ValueError(f"{path}: 'extends' circular ({' -> '.join(seen + (path,))})")
+    with open(path, "r", encoding="utf-8") as fh:
+        cfg = yaml.safe_load(fh) or {}
+    if not isinstance(cfg, dict):
+        raise ValueError(f"{path}: debe ser un mapa 'clave: valor'")
+    if isinstance(cfg.get("base_dir"), str):   # relativa -> respecto al archivo que la declara
+        cfg["base_dir"] = os.path.normpath(os.path.join(os.path.dirname(path), cfg["base_dir"]))
+    parent = cfg.pop("extends", None)
+    if parent is None:
+        return cfg
+    if not isinstance(parent, str):
+        raise ValueError(f"{path}: extends debe ser el nombre o ruta de otro YAML")
+    return {**_read_yaml(find_config(parent, os.path.dirname(path)), seen + (path,)), **cfg}
+
+
+def load_config(path: str, require: bool = True) -> dict:
+    """Lee y valida el YAML. Devuelve el dict normalizado; todos los problemas juntos en un ValueError.
+    require=False admite YAML parciales (p. ej. base.yaml, que solo se usa via extends)."""
+    path = os.path.abspath(path)
+    cfg = _read_yaml(path)
+    errs: list = []
+    bad = sorted(set(cfg) - set(_CONFIG_KEYS), key=str)
+    if bad:
+        errs.append(f"claves desconocidas {bad}; validas: {list(_CONFIG_KEYS)}")
+
+    def table(name):   # {"$var$": valor | [valores]} -> {"$var$": [floats]}; en sweep los escalares se repiten
+        t, out, n_err = cfg[name], {}, len(errs)
+        if not isinstance(t, dict) or not t:
+            errs.append(f"{name}: debe ser un mapa '$variable$: valores' no vacio")
+            return
+        for k, v in t.items():
+            vs = [_num(x) for x in (v if isinstance(v, list) else [v])]
+            if not (isinstance(k, str) and len(k) > 2 and k.startswith("$") and k.endswith("$")):
+                errs.append(f"{name}: la variable {k!r} debe ir entre $...$ (ej. $Ap_start$)")
+            elif not vs or None in vs:
+                errs.append(f"{name}.{k}: se esperan numeros, recibido {v!r}")
+            else:
+                out[k] = vs
+        if name == "sweep" and len(errs) == n_err:
+            lens = {k: len(v) for k, v in out.items() if isinstance(t[k], list)}
+            if len(set(lens.values())) > 1:
+                errs.append(f"sweep: las listas deben tener el mismo largo (si no, zip trunca), hay {lens}")
+            else:
+                n = next(iter(lens.values()), 1)
+                out = {k: (v if isinstance(t[k], list) else v * n) for k, v in out.items()}
+        cfg[name] = out
+
+    if "mode" in cfg:
+        if cfg["mode"] not in ("factorial", "sweep", "manual"):
+            errs.append(f"mode: {cfg['mode']!r} invalido (usa factorial, sweep o manual)")
+        elif cfg["mode"] not in cfg:
+            errs.append(f"mode: {cfg['mode']} necesita la seccion '{cfg['mode']}' en el YAML")
+    for name in ("factorial", "sweep"):
+        if name in cfg:
+            table(name)
+    if "manual" in cfg:
+        m = cfg["manual"]
+        if not (isinstance(m, dict) and set(m) == {"variables", "values"}
+                and isinstance(m["variables"], list) and isinstance(m["values"], list)):
+            errs.append("manual: debe tener 'variables' (lista de $var$) y 'values' (lista de filas)")
+        else:
+            rows = [[_num(x) for x in row] if isinstance(row, list) else None for row in m["values"]]
+            if not m["values"] or any(r is None or None in r or len(r) != len(m["variables"]) for r in rows):
+                errs.append(f"manual.values: cada fila debe tener {len(m['variables'])} numeros (uno por variable)")
+            else:
+                cfg["manual"] = {"variables": m["variables"], "values": rows}
+    if "nb_proc" in cfg and not (isinstance(cfg["nb_proc"], int) and not isinstance(cfg["nb_proc"], bool)
+                                 and cfg["nb_proc"] >= 1):
+        errs.append(f"nb_proc: entero >= 1, recibido {cfg['nb_proc']!r}")
+    for k in ("doe_name", "case", "n2m_bat", "force_signal"):
+        if k in cfg and not (isinstance(cfg[k], str) and cfg[k].strip()):
+            errs.append(f"{k}: texto no vacio, recibido {cfg[k]!r}")
+    if isinstance(cfg.get("doe_name"), str) and ("/" in cfg["doe_name"] or os.sep in cfg["doe_name"]):
+        errs.append("doe_name: es un nombre de carpeta, sin separadores de ruta")
+    if "extract_signals" in cfg and not (isinstance(cfg["extract_signals"], list) and cfg["extract_signals"]
+                                         and all(isinstance(x, str) for x in cfg["extract_signals"])):
+        errs.append("extract_signals: lista de nombres de senal, ej. [Axial_disp, Axial_vel]")
+    if "base_dir" in cfg:
+        if not isinstance(cfg["base_dir"], str):
+            errs.append(f"base_dir: texto, recibido {cfg['base_dir']!r}")
+        else:   # relativa -> respecto al YAML
+            cfg["base_dir"] = os.path.normpath(os.path.join(os.path.dirname(path), cfg["base_dir"]))
+            if not os.path.isdir(cfg["base_dir"]):
+                errs.append(f"base_dir: no existe la carpeta {cfg['base_dir']}")
+    if "ap_ref" in cfg:
+        a = cfg["ap_ref"]
+        if not (isinstance(a, dict) and set(a) <= {"mode", "manual", "model"}):
+            errs.append("ap_ref: mapa con mode (none|manual|model|model_at_spin) y, segun el modo, manual o model")
+        else:
+            mode = a.get("mode") or "none"
+            if mode not in ("none", "manual", "model", "model_at_spin"):
+                errs.append(f"ap_ref.mode: {mode!r} invalido (none, manual, model o model_at_spin)")
+            elif mode == "manual" and not (_num(a.get("manual")) and _num(a.get("manual")) > 0):
+                errs.append(f"ap_ref.manual: Ap de referencia en metros (> 0), recibido {a.get('manual')!r}")
+            elif mode in ("model", "model_at_spin"):
+                try:
+                    presets = list(_sld_model().MODELS)
+                    if a.get("model") not in presets:
+                        errs.append(f"ap_ref.model: {a.get('model')!r} no esta en sld_model.MODELS {presets}")
+                except Exception as exc:
+                    errs.append(f"ap_ref.model: no se pudo cargar sld_model ({exc})")
+            cfg["ap_ref"] = dict(a, mode=mode)
+    if require:
+        miss = [k for k in ("base_dir", "doe_name", "mode") if k not in cfg]
+        if miss:
+            errs.append(f"faltan claves obligatorias {miss} (declaralas aqui o en el YAML de 'extends')")
+    if errs:
+        raise ValueError(f"{path}:\n  - " + "\n  - ".join(errs))
+    return cfg
+
+
+def apply_config(cfg: dict) -> None:
+    """Pasa lo declarado en el YAML a las variables del modulo (las que leen build_doe_cases, extract, etc.)."""
+    g = globals()
+    for key, var in (("base_dir", "SCRIPT_DIR"), ("doe_name", "DOE_NAME"), ("nb_proc", "NB_PROC"),
+                     ("mode", "DOE_MODE"), ("factorial", "DOE_FACTORIAL"), ("sweep", "DOE_SWEEP"),
+                     ("extract_signals", "DOE_EXTRACT_SIGNALS"), ("force_signal", "DOE_FORCE_SIGNAL")):
+        if key in cfg:
+            g[var] = cfg[key]
+    if "manual" in cfg:
+        g["DOE_MANUAL_LST"], g["DOE_MANUAL_VAL"] = cfg["manual"]["variables"], cfg["manual"]["values"]
+    if "ap_ref" in cfg:
+        g["AP_REF_MODE"] = cfg["ap_ref"]["mode"]
+        if "manual" in cfg["ap_ref"]:
+            g["AP_REF_MANUAL"] = _num(cfg["ap_ref"]["manual"])
+        if "model" in cfg["ap_ref"]:
+            g["AP_REF_MODEL"] = cfg["ap_ref"]["model"]
+
+
+_CONFIG_VARS = ("SCRIPT_DIR", "DOE_NAME", "NB_PROC", "DOE_MODE", "DOE_FACTORIAL", "DOE_SWEEP",
+                "DOE_EXTRACT_SIGNALS", "DOE_FORCE_SIGNAL", "DOE_MANUAL_LST", "DOE_MANUAL_VAL",
+                "AP_REF_MODE", "AP_REF_MANUAL", "AP_REF_MODEL")
+
+
+def _with_config(cfg: dict, fn):
+    """Corre fn() con cfg aplicado y deja las variables del modulo como estaban (para listar/resumir sin efectos)."""
+    g = globals()
+    saved = {k: g[k] for k in _CONFIG_VARS}
+    try:
+        apply_config(cfg)
+        return fn()
+    finally:
+        g.update(saved)
+
+
+def describe(doe_dir: str, case_dir: str) -> str:
+    """Resumen de lo que se va a lanzar (con las variables actuales): para confirmar antes de simular."""
+    lst, val = build_doe_cases(DOE_MODE)
+
+    def show(k):
+        sc, unit = (1e3, " mm") if k.startswith("$Ap") else (1, "")
+        v = sorted({r[lst.index(k)] * sc for r in val})
+        return f"{v[0]:g}{unit}" if len(v) == 1 else f"{v[0]:g}..{v[-1]:g}{unit} ({len(v)} valores)"
+
+    ap = AP_REF_MODE or "none"
+    if ap == "manual":
+        ap += f" ({AP_REF_MANUAL * 1e3:g} mm)"
+    elif ap == "model":
+        ap += f" (modelo {AP_REF_MODEL}: minimo global)"
+    elif ap == "model_at_spin":
+        try:
+            spins = sorted({r[lst.index("$spin_rate$")] for r in val}) if "$spin_rate$" in lst else []
+            lims = [f"{_sld_model().ap_lim(AP_REF_MODEL, w):.3f} mm @ {w:g} rpm" for w in spins[:4]]
+            ap += f" (modelo {AP_REF_MODEL}, por caso): " + (" | ".join(lims) + (" ..." if len(spins) > 4 else "") if lims else "sin spin_rate: no se calcula kappa")
+        except Exception as exc:   # sld_tools ausente, rpm fuera de los lobulos...
+            ap += f" (modelo {AP_REF_MODEL}): ERROR {exc}"
+    exists = "YA EXISTE: se BORRARA al confirmar" if os.path.exists(doe_dir) else "carpeta nueva"
+    return (f"  DOE       : {os.path.basename(doe_dir)}\n"
+            f"  Carpeta   : {os.path.dirname(doe_dir)}  (caso {os.path.basename(case_dir)})\n"
+            f"  Modo      : {DOE_MODE} - {len(val)} caso(s)\n"
+            f"  Variables : " + " | ".join(f"{k.strip('$')}={show(k)}" for k in lst) + "\n"
+            f"  AP_REF    : {ap}\n"
+            f"  Salida    : {exists}")
+
+
+def list_configs() -> None:
+    """Tabla de los YAML de configs/: nombre, DOE, modo, casos, spin y Ap."""
+    rows = []
+    for f in sorted(glob.glob(os.path.join(CONFIGS_DIR, "*.yaml"))):
+        name = os.path.splitext(os.path.basename(f))[0]
+        try:
+            cfg = load_config(f, require=False)
+            if "mode" not in cfg and "doe_name" not in cfg:
+                rows.append((name, "(base: sin DOE propio)", "", "", "", ""))
+                continue
+            load_config(f)   # es un DOE: debe estar completo
+
+            def info():
+                lst, val = build_doe_cases(DOE_MODE)
+
+                def rng(k, sc=1.0):
+                    if k not in lst:
+                        return "-"
+                    v = sorted({r[lst.index(k)] * sc for r in val})
+                    return f"{v[0]:g}" if len(v) == 1 else f"{v[0]:g}..{v[-1]:g}"
+
+                return (DOE_NAME, DOE_MODE, str(len(val)), rng("$spin_rate$"), rng("$Ap_start$", 1e3) + " -> " + rng("$Ap_end$", 1e3))
+            rows.append((name,) + _with_config(cfg, info))
+        except (ValueError, OSError, ImportError) as exc:
+            rows.append((name, "ERROR: " + str(exc).splitlines()[1].strip(" -") if "\n" in str(exc) else "ERROR: " + str(exc), "", "", "", ""))
+    head = ("config", "DOE", "modo", "casos", "spin [rpm]", "Ap ini -> fin [mm]")
+    w = [max(len(str(r[i])) for r in rows + [head]) for i in range(6)]
+    for r_ in [head, tuple("-" * x for x in w)] + rows:
+        print("  ".join(str(c).ljust(w[i]) for i, c in enumerate(r_)).rstrip())
+    print(f"\n  {len(rows)} archivo(s) en {CONFIGS_DIR}")
+
+
+def _argv_without_config() -> list:
+    out, skip = [], False
+    for tok in sys.argv[1:]:
+        if tok == "--config":
+            skip = True
+            continue
+        if skip and not tok.startswith("-"):
+            continue
+        skip = False
+        out.append(tok)
+    return out
+
+
+def _run_batch(paths: list, args) -> None:
+    """Varios DOE en secuencia: valida TODOS primero, muestra el resumen de cada uno, confirma una vez y
+    lanza este mismo script con cada config en su propio proceso (estado limpio; se detiene si uno falla)."""
+    if args.doe_name:
+        log.error("--doe_name no se puede combinar con varias configs (cada YAML trae el suyo)")
+        sys.exit(1)
+    cfgs, errs = {}, []
+    for f in paths:
+        try:
+            cfgs[f] = load_config(f)
+        except (ValueError, OSError, ImportError) as exc:
+            errs.append(str(exc))
+    if errs:
+        log.error("Config invalida (no se lanzo ningun DOE):\n%s", "\n".join(errs))
+        sys.exit(1)
+    texts, by_name = [], {}
+    for f, cfg in cfgs.items():
+        def info():
+            case = args.case or cfg.get("case") or "1DOF_150Hz"
+            return DOE_NAME, describe(os.path.join(SCRIPT_DIR, DOE_NAME), os.path.join(SCRIPT_DIR, case))
+        name, text = _with_config(cfg, info)
+        by_name.setdefault((os.path.join(cfg.get("base_dir", SCRIPT_DIR)), name), []).append(os.path.basename(f))
+        texts.append(f"[{os.path.basename(f)}]\n{text}")
+    dup = {k[1]: v for k, v in by_name.items() if len(v) > 1}
+    if dup:
+        log.error("Varias configs escriben en el mismo DOE (cambia doe_name): %s", dup)
+        sys.exit(1)
+    print("\n\n".join(texts) + "\n")
+    if not (args.yes or args.dry_run):
+        if input(f"Lanzar los {len(paths)} DOE en secuencia? [y/N]: ").strip().lower() not in ("y", "yes"):
+            log.info("Cancelado.")
+            return
+    rest = _argv_without_config()
+    for k, f in enumerate(paths, 1):
+        log.info("===== DOE %d/%d: %s =====", k, len(paths), os.path.basename(f))
+        rc = subprocess.run([sys.executable, os.path.abspath(__file__), "--config", f, "--yes"] + rest).returncode
+        if rc != 0:
+            log.error("El DOE %d/%d (%s) termino con error %d: se detiene la secuencia.", k, len(paths), os.path.basename(f), rc)
+            sys.exit(rc)
+    log.info("Secuencia completa: %d DOE.", len(paths))
+
+
+def _keep_config(cfg_path, doe_dir: str, dry_run: bool) -> None:
+    """Copia del YAML usado dentro de la carpeta del DOE (tras simular: n2m_sch exige que no exista antes)."""
+    if cfg_path and not dry_run and os.path.isdir(doe_dir):
+        shutil.copy2(cfg_path, os.path.join(doe_dir, "doe_config.yaml"))
+        log.info("Config copiada a %s", os.path.join(doe_dir, "doe_config.yaml"))
 
 
 def build_doe_cases(mode: str) -> tuple[list, list]:
@@ -520,6 +659,12 @@ def extract_doe_results(doe_dir: str, case_name: str, signals: list, dry_run: bo
             log.info("[DRY-RUN] Caso %s → %s", idx, cd)
         return []
 
+    per_case = AP_REF_MODE == "model_at_spin"   # AP_REF distinto en cada caso, segun su spin
+    ap_ref = None if per_case else resolve_ap_ref()
+    log.info("AP_REF (%s): %s", AP_REF_MODE or "none",
+             f"segun el spin de cada caso (modelo {AP_REF_MODEL})" if per_case
+             else f"{ap_ref * 1e3:.4f} mm" if ap_ref else "sin kappa")
+
     results = []
     out_path = os.path.join(doe_dir, "doe_results.h5")
 
@@ -532,6 +677,11 @@ def extract_doe_results(doe_dir: str, case_name: str, signals: list, dry_run: bo
             return []
 
     with h5py.File(out_path, "w") as out_f:
+        out_f.attrs["ap_ref_mode"] = AP_REF_MODE or "none"
+        if ap_ref:
+            out_f.attrs["ap_ref_m"] = ap_ref
+        if AP_REF_MODE in ("model", "model_at_spin"):
+            out_f.attrs["ap_ref_model"] = AP_REF_MODEL
         for case_path in case_dirs:
             idx = int(os.path.basename(os.path.dirname(case_path)))
             group_name = f"case_{idx:03d}"
@@ -545,16 +695,27 @@ def extract_doe_results(doe_dir: str, case_name: str, signals: list, dry_run: bo
                 except Exception:
                     grp.attrs[k] = str(v)
 
-            # -- kappa = Ap / AP_REF --
-            if AP_REF:
+            # -- kappa = Ap / AP_REF (AP_REF fijo, o el limite del lobulo a las rpm de este caso) --
+            ap_ref_c = ap_ref
+            if per_case:
+                spin = var_val.get("$spin_rate$")
+                try:
+                    ap_ref_c = resolve_ap_ref(float(spin)) if spin is not None else None
+                except ValueError as exc:
+                    ap_ref_c = None
+                    log.warning("Caso %s: %s -> sin kappa", group_name, exc)
+                if spin is None:
+                    log.warning("Caso %s sin $spin_rate$: no se calcula kappa", group_name)
+            if ap_ref_c:
                 ap_start = var_val.get("$Ap_start$")
                 ap_end   = var_val.get("$Ap_end$")
                 if ap_start is not None and ap_end is not None:
+                    grp.attrs["ap_ref_m"] = ap_ref_c   # el AP_REF realmente usado en este caso
                     if ap_start == ap_end:
-                        grp.attrs["kappa"] = math.trunc(ap_start / AP_REF * 1000) / 1000
+                        grp.attrs["kappa"] = math.trunc(ap_start / ap_ref_c * 1000) / 1000
                     else:
-                        grp.attrs["kappa_start"] = math.trunc(ap_start / AP_REF * 1000) / 1000
-                        grp.attrs["kappa_end"]   = math.trunc(ap_end / AP_REF * 1000) / 1000
+                        grp.attrs["kappa_start"] = math.trunc(ap_start / ap_ref_c * 1000) / 1000
+                        grp.attrs["kappa_end"]   = math.trunc(ap_end / ap_ref_c * 1000) / 1000
 
             # -- wall_time_s (guardado por --timed dentro de la carpeta del caso) --
             wt_file = os.path.join(os.path.dirname(case_path), "wall_time_s.txt")
@@ -633,16 +794,17 @@ def merge_doe_results(base_doe_dir: str, patch_doe_dir: str, dry_run: bool = Fal
         next_idx = max(existing_indices) + 1 if existing_indices else 0
 
         # Attrs de grupos existentes para detectar duplicados
-        existing_attrs = [
-            dict(base_f[k].attrs) for k in base_f.keys()
-        ]
+        # wall_time_s se ignora: dos corridas identicas difieren en tiempo
+        def _attrs(g):
+            return {k: v for k, v in dict(g.attrs).items() if k != "wall_time_s"}
+        existing_attrs = [_attrs(base_f[k]) for k in base_f.keys()]
 
         with h5py.File(patch_h5, "r") as patch_f:
             added = 0
             skipped = 0
             for grp_name in sorted(patch_f.keys()):
                 patch_grp  = patch_f[grp_name]
-                patch_attrs = dict(patch_grp.attrs)
+                patch_attrs = _attrs(patch_grp)
 
                 # Comprobar si ya existe un caso con los mismos attrs
                 if any(patch_attrs == ea for ea in existing_attrs):
@@ -788,6 +950,16 @@ def parse_args():
 DOE Runner — Automatización de simulaciones Nessy2m
 ====================================================
 Genera val_var, sobreescribe param.py y ejecuta n2m_sch (o extrae resultados).
+TODA la configuracion esta en configs/*.yaml; todos los comandos necesitan --config (o CONFIG_FILE):
+de ahi salen la carpeta base y el nombre del DOE (--doe_name lo sustituye).
+
+CONFIGURACION (resumen; referencia completa: --help-config)
+------------------------------------------------------------
+  Un YAML por DOE en configs/ (base.yaml = lo comun, se hereda con "extends: base").
+  Obligatorio: base_dir, doe_name, mode (+ la tabla factorial / sweep / manual de ese modo).
+  Opcional:    case, n2m_bat, nb_proc, ap_ref (none | manual | model | model_at_spin), extract_signals, force_signal.
+  Se elige con --config <nombre> (o CONFIG_FILE en el script); --list-configs muestra los disponibles.
+  Gana: CLI  >  YAML del DOE  >  base.yaml.   DOE nuevo = copiar un YAML y cambiar doe_name y la tabla.
 
 COMANDOS  (--command)
 ---------------------
@@ -800,61 +972,73 @@ COMANDOS  (--command)
 
 EJEMPLOS
 --------
-  python doe_runner.py --case 1DOF_150Hz
+  python doe_runner.py --list-configs
+      Tabla de los YAML de configs/ (un YAML por DOE; base.yaml lleva lo comun, via 'extends: base').
+
+  python doe_runner.py --config tube_ap17 --case 1DOF_150Hz
+      Usa configs/tube_ap17.yaml (o una ruta). Muestra un resumen
+      (DOE, casos, variables, AP_REF, si la salida ya existe) y pide confirmacion; --yes la omite.
+      Equivale a CONFIG_FILE = "tube_ap17" en el script; --config tiene prioridad.
+      El YAML debe declarar base_dir, doe_name y mode (+ su tabla); se valida antes de simular y se copia a <DOE>/doe_config.yaml.
+
+  python doe_runner.py --config tube_ap17 tube_ap_sweep --case 1DOF_150Hz
+      Varios DOE en secuencia: valida todos antes de lanzar el primero, confirma una vez y se detiene si uno falla.
+
+  python doe_runner.py --config <doe> --case 1DOF_150Hz
       Ejecuta el DOE completo para el caso 1DOF_150Hz.
 
-  python doe_runner.py --case 1DOF_150Hz --dry-run
+  python doe_runner.py --config <doe> --case 1DOF_150Hz --dry-run
       Simula sin ejecutar (muestra rutas y comandos).
 
-  python doe_runner.py --case 1DOF_150Hz --command extract
+  python doe_runner.py --config <doe> --case 1DOF_150Hz --command extract
       Extrae señales de todos los casos -> guarda doe_results.h5.
 
-  python doe_runner.py --case 1DOF_150Hz --command extract --doe_name DOE_Influence_dt
-      Extrae de la carpeta DOE_Influence_dt/ (sobreescribe DOE_NAME del script).
+  python doe_runner.py --config <doe> --case 1DOF_150Hz --command extract --doe_name DOE_Influence_dt
+      Extrae de la carpeta DOE_Influence_dt/ (sustituye el doe_name del YAML).
 
-  python doe_runner.py --case 1DOF_150Hz --timed --auto-extract
+  python doe_runner.py --config <doe> --case 1DOF_150Hz --timed --auto-extract
       Corre el DOE completo (modo timed) y al terminar corre --command extract
       solo, sin tener que lanzarlo aparte despues.
 
-  python doe_runner.py --command merge --doe_name DOE_base --merge_from DOE_patch
+  python doe_runner.py --config <doe> --command merge --doe_name DOE_base --merge_from DOE_patch
       Fusiona DOE_patch/doe_results.h5 en DOE_base/doe_results.h5.
       Los casos nuevos se renumeran continuando desde el último índice del base.
       Los casos con attrs idénticos se omiten automáticamente (no se duplican).
 
-  python doe_runner.py --command merge --doe_name DOE_base --merge_from DOE_patch --merge_out DOE_merged
+  python doe_runner.py --config <doe> --command merge --doe_name DOE_base --merge_from DOE_patch --merge_out DOE_merged
       Igual que el anterior, pero copia DOE_base -> DOE_merged primero y fusiona
       ahi. DOE_base y DOE_patch quedan intactos.
 
-  python doe_runner.py --case 1DOF_150Hz --timed
+  python doe_runner.py --config <doe> --case 1DOF_150Hz --timed
       Corre cada caso en directorio aislado, NB_PROC casos en paralelo (runner-side).
       Guarda el tiempo por caso en cada carpeta de caso (wall_time_s.txt).
       Tras extract, doe_plotter muestra figura de tiempo de cómputo vs dt.
 
-  python doe_runner.py --case 1DOF_150Hz --timed --dry-run
+  python doe_runner.py --config <doe> --case 1DOF_150Hz --timed --dry-run
       Simula el modo timed sin ejecutar Nessy2m (verifica rutas y configuración).
 
 FLUJO TÍPICO CON TIMING
 -----------------------
-  1. Editar NB_PROC en CONFIG (ej. NB_PROC = 4 para 4 casos en paralelo)
-  2. python doe_runner.py --case <caso> --timed          # simular + medir tiempos
-  3. python doe_runner.py --case <caso> --command extract  # extraer (lee wall_time_s.txt)
+  1. Poner nb_proc: 4 en el YAML (4 casos en paralelo)
+  2. python doe_runner.py --config <doe> --case <caso> --timed          # simular + medir tiempos
+  3. python doe_runner.py --config <doe> --case <caso> --command extract  # extraer (lee wall_time_s.txt)
   4. python doe_plotter.py  --doe_name <DOE>             # ver figura de tiempo
 
 FLUJO PARA AÑADIR CASOS A UN DOE EXISTENTE
 --------------------------------------------
-  1. Cambiar DOE_NAME = "DOE_base_patch"  (nombre nuevo, para no chocar con n2m_sch)
-  2. Poner en DOE_FACTORIAL solo los N casos nuevos
-  3. python doe_runner.py --case <caso>                              # simular patch
-  4. python doe_runner.py --case <caso> --command extract            # extraer patch
-  5. python doe_runner.py --command merge \
+  1. Un YAML nuevo (extends: base) con doe_name: DOE_base_patch  (nombre nuevo, para no chocar con n2m_sch)
+  2. Declarar en ese YAML solo los N casos nuevos
+  3. python doe_runner.py --config <doe> --case <caso>                              # simular patch
+  4. python doe_runner.py --config <doe> --case <caso> --command extract            # extraer patch
+  5. python doe_runner.py --config <doe> --command merge \
          --doe_name DOE_base --merge_from DOE_base_patch             # fusionar
   6. python doe_plotter.py  --doe_name DOE_base                      # visualizar todo
 
 FLUJO TÍPICO
 ------------
-  1. Editar sección CONFIG del script (DOE_NAME, DOE_FACTORIAL, DOE_MODE...)
-  2. python doe_runner.py --case <caso>                        # simular
-  3. python doe_runner.py --case <caso> --command extract      # extraer
+  1. Crear o editar el YAML del DOE en configs/ (doe_name, mode, variables...)
+  2. python doe_runner.py --config <doe> --case <caso>                        # simular
+  3. python doe_runner.py --config <doe> --case <caso> --command extract      # extraer
   4. python doe_plotter.py  --doe_name <DOE>                   # visualizar
   5. python doe_selector.py --doe_name <DOE>                   # explorar
 """
@@ -863,9 +1047,15 @@ FLUJO TÍPICO
         epilog=epilog,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--case", default="1DOF_150Hz", help="Nombre del subdirectorio del caso")
+    parser.add_argument("--case", default=None, help="Subdirectorio del caso (default: case del YAML o 1DOF_150Hz)")
+    parser.add_argument("--config", nargs="+", default=None, metavar="YAML",
+                        help="Config(s) del DOE: ruta o nombre corto de configs/ (varias = en secuencia); gana sobre CONFIG_FILE")
+    parser.add_argument("--help-config", action="store_true",
+                        help="Ayuda completa de la configuracion YAML (claves, defaults, ap_ref, herencia, precedencia) y sale")
+    parser.add_argument("--list-configs", action="store_true", help="Lista los YAML de configs/ (DOE, modo, casos, spin, Ap) y sale")
+    parser.add_argument("--yes", action="store_true", help="No pedir confirmacion (confirma tambien reemplazar un DOE existente)")
     parser.add_argument("--case_dir", default=None, help="Ruta completa al caso (opcional)")
-    parser.add_argument("--n2m_bat", default=DEFAULT_N2M_BAT, help="Ruta al n2m.bat")
+    parser.add_argument("--n2m_bat", default=None, help="Ruta al n2m.bat (default: n2m_bat del YAML o DEFAULT_N2M_BAT)")
     parser.add_argument("--command", default="n2m_sch",
                         choices=["n2m_sch", "nessy2m", "pp_creat", "pp_init", "extract", "merge"])
     parser.add_argument("--doe_name", default=None,
@@ -888,6 +1078,40 @@ FLUJO TÍPICO
 
 def main():
     args = parse_args()
+    if args.help_config:
+        print(CONFIG_HELP)
+        return
+    if args.list_configs:
+        list_configs()
+        return
+
+    # 0. Config(s) YAML (--config > CONFIG_FILE > variables del script)
+    names = args.config or ([CONFIG_FILE] if isinstance(CONFIG_FILE, str) else list(CONFIG_FILE or []))
+    try:
+        paths = [find_config(n) for n in names]
+    except ValueError as exc:
+        log.error("%s", exc)
+        sys.exit(1)
+    if not paths:
+        avail = sorted(os.path.splitext(f)[0] for f in os.listdir(CONFIGS_DIR)) if os.path.isdir(CONFIGS_DIR) else []
+        log.error("Falta la configuracion del DOE: usa --config <nombre> (o CONFIG_FILE en el script).\n"
+                  "  Disponibles en %s: %s\n  Ver detalle: python doe_runner.py --list-configs\n  Ayuda de la configuracion: python doe_runner.py --help-config", CONFIGS_DIR, avail)
+        sys.exit(1)
+    if len(paths) > 1:
+        _run_batch(paths, args)
+        return
+    cfg_path = paths[0] if paths else None
+    cfg = {}
+    if cfg_path:
+        try:
+            cfg = load_config(cfg_path)
+        except (ValueError, OSError, ImportError) as exc:
+            log.error("Config invalida:\n%s", exc)
+            sys.exit(1)
+        apply_config(cfg)
+        log.info("Config: %s", os.path.abspath(cfg_path))
+    args.case = args.case or cfg.get("case") or "1DOF_150Hz"
+    args.n2m_bat = args.n2m_bat or cfg.get("n2m_bat") or DEFAULT_N2M_BAT
 
     # 1. Resolver directorio del caso
     case_dir = os.path.abspath(args.case_dir) if args.case_dir else os.path.join(SCRIPT_DIR, args.case)
@@ -935,23 +1159,21 @@ def main():
 
     # 2. Generar casos DOE
     lst_var, val_var = build_doe_cases(DOE_MODE)
-    log.info("DOE modo=%s | casos=%d | salida=%s", DOE_MODE, len(val_var), DOE_NAME)
 
-    # Confirmar si el DOE ya existe: preguntar si desea reemplazar
+    # Resumen + confirmacion (cubre tambien reemplazar un DOE que ya existe)
     doe_name_eff = args.doe_name if args.doe_name else DOE_NAME
     doe_dir = os.path.join(os.path.dirname(case_dir), doe_name_eff)
-    if os.path.exists(doe_dir):
-        if args.dry_run:
-            log.info("DOE existente detectado (dry-run): %s — se ignorará reemplazo.", doe_dir)
-        else:
-            resp = input(
-                f"DOE directory '{doe_dir}' already exists.\n"
-                f"Case directory: '{case_dir}'\n"
-                "Replace the DOE directory (this will overwrite its contents)? [y/N]: "
-            ).strip().lower()
-            if resp not in ("y", "yes"):
-                log.info("Usuario canceló la operación. No se reemplazará: %s", doe_dir)
-                return
+    print("\n" + describe(doe_dir, case_dir) + "\n")
+    if args.dry_run:
+        if os.path.exists(doe_dir):
+            log.info("DOE existente detectado (dry-run): %s - se ignora el reemplazo.", doe_dir)
+    else:
+        if not args.yes and input("Lanzar este DOE? [y/N]: ").strip().lower() not in ("y", "yes"):
+            log.info("Cancelado: no se lanzo nada.")
+            return
+        if os.path.exists(doe_dir):
+            shutil.rmtree(doe_dir)
+            log.info("DOE existente borrado: %s", doe_dir)
 
     # 3. Cargar entorno Nessy2m (necesario para ambos modos)
     env = load_n2m_env(args.n2m_bat)
@@ -966,9 +1188,10 @@ def main():
     if args.timed:
         nb_workers = args.workers if args.workers is not None else NB_PROC
         log.info("Workers configurados: %d", nb_workers)
-        run_doe_timed(lst_var, val_var, DOE_NAME, case_dir,
+        run_doe_timed(lst_var, val_var, doe_name_eff, case_dir,
                       command_script, env, python_exe,
                       SCRIPT_DIR, nb_workers, args.dry_run)
+        _keep_config(cfg_path, doe_dir, args.dry_run)
         if args.auto_extract:
             extract_doe_results(doe_dir, os.path.basename(case_dir),
                                 DOE_EXTRACT_SIGNALS, dry_run=args.dry_run)
@@ -981,7 +1204,7 @@ def main():
     log.info("Backup de param.py guardado en: %s", param_backup)
 
     try:
-        write_param(param_path, lst_var, val_var, DOE_NAME, NB_PROC)
+        write_param(param_path, lst_var, val_var, doe_name_eff, NB_PROC)
         log.info("param.py actualizado con %d casos.", len(val_var))
 
         # 5. Ejecutar n2m_sch
@@ -997,6 +1220,7 @@ def main():
         log.error("Comando termino con error: %d", rc)
         sys.exit(rc)
     log.info("Completado exitosamente.")
+    _keep_config(cfg_path, doe_dir, args.dry_run)
 
     if args.auto_extract:
         extract_doe_results(doe_dir, os.path.basename(case_dir),

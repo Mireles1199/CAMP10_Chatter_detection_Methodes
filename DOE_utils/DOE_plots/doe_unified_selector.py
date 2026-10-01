@@ -97,6 +97,10 @@ from doe_noise_plotter import (
 
 # estilo article-plot-style (skill) -- fuente unica de verdad para figuras de exportacion
 import plot_style
+try:
+    import sld_model  # pyright: ignore[reportMissingImports]  # lóbulos de estabilidad (necesita sld_tools); sin él el visor funciona igual
+except Exception:
+    sld_model = None
 
 _cfg_estilo()
 
@@ -221,13 +225,13 @@ def detect_h5_type(h5_path: str) -> str:
 #   wall_time_s: float|None
 # ==============================================================================
 
-_SIGNAL_NAMES = {"Axial_disp", "Axial_vel"}
+_SIGNAL_NAMES = {"Axial_disp", "Axial_vel", "Axial_acc"}   # acc solo si el archivo la trae
 _FORCE_NAMES = {"res_R_p"}
 _OUT_DEFLEX_GROUP = "Out_Deflex"
 _OUT_DEFLEX_NAMES = {"Axial_disp_out_deflex", "Axial_vel_out_deflex"}
 
 _LINE_TARGET_ALL = "Todas (tab activo)"
-_LINE_TARGETS = [_LINE_TARGET_ALL, "Señales: disp", "Señales: vel",
+_LINE_TARGETS = [_LINE_TARGET_ALL, "Señales: disp", "Señales: vel", "Señales: acc",
                  "Fuerzas: F1", "Fuerzas: F2", "Fuerzas: F3",
                  "Deflex: disp", "Deflex: vel", "I_t"]
 _LINE_COLORS = ["#e6194b", "#3cb44b", "#4363d8", "#f58231", "#911eb4",
@@ -577,6 +581,24 @@ def _fmt_val(v) -> str:
         return str(v)
 
 
+def _exact(v) -> str:
+    """Valor tal cual está guardado en el .h5, sin redondear: de un número, la cadena más corta que lo
+    reproduce exactamente (repr); de un vector, todos sus elementos (hasta 50)."""
+    if isinstance(v, bytes):
+        return v.decode("utf-8", "replace")
+    if isinstance(v, (bool, np.bool_)):
+        return str(bool(v))
+    if isinstance(v, (int, np.integer)):
+        return str(int(v))
+    if isinstance(v, (float, np.floating)):
+        return repr(float(v))
+    if isinstance(v, np.ndarray):
+        if v.size > 50:
+            return f"array{v.shape} {v.dtype}"
+        return "[" + ", ".join(_exact(x) for x in v.ravel().tolist()) + "]"
+    return str(v)
+
+
 def _col_header(key: str) -> str:
     return key.replace("$", "")
 
@@ -783,6 +805,15 @@ def _make_summary_entries(h5_type: str, cases: list, h5_path: str):
         entries.append((f"SNR_mod_dB vs {_col_header(pk)}", plot_snr_vs_param,
                         {"cases": cases, "param_key": pk, "out_dir": None}))
 
+    # SLD: casos del DOE (spin_rate, Ap) sobre los lóbulos de cada preset de sld_model.MODELS
+    if sld_model and h5_type in (TYPE_DOE_RESULTS, TYPE_DOE_INDICATOR):
+        for p, m in sld_model.MODELS.items():
+            entries.append((f"SLD — {p} [todos los modos]", sld_model.plot_sld, {"cases": cases, "preset": p}))
+            if len(m["modes"]) > 1:
+                for j, f in enumerate(sorted(x[0] for x in m["modes"])):
+                    entries.append((f"SLD — {p} [modo {f:.0f} Hz]", sld_model.plot_sld,
+                                    {"cases": cases, "preset": p, "seg": j}))
+
     return entries
 
 
@@ -869,13 +900,22 @@ def _it_plot_yscale(runs_to_show: List[str]) -> str:
 # ==============================================================================
 
 class DoeSelectorUnifiedApp:
-    """Ventana principal: Treeview + panel central (señales/I_t) + summary."""
+    """Visor de un .h5 del DOE: Treeview + panel central (señales/I_t) + summary.
+
+    `container`: frame donde vive (una pestaña de TabbedViewer); por defecto `root` (toda la ventana).
+    `on_open`: si se da, el botón de abrir llama a esto (TabbedViewer abre el archivo en OTRA pestaña)
+    en vez de reemplazar este visor.
+    """
 
     _LEFT_WIDTH   = 420
     _CENTER_WIDTH = 860
+    _RIGHT_WIDTH  = 480
 
-    def __init__(self, root: tk.Tk, h5_path: str) -> None:
+    def __init__(self, root: tk.Tk, h5_path: str, container: Optional[tk.Widget] = None,
+                 on_open=None) -> None:
         self.root     = root
+        self.container = container if container is not None else root
+        self._on_open  = on_open
         self._fig_holder: dict = {}    # slot → Figure para Guardar PNG
         self._cbar       = None
         self._force_cbar = None
@@ -919,28 +959,31 @@ class DoeSelectorUnifiedApp:
 
     # ── Construcción de UI ──────────────────────────────────────────────────────────────
     def _build_ui(self) -> None:
-        self.root.title(
-            f"{_TYPE_LABELS.get(self.h5_type, self.h5_type)}  —  "
-            f"{os.path.basename(self.h5_path)}"
-        )
-        self.root.minsize(1100, 580)
-        self.root.state("zoomed")
+        if self.container is self.root:   # dueño de toda la ventana (en una pestaña lo hace TabbedViewer)
+            self.root.title(
+                f"{_TYPE_LABELS.get(self.h5_type, self.h5_type)}  —  "
+                f"{os.path.basename(self.h5_path)}"
+            )
+            self.root.minsize(1100, 580)
+            self.root.state("zoomed")
 
         self._has_deflex = (
             self.h5_type == TYPE_DOE_RESULTS
             and any(bool(c.get("out_deflex")) for c in self.cases)
         )
+        self._has_acc = any("Axial_acc" in c.get("signals", {}) for c in self.cases)
         self._build_topbar()
         self._build_layout()
         self._build_left_panel()
         self._build_center_panel()
+        self._build_right_panel()
 
     def _build_topbar(self) -> None:
-        bar = ttk.Frame(self.root, padding=(4, 2))
+        bar = ttk.Frame(self.container, padding=(4, 2))
         bar.pack(side=tk.TOP, fill=tk.X)
 
-        ttk.Button(bar, text="📂  Open another .h5",
-                   command=self._open_file).pack(side=tk.LEFT, padx=4)
+        if self._on_open is None:   # en una pestaña, el botón de abrir es el de la barra de TabbedViewer
+            ttk.Button(bar, text="📂  Open .h5", command=self._open_file).pack(side=tk.LEFT, padx=4)
         self._type_label = ttk.Label(
             bar,
             text=f"Type: {_TYPE_LABELS.get(self.h5_type, self.h5_type)}  |  "
@@ -948,6 +991,7 @@ class DoeSelectorUnifiedApp:
             foreground="#444444", font=("Arial", 9),
         )
         self._type_label.pack(side=tk.LEFT, padx=8)
+        ttk.Button(bar, text="🔍  Inspect", command=self._open_inspector).pack(side=tk.LEFT, padx=4)
 
         ttk.Separator(bar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6, pady=2)
         self._persistent_color_var = tk.BooleanVar(value=True)
@@ -1004,7 +1048,7 @@ class DoeSelectorUnifiedApp:
         self._label_key_combo.bind("<<ComboboxSelected>>", self._on_label_key_change)
         self._refresh_label_key_combo()
 
-        bar2 = ttk.Frame(self.root, padding=(4, 2))
+        bar2 = ttk.Frame(self.container, padding=(4, 2))
         bar2.pack(side=tk.TOP, fill=tk.X)
         ttk.Label(bar2, text="line x=", font=("Arial", 8)).pack(side=tk.LEFT)
         self._vline_entry = ttk.Entry(bar2, width=8)
@@ -1075,7 +1119,7 @@ class DoeSelectorUnifiedApp:
             current = self._nb.select()
             if hasattr(self, "_sig_tab") and current == str(self._sig_tab):
                 return (self._plot_signals,
-                        {"Señales: disp": self.ax_disp, "Señales: vel": self.ax_vel},
+                        {n: ax for _, ax, n in self._sig_axes()},
                         self.sig_canvas)
             if hasattr(self, "_force_tab") and current == str(self._force_tab):
                 return (self._plot_forces,
@@ -1090,7 +1134,7 @@ class DoeSelectorUnifiedApp:
                         self.deflex_canvas)
         elif hasattr(self, "sig_canvas"):
             return (self._plot_signals,
-                    {"Señales: disp": self.ax_disp, "Señales: vel": self.ax_vel},
+                    {n: ax for _, ax, n in self._sig_axes()},
                     self.sig_canvas)
         return None, {}, None
 
@@ -1203,7 +1247,7 @@ class DoeSelectorUnifiedApp:
 
     def _build_layout(self) -> None:
         self.paned = tk.PanedWindow(
-            self.root, orient=tk.HORIZONTAL,
+            self.container, orient=tk.HORIZONTAL,
             sashwidth=5, sashrelief=tk.RAISED,
         )
         self.paned.pack(fill=tk.BOTH, expand=True, padx=4, pady=(0, 4))
@@ -1211,6 +1255,30 @@ class DoeSelectorUnifiedApp:
         self.center_frame = ttk.Frame(self.paned)
         self.paned.add(self.left_frame,   minsize=240, width=self._LEFT_WIDTH)
         self.paned.add(self.center_frame, minsize=400, width=self._CENTER_WIDTH)
+        self.right_frame  = ttk.Frame(self.paned)
+        self.paned.add(self.right_frame,  minsize=300, width=self._RIGHT_WIDTH)
+
+    # ── PANEL DERECHO: figuras de resumen (convergencia, t_d, SLD, ...) ─────────────
+    def _build_right_panel(self) -> None:
+        rf  = self.right_frame
+        top = ttk.Frame(rf, padding=(4, 4))
+        top.pack(fill=tk.X)
+        # height: el desplegable de Tk muestra 10 filas por defecto y escondía las últimas (las SLD)
+        # solo las SLD cuando las hay; en los demás tipos de archivo, todas las figuras de resumen
+        labels = [l for l in self._summary_labels if l.startswith("SLD")] or self._summary_labels
+        self._sum_combo = ttk.Combobox(top, values=labels, state="readonly",
+                                       height=max(10, min(len(labels), 30)))
+        if labels:
+            self._sum_combo.current(0)
+        self._sum_combo.pack(fill=tk.X)
+        btns = ttk.Frame(top)
+        btns.pack(fill=tk.X, pady=(4, 0))
+        ttk.Button(btns, text="▶ Preview", command=self._refresh_summary).pack(side=tk.LEFT)
+        ttk.Button(btns, text="Save PNG", command=self._save_summary).pack(side=tk.LEFT, padx=4)
+        self._sum_toolbar_frame = ttk.Frame(rf)
+        self._sum_toolbar_frame.pack(fill=tk.X)
+        self._sum_canvas_frame = ttk.Frame(rf)
+        self._sum_canvas_frame.pack(fill=tk.BOTH, expand=True)
 
     # ── PANEL IZQUIERDO ────────────────────────────────────────────────────────────
     def _build_left_panel(self) -> None:
@@ -1438,6 +1506,7 @@ class DoeSelectorUnifiedApp:
         self._sb_y.grid(row=0, column=1, sticky="ns")
         self._sb_x.grid(row=1, column=0, sticky="ew")
         self.tree.bind("<Double-1>", lambda _: self._plot_active_tab())
+        self.tree.bind("<<TreeviewSelect>>", lambda _e: self._refresh_inspector(), add="+")   # inspector en vivo
 
         self._populate_tree(self._filtered_cases())
 
@@ -1691,11 +1760,20 @@ class DoeSelectorUnifiedApp:
         self.ax_force_3.set_xlabel("Time (s)", fontsize=14)
         self.force_fig.suptitle("Select cases and press  Plot ▶")
 
+    def _sig_axes(self) -> list:
+        """[(señal, Axes, nombre de target)] de la pestaña Signals; la aceleración solo si el archivo la trae."""
+        out = [("Axial_disp", self.ax_disp, "Señales: disp"), ("Axial_vel", self.ax_vel, "Señales: vel")]
+        if getattr(self, "ax_acc", None) is not None:
+            out.append(("Axial_acc", self.ax_acc, "Señales: acc"))
+        return out
+
     def _build_signal_canvas(self, parent: tk.Frame) -> None:
-        """Crea los dos subplots (Axial_disp + Axial_vel) embebidos."""
+        """Crea los subplots embebidos: Axial_disp + Axial_vel (+ Axial_acc si algún caso la trae)."""
+        n = 3 if getattr(self, "_has_acc", False) else 2
         self.sig_fig     = Figure(constrained_layout=True)
-        self.ax_disp     = self.sig_fig.add_subplot(2, 1, 1)
-        self.ax_vel      = self.sig_fig.add_subplot(2, 1, 2, sharex=self.ax_disp)
+        self.ax_disp     = self.sig_fig.add_subplot(n, 1, 1)
+        self.ax_vel      = self.sig_fig.add_subplot(n, 1, 2, sharex=self.ax_disp)
+        self.ax_acc      = self.sig_fig.add_subplot(n, 1, 3, sharex=self.ax_disp) if n == 3 else None
         self._init_signal_axes()
 
         self.sig_canvas = FigureCanvasTkAgg(self.sig_fig, master=parent)
@@ -1845,15 +1923,14 @@ class DoeSelectorUnifiedApp:
         canvas_fig.draw()
 
     def _init_signal_axes(self) -> None:
-        self.ax_disp.set_ylabel(SIGNAL_YLABELS.get("Axial_disp", "Axial disp."), fontsize=14)
-        # self.ax_disp.grid(True, linestyle=":", color="#bfbfbf", linewidth=0.6, alpha=0.6)
-        self.ax_disp.grid(False)
-        self.ax_disp.tick_params(labelbottom=False, labelsize=12)
-        self.ax_vel.set_ylabel(SIGNAL_YLABELS.get("Axial_vel", "Axial vel."), fontsize=14)
-        self.ax_vel.set_xlabel("Time (s)", fontsize=14)
-        # self.ax_vel.grid(True, linestyle=":", color="#bfbfbf", linewidth=0.6, alpha=0.6)
-        self.ax_vel.grid(False)
-        self.ax_vel.tick_params(labelsize=12)
+        axes = self._sig_axes()
+        for k, (sig, ax, _) in enumerate(axes):
+            last = k == len(axes) - 1
+            ax.set_ylabel(SIGNAL_YLABELS.get(sig) or _channel_ylabel(sig), fontsize=14)
+            ax.grid(False)
+            ax.tick_params(labelbottom=last, labelsize=12)
+            if last:
+                ax.set_xlabel("Time (s)", fontsize=14)
         self.sig_fig.suptitle("Select cases and press  Plot ▶")
 
     def _init_It_axis(self) -> None:
@@ -1887,8 +1964,8 @@ class DoeSelectorUnifiedApp:
                 pass
             self._cbar = None
 
-        self.ax_disp.cla()
-        self.ax_vel.cla()
+        for _, ax, _n in self._sig_axes():
+            ax.cla()
 
         use_fixed = getattr(self, "_persistent_color_var", None)
         use_fixed = use_fixed.get() if use_fixed is not None else True
@@ -1938,7 +2015,7 @@ class DoeSelectorUnifiedApp:
             _ctrl_alp = self._ctrl_alpha_var.get() if hasattr(self, "_ctrl_alpha_var") else 1.0
             zo    = _ctrl_zo  if is_ctrl else (3 + ci)
             alpha = _ctrl_alp if is_ctrl else _alp_nc
-            for sig, ax in (("Axial_disp", self.ax_disp), ("Axial_vel", self.ax_vel)):
+            for sig, ax, _n in self._sig_axes():
                 data = c.get("signals", {}).get(sig) or c.get(sig)
                 if data is None:
                     continue
@@ -1947,24 +2024,22 @@ class DoeSelectorUnifiedApp:
                         alpha=alpha, label=lbl,
                         zorder=zo, rasterized=True)
 
-        self.ax_disp.set_ylabel(SIGNAL_YLABELS.get("Axial_disp", "Axial disp."), fontsize=14)
-        # self.ax_disp.grid(False, linestyle="--", alpha=0.4)
-        self.ax_disp.grid(False)
-        self.ax_disp.tick_params(labelbottom=False, labelsize=12)
-        self.ax_disp.ticklabel_format(style="sci", axis="y", scilimits=(0, 0))
-        self.ax_vel.set_ylabel(SIGNAL_YLABELS.get("Axial_vel", "Axial vel."), fontsize=14)
-        self.ax_vel.set_xlabel("Time (s)", fontsize=14)
-        # self.ax_vel.grid(False, linestyle="--", alpha=0.4)
-        self.ax_vel.grid(False)
-        self.ax_vel.ticklabel_format(style="sci", axis="y", scilimits=(0, 0))
-        self.ax_vel.xaxis.set_major_formatter(
-            mticker.FuncFormatter(lambda x, _: f"{x:.3g}"))
+        axes_sig = self._sig_axes()
+        for k, (sig, ax, _n) in enumerate(axes_sig):
+            last = k == len(axes_sig) - 1
+            ax.set_ylabel(SIGNAL_YLABELS.get(sig) or _channel_ylabel(sig), fontsize=14)
+            ax.grid(False)
+            ax.tick_params(labelbottom=last, labelsize=12)
+            ax.ticklabel_format(style="sci", axis="y", scilimits=(0, 0))
+            if last:
+                ax.set_xlabel("Time (s)", fontsize=14)
+                ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:.3g}"))
 
         n = len(selected)
         lk_disp = _col_header(selected[0]["label_key"]) if selected else ""
         if n <= 12:
-            self.ax_disp.legend(fontsize=9, framealpha=0.7, loc="upper left")
-            self.ax_vel.legend(fontsize=9, framealpha=0.7, loc="upper left")
+            for _, ax, _n in axes_sig:
+                ax.legend(fontsize=9, framealpha=0.7, loc="upper left")
 
         # Colorbar horizontal — escala global (fijo) o sobre seleccionados (dinámico)
         if use_fixed:
@@ -1985,7 +2060,7 @@ class DoeSelectorUnifiedApp:
                 except Exception:
                     pass
             self._cbar = self.sig_fig.colorbar(
-                sm, ax=[self.ax_disp, self.ax_vel],
+                sm, ax=[ax for _, ax, _n in self._sig_axes()],
                 label=lk_disp, shrink=0.85,
                 orientation="horizontal", pad=0.08,
             )
@@ -1994,7 +2069,7 @@ class DoeSelectorUnifiedApp:
             self._mark_values_on_colorbar(self._cbar, _cbar_marks)
 
         self.sig_fig.suptitle(f"{lk_disp}  —  {n} case(s)")
-        self._draw_reference_lines({"Señales: disp": self.ax_disp, "Señales: vel": self.ax_vel})
+        self._draw_reference_lines({n: ax for _, ax, n in self._sig_axes()})
         self.sig_canvas.draw()
         self.sig_toolbar.update()  # refresca "Home" a la vista actual (con las lineas nuevas incluidas)
         self._plotted_iids = set(self.tree.selection())
@@ -2225,8 +2300,8 @@ class DoeSelectorUnifiedApp:
             except Exception:
                 pass
             self._cbar = None
-        self.ax_disp.cla()
-        self.ax_vel.cla()
+        for _, ax, _n in self._sig_axes():
+            ax.cla()
         self._init_signal_axes()
         self.sig_canvas.draw()
         self._plotted_iids.clear()
@@ -2363,7 +2438,158 @@ class DoeSelectorUnifiedApp:
         self._plotted_iids = set(self.tree.selection())
 
     # ── PLOT DE RESUMEN ──────────────────────────────────────────────────────────
+    # ── INSPECTOR: valores exactos de los atributos de los casos seleccionados ─────────
+    def _inspector_data(self):
+        """([grupos], {atributo: {grupo: texto exacto}}, {atributo: tipo}) de la selección actual,
+        leído DIRECTO del .h5 (no de la copia en memoria ni de la tabla, que redondea a 3 cifras)."""
+        groups = []
+        for iid in self.tree.selection():
+            c = self._iid_to_case.get(iid)
+            if c is not None and c.get("group") not in groups:
+                groups.append(c["group"])
+        rows: Dict[str, Dict[str, str]] = {}
+        types: Dict[str, str] = {}
+        with h5py.File(self.h5_path, "r") as f:
+            for g in groups:
+                if g not in f:
+                    continue
+                grp = f[g]
+                items = [("", dict(grp.attrs))]
+                if self._insp_runs.get():   # atributos de cada corrida de indicador (pp_*, meta_*, ...)
+                    for rn in grp.keys():
+                        sub = grp[rn]
+                        if isinstance(sub, h5py.Group) and "I_t" in sub and "t" in sub:
+                            items.append((rn + " ▸ ", dict(sub.attrs)))
+                for prefix, attrs in items:
+                    for k, v in attrs.items():
+                        key = prefix + str(k)
+                        rows.setdefault(key, {})[g] = _exact(v)
+                        types.setdefault(key, type(v).__name__ if not hasattr(v, "dtype") else str(v.dtype))
+        return groups, rows, types
+
+    def _open_inspector(self) -> None:
+        win = getattr(self, "_inspector", None)
+        if win is not None and win.winfo_exists():
+            win.lift()
+            self._refresh_inspector()
+            return
+        win = tk.Toplevel(self.root)
+        win.title(f"Inspect  —  {os.path.basename(self.h5_path)}")
+        win.geometry("980x560")
+        self._inspector = win
+        self._insp_diff = tk.BooleanVar(value=False)
+        self._insp_runs = tk.BooleanVar(value=False)
+        self._insp_filter = tk.StringVar()
+
+        bar = ttk.Frame(win, padding=(6, 4))
+        bar.pack(side=tk.TOP, fill=tk.X)
+        ttk.Label(bar, text="Filter:").pack(side=tk.LEFT)
+        ent = ttk.Entry(bar, textvariable=self._insp_filter, width=22)
+        ent.pack(side=tk.LEFT, padx=(2, 10))
+        self._insp_filter.trace_add("write", lambda *_: self._refresh_inspector())
+        self._insp_diff_cb = ttk.Checkbutton(bar, text="Only attributes that differ", variable=self._insp_diff,
+                                             command=self._refresh_inspector)
+        self._insp_diff_cb.pack(side=tk.LEFT, padx=4)
+        if any(c.get("runs") for c in self.cases):
+            ttk.Checkbutton(bar, text="Include indicator runs", variable=self._insp_runs,
+                            command=self._refresh_inspector).pack(side=tk.LEFT, padx=4)
+        ttk.Button(bar, text="Copy table", command=self._inspector_copy).pack(side=tk.RIGHT, padx=4)
+        self._insp_status = ttk.Label(win, foreground="#555555", padding=(8, 2))
+        self._insp_status.pack(side=tk.BOTTOM, fill=tk.X)
+
+        frame = ttk.Frame(win)
+        frame.pack(fill=tk.BOTH, expand=True)
+        frame.grid_rowconfigure(0, weight=1)
+        frame.grid_columnconfigure(0, weight=1)
+        self._insp_tree = ttk.Treeview(frame, show="headings", selectmode="extended")
+        sy = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=self._insp_tree.yview)
+        sx = ttk.Scrollbar(frame, orient=tk.HORIZONTAL, command=self._insp_tree.xview)
+        self._insp_tree.configure(yscrollcommand=sy.set, xscrollcommand=sx.set)
+        self._insp_tree.grid(row=0, column=0, sticky="nsew")
+        sy.grid(row=0, column=1, sticky="ns")
+        sx.grid(row=1, column=0, sticky="ew")
+        self._insp_tree.tag_configure("diff", background="#fff3b0")
+        self._insp_tree.tag_configure("run", foreground="#555555")
+        self._insp_tree.bind("<Double-1>", self._inspector_copy_cell)
+        win.bind("<Control-c>", lambda _e: self._inspector_copy())
+        win.protocol("WM_DELETE_WINDOW", self._close_inspector)
+        self._refresh_inspector()
+
+    def _close_inspector(self) -> None:
+        win = getattr(self, "_inspector", None)
+        self._inspector = None
+        if win is not None:
+            win.destroy()
+
+    def _refresh_inspector(self) -> None:
+        win = getattr(self, "_inspector", None)
+        if win is None or not win.winfo_exists():
+            return
+        groups, rows, types = self._inspector_data()
+        multi = len(groups) > 1
+        self._insp_diff_cb.state(["!disabled"] if multi else ["disabled"])
+        cols = ["attribute", "type"] + groups
+        tv = self._insp_tree
+        tv.delete(*tv.get_children())
+        tv.configure(columns=cols)
+        tv.heading("attribute", text="attribute")
+        tv.column("attribute", width=230, minwidth=120, stretch=False, anchor=tk.W)
+        tv.heading("type", text="type")
+        tv.column("type", width=70, minwidth=50, stretch=False, anchor=tk.W)
+        for g in groups:
+            tv.heading(g, text=g)
+            tv.column(g, width=190, minwidth=90, stretch=True, anchor=tk.W)
+
+        flt = self._insp_filter.get().strip().lower()
+        shown = ndiff = 0
+        # parámetros del DOE ($...$) primero, luego el resto; las corridas de indicador al final
+        for key in sorted(rows, key=lambda k: (" ▸ " in k, not k.startswith("$"), k)):
+            vals = [rows[key].get(g, "—") for g in groups]
+            differs = multi and len(set(vals)) > 1
+            ndiff += differs
+            if (flt and flt not in key.lower()) or (self._insp_diff.get() and multi and not differs):
+                continue
+            tags = (["diff"] if differs else []) + (["run"] if " ▸ " in key else [])
+            tv.insert("", tk.END, values=[key, types.get(key, "")] + vals, tags=tags)
+            shown += 1
+        if not groups:
+            msg = "Select one or more cases in the table to see their exact attributes."
+        else:
+            msg = (f"{len(groups)} case(s) · {shown}/{len(rows)} attributes shown"
+                   + (f" · {ndiff} differ (highlighted)" if multi else "")
+                   + "   |   values exactly as stored in the .h5 · double-click copies a value · Ctrl+C copies the table")
+        self._insp_status.config(text=msg)
+
+    def _inspector_text(self) -> str:
+        tv = self._insp_tree
+        head = [tv.heading(c, "text") for c in tv["columns"]]
+        lines = ["\t".join(head)] + ["\t".join(str(x) for x in tv.item(i, "values")) for i in tv.get_children()]
+        return "\n".join(lines)
+
+    def _inspector_copy(self) -> None:
+        self._inspector.clipboard_clear()
+        self._inspector.clipboard_append(self._inspector_text())
+        self._insp_status.config(text="Table copied to the clipboard (tab-separated: paste into Excel).")
+
+    def _inspector_copy_cell(self, event) -> None:
+        tv = self._insp_tree
+        row, col = tv.identify_row(event.y), tv.identify_column(event.x)
+        if not row or not col:
+            return
+        val = str(tv.item(row, "values")[int(col[1:]) - 1])
+        self._inspector.clipboard_clear()
+        self._inspector.clipboard_append(val)
+        self._insp_status.config(text=f"Copied: {val}")
+
+    def _sync_globals(self) -> None:
+        """doe_plotter.LABEL_KEY es global del modulo (lo usan las figuras de convergencia): con varias
+        pestañas abiertas se fija al de ESTE archivo al activar la pestaña y antes de cada figura de resumen."""
+        import doe_plotter as _dp
+        if self.cases:
+            _dp.LABEL_KEY = self.cases[0].get("label_key", _dp.LABEL_KEY)
+
     def _refresh_summary(self) -> None:
+        self._sync_globals()
         if not self._summary_entries:
             return
         choice = self._sum_combo.get()
@@ -2392,7 +2618,8 @@ class DoeSelectorUnifiedApp:
                                        parent=self.root)
                 return
 
-            fig.set_size_inches(4.5, 4.5)
+            if not getattr(fig, "_keep_size", False):   # las SLD traen su FIGSIZE x FIGSCALE
+                fig.set_size_inches(4.5, 4.5)
             _embed_figure(fig, self._sum_canvas_frame,
                           self._sum_toolbar_frame, self._fig_holder, "summary")
 
@@ -2413,13 +2640,21 @@ class DoeSelectorUnifiedApp:
         fname   = _sanitize(label) + ".png"
         path    = os.path.join(out_dir, fname)
         try:
+            # el lienzo Tk ajusta la figura al widget: las SLD vuelven a su FIGSIZE x FIGSCALE al guardar
+            shown = fig.get_size_inches().copy()
+            if getattr(fig, "_keep_size", None):
+                fig.set_size_inches(*fig._keep_size, forward=False)
             fig.savefig(path, dpi=300, bbox_inches="tight")
+            fig.set_size_inches(*shown, forward=False)
             messagebox.showinfo("Saved", f"Figure saved to:\n{path}", parent=self.root)
         except Exception as exc:
             messagebox.showerror("Error saving", str(exc), parent=self.root)
 
     # ── ABRIR ARCHIVO ─────────────────────────────────────────────────────────────
     def _open_file(self) -> None:
+        if self._on_open is not None:   # en una pestaña: el archivo nuevo va a OTRA pestaña
+            self._on_open()
+            return
         path = filedialog.askopenfilename(
             parent=self.root,
             title="Open DOE HDF5 file",
@@ -2440,7 +2675,7 @@ class DoeSelectorUnifiedApp:
             return
 
         # Rebuild UI
-        for w in self.root.winfo_children():
+        for w in self.container.winfo_children():
             try:
                 w.destroy()
             except Exception:
@@ -2596,9 +2831,11 @@ class ReferenceViewerApp:
     después) sin reabrir el diálogo de archivo.
     """
 
-    def __init__(self, root: tk.Tk, h5_path: str, h5_type: str, container: Optional[tk.Widget] = None) -> None:
+    def __init__(self, root: tk.Tk, h5_path: str, h5_type: str, container: Optional[tk.Widget] = None,
+                 on_open=None) -> None:
         self.root = root
         self.container = container if container is not None else root
+        self._on_open = on_open   # en TabbedViewer: abrir un archivo agrega una pestaña
         self.h5_path = h5_path
         self.h5_type = h5_type
 
@@ -2614,6 +2851,9 @@ class ReferenceViewerApp:
 
     # ── ABRIR ARCHIVO (comun a las dos vistas) ────────────────────────────────
     def _open_file(self) -> None:
+        if self._on_open is not None:
+            self._on_open()
+            return
         paths = filedialog.askopenfilenames(
             parent=self.root, title="Open DOE HDF5 file(s) -- select several for a tab per file",
             filetypes=[("HDF5 files", "*.h5 *.hdf5"), ("All files", "*.*")],
@@ -2827,7 +3067,8 @@ class ReferenceViewerApp:
 
         bar = ttk.Frame(self.container, padding=(4, 2))
         bar.pack(side=tk.TOP, fill=tk.X)
-        ttk.Button(bar, text="📂  Open another .h5", command=self._open_file).pack(side=tk.LEFT, padx=4)
+        if self._on_open is None:
+            ttk.Button(bar, text="📂  Open .h5", command=self._open_file).pack(side=tk.LEFT, padx=4)
         ttk.Label(
             bar, text=f"{len(self._index)} segments  |  {os.path.basename(self.h5_path)}",
             foreground="#444444", font=("Arial", 10),
@@ -3066,7 +3307,8 @@ class ReferenceViewerApp:
 
         bar = ttk.Frame(self.container, padding=(4, 2))
         bar.pack(side=tk.TOP, fill=tk.X)
-        ttk.Button(bar, text="📂  Open another .h5", command=self._open_file).pack(side=tk.LEFT, padx=4)
+        if self._on_open is None:
+            ttk.Button(bar, text="📂  Open .h5", command=self._open_file).pack(side=tk.LEFT, padx=4)
         ttk.Label(
             bar, text=f"{len(channels)} channels  |  {os.path.basename(self.h5_path)}",
             foreground="#444444", font=("Arial", 10),
@@ -3445,62 +3687,148 @@ class ReferenceViewerApp:
             self._combinado_stats_text.insert(tk.END, f"{item_label}\n  σ² = {var:.4g}\n\n")
 
 
-def _launch_app_for(root: tk.Tk, h5_paths) -> None:
-    """Destruye los widgets de `root` y construye la app apropiada.
+class TabbedViewer:
+    """Ventana con una pestaña por .h5: cada pestaña es un visor completo e independiente
+    (DoeSelectorUnifiedApp o ReferenceViewerApp, con su tabla, selección, figuras y resumen propios).
 
-    Con un solo archivo: comportamiento de siempre, una vista dueña de toda
-    la ventana. Con 2+: un Notebook con una pestaña por archivo, para poder
-    alternar entre variantes de reference_dataset.py (tramos, combinado, o
-    lo que se agregue después) sin reabrir el diálogo. Los formatos DOE
-    legacy no están pensados para embeberse en una pestaña -- si aparecen
-    mezclados con reference_dataset.py, esa pestaña muestra un aviso en vez
-    de la vista completa (abrilos solos si querés esa vista).
+    Abrir:  botón "Open .h5" de la barra de arriba o Ctrl+O -> el archivo va a una pestaña NUEVA.
+    Cerrar: botón "Close tab", Ctrl+W o clic con la rueda sobre la pestaña.
     """
+
+    def __init__(self, root: tk.Tk) -> None:
+        self.root = root
+        self.apps: Dict[str, Any] = {}   # nombre del frame de la pestaña -> visor
+        self._tab_base: Dict[str, str] = {}   # nombre del frame -> texto de la pestaña sin la marca de activa
+        self._last_dir: Optional[str] = None
+        for w in root.winfo_children():
+            try:
+                w.destroy()
+            except Exception:
+                pass
+        root.title("DOE viewer")
+        root.minsize(1100, 650)
+        root.state("zoomed")
+
+        bar = ttk.Frame(root, padding=(4, 2))
+        bar.pack(side=tk.TOP, fill=tk.X)
+        ttk.Button(bar, text="📂  Open .h5 (new tab)", command=self.open_dialog).pack(side=tk.LEFT, padx=4)
+        ttk.Button(bar, text="✖  Close tab", command=self.close_current).pack(side=tk.LEFT, padx=4)
+        self._hint = ttk.Label(bar, foreground="#666666",
+                               text="Ctrl+O open · Ctrl+W close · middle-click a tab to close it")
+        self._hint.pack(side=tk.LEFT, padx=12)
+
+        # rotulo con el archivo de la pestaña activa: en el tema de Windows las pestañas casi no se distinguen
+        self._banner = tk.Label(root, anchor="w", padx=10, pady=3, font=("Segoe UI", 10, "bold"))
+        self._banner.pack(side=tk.TOP, fill=tk.X)
+
+        self.nb = ttk.Notebook(root)
+        self.nb.pack(fill=tk.BOTH, expand=True)
+        self.nb.bind("<<NotebookTabChanged>>", self._on_tab_changed)
+        self.nb.bind("<Button-2>", self._on_middle_click)
+        root.bind("<Control-o>", lambda _e: self.open_dialog())
+        root.bind("<Control-w>", lambda _e: self.close_current())
+
+    @staticmethod
+    def _tab_text(path: str, h5_type: str) -> str:
+        # todos los resultados se llaman doe_results.h5 & cia: la carpeta del DOE es lo que los distingue
+        kind = {TYPE_REFERENCE_DATASET: "Segments", TYPE_REFERENCE_COMBINED: "Combined"}.get(
+            h5_type, _TYPE_LABELS.get(h5_type, h5_type).split("(")[0].strip())
+        where = os.path.basename(os.path.dirname(os.path.abspath(path)))
+        text = f"{kind} — {where}/{os.path.basename(path)}"
+        return text if len(text) <= 70 else text[:67] + "..."
+
+    def add(self, path: str):
+        """Carga `path` en una pestaña nueva y la activa. Si falla, avisa y no deja la pestaña a medias."""
+        path = os.path.abspath(path)
+        tab = ttk.Frame(self.nb)
+        self.root.config(cursor="watch")
+        self.root.update_idletasks()
+        try:
+            h5_type = detect_h5_type(path)
+            self._tab_base[str(tab)] = self._tab_text(path, h5_type)
+            self.nb.add(tab, text=self._tab_base[str(tab)])
+            if h5_type in (TYPE_REFERENCE_DATASET, TYPE_REFERENCE_COMBINED):
+                app = ReferenceViewerApp(self.root, path, h5_type, container=tab, on_open=self.open_dialog)
+            else:
+                app = DoeSelectorUnifiedApp(self.root, path, container=tab, on_open=self.open_dialog)
+        except Exception as exc:
+            try:
+                self.nb.forget(tab)
+            except tk.TclError:
+                pass
+            tab.destroy()
+            messagebox.showerror("Error loading", f"{os.path.basename(path)}:\n{type(exc).__name__}: {exc}",
+                                 parent=self.root)
+            return None
+        finally:
+            self.root.config(cursor="")
+        self.apps[str(tab)] = app
+        self._last_dir = os.path.dirname(path)
+        self.nb.select(tab)
+        self._on_tab_changed()
+        return app
+
+    def open_dialog(self) -> None:
+        paths = filedialog.askopenfilenames(
+            parent=self.root, title="Open .h5 (one tab per file)",
+            filetypes=[("HDF5 files", "*.h5 *.hdf5"), ("All files", "*.*")],
+            initialdir=self._last_dir,
+        )
+        for p in paths:
+            self.add(p)
+
+    def close_tab(self, tab_id: str) -> None:
+        app = self.apps.pop(str(tab_id), None)
+        getattr(app, "_close_inspector", lambda: None)()   # el inspector de esa pestaña se cierra con ella
+        self._tab_base.pop(str(tab_id), None)
+        try:
+            self.nb.forget(tab_id)
+            self.root.nametowidget(tab_id).destroy()   # libera la tabla, las figuras y los datos de ese .h5
+        except (tk.TclError, KeyError):
+            pass
+        self._on_tab_changed()
+
+    def close_current(self) -> None:
+        cur = self.nb.select()
+        if cur:
+            self.close_tab(cur)
+
+    def _on_middle_click(self, event) -> None:
+        try:
+            idx = self.nb.index(f"@{event.x},{event.y}")
+        except tk.TclError:
+            return
+        self.close_tab(self.nb.tabs()[idx])
+
+    def _on_tab_changed(self, _event=None) -> None:
+        cur = self.nb.select()
+        for tid in self.nb.tabs():   # "▶" delante del título de la pestaña activa
+            self.nb.tab(tid, text=("▶ " if tid == cur else "") + self._tab_base.get(tid, ""))
+        app = self.apps.get(cur) if cur else None
+        if app is None:
+            self.root.title("DOE viewer  —  Open a .h5 (Ctrl+O)")
+            self._banner.config(text="No file open  —  Ctrl+O to open a .h5", bg="#9e9e9e", fg="white")
+            return
+        self.root.title(f"{_TYPE_LABELS.get(app.h5_type, app.h5_type)}  —  {app.h5_path}")
+        self._banner.config(
+            text=f"▶  {_TYPE_LABELS.get(app.h5_type, app.h5_type).split('(')[0].strip()}   |   {app.h5_path}",
+            bg="#1f6feb", fg="white")
+        sync = getattr(app, "_sync_globals", None)
+        if sync is not None:
+            sync()
+
+
+def _launch_app_for(root: tk.Tk, h5_paths) -> "TabbedViewer":
+    """Construye la ventana con una pestaña por archivo (también con uno solo, para poder sumar más
+    después con "Open .h5"). Devuelve el TabbedViewer."""
     if isinstance(h5_paths, str):
         h5_paths = [h5_paths]
-    h5_paths = list(h5_paths)
-
-    for w in root.winfo_children():
-        try:
-            w.destroy()
-        except Exception:
-            pass
-
-    if len(h5_paths) == 1:
-        h5_path = h5_paths[0]
-        h5_type = detect_h5_type(h5_path)
-        root.title(f"{_TYPE_LABELS.get(h5_type, h5_type)}  —  {os.path.basename(h5_path)}")
-        root.minsize(1000, 600)
-        root.state("zoomed")
-        if h5_type in (TYPE_REFERENCE_DATASET, TYPE_REFERENCE_COMBINED):
-            ReferenceViewerApp(root, h5_path, h5_type)
-        else:
-            DoeSelectorUnifiedApp(root, h5_path)
-        return
-
-    root.title(f"{len(h5_paths)} files")
-    root.minsize(1100, 650)
-    root.state("zoomed")
-    nb = ttk.Notebook(root)
-    nb.pack(fill=tk.BOTH, expand=True)
-    _TAB_ICON = {TYPE_REFERENCE_DATASET: "〰️ Segments", TYPE_REFERENCE_COMBINED: "📊 Combined"}
+    viewer = TabbedViewer(root)
     for path in h5_paths:
-        h5_type = detect_h5_type(path)
-        tab = ttk.Frame(nb)
-        tab_label = _TAB_ICON.get(h5_type, _TYPE_LABELS.get(h5_type, h5_type).split("(")[0].strip())
-        nb.add(tab, text=f"{tab_label}  —  {os.path.basename(path)}")
-        if h5_type in (TYPE_REFERENCE_DATASET, TYPE_REFERENCE_COMBINED):
-            ReferenceViewerApp(root, path, h5_type, container=tab)
-        else:
-            ttk.Label(
-                tab, justify=tk.LEFT, padding=20, wraplength=520,
-                text=(
-                    f"'{os.path.basename(path)}' is a legacy DOE format "
-                    f"({_TYPE_LABELS.get(h5_type, h5_type)}) — it isn't built to be "
-                    "embedded in a tab. Open it by itself (single selection) to use "
-                    "its full view."
-                ),
-            ).pack()
+        viewer.add(path)
+    if len(h5_paths) > 1:
+        viewer.nb.select(0)   # empieza en el primero
+    return viewer
 
 
 # ==============================================================================
@@ -3523,7 +3851,7 @@ Ejemplos:
     )
     p.add_argument("--h5", default=None, metavar="PATH", nargs="+",
                    help="Ruta(s) al/los archivo(s) .h5 a abrir (omitir → FileDialog). "
-                        "2+ rutas -> una pestaña por archivo.")
+                        "Una pestaña por archivo; luego se pueden abrir más con 'Open .h5' o Ctrl+O.")
     return p.parse_args()
 
 

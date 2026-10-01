@@ -1,0 +1,28 @@
+# Lo que COMPARTEN todos los DOE de esta maquina. Cada DOE lo hereda con `extends: base`
+# y solo declara lo suyo (doe_name, mode y la tabla de variables).
+# Una seccion declarada en el DOE reemplaza la de aqui por completo (no se mezcla por dentro).
+# Referencia completa de claves y comentarios: ../doe_config_example.yaml
+# Las rutas relativas son respecto a este archivo; usa barras / tambien en Windows.
+# Este archivo no es un DOE (no tiene doe_name ni mode): solo se usa via extends.
+
+base_dir: D:/Thesis/03-Code_Storage/02-Altintlas_Nessy2m_Storage/2DOF_2modes   # carpeta que contiene el caso
+# Otras carpetas base que usaste antes (ponlas como base_dir en el DOE que las necesite):
+#   D:/Thesis/03-Code_Storage/02-Altintlas_Nessy2m_Storage/2DOF_Cone_New
+#   D:/Thesis/03-Code_Storage/02-Altintlas_Nessy2m_Storage/Chatter-Criteria/CAMP10_Chatter_detection_Methodes/Convergency_Simulation/
+#       0_Cinematique | 1_Detection_Limite_Lobes | 2_Sensitivity_Dexels | 3_Sensitivity_dt | 4_DOE_Data_Training_Tube
+
+case: 1DOF_150Hz            # subcarpeta del caso (--case en la CLI tiene prioridad)
+nb_proc: 1                  # procesos en paralelo
+n2m_bat: C:/Users/quiqu/OneDrive-ensam.eu/Desktop/Thesis/03-Code/01-Nessy2m/VP2025.1.0/VP2025.1.0/nessy2m/n2m.bat
+
+# Referencia para kappa = Ap / AP_REF:
+#   none          sin kappa
+#   manual        manual: Ap de referencia en metros (un valor para todo el DOE)
+#   model         model: preset de DOE_plots/sld_model.py -> Ap critico MINIMO del SLD (un valor, sin rpm)
+#   model_at_spin model: preset -> limite del SLD A LAS RPM de cada caso (cambia con $spin_rate$; en un
+#                 bolsillo entre lobulos el limite es infinito y kappa = 0)
+ap_ref:
+  mode: none
+
+extract_signals: [Axial_disp, Axial_vel, Axial_acc]
+force_signal: res_R_p

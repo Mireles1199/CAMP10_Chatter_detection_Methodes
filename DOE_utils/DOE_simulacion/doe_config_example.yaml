@@ -1,0 +1,61 @@
+# Configuracion de un DOE para doe_runner.py (referencia comentada de todas las claves).
+#
+# Uso (cualquiera de las dos):
+#   python doe_runner.py --config doe_config_example.yaml --case 1DOF_150Hz
+#   en doe_runner.py:    CONFIG_FILE = r"D:/.../doe_config_example.yaml"
+# Precedencia: --config  >  CONFIG_FILE. El script ya no lleva valores de DOE: todo se declara aqui.
+#
+# Obligatorias: base_dir, doe_name, mode (+ la tabla de ese modo), aqui o via `extends`.
+# Opcionales (con defaults): case, n2m_bat, nb_proc, ap_ref, extract_signals, force_signal.
+# Los DOE reales viven en configs/ (un YAML por DOE; base.yaml con lo comun); este es la referencia comentada.
+# Se valida antes de simular (listas de distinto largo, variables sin $...$, etc.) y se
+# copia como <DOE>/doe_config.yaml al terminar. Rutas relativas: respecto a este archivo.
+# Usa barras / en las rutas (tambien en Windows). Los numeros con exponente: 2.0e-4
+# (con punto); 2e-4 tambien se acepta pero PyYAML lo lee como texto.
+
+base_dir: D:/Thesis/03-Code_Storage/02-Altintlas_Nessy2m_Storage/2DOF_2modes   # carpeta que contiene el caso
+# case: 1DOF_150Hz         # subcarpeta del caso; --case en la CLI tiene prioridad
+# n2m_bat: C:/.../n2m.bat  # opcional; --n2m_bat tiene prioridad
+doe_name: Tube_2DOF_dexel_20e-5_dt_200_Spd_9990_Ap_17   # nombre de la carpeta de salida
+nb_proc: 1                 # procesos en paralelo
+
+# factorial | sweep | manual: la seccion con ese nombre es la que se usa
+mode: sweep
+
+# sweep: un caso por posicion. Las listas deben tener el MISMO largo;
+# un escalar se repite en todos los casos.
+sweep:
+  $Ap_start$:  [17.0e-3]     # lista: un caso por valor (varios: [5.0e-3, 9.0e-3, 17.0e-3])
+  $Ap_end$:    17.0e-3       # escalar: se repite
+  $spin_rate$: 9990.0
+  $f_tooth$:   0.05
+  $dxl_size$:  2.0e-4
+  $nb_dt_rev$: 200
+
+# factorial: producto cartesiano de todas las listas (sin usar mientras mode: sweep)
+factorial:
+  $Ap_start$:  [15.0e-3]
+  $Ap_end$:    [15.0e-3]
+  $spin_rate$: [12099.28]
+  $f_tooth$:   [0.05]
+  $nb_dt_rev$: [200]
+  $dxl_size$:  [4.3026e-3, 5.1631e-3, 6.0236e-3, 8.6052e-3]
+
+# manual: una fila por caso, en el orden de 'variables'
+manual:
+  variables: [$Ap_start$, $Ap_end$, $spin_rate$, $f_tooth$, $dxl_size$, $nb_dt_rev$]
+  values:
+    - [5.0e-3, 15.0e-3, 12000.0, 0.05, 1.0e-4, 100]
+
+# Referencia para kappa = Ap / AP_REF
+#   mode: none    -> sin kappa
+#   mode: manual  -> manual: Ap de referencia en metros
+#   mode: model   -> model: preset de DOE_plots/sld_model.py (Ap critico minimo del SLD, un valor sin rpm)
+#   mode: model_at_spin -> model: preset; el limite del SLD a las rpm de CADA caso ($spin_rate$)
+ap_ref:
+  mode: none
+  manual: 8.605e-3
+  model: 1DOF_150
+
+extract_signals: [Axial_disp, Axial_vel, Axial_acc]
+force_signal: res_R_p

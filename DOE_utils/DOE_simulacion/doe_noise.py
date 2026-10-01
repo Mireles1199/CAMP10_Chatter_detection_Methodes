@@ -1,4 +1,4 @@
-"""doe_noise.py — Aplica ruido gaussiano (varios niveles SNR) a un caso de control
+r"""doe_noise.py — Aplica ruido gaussiano (varios niveles SNR) a un caso de control
 extraído de doe_results.h5 y guarda los resultados en doe_noise_results.h5.
 
 Uso:
@@ -62,19 +62,20 @@ def build_snr_list(snr_fixed, snr_range):
     return sorted(set(values), reverse=True)
 
 
-def add_gaussian_noise(y: np.ndarray, snr_db: float, rng: np.random.Generator) -> np.ndarray:
-    """Añade ruido gaussiano blanco de potencia tal que SNR = snr_db dB.
+def add_gaussian_noise(y: np.ndarray, snr_db: float, z: np.ndarray) -> np.ndarray:
+    """Añade ruido gaussiano blanco tal que SNR = snr_db dB (potencia AC, sin offset DC).
 
-    P_signal = mean(y²)
+    z        = N(0,1) fijo por señal (mismo ruido escalado en todos los SNR)
+    P_signal = var(y)
     sigma    = sqrt(P_signal / 10^(snr_db/10))
-    y_noisy  = y + N(0, sigma²)
+    y_noisy  = y + sigma * z
     """
-    p_signal = np.mean(y ** 2)
+    p_signal = np.var(y)
     if p_signal == 0.0:
         log.warning("Señal con potencia cero — el ruido no tendrá efecto práctico.")
         p_signal = 1e-30
     sigma = np.sqrt(p_signal / (10.0 ** (snr_db / 10.0)))
-    return y + rng.normal(0.0, sigma, size=y.shape)
+    return y + sigma * z
 
 
 # ------------------------------------------------------------------------------
@@ -103,7 +104,7 @@ def list_cases(h5_path: str) -> None:
         col_names = ["idx", "group"] + all_keys
         table = []
         for i, (grp_name, attrs) in enumerate(rows):
-            row = [str(i), grp_name] + [str(attrs.get(k, "-")) for k in all_keys]
+            row = [str(int(grp_name.split('_')[-1])), grp_name] + [str(attrs.get(k, "-")) for k in all_keys]
             table.append(row)
 
         # Calcular anchos de columna
@@ -172,6 +173,10 @@ def write_noise_results(out_path: str, control: dict, snr_list: list, seed: int)
 
         log.info("Grupo 'control' escrito  (señal original, sin ruido)")
 
+        # ruido unitario fijo por señal: los niveles SNR solo lo reescalan
+        unit_noise = {sig: rng.standard_normal(y.shape)
+                      for sig, (_, y) in control["signals"].items()}
+
         # --- un grupo por nivel SNR ---
         for snr_db in snr_list:
             grp_name = f"snr_{snr_db:06.2f}"
@@ -184,7 +189,7 @@ def write_noise_results(out_path: str, control: dict, snr_list: list, seed: int)
             snr_grp.attrs["seed"]        = seed
 
             for sig, (t, y) in control["signals"].items():
-                y_noisy = add_gaussian_noise(y, snr_db, rng)
+                y_noisy = add_gaussian_noise(y, snr_db, unit_noise[sig])
                 sg = snr_grp.create_group(sig)
                 sg.create_dataset("time",   data=t,       compression="gzip")
                 sg.create_dataset("values", data=y_noisy, compression="gzip")
