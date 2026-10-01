@@ -385,6 +385,11 @@ Configuración (editar en el script):
         "--dry_run", action="store_true",
         help="Simula sin calcular — imprime plan de tareas.",
     )
+    p.add_argument(
+        "--experiment", default=None,
+        help="experimento de DOE_utils/experiments: BASE_DIR y CASE_NAME salen de su primera corrida; su sección "
+             "model_snr sobrescribe CONTROL_IDX (clave control_idx)",
+    )
     return p.parse_args()
 
 
@@ -392,11 +397,25 @@ Configuración (editar en el script):
 # MAIN
 # ==============================================================================
 
+def _experiment():
+    """DOE_utils/experiment.py, only for --experiment."""
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    import experiment
+    return experiment
+
+
 def main() -> None:
-    global DOE_NAME, CONTROL_IDX  # noqa: PLW0603
+    global DOE_NAME, CONTROL_IDX, BASE_DIR, CASE_NAME  # noqa: PLW0603
 
     args = parse_args()
 
+    if args.experiment:
+        ov, exp = _experiment().section_overrides(args.experiment, "model_snr", ("CONTROL_IDX",))
+        BASE_DIR, CASE_NAME = exp.runs[0].base_dir, exp.runs[0].case
+        DOE_NAME = exp.runs[0].doe_name
+        CONTROL_IDX = ov.get("CONTROL_IDX", CONTROL_IDX)
     if args.doe_name is not None:
         DOE_NAME = args.doe_name
     if args.control_idx is not None:

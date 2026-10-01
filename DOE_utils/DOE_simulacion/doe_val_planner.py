@@ -119,7 +119,7 @@ ap_ref:                        # same as training: kappa = Ap / ap_ref
 
 
 # ============================================================================== GUI
-def run_gui(h5_path: str):
+def run_gui(h5_path: str, doe_name: str = ""):
     import tkinter as tk
     from tkinter import filedialog, messagebox, ttk
     import matplotlib
@@ -166,7 +166,7 @@ def run_gui(h5_path: str):
     pf = ttk.Frame(left)
     pf.pack(fill=tk.X, pady=4)
     jit, tol, seed = tk.StringVar(value="0.6"), tk.StringVar(value="0.004"), tk.StringVar(value="1")
-    name, case = tk.StringVar(), tk.StringVar(value="1DOF_150Hz")
+    name, case = tk.StringVar(value=doe_name), tk.StringVar(value="1DOF_150Hz")
     for i, (lbl, v) in enumerate((("jitter (0-1)", jit), ("min kappa gap to training", tol), ("seed", seed),
                                   ("doe_name", name), ("case", case))):
         ttk.Label(pf, text=lbl).grid(row=i, column=0, sticky="w")
@@ -293,4 +293,9 @@ if __name__ == "__main__":
     if "--selftest" in sys.argv:
         _selftest()
     else:
-        run_gui(next((a for a in sys.argv[1:] if not a.startswith("-")), None))
+        import argparse
+        ap = argparse.ArgumentParser(description="Validation DOE planner")
+        ap.add_argument("h5", nargs="?", default=None, help="training reference_dataset*.h5 (asks if missing)")
+        ap.add_argument("--name", default="", help="doe_name already filled in (the experiments app passes it)")
+        a = ap.parse_args()
+        run_gui(a.h5, a.name)

@@ -1,0 +1,228 @@
+# Indicator variant library for experiments (doe_indicators.py --experiment).
+# Generated 2026-10-01 from the CONFIG block of DOE_analisis/doe_indicators.py (all INDICATOR_CONFIG_* / RUNS,
+# enabled or not), so a variant reproduces exactly what that CONFIG ran.
+#
+# - The key of a variant is the name of its group in doe_indicator_results.h5 (same names as before).
+# - Values resolved PER CASE (never written here): "T_rev" = 60 / $spin_rate$ of the case,
+#   "T_modal" = 1 / f_modal of the experiment, "10*T_rev" = 10 x that T_rev.
+# - t_stable_total, cut_end_time, t_theorical and training_intervals are the legacy values of the CONFIG: with the
+#   external reference that every experiment gives (its training dataset) they are not used by the detection.
+# - A variant that already has results is not edited: duplicate it under a new name (the app enforces this).
+# - cut.start [s]: start of the analysed signal; cut.end null = end of each case signal.
+cut:
+  start: 0.05
+  end: null
+variants:
+  maxent_revo_dec4_1step:
+    indicator: MaxEnt_SPRT
+    func: Default
+    mode: by_revolution
+    signal: Axial_vel
+    params_physical:
+      T_rev: T_rev
+      N_rev_window: 4
+      step_rev: 1
+      segmentation: opr
+      t_stable_total: 5.365770208787228
+      training_intervals: null
+      alpha: 0.00135
+      beta: 0.00135
+      reset_on_H0: true
+      cut_start_time: 0.05
+      cut_end_time: 16.0
+      t_theorical: 5.365770208787228
+  maxent_modal_dec2_1step:
+    indicator: MaxEnt_SPRT
+    func: Default
+    mode: by_modal
+    signal: Axial_vel
+    params_physical:
+      T_modal: T_modal
+      N_modal_window: 2.0
+      step_modal: 1
+      t_stable_total: 5.365770208787228
+      training_intervals: null
+      alpha: 0.00135
+      beta: 0.00135
+      reset_on_H0: true
+      cut_start_time: 0.05
+      cut_end_time: 16.0
+      t_theorical: 5.365770208787228
+  rms_cv_revo_aux4_n_aux4_dec7_1step:
+    indicator: RMS_CV
+    func: Default
+    mode: by_revolution
+    signal: Axial_vel
+    params_physical:
+      T_rev: T_rev
+      N_rev_window: 4
+      step_rev: 1
+      n_max_mode: frames
+      n_max_rev: 4
+      cv_threshold: null
+      rms_threshold: null
+      n_min_cv: 2
+      warmup_ignore_alerts: false
+      use_unbiased_std: true
+      eps: 1.0e-12
+      detrend: false
+      pad_mode: none
+      stable_time: null
+      z: 3.0
+      alpha: 0.05
+      fallback_mad: true
+      t_theorical: 5.365770208787228
+  rms_cv_modal_aux1_n_aux16_dec16_1step:
+    indicator: RMS_CV
+    func: Default
+    mode: by_modal
+    signal: Axial_vel
+    params_physical:
+      T_modal: T_modal
+      N_modal_window: 1
+      step_modal: 1
+      n_max_mode: frames
+      n_max_modal: 16
+      cv_threshold: null
+      rms_threshold: null
+      n_min_cv: 2
+      warmup_ignore_alerts: false
+      use_unbiased_std: true
+      eps: 1.0e-12
+      detrend: false
+      pad_mode: none
+      stable_time: null
+      z: 3.0
+      alpha: 0.05
+      fallback_mad: true
+      t_theorical: 5.365770208787228
+  ssq_revo_aux4_n_aux4_dec7_1step:
+    indicator: SST_SVD
+    func: Default
+    mode: by_revolution
+    signal: Axial_vel
+    params_physical:
+      T_rev: T_rev
+      N_rev_window: 4
+      step_rev: 1
+      Ai_length_mode: frames
+      Ai_length_rev: 4
+      n_fft_power: 3
+      mode: causal_inclusive
+      sigma: 6.0
+      frac_stable: 0.3610633440512648
+      training_intervals: null
+      alpha: 0.05
+      z: 3.0
+      fallback_mad: false
+      t_theorical: 5.365770208787228
+  ssq_modal_aux4_n_aux2_dec5_1step:
+    indicator: SST_SVD
+    func: Default
+    mode: by_modal
+    signal: Axial_vel
+    params_physical:
+      T_modal: T_modal
+      N_modal_window: 4
+      step_modal: 1
+      Ai_length_mode: frames
+      Ai_length_modal: 2
+      n_fft_power: 3
+      mode: causal_inclusive
+      sigma: 6.0
+      frac_stable: 0.3610633440512648
+      training_intervals: null
+      alpha: 0.05
+      z: 3.0
+      fallback_mad: false
+      t_theorical: 5.365770208787228
+  green_default_revo_dec4_1step:
+    indicator: Green_Integral
+    func: Default
+    mode: by_revolution
+    signal: Axial_disp
+    params_physical:
+      T_rev: T_rev
+      N_rev_window: 4
+      step_rev: 1.0
+      use_area_threshold: true
+      training_intervals: null
+      z_sigma: 3.0
+      debug_level: 0
+      t_theorical: 5.365770208787228
+      data_filtrated: true
+      hilbert: false
+      while_loop_extend: false
+      cycles_cluster_points: 35
+      thein_sen: false
+  green_default_modal_dec4_1step:
+    indicator: Green_Integral
+    func: Default
+    mode: by_modal
+    signal: Axial_disp
+    params_physical:
+      T_modal: T_modal
+      N_modal_window: 4
+      step_modal: 1.0
+      use_area_threshold: true
+      training_intervals: null
+      z_sigma: 3.0
+      debug_level: 0
+      t_theorical: 5.365770208787228
+      data_filtrated: true
+      hilbert: false
+      while_loop_extend: false
+      cycles_cluster_points: 35
+      thein_sen: false
+  green_fixed_revo_dec4_1step:
+    indicator: Green_Integral
+    func: Lyapunov
+    mode: by_revolution
+    signal: Axial_disp
+    params_physical:
+      T_rev: T_rev
+      N_rev_window: 4
+      step_rev: 1.0
+      use_area_threshold: true
+      training_intervals: null
+      z_sigma: 3.0
+      debug_level: 0
+      t_theorical: 5.365770208787228
+      data_filtrated: true
+      lambda_ewma: null
+      accumulate: false
+      G_memory: 10*T_rev
+      sigma_method: ratio
+      sigma_local_n: 10
+      area_noise_eps: 1.0e-30
+      use_zero_crossing_cycles: true
+      use_beta_from_cycles: false
+      zc_detrend: true
+      v_cycle_mode: zero
+      cycle_area_norm: none
+  green_fixed_modal_dec4_1step:
+    indicator: Green_Integral
+    func: Lyapunov
+    mode: by_modal
+    signal: Axial_disp
+    params_physical:
+      T_modal: T_modal
+      N_modal_window: 4
+      step_modal: 1.0
+      use_area_threshold: true
+      training_intervals: null
+      z_sigma: 3.0
+      debug_level: 0
+      t_theorical: 5.365770208787228
+      data_filtrated: true
+      lambda_ewma: null
+      accumulate: false
+      G_memory: 10*T_rev
+      sigma_method: ratio
+      sigma_local_n: 10
+      area_noise_eps: 1.0e-30
+      use_zero_crossing_cycles: true
+      use_beta_from_cycles: false
+      zc_detrend: true
+      v_cycle_mode: zero
+      cycle_area_norm: none

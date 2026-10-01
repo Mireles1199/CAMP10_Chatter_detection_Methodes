@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import sys
 from typing import Optional, Tuple
 
 import h5py
@@ -186,6 +187,15 @@ def _self_test() -> None:
     print("self-test OK")
 
 
+def _experiment():
+    """DOE_utils/experiment.py, only for --experiment."""
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    import experiment
+    return experiment
+
+
 def _main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
@@ -194,6 +204,9 @@ def _main() -> None:
     )
     parser.add_argument("--dry-run", action="store_true", help="Solo imprime a_p/fuerza/deflexión por caso, no escribe nada")
     parser.add_argument("--selftest", action="store_true", help="Corre el self-test (assert-based) y sale")
+    parser.add_argument("--experiment", default=None,
+                        help="experimento de DOE_utils/experiments: su sección static_deflection sobrescribe "
+                             "F_TOOTH_MM, K_CUT, K_SYS, ALPHA_DEG, THETA_DEG (claves en minúscula)")
     args = parser.parse_args()
 
     if args.selftest:
@@ -203,7 +216,12 @@ def _main() -> None:
     if not args.h5_path:
         parser.error("falta h5_path — pasalo como argumento o fijá DEFAULT_H5_PATH arriba del script")
 
-    apply_static_deflection(args.h5_path, dry_run=args.dry_run)
+    kw = {}
+    if args.experiment:
+        ov, _ = _experiment().section_overrides(args.experiment, "static_deflection",
+                                                ("F_TOOTH_MM", "K_CUT", "K_SYS", "ALPHA_DEG", "THETA_DEG"))
+        kw = {k.lower(): v for k, v in ov.items()}   # van como argumentos: los defaults se fijan al importar
+    apply_static_deflection(args.h5_path, dry_run=args.dry_run, **kw)
 
 
 if __name__ == "__main__":

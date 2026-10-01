@@ -246,6 +246,12 @@ Ejemplos:
         metavar="PATH",
         help="Ruta del HDF5 de salida (default: doe_noise_results.h5 junto a --doe_results)",
     )
+    p.add_argument(
+        "--experiment",
+        default=None,
+        help="experimento de DOE_utils/experiments: su sección noise sobrescribe CONTROL_CASE_IDX, SNR_LIST, "
+             "SNR_RANGE, SEED, SIGNALS (claves en minúscula)",
+    )
     return p.parse_args()
 
 
@@ -253,8 +259,21 @@ Ejemplos:
 # main
 # ------------------------------------------------------------------------------
 
+def _experiment():
+    """DOE_utils/experiment.py, only for --experiment."""
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    import experiment
+    return experiment
+
+
 def main():
     args = parse_args()
+    if args.experiment:   # la sección noise del experimento sobrescribe el CONFIG
+        ov, _ = _experiment().section_overrides(args.experiment, "noise",
+                                                ("CONTROL_CASE_IDX", "SNR_LIST", "SNR_RANGE", "SEED", "SIGNALS"))
+        globals().update(ov)
 
     doe_results = os.path.normpath(args.doe_results)
     if not os.path.isfile(doe_results):

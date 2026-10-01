@@ -327,6 +327,26 @@ def main() -> None:
         "runs": [_run_name(r) for r in RUNS if r["enabled"]],
     })
 
+    # -- --experiment: todo lo de arriba sale del experimento (DOE_utils/experiments/<exp>.yaml) ----------------
+    #    variantes de experiments/indicator_variants.yaml con T_rev/T_modal por caso, referencia = dataset de
+    #    entrenamiento, casos/workers del experimento, corte = biblioteca (fin = fin de la señal de cada caso).
+    spin_fallback = None
+    if args.experiment:
+        ex = _experiment_module()
+        exp = ex.load(args.experiment)
+        RUNS = ex.indicator_runs(exp)
+        USE_EXTERNAL_REFERENCE, _REFERENCE_H5 = True, exp.reference
+        _CUT_START, _cut_end = ex.analysis_cut()
+        _CUT_END = float("inf") if _cut_end is None else _cut_end
+        NB_WORKERS = exp.indicators.get("workers") or NB_WORKERS
+        ENABLED_CASES = exp.indicators.get("cases") or "all"
+        args.doe_results = args.doe_results or exp.data_h5
+        args.out = args.out or exp.indicators["out"]
+        os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
+        info = ex.h5_info(exp.data_h5)
+        spin_fallback = info["first"].get("$spin_rate$") if info else None   # casos sin $spin_rate$ (ruido)
+        log.info("Experimento: %s  (%s)", exp.name, exp.path)
+
     h5_in = os.path.normpath(args.doe_results or os.path.join(BASE_DIR, DOE_NAME, H5_NAME))
     if not os.path.isfile(h5_in):
         log.error("Archivo no encontrado: %s", h5_in)
@@ -339,7 +359,10 @@ def main() -> None:
         try:
             label_key = _detect_label_key(h5_in)
         except ValueError as exc:
-            if not args.list:
+            if args.experiment:   # solo etiqueta los casos para las figuras: kappa sirve siempre
+                label_key = "kappa"
+                log.info("LABEL_KEY: varias variables cambian; con --experiment se usa 'kappa'")
+            elif not args.list:
                 log.error("No se pudo auto-detectar LABEL_KEY:\n  %s", exc)
                 sys.exit(1)
 
@@ -384,6 +407,7 @@ def main() -> None:
             "cut": (_CUT_START, _CUT_END),
             "label_key": label_key,
             "reference_h5": reference_h5,
+            "spin_fallback": spin_fallback,
         },
         nb_workers=workers,
         dry_run=args.dry_run,
@@ -477,6 +501,9 @@ def parse_args(defaults: Dict[str, Any]) -> argparse.Namespace:
                    help="Imprime el plan de tareas sin correr los indicadores.")
     p.add_argument("--list", action="store_true",
                    help="Imprime la tabla de casos del HDF5 y sale.")
+    p.add_argument("--experiment", default=None, metavar="EXP",
+                   help="Experimento de DOE_utils/experiments (nombre o ruta .yaml): variantes, referencia, casos, "
+                        "workers y salida salen de ahí; T_rev/T_modal se calculan por caso. Ignora el CONFIG.")
     return p.parse_args()
 
 
@@ -600,6 +627,15 @@ def _load_case(h5_path: str, grp_name: str, signals: List[str]) -> Dict[str, Any
         return {"attrs": dict(grp.attrs), "signals": sigs}
 
 
+def _experiment_module():
+    """DOE_utils/experiment.py (variantes y experimentos); importado solo con --experiment."""
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    import experiment
+    return experiment
+
+
 def _cut_signal(t: np.ndarray, x: np.ndarray, start: float, end: float) -> Tuple[np.ndarray, np.ndarray]:
     mask = (t >= start) & (t <= end)
     return t[mask], x[mask]
@@ -663,8 +699,8 @@ def _run_one(
     dry_run: bool = False,
 ) -> Dict[str, Any]:
     """Corre un indicador sobre un caso. Retorna dict con resultados."""
-    cfg = run["indicator_config"]
-    ind_id = cfg["id"]
+    cfg = run.get("indicator_config")   # None con --experiment: se arma más abajo con el spin del caso
+    ind_id = cfg["id"] if cfg is not None else run["variant"]["indicator"]
     signal = run["signal"]
     run_name = _run_name(run)
     label_key = settings["label_key"]
@@ -697,6 +733,13 @@ def _run_one(
     sig = sig_cls(t_analysis=t_cut, signal_analysis=y_cut, path=h5_path,
                   fs=1.0 / float(t_raw[1] - t_raw[0]), meta=sig_meta)
 
+    if cfg is None:
+        spin = case["attrs"].get("$spin_rate$", settings.get("spin_fallback"))
+        try:
+            cfg = _experiment_module().indicator_config(run["variant"], spin, run.get("f_modal"))
+        except (ValueError, TypeError) as exc:
+            log.error("  [%s / %s] config: %s", grp_name, run_name, exc)
+            return _empty(grp_name, run_name, label_key, label_val, error=str(exc))
     config = dict(cfg)  # copia: la referencia se agrega solo para esta llamada
     if settings["reference_h5"]:
         for key, label in _REFERENCE_KEYS[ind_id].items():

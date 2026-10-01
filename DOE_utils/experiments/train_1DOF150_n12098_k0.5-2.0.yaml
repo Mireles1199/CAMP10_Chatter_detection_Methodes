@@ -15,3 +15,12 @@ label:
   warmup: 0.0
   out: D:/Thesis/03-Code_Storage/02-Altintlas_Nessy2m_Storage/Chatter-Criteria/CAMP10_Chatter_detection_Methodes/Convergency_Simulation/4_DOE_Data_Training_Tube/DOE_Training_Tube_dxl_20e-5_RUN_10_0.5-2.0/reference_dataset_amp.h5
   labels_yaml: D:/Thesis/03-Code_Storage/02-Altintlas_Nessy2m_Storage/Chatter-Criteria/CAMP10_Chatter_detection_Methodes/Convergency_Simulation/4_DOE_Data_Training_Tube/DOE_Training_Tube_dxl_20e-5_RUN_10_0.5-2.0/reference_labels.yaml
+indicators:
+  variants:
+  - maxent_revo_dec4_1step
+  - rms_cv_revo_aux4_n_aux4_dec7_1step
+  - ssq_revo_aux4_n_aux4_dec7_1step
+  - green_fixed_revo_dec4_1step
+  f_modal: 150.0
+  cases: all
+  workers: 6

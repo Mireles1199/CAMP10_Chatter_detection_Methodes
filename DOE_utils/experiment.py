@@ -615,6 +615,343 @@ def summary(exp: Exp) -> dict:
                 total=len(main))
 
 
+# ============================================================================== indicator variants
+def resolve_physics(value, T_rev, T_modal):
+    """'T_rev' / 'T_modal' / '<k>*T_rev' / 'T_rev*<k>' -> number for this case; anything else unchanged."""
+    if not isinstance(value, str):
+        return value
+    s = value.replace(" ", "")
+    for name, val in (("T_rev", T_rev), ("T_modal", T_modal)):
+        if name not in s:
+            continue
+        if val is None:
+            raise ValueError(f"'{value}' needs {name} ({'$spin_rate$ of the case' if name == 'T_rev' else 'f_modal'})")
+        if s == name:
+            return val
+        if s.endswith("*" + name):
+            return float(s[:-len(name) - 1]) * val
+        if s.startswith(name + "*"):
+            return val * float(s[len(name) + 1:])
+    return value
+
+
+def indicator_config(variant: dict, spin, f_modal) -> dict:
+    """INDICATOR_CONFIG dict of a library variant for one case (what doe_indicators passes to the runner)."""
+    t_rev = 60.0 / float(spin) if spin else None
+    t_modal = 1.0 / float(f_modal) if f_modal else None
+    pp = {k: resolve_physics(v, t_rev, t_modal) for k, v in variant["params_physical"].items()}
+    return {"id": variant["indicator"], "func": variant.get("func", "Default"), "param_mode": variant["mode"],
+            "params_physical": pp}
+
+
+def indicator_runs(exp: Exp) -> list:
+    """RUNS for doe_indicators: one entry per selected variant, physics resolved per case (key 'variant')."""
+    lib = variants_library().get("variants") or {}
+    missing = [v for v in exp.indicators["variants"] if v not in lib]
+    if missing:
+        raise ValueError(f"variants not in {VARIANTS_FILE}: {missing}")
+    return [{"enabled": True, "name": v, "signal": lib[v]["signal"], "variant": lib[v],
+             "f_modal": exp.indicators.get("f_modal")} for v in exp.indicators["variants"]]
+
+
+def analysis_cut() -> tuple:
+    """(start, end) of the analysed signal; end None = end of each case."""
+    c = variants_library().get("cut") or {}
+    return float(c.get("start", 0.0)), (None if c.get("end") is None else float(c["end"]))
+
+
+def resolve(exp: Exp, variant: str, case: str, h5: str | None = None) -> dict:
+    """Final config of a variant for one case of the experiment data (experiment.py resolve / app preview)."""
+    import h5py
+    lib = variants_library().get("variants") or {}
+    if variant not in lib:
+        raise ValueError(f"variant '{variant}' not in the library")
+    with h5py.File(h5 or exp.data_h5, "r") as f:
+        if case not in f:
+            raise ValueError(f"case '{case}' not in {h5 or exp.data_h5}")
+        spin = f[case].attrs.get("$spin_rate$")
+    cfg = indicator_config(lib[variant], spin, exp.indicators.get("f_modal"))
+    return {"variant": variant, "case": case, "signal": lib[variant]["signal"], "spin_rate": spin,
+            "reference": exp.reference, "cut": list(analysis_cut()), "indicator_config": cfg}
+
+
+def section_overrides(name: str, section: str, allowed) -> tuple:
+    """({CONSTANT: value}, Exp) from the `section` of an experiment, for scripts whose CONFIG are module
+    constants: the YAML keys are those names in lower case (snr_range -> SNR_RANGE). Unknown keys raise;
+    'out' is not a constant (the app passes --out)."""
+    exp = load(name)
+    sec = {k: v for k, v in exp.section(section).items() if k != "out"}
+    bad = [k for k in sec if k.upper() not in allowed]
+    if bad:
+        raise ValueError(f"{exp.path} [{section}]: unknown keys {bad}; valid: {sorted(a.lower() for a in allowed)}")
+    return {k.upper(): v for k, v in sec.items()}, exp
+
+
+# ============================================================================== editing (used by the app)
+CONFIGS_DIR = os.path.join(SIM, "configs")
+_PREFIX = {("MaxEnt_SPRT", "Default"): "maxent", ("RMS_CV", "Default"): "rms_cv", ("SST_SVD", "Default"): "ssq",
+           ("Green_Integral", "Default"): "green_default", ("Green_Integral", "Lyapunov"): "green_fixed"}
+
+
+def own_yaml(name: str) -> dict:
+    """The experiment file as written (without extends resolved)."""
+    return yaml_load(exp_path(name))
+
+
+def save_section(name: str, section: str, data) -> None:
+    """Replace one section of the experiment's own YAML (None removes it)."""
+    d = own_yaml(name)
+    if data is None:
+        d.pop(section, None)
+    else:
+        d[section] = data
+    yaml_save(d, exp_path(name))
+    reload()
+
+
+def _save_library(lib: dict) -> None:
+    """Write the variant library keeping its header comment."""
+    import yaml
+    head = []
+    if os.path.isfile(VARIANTS_FILE):
+        with open(VARIANTS_FILE, "r", encoding="utf-8") as f:
+            for line in f:
+                if not line.startswith("#"):
+                    break
+                head.append(line)
+    tmp = VARIANTS_FILE + ".tmp"
+    os.makedirs(os.path.dirname(VARIANTS_FILE), exist_ok=True)
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write("".join(head) + yaml.safe_dump(lib, sort_keys=False, allow_unicode=True))
+    os.replace(tmp, VARIANTS_FILE)
+
+
+def variant_used(variant: str) -> list:
+    """Experiments whose indicator results already contain this variant (then it must not be edited)."""
+    import h5py
+    out = []
+    for name in list_experiments():
+        try:
+            e = load(name)
+        except Exception:
+            continue
+        for path in (e.indicators["out"], e.out("noise_indicators", "out", "doe_noise_indicator_results.h5")):
+            if not os.path.isfile(path):
+                continue
+            with h5py.File(path, "r") as f:
+                if any(isinstance(f[c], h5py.Group) and variant in f[c] for c in f):
+                    out.append(name)
+                    break
+    return out
+
+
+def propose_variant_name(spec: dict) -> str:
+    """Same pattern as doe_indicators._run_name, made unique against the library."""
+    pp, mode = spec["params_physical"], spec["mode"]
+    u = "rev" if mode == "by_revolution" else "modal"
+    ind = _PREFIX.get((spec["indicator"], spec.get("func", "Default")), spec["indicator"].lower())
+    win, step = int(float(pp.get(f"N_{u}_window", 0))), int(float(pp.get(f"step_{u}", 1)))
+    short = "revo" if mode == "by_revolution" else "modal"
+    if ind in ("rms_cv", "ssq"):
+        n_aux = int(float(pp.get(f"n_max_{u}") or pp.get(f"Ai_length_{u}") or 0))
+        base = f"{ind}_{short}_aux{win}_n_aux{n_aux}_dec{win + (n_aux - 1) * step}_{step}step"
+    else:
+        base = f"{ind}_{short}_dec{win}_{step}step"
+    names = set((variants_library().get("variants") or {}))
+    name, i = base, 2
+    while name in names:
+        name, i = f"{base}_v{i}", i + 1
+    return name
+
+
+def save_variant(name: str, spec: dict, new: bool) -> None:
+    """Add a variant (new=True) or edit one that has no results yet. Used variants are duplicated, never edited."""
+    for k in ("indicator", "mode", "signal", "params_physical"):
+        if k not in spec:
+            raise ValueError(f"variant needs '{k}'")
+    lib = variants_library() or {"cut": {"start": 0.05, "end": None}, "variants": {}}
+    lib.setdefault("variants", {})
+    if new and name in lib["variants"]:
+        raise ValueError(f"variant '{name}' already exists: choose another name")
+    if not new:
+        if name not in lib["variants"]:
+            raise ValueError(f"variant '{name}' does not exist")
+        used = variant_used(name)
+        if used:
+            raise ValueError(f"variant '{name}' already has results in {used}: duplicate it instead of editing")
+    lib["variants"][name] = spec
+    _save_library(lib)
+
+
+def propose_name(kind: str, case: str, spin, kappas) -> str:
+    """<train|val>_<machine>_n<rpm>_k<min>-<max>, unique among the experiments."""
+    machine = "".join(ch for ch in (case or "doe") if ch.isalnum()).replace("Hz", "")
+    parts = ["train" if kind == "training" else "val", machine]
+    if spin:
+        parts.append(f"n{float(spin):.0f}")
+    if kappas:
+        parts.append(f"k{min(kappas):.2f}-{max(kappas):.2f}".replace(".00", ".0"))
+    base, existing = "_".join(parts), set(list_experiments())
+    name, i = base, 2
+    while name in existing:
+        name, i = f"{base}_{i}", i + 1
+    return name
+
+
+def list_configs() -> list:
+    return sorted(os.path.splitext(f)[0] for f in os.listdir(CONFIGS_DIR)
+                  if f.endswith(".yaml") and f != "base.yaml") if os.path.isdir(CONFIGS_DIR) else []
+
+
+def new_doe_config(template: str, doe_name: str, spin: float, kappas=None, aps=None, ap_ref: float | None = None,
+                   header: str = "") -> str:
+    """configs/<doe_name>.yaml from a template config: only Ap (from kappa x ap_ref, or given), spin and doe_name
+    change. Validated with doe_runner before returning; an invalid file is removed."""
+    dr = _doe_runner()
+    tpl_path = dr.find_config(template)
+    raw = yaml_load(tpl_path)
+    full = dr.load_config(tpl_path)
+    out = os.path.join(CONFIGS_DIR, doe_name + ".yaml")
+    if os.path.exists(out):
+        raise ValueError(f"config '{doe_name}' already exists")
+    if ap_ref is None:
+        a = full.get("ap_ref") or {}
+        ap_ref = float(a["manual"]) if a.get("mode") == "manual" else None
+    if aps is None:
+        if not kappas or not ap_ref:
+            raise ValueError("give the Ap list, or kappa + ap_ref (the template has no manual ap_ref)")
+        aps = [round(float(k) * ap_ref, 9) for k in kappas]
+    table = full.get("sweep") or full.get("factorial") or {}
+    sweep = {"$Ap_start$": [float(a) for a in aps], "$Ap_end$": [float(a) for a in aps],
+             "$spin_rate$": float(spin)}
+    for k, v in table.items():   # other scalars of the template (f_tooth, dxl_size, nb_dt_rev...) stay
+        if k not in sweep and len(set(v)) == 1:
+            sweep[k] = v[0]
+    d = {k: v for k, v in raw.items() if k not in ("sweep", "factorial", "manual", "mode", "doe_name", "ap_ref")}
+    d.update(doe_name=doe_name, mode="sweep", sweep=sweep)
+    if ap_ref:
+        d["ap_ref"] = {"mode": "manual", "manual": float(ap_ref)}
+    if "base_dir" not in raw and "base_dir" in full:
+        d.setdefault("base_dir", full["base_dir"].replace("\\", "/"))
+    import yaml
+    with open(out, "w", encoding="utf-8") as f:
+        f.write(f"# Generated by the experiments app from '{template}'{header}\n"
+                + yaml.safe_dump(d, sort_keys=False, allow_unicode=True))
+    try:
+        dr.load_config(out)
+    except Exception:
+        os.remove(out)
+        raise
+    return out
+
+
+def create_experiment(name: str, kind: str, runs: list, training: str | None = None, description: str = "",
+                      **sections) -> str:
+    path = exp_path(name)
+    if os.path.exists(path):
+        raise ValueError(f"experiment '{name}' already exists")
+    d = {"name": name, "kind": kind, "description": description, "runs": runs}
+    if training:
+        d["training"] = training
+    d.update({k: v for k, v in sections.items() if v})
+    yaml_save(d, path)
+    reload()
+    return path
+
+
+def derive(parent: str, name: str, spin: float | None = None, variants=None, ap_ref_preset: str | None = None,
+           description: str = "") -> str:
+    """Child experiment (extends parent). With spin: a copy of each config run at that n (same kappa list;
+    Ap recomputed with the SLD limit at that n when ap_ref_preset is given, else same Ap)."""
+    p = load(parent)
+    d = {"extends": parent, "name": name, "description": description or f"derived from {parent}"}
+    if spin is not None:
+        if any(r.imported for r in p.runs):
+            raise ValueError("the parent has imported runs (no config): create a New DOE instead")
+        runs = []
+        for r in p.runs:
+            doe = f"{r.doe_name}_n{float(spin):.0f}"
+            ap_ref = None
+            if ap_ref_preset:
+                if PLOTS not in sys.path:
+                    sys.path.insert(0, PLOTS)
+                import sld_model
+                ap_ref = sld_model.ap_lim(ap_ref_preset, float(spin)) / 1e3
+            src = (r.cfg.get("sweep") or {}).get("$Ap_start$")
+            a = r.cfg.get("ap_ref") or {}
+            old_ref = float(a["manual"]) if a.get("mode") == "manual" else None
+            kappas = [x / old_ref for x in src] if (ap_ref and old_ref and src) else None
+            new_doe_config(r.config, doe, spin, kappas=kappas, aps=None if kappas else src, ap_ref=ap_ref,
+                           header=f" (derived experiment {name}, n = {float(spin):g} rpm)")
+            runs.append({"config": doe})
+        d["runs"] = runs
+    if variants is not None:
+        d["indicators"] = {"variants": list(variants)}
+    if os.path.exists(exp_path(name)):
+        raise ValueError(f"experiment '{name}' already exists")
+    yaml_save(d, exp_path(name))
+    reload()
+    return exp_path(name)
+
+
+def duplicate(src: str, name: str) -> str:
+    if os.path.exists(exp_path(name)):
+        raise ValueError(f"experiment '{name}' already exists")
+    d = own_yaml(src)
+    d["name"] = name
+    yaml_save(d, exp_path(name))
+    reload()
+    return exp_path(name)
+
+
+# what a new training experiment starts with (same values as the current training dataset)
+LABEL_DEFAULTS = {"strategy": "amplitude", "amp_signal": "Axial_disp", "base_attr": "$f_tooth$", "base_scale": 1.0e-3,
+                  "lim_inf_pct": 10.0, "lim_sup_pct": 40.0, "warmup": 0.0}
+INDICATOR_DEFAULTS = {"variants": ["maxent_revo_dec4_1step", "rms_cv_revo_aux4_n_aux4_dec7_1step",
+                                   "ssq_revo_aux4_n_aux4_dec7_1step", "green_fixed_revo_dec4_1step"],
+                      "f_modal": 150.0, "cases": "all", "workers": 6}
+METRIC_COLUMNS = ("balanced_accuracy", "MCC", "AUC", "TPR", "TNR", "F1", "accuracy", "median_delay_onset_s",
+                  "mean_alarm_fraction_stable", "mean_persistence")
+
+
+def validation_metrics(exp: Exp) -> dict:
+    """{variant: {metric: value}} from the /metrics group of the experiment's doe_validation_results.h5."""
+    import h5py
+    path = exp.out("validate", "out", "doe_validation_results.h5")
+    if not os.path.isfile(path):
+        return {}
+    with h5py.File(path, "r") as f:
+        if "metrics" not in f:
+            return {}
+        return {run: {k: (v.item() if hasattr(v, "item") else v) for k, v in g.attrs.items()}
+                for run, g in f["metrics"].items()}
+
+
+def dependents(name: str) -> list:
+    """Experiments that extend this one or use it as training."""
+    out = []
+    for n in list_experiments():
+        if n == name:
+            continue
+        try:
+            d = own_yaml(n)
+        except Exception:
+            continue
+        if d.get("extends") == name or d.get("training") == name:
+            out.append(n)
+    return out
+
+
+def delete(name: str) -> None:
+    """Remove the experiment YAML and its run records. Never touches data (.h5, DOE folders, configs)."""
+    deps = dependents(name)
+    if deps:
+        raise ValueError(f"'{name}' is used by {deps}: delete or change those first")
+    os.remove(exp_path(name))
+    shutil.rmtree(os.path.join(RUNS_DIR, name), ignore_errors=True)
+    reload()
+
+
 # ============================================================================== import
 _LABEL_ATTRS = {"labeling_strategy": "strategy", "labeling_signal": "amp_signal", "labeling_base_attr": "base_attr",
                 "labeling_base_scale": "base_scale", "labeling_lim_inf_pct": "lim_inf_pct",
@@ -797,7 +1134,8 @@ def run_stage(name: str, key: str, yes: bool = False, cmds=None) -> int:
                 log.write(line + "\n")
                 p = subprocess.Popen([sys.executable, "-u", *c], cwd=os.path.dirname(c[0]) or None,
                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                                     encoding="utf-8", errors="replace")
+                                     encoding="utf-8", errors="replace",
+                                     env=dict(os.environ, PYTHONIOENCODING="utf-8"))   # scripts print non-cp1252 chars
                 for out_line in p.stdout:
                     sys.stdout.write(out_line)
                     log.write(out_line)
@@ -814,6 +1152,79 @@ def run_stage(name: str, key: str, yes: bool = False, cmds=None) -> int:
         stamp_outputs(exp, st)
     print(f"[experiment] {key}: {'done' if code == 0 else f'FAILED (exit {code})'} - log: {log_path}")
     return code
+
+
+def _selftest_edit(root: str, train_cfg: str) -> None:
+    """Editing helpers on the selftest experiments; configs/ redirected to a temp folder."""
+    global CONFIGS_DIR
+    import h5py
+    dr = _doe_runner()
+    old = (CONFIGS_DIR, dr.CONFIGS_DIR)
+    CONFIGS_DIR = dr.CONFIGS_DIR = os.path.join(root, "configs")
+    os.makedirs(CONFIGS_DIR)
+    try:
+        save_section("train", "validate", {"channel": "Axial_vel"})
+        assert own_yaml("train")["validate"] == {"channel": "Axial_vel"}
+        save_section("train", "validate", None)
+        assert "validate" not in own_yaml("train")
+        # variants: proposed name, no duplicates, used ones are not edited
+        spec = {"indicator": "MaxEnt_SPRT", "func": "Default", "mode": "by_revolution", "signal": "Axial_vel",
+                "params_physical": {"T_rev": "T_rev", "N_rev_window": 4, "step_rev": 1}}
+        name = propose_variant_name(spec)
+        assert name == "maxent_revo_dec4_1step", name
+        save_variant(name, spec, new=True)
+        assert propose_variant_name(spec) == "maxent_revo_dec4_1step_v2"
+        try:
+            save_variant(name, spec, new=True)
+            raise AssertionError("duplicate variant accepted")
+        except ValueError:
+            pass
+        save_variant(name, dict(spec, signal="Axial_disp"), new=False)          # unused: editable
+        e = load("train")
+        with h5py.File(e.indicators["out"], "a") as f:
+            f.require_group(f"case_000/{name}")
+        assert variant_used(name) == ["train"]
+        try:
+            save_variant(name, spec, new=False)
+            raise AssertionError("used variant edited")
+        except ValueError as exc:
+            assert "duplicate it" in str(exc)
+        with open(VARIANTS_FILE, encoding="utf-8") as f:
+            lib_text = f.read()
+        assert "maxent_revo_dec4_1step" in lib_text
+        # names
+        n1 = propose_name("validation", "1DOF_150Hz", 12098.28, [0.528, 1.906])
+        assert n1.startswith("val_1DOF150_n12098_k0.53-1.91"), n1
+        # DOE config from a template: kappa x template ap_ref (0.008)
+        p = new_doe_config(train_cfg, "DOE_N", 10000.0, kappas=[0.5, 1.5])
+        c = dr.load_config(p)
+        assert c["sweep"]["$Ap_start$"] == [0.004, 0.012] and c["sweep"]["$spin_rate$"] == [10000.0, 10000.0]
+        try:
+            new_doe_config(train_cfg, "DOE_N", 10000.0, kappas=[0.5])
+            raise AssertionError("config overwritten")
+        except ValueError:
+            pass
+        # derive another n (same Ap: no SLD preset given), then duplicate / delete
+        yaml_save(dict(own_yaml("train"), runs=[{"config": train_cfg}]), exp_path("train"))
+        reload()
+        derive("train", "train_n10000", spin=10000.0)
+        ch = load("train_n10000")
+        assert ch.runs[0].doe_name == "DOE_T_n10000" and ch.label["lim_sup_pct"] == 40 and ch.kind == "training"
+        assert ch.runs[0].cfg["sweep"]["$spin_rate$"][0] == 10000.0
+        duplicate("train_n10000", "train_copy")
+        assert load("train_copy").name == "train_copy"
+        delete("train_copy")
+        assert "train_copy" not in list_experiments()
+        try:
+            delete("train")
+            raise AssertionError("deleted an experiment others depend on")
+        except ValueError as exc:
+            assert "used by" in str(exc)
+        create_experiment("fresh", "training", [{"config": "DOE_N"}], description="x",
+                          label={"strategy": "amplitude"})
+        assert load("fresh").runs[0].n_cases == 2
+    finally:
+        CONFIGS_DIR, dr.CONFIGS_DIR = old
 
 
 def run_command(name: str, key: str, python: str | None = None, yes: bool = True) -> list:
@@ -1005,6 +1416,7 @@ def _selftest():
         except ValueError:
             pass
         _selftest_run(load("train"))
+        _selftest_edit(root, cfg)
         print("experiment selftest OK")
     finally:
         set_root(old[0])
