@@ -154,7 +154,15 @@ def _h5_info(path: str, mtime: float) -> dict:
         first = {k: (v.item() if hasattr(v, "item") else v) for k, v in f[cases[0]].attrs.items()} if cases else {}
         kappa = [float(f[c].attrs["kappa"]) for c in cases if "kappa" in f[c].attrs]
         deflex = bool(cases) and "Out_Deflex" in f[cases[0]]
-    return dict(cases=cases, first=first, kappa=kappa, deflex=deflex)
+        signals, duration = [], None
+        if cases:
+            g = f[cases[0]]
+            signals = [s for s in g if isinstance(g[s], h5py.Group) and "time" in g[s]]
+            if signals:
+                duration = float(g[signals[0]]["time"][-1])
+        groups = sorted(k for k in f if not k.startswith("case_"))   # control / snr_* in noise files
+    return dict(cases=cases, first=first, kappa=kappa, deflex=deflex, signals=signals, duration=duration,
+                groups=groups)
 
 
 def h5_info(path: str):
@@ -499,8 +507,6 @@ def _stage_state(exp, st, S, own, memo):
         return "failed", f"exit code {rec.get('exit_code')} at {_fmt_time(rec.get('end') or rec.get('start'))}"
     if not present:
         return "pending", "ready to run" if st.runnable else st.why_not
-    if missing:   # output already there (e.g. imported) although an earlier step is missing: keep it usable
-        return "done", f"outputs exist; earlier step missing: {missing}"
     ref = rec.get("start") if rec else min((_mtime(p) for p in st.outputs if os.path.exists(p)), default=0)
     if rec and rec.get("hash") and rec["hash"] != st.hash:
         return "stale", "configuration changed since the last run"
@@ -510,6 +516,8 @@ def _stage_state(exp, st, S, own, memo):
     up = [dkey for _, dkey, s in dep_states if s == "stale"]
     if up:
         return "stale", f"upstream '{up[0]}' is stale"
+    if missing:   # output already there (e.g. imported) although an earlier step is missing: keep it usable
+        return "done", f"outputs exist; earlier step missing: {missing}"
     if rec is None:
         return "done", "outputs exist (no run record: made outside the app)"
     return "done", ("imported " if rec.get("status") == "imported" else "") + _fmt_time(rec.get("end") or rec.get("start"))
@@ -543,11 +551,25 @@ def next_step(exp: Exp, goal: str | None = None):
     """(Exp, key, state, reason) of the first stage of the goal that is not done; None when the goal is reached."""
     goal = goal or DEFAULT_GOAL.get(exp.kind, "Training dataset")
     memo: dict = {}
-    for e, k in goal_chain(exp, goal):
+    S = stages(exp)
+    todo, seen = [], set()
+
+    def need(e, k):   # post-order from the targets; a stage that is done covers everything before it
+        if (e.name, k) in seen or k not in stages(e):
+            return
+        seen.add((e.name, k))
         state, reason = status(e, memo)[k]
-        if state != "done":
-            return e, k, state, reason
-    return None
+        if state == "done":
+            return
+        for de, dk in stages(e)[k].deps:
+            need(de, dk)
+        todo.append((e, k, state, reason))
+
+    for t in GOALS[goal]:
+        t = exp.data_stage if t == "@data" else t
+        if t in S:
+            need(exp, t)
+    return todo[0] if todo else None
 
 
 # ============================================================================== checks
@@ -685,6 +707,278 @@ def section_overrides(name: str, section: str, allowed) -> tuple:
     if bad:
         raise ValueError(f"{exp.path} [{section}]: unknown keys {bad}; valid: {sorted(a.lower() for a in allowed)}")
     return {k.upper(): v for k, v in sec.items()}, exp
+
+
+# ============================================================================== what each stage is / what it produced
+STAGE_INFO = {
+    "simulate": ("Runs Nessy2m for every case of the run configs: one folder per case with sens_out.hdf5.",
+                 "All cases simulated. Long stage: about the time per case x cases / nb_proc."),
+    "extract": ("Collects every simulated case into doe_results.h5 (signals + DOE attributes and kappa).",
+                "Number of cases, kappa range and spin are the planned ones."),
+    "merge": ("Joins the doe_results.h5 of several runs into a new folder (the cases of the next runs are renumbered).",
+              "The merged file has the cases of every run."),
+    "label_template": ("Pre-fills reference_labels.yaml: one stable / gray / unstable label per case (amplitude "
+                       "criterion: max|signal| against a % of the feed per tooth).",
+                       "Review the YAML before building: these labels are the ground truth."),
+    "label_build": ("Cuts the labelled signals into reference_dataset*.h5. For a training it is what the indicators "
+                    "learn from; for a validation it is the ground truth.",
+                    "Where the stable/unstable boundary falls and how many cases are gray."),
+    "indicators": ("Runs the selected indicator variants on every case, trained on the training dataset "
+                   "(T_rev from the spin of each case).",
+                   "Every case x variant done, no errors; how many stable / unstable cases each variant flags."),
+    "validate": ("Scores each variant against the validation labels: TP/FN/TN/FP per case, balanced accuracy, "
+                 "MCC, AUC and detection times.",
+                 "Ranking of the variants; the Compare tab puts two validations side by side."),
+    "static_deflection": ("Adds the theoretical static deflection (group Out_Deflex) to doe_results.h5.",
+                          "Its section of the experiment YAML sets f_tooth_mm, k_cut, k_sys, alpha_deg, theta_deg."),
+    "noise": ("Builds doe_noise_results.h5: one control case with Gaussian noise at several SNR levels.",
+              "Its section sets control_case_idx, snr_list / snr_range, seed, signals."),
+    "noise_indicators": ("Runs the indicator variants on the noisy signals (robustness to noise).",
+                         "Every SNR level x variant done."),
+    "model_snr": ("Model SNR of every case against a control case, from the simulation folders.",
+                  "Its section sets control_idx."),
+}
+
+
+def _fmt_dur(sec) -> str:
+    if sec is None:
+        return "?"
+    sec = float(sec)
+    return f"{sec:.0f} s" if sec < 90 else (f"{sec / 60:.0f} min" if sec < 5400 else f"{sec / 3600:.1f} h")
+
+
+def _krange(ks) -> str:
+    return (f"{min(ks):g}" if min(ks) == max(ks) else f"{min(ks):g}-{max(ks):g}") if ks else "-"
+
+
+def _wall_times(r: "Run") -> list:
+    out = []
+    if os.path.isdir(r.doe_dir):
+        for i in os.listdir(r.doe_dir):
+            p = os.path.join(r.doe_dir, i, "wall_time_s.txt")
+            if i.isdigit() and os.path.isfile(p):
+                try:
+                    out.append(float(open(p).read().strip()))
+                except ValueError:
+                    pass
+    return out
+
+
+def _label_cases(path: str) -> dict:
+    """{case: (label, kappa)} of a reference_dataset*.h5 (one label per case: the first piece)."""
+    import h5py
+    out = {}
+    if os.path.isfile(path):
+        with h5py.File(path, "r") as f:
+            for lab in f:
+                for case, g in f[lab].items():
+                    piece = next(iter(g.values()), None)
+                    k = float(piece.attrs["kappa"]) if piece is not None and "kappa" in piece.attrs else float("nan")
+                    out.setdefault(case, (lab, k))
+    return out
+
+
+def _yaml_labels(path: str) -> dict:
+    """{case: label} of a reference_labels.yaml (label of its first interval)."""
+    if not os.path.isfile(path):
+        return {}
+    d = yaml_load(path).get("cases") or {}
+    return {c: (iv[0][2] if iv else "none") for c, iv in d.items()}
+
+
+def stage_progress(exp: Exp, key: str):
+    """(done, total) while a stage advances, else None: simulated cases, or '[k/N] completado' of the log."""
+    if key == "simulate":
+        tot = sum(r.n_cases or 0 for r in exp.runs if not r.imported)
+        return (sum(min(r.simulated(), r.n_cases or 0) for r in exp.runs if not r.imported), tot) if tot else None
+    rec = read_record(exp, key)
+    log = rec.get("log") if rec else None
+    if key in ("indicators", "noise_indicators") and log and os.path.isfile(log):
+        import re
+        with open(log, encoding="utf-8", errors="replace") as f:
+            hits = re.findall(r"\[(\d+)/(\d+)\] completado", f.read())
+        if hits:
+            return int(hits[-1][0]), int(hits[-1][1])
+    return None
+
+
+def run_timing(exp: Exp, key: str) -> dict:
+    """{'elapsed', 'duration', 'eta'} in seconds from the run record (+ progress for the ETA)."""
+    rec = read_record(exp, key) or {}
+    out = {}
+    if rec.get("start") and rec.get("status") in ("done", "failed") and rec.get("end"):
+        out["duration"] = rec["end"] - rec["start"]
+    if rec.get("status") == "running" and rec.get("start"):
+        out["elapsed"] = time.time() - rec["start"]
+        pr = stage_progress(exp, key)
+        if pr and pr[0] > 0 and pr[1]:
+            out["eta"] = out["elapsed"] * (pr[1] - pr[0]) / pr[0]
+    return out
+
+
+def stage_summary(exp: Exp, key: str) -> list:
+    """What the outputs of the stage contain: [(text, tag)], tag in ok / warn / bad / None. Never raises."""
+    try:
+        return _stage_summary(exp, key)
+    except Exception as exc:   # an unreadable / half-written file must not break the panel
+        return [(f"could not read the outputs: {exc}", "warn")]
+
+
+def _stage_summary(exp: Exp, key: str) -> list:
+    S = stages(exp)
+    if key not in S:
+        return []
+    out = []
+    if key == "simulate":
+        for r in exp.runs:
+            wt = _wall_times(r)
+            if r.imported:
+                n = len((h5_info(r.h5) or {}).get("cases", []))
+                out.append((f"{r.doe_name}: imported folder, {n} cases in doe_results.h5", "ok"))
+            else:
+                done = r.simulated()
+                tag = "ok" if done >= (r.n_cases or 0) else ("warn" if done else None)
+                txt = f"{r.doe_name}: {done}/{r.n_cases} cases simulated"
+                if wt:
+                    left = max((r.n_cases or 0) - done, 0)
+                    nb = (r.cfg or {}).get("nb_proc") or 1
+                    txt += f", {_fmt_dur(sum(wt) / len(wt))} per case" + (
+                        f", ~{_fmt_dur(sum(wt) / len(wt) * left / nb)} left" if left else "")
+                out.append((txt, tag))
+            if wt and r.imported:
+                out.append((f"  {_fmt_dur(sum(wt) / len(wt))} per case on average ({len(wt)} cases)", None))
+        return out
+    if key in ("extract", "merge", "static_deflection"):
+        files = [r.h5 for r in exp.runs] if key == "extract" else [exp.data_h5]
+        for p in files:
+            info = h5_info(p)
+            if not info:
+                out.append((f"{os.path.basename(os.path.dirname(p))}: no doe_results.h5 yet", None))
+                continue
+            a = info["first"]
+            if key == "static_deflection":
+                out.append(("Out_Deflex present" if info["deflex"] else "no Out_Deflex yet", "ok" if info["deflex"] else None))
+                if "deflex_theoric_m" in a:
+                    out.append((f"theoretical deflection (case 0): {float(a['deflex_theoric_m']):.3e} m", None))
+                continue
+            out.append((f"{len(info['cases'])} cases, kappa {_krange(info['kappa'])}, n = "
+                        f"{float(a.get('$spin_rate$', float('nan'))):.6g} rpm", "ok"))
+            out.append((f"signals {', '.join(info['signals']) or '-'}; {info['duration']:.2f} s per case" if
+                        info["duration"] else f"signals {', '.join(info['signals']) or '-'}", None))
+            disc = ", ".join(f"{k.strip('$')} {a[k]:g}" for k in DISCRETISATION if k in a)
+            if disc:
+                out.append((disc, None))
+        return out
+    if key in ("label_template", "label_build"):
+        built, yml = _label_cases(exp.label["out"]), _yaml_labels(exp.label["labels_yaml"])
+        src = built if key == "label_build" else {c: (lab, built.get(c, (None, float("nan")))[1]) for c, lab in yml.items()}
+        if not src:
+            return [("nothing yet", None)]
+        by = {}
+        for c, (lab, k) in src.items():
+            by.setdefault(lab, []).append(k)
+        order = [lab for lab in ("stable", "gray", "unstable") if lab in by] + [l for l in by if l not in ("stable", "gray", "unstable")]
+        out.append(("  ·  ".join(f"{lab} {len(by[lab])}" for lab in order), "ok"))
+        for lab in order:
+            ks = [k for k in by[lab] if k == k]
+            out.append((f"  {lab:<8s} kappa {_krange(ks)}", None))
+        st, un = [k for k in by.get("stable", []) if k == k], [k for k in by.get("unstable", []) if k == k]
+        if st and un:
+            gap = f"boundary between kappa {max(st):g} (last stable) and {min(un):g} (first unstable)"
+            out.append((gap, "warn" if max(st) > min(un) else None))
+        if built and yml:
+            diff = sorted(c for c in yml if c in built and yml[c] != built[c][0])
+            if diff:
+                out.append((f"labels YAML and dataset disagree on {len(diff)} cases (e.g. {', '.join(diff[:3])}): "
+                            f"the dataset was not built from this YAML", "bad"))
+        if key == "label_template" and exp.label.get("strategy"):
+            p = exp.label
+            out.append((f"strategy {p.get('strategy')}: stable < {p.get('lim_inf_pct', '?')} %, unstable > "
+                        f"{p.get('lim_sup_pct', '?')} % of {p.get('base_attr', '?')} x {p.get('base_scale', '?')} "
+                        f"({p.get('amp_signal', '?')})", None))
+        return out
+    if key in ("indicators", "noise_indicators"):
+        import h5py
+        path = S[key].outputs[0]
+        if not os.path.isfile(path):
+            return [("no results yet", None)]
+        truth = {c: lab for c, (lab, _) in _label_cases(exp.label["out"]).items()} if key == "indicators" else {}
+        with h5py.File(path, "r") as f:
+            groups = [g for g in f if isinstance(f[g], h5py.Group) and g not in ("summary", "metrics", "training")]
+            variants = sorted({v for g in groups for v in f[g] if isinstance(f[g][v], h5py.Group) and "t" in f[g][v]})
+            out.append((f"{len(variants)} variants x {len(groups)} {'cases' if key == 'indicators' else 'groups'}", "ok"))
+            for v in variants:
+                done = [g for g in groups if v in f[g]]
+                errs = [g for g in done if "meta_error" in f[g][v].attrs]
+                flag = [g for g in done if "t_d" in f[g][v] and f[g][v]["t_d"].size > 0]
+                txt = f"  {v}: {len(done)}/{len(groups)} done"
+                if errs:
+                    txt += f", {len(errs)} errors"
+                if truth:
+                    fs = sum(truth.get(g) == "stable" for g in flag)
+                    fu = sum(truth.get(g) == "unstable" for g in flag)
+                    ns, nu = sum(t == "stable" for t in truth.values()), sum(t == "unstable" for t in truth.values())
+                    txt += f"; flags {fu}/{nu} unstable, {fs}/{ns} stable"
+                else:
+                    txt += f"; flags {len(flag)}"
+                out.append((txt, "bad" if errs else None))
+        if truth:
+            out.append(("(flags = cases with at least one detection; labels of this experiment's dataset)", None))
+        return out
+    if key == "validate":
+        m = validation_metrics(exp)
+        if not m:
+            return [("no validation results yet", None)]
+        f2 = lambda x: "-" if x is None or x != x else f"{x:.2f}"
+        rank = sorted(m, key=lambda r: -(m[r].get("balanced_accuracy") or -1))
+        for i, r in enumerate(rank, 1):
+            d = m[r]
+            out.append((f"{i}. {r}: bal.acc {f2(d.get('balanced_accuracy'))}  MCC {f2(d.get('MCC'))}  "
+                        f"AUC {f2(d.get('AUC'))}  TP {d.get('TP')} FN {d.get('FN')} TN {d.get('TN')} FP {d.get('FP')}",
+                        "ok" if i == 1 else None))
+        return out
+    if key == "noise":
+        info = h5_info(S[key].outputs[0])
+        if not info:
+            return [("no noise file yet", None)]
+        snr = [g for g in info["groups"] if g.startswith("snr_")]
+        return [(f"control + {len(snr)} SNR levels" + (f" ({snr[0][4:]} ... {snr[-1][4:]} dB)" if snr else ""), "ok")]
+    if key == "model_snr":
+        p = S[key].outputs[0]
+        info = h5_info(p) if os.path.isfile(p) else None
+        return [(f"{len(info['cases'])} cases with model SNR", "ok")] if info else [("no results yet", None)]
+    return out
+
+
+def stage_badge(exp: Exp, key: str) -> str:
+    """Short text for the diagram box (what the output holds, or the progress)."""
+    st = status(exp).get(key, ("", ""))[0]
+    if st == "running":
+        pr = stage_progress(exp, key)
+        return f"{100 * pr[0] / pr[1]:.0f} %" if pr and pr[1] else "running…"
+    if st not in ("done", "stale"):
+        return ""
+    try:
+        if key == "simulate":
+            n = sum(len((h5_info(r.h5) or {}).get("cases", [])) if r.imported else r.simulated() for r in exp.runs)
+            return f"{n} cases"
+        if key in ("extract", "merge"):
+            info = h5_info(exp.data_h5)
+            return f"{len(info['cases'])} cases" if info else ""
+        if key == "label_build":
+            by = {}
+            for lab, _ in _label_cases(exp.label["out"]).values():
+                by[lab] = by.get(lab, 0) + 1
+            return " · ".join(f"{lab[0].upper()} {by[lab]}" for lab in ("stable", "gray", "unstable") if lab in by)
+        if key == "indicators":
+            return f"{len(exp.indicators['variants'])} variants"
+        if key == "validate":
+            m = validation_metrics(exp)
+            best = max((d.get("balanced_accuracy") or 0 for d in m.values()), default=None)
+            return f"best bal.acc {best:.2f}" if best is not None else ""
+    except Exception:
+        return ""
+    return ""
 
 
 # ============================================================================== editing (used by the app)
@@ -994,8 +1288,11 @@ def import_dir(name: str, doe_dir: str, kind: str = "training", training: str | 
     if refs and kind == "training":
         label = _label_attrs(os.path.join(doe_dir, refs[0]))
         label["out"] = os.path.join(doe_dir, refs[0]).replace("\\", "/")
-        if os.path.isfile(os.path.join(doe_dir, "reference_labels.yaml")):
-            label["labels_yaml"] = os.path.join(doe_dir, "reference_labels.yaml").replace("\\", "/")
+        yml = os.path.join(doe_dir, "reference_labels.yaml")
+        if os.path.isfile(yml):   # linked only if the dataset was built from it (same label for every case)
+            built, ylab = _label_cases(os.path.join(doe_dir, refs[0])), _yaml_labels(yml)
+            if built and all(ylab.get(c) == lab for c, (lab, _) in built.items()):
+                label["labels_yaml"] = yml.replace("\\", "/")
         d["label"] = label
     ind_h5 = os.path.join(doe_dir, "doe_indicator_results.h5")
     if os.path.isfile(ind_h5):
@@ -1066,6 +1363,9 @@ def run_blockers(exp: Exp, key: str) -> list:
     st, out = S[key], []
     if not st.runnable:
         out.append(st.why_not)
+    missing = [p for p in st.inputs if p and not os.path.exists(p)]
+    if missing and status(exp)[key][0] != "blocked":   # when blocked, the missing step already says it
+        out.append(f"input missing: {os.path.basename(missing[0])}" + (f" (+{len(missing) - 1})" if len(missing) > 1 else ""))
     errs, _ = check(exp)
     out += [f"configuration error: {e}" for e in errs]
     state, reason = status(exp)[key]
@@ -1244,6 +1544,17 @@ def _selftest_run(e: Exp) -> None:
         f.write("print('about to fail')\nraise SystemExit(3)\n")
     with open(tpl, "w") as f:
         f.write("import sys\nopen(sys.argv[1], 'w').write('new')\n")
+    # what the panel shows: label counts + boundary, badge, data summary
+    summ = " | ".join(t for t, _ in stage_summary(e, "label_build"))
+    assert "stable 1" in summ and "gray 1" in summ, summ
+    assert stage_badge(e, "label_build") == "S 1 · G 1" and "2 cases" in stage_summary(e, "extract")[0][0]
+    assert stage_summary(e, "indicators") == [("no results yet", None)] and stage_progress(e, "simulate") == (2, 2)
+    # a done later stage covers its missing earlier ones: no "next step" back to the template
+    lab = e.label["labels_yaml"]
+    os.rename(lab, lab + ".hide")
+    assert status(e)["label_build"][0] == "done" and next_step(e) is None
+    assert any(b.startswith("input missing") for b in run_blockers(e, "label_build"))
+    os.rename(lab + ".hide", lab)
     out = e.indicators["out"]
     assert run_stage(e.name, "indicators", yes=True, cmds=[[ok, out]]) == 0
     rec = read_record(e, "indicators")

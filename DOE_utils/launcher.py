@@ -61,8 +61,36 @@ STATE_TEXT = {"done": "done", "stale": "stale", "running": "running", "failed": 
 POS = {"simulate": (0, 0), "extract": (1, 0), "merge": (2, 0), "label_template": (3, 0), "label_build": (4, 0),
        "indicators": (4, 1), "validate": (5, 1), "model_snr": (0, 2), "static_deflection": (1, 2), "noise": (2, 2),
        "noise_indicators": (3, 2)}
-BOX_W, BOX_H, STEP_X, STEP_Y, MARGIN = 132, 54, 160, 92, 18
+BOX_W, BOX_H, STEP_X, STEP_Y, MARGIN = 132, 64, 160, 100, 18
 LOG_TAIL = 15
+
+
+HELP = """How the app works
+
+An EXPERIMENT (left list) is one DOE taken from simulation to results: its runs (configs/*.yaml or an
+imported folder), how its cases are labelled, which indicator variants run and, for a validation, the
+training it is checked against.
+
+The DIAGRAM shows its stages. Colour = status:
+  green done · orange stale (its configuration or an input changed after it ran) · blue running ·
+  red failed · grey pending (ready) · dashed blocked (an earlier stage is missing).
+Hover a box to see why it is in that state; click it to open its panel below.
+
+GOAL (top): what you want to obtain. The app marks the stages it needs (dark outline) and the NEXT STEP
+(blue outline). "Run next step" starts it.
+
+STAGE PANEL: what the stage does, what its output contains, what to check, its last run (time, duration,
+exit code) and, if it cannot run, why and what to do.
+Buttons: Run in console (a console opens; closing the app does not stop it) · Copy command · Open log ·
+Open output in viewer · Edit config · Open folder · Go to blocking experiment.
+
+CREATE: New DOE (from a template config: n, kappa, name) · Import folder (already simulated) ·
+New validation (opens the validation planner) · Derive (another n or other variants) · Duplicate · Delete
+(only the experiment file; data are never deleted).
+
+COMPARE tab: metrics of two validations side by side. TOOLS tab: every script on its own.
+Console: python experiment.py status | check EXP | run EXP STAGE | resolve | import.
+"""
 
 
 # ============================================================================== process helpers
@@ -198,8 +226,11 @@ class App:
             self.tree.column(c, width=w, minwidth=30, stretch=c == "#0")
         self.tree.pack(fill=tk.BOTH, expand=True, pady=4)
         self.tree.bind("<<TreeviewSelect>>", lambda _e: self._on_select_exp())
+        for tag, col in (("failed", "#c62828"), ("running", "#1565c0"), ("reached", "#2e7d32")):
+            self.tree.tag_configure(tag, foreground=col)
         self.desc = tk.StringVar()
-        ttk.Label(left, textvariable=self.desc, wraplength=330, justify="left", foreground="#444").pack(anchor="w")
+        ttk.Label(left, text="green = goal reached · blue = something running · red = a stage failed",
+                  foreground="#666", font=("Segoe UI", 8)).pack(anchor="w")
         bf = ttk.Frame(left)
         bf.pack(fill=tk.X, pady=(6, 0))
         for i, (txt, fn) in enumerate((("New DOE…", self.new_doe), ("Import folder…", self.import_folder),
@@ -210,6 +241,13 @@ class App:
         bf.columnconfigure(0, weight=1)
         bf.columnconfigure(1, weight=1)
 
+        card = ttk.Frame(right)
+        card.pack(fill=tk.X, pady=(0, 4))
+        self.card_title, self.card_line, self.card_link = tk.StringVar(), tk.StringVar(), tk.StringVar()
+        ttk.Label(card, textvariable=self.card_title, font=("Segoe UI", 11, "bold")).pack(anchor="w")
+        ttk.Label(card, textvariable=self.card_line, foreground="#333").pack(anchor="w")
+        ttk.Label(card, textvariable=self.desc, foreground="#555", wraplength=900, justify="left").pack(anchor="w")
+        ttk.Label(card, textvariable=self.card_link, foreground="#1565c0").pack(anchor="w")
         top = ttk.Frame(right)
         top.pack(fill=tk.X)
         ttk.Label(top, text="Goal:").pack(side=tk.LEFT)
@@ -218,8 +256,11 @@ class App:
         cb.bind("<<ComboboxSelected>>", lambda _e: self.refresh(True))
         self.next_lbl = tk.StringVar()
         ttk.Label(top, textvariable=self.next_lbl, font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=10)
-        self.btn_next = ttk.Button(top, text="Show next step", command=self.go_next)
+        self.btn_next = ttk.Button(top, text="Show", command=self.go_next)
         self.btn_next.pack(side=tk.LEFT)
+        self.btn_run_next = ttk.Button(top, text="▶ Run next step", command=self.run_next)
+        self.btn_run_next.pack(side=tk.LEFT, padx=4)
+        ttk.Button(top, text="?  Help", command=self.show_help).pack(side=tk.RIGHT)
 
         self.canvas = tk.Canvas(right, height=3 * STEP_Y + 2 * MARGIN - (STEP_Y - BOX_H), bg="white",
                                 highlightthickness=1, highlightbackground="#ccc")
@@ -231,22 +272,34 @@ class App:
             tk.Label(legend, text=f" {st} ", bg=fill, relief="solid", bd=1, font=("Segoe UI", 8)).pack(side=tk.LEFT, padx=2)
         ttk.Label(legend, text="   dark outline = needed for the goal · blue = next step · purple = selected",
                   foreground="#555").pack(side=tk.LEFT)
+        self.hover = tk.StringVar(value="Hover a stage to see why it is in that state; click it for details.")
+        ttk.Label(right, textvariable=self.hover, foreground="#37474f", font=("Segoe UI", 9, "italic")).pack(
+            anchor="w", pady=(2, 0))
 
         panel = ttk.LabelFrame(right, text="Stage", padding=6)
         panel.pack(fill=tk.BOTH, expand=True, pady=(6, 0))
         self.panel = panel
-        self.info = tk.Text(panel, height=14, wrap="char", font=("Consolas", 9), state="disabled")
-        self.info.pack(fill=tk.BOTH, expand=True)
-        for tag, col in (("ok", "#2e7d32"), ("bad", "#c62828"), ("warn", "#b26a00"), ("head", None)):
-            self.info.tag_configure(tag, foreground=col) if col else self.info.tag_configure(
-                tag, font=("Consolas", 9, "bold"))
+        box = ttk.Frame(panel)
+        box.pack(fill=tk.BOTH, expand=True)
+        self.info = tk.Text(box, height=14, wrap="char", font=("Consolas", 9), state="disabled")
+        sb = ttk.Scrollbar(box, orient=tk.VERTICAL, command=self.info.yview)
+        self.info.configure(yscrollcommand=sb.set)
+        sb.pack(side=tk.RIGHT, fill=tk.Y)
+        self.info.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        for tag, col in (("ok", "#2e7d32"), ("bad", "#c62828"), ("warn", "#b26a00"), ("hint", "#546e7a"),
+                         ("run", "#1565c0")):
+            self.info.tag_configure(tag, foreground=col)
+        self.info.tag_configure("head", font=("Consolas", 9, "bold"), spacing1=6)
+        self.info.tag_configure("title", font=("Segoe UI", 11, "bold"))
+        self.info.tag_configure("what", font=("Segoe UI", 9))
         bar = ttk.Frame(panel)
         bar.pack(fill=tk.X, pady=(6, 0))
         self.stage_btns = {}
         for key, txt, fn in (("run", "▶ Run in console", self.run_stage), ("copy", "Copy command", self.copy_cmd),
-                             ("log", "Open log", self.open_log), ("view", "Open output in viewer", self.open_output),
-                             ("edit", "Edit config", self.edit_stage), ("folder", "Open folder", self.open_folder),
-                             ("goto", "Go to blocking experiment", self.goto_blocker)):
+                             ("log", "Log", self.open_log), ("view", "Viewer", self.open_output),
+                             ("edit", "Edit config", self.edit_stage), ("labels", "Labels YAML", self.open_labels),
+                             ("folder", "Folder", self.open_folder),
+                             ("goto", "Go to blocker", self.goto_blocker)):
             b = ttk.Button(bar, text=txt, command=fn)
             b.pack(side=tk.LEFT, padx=2)
             self.stage_btns[key] = b
@@ -340,10 +393,16 @@ class App:
         have = set(self.tree.get_children())
         for n in names:
             vals = rows[n]
+            tags = ()
+            if vals[0] != "error":
+                e = ex.load(n)
+                states = {s for s, _ in ex.status(e).values()}
+                tags = (("failed",) if "failed" in states else ("running",) if "running" in states
+                        else ("reached",) if ex.next_step(e) is None else ())
             if n in have:
-                self.tree.item(n, values=vals)
+                self.tree.item(n, values=vals, tags=tags)
             else:
-                self.tree.insert("", "end", iid=n, text=n, values=vals)
+                self.tree.insert("", "end", iid=n, text=n, values=vals, tags=tags)
         for gone in have - set(names):
             self.tree.delete(gone)
         self._row_errors = {k[:-4]: v for k, v in rows.items() if k.endswith("\0err")}
@@ -377,7 +436,7 @@ class App:
             self._set_info([(f"{self.sel_exp}: cannot load\n{self._row_errors[self.sel_exp]}", "bad")])
             return
         e = self.exp()
-        self.desc.set(e.cfg.get("description", ""))
+        self._fill_card(e)
         if self._goal_for != e.name:   # default goal by kind when an experiment is selected
             self.goal.set(ex.DEFAULT_GOAL.get(e.kind, "Training dataset"))
             self._goal_for = e.name
@@ -394,6 +453,8 @@ class App:
             where = "" if nxt[0] is e else f" of '{nxt[0].name}'"
             self.next_lbl.set(f"Next step: {ex.TITLES[nxt[1]]}{where}  ({nxt[2]}: {nxt[3]})")
         self._next = nxt
+        self._enable(self.btn_run_next, bool(nxt and nxt[2] in ("pending", "stale", "failed")
+                                             and not ex.run_blockers(nxt[0], nxt[1])))
         self._draw_diagram(e, st, chain, nxt)
         if self.sel_stage not in st:
             self.sel_stage = nxt[1] if nxt and nxt[0] is e else next(iter(st), None)
@@ -449,10 +510,17 @@ class App:
             tag = f"stage:{k}"
             c.create_rectangle(x, y, x + box_w, y + BOX_H, fill=STATE_FILL[state], outline=outline, width=width,
                                dash=dash, tags=(tag,))
-            c.create_text(x + box_w / 2, y + 17, text=ex.TITLES[k], font=("Segoe UI", 9, "bold"), tags=(tag,))
+            c.create_text(x + box_w / 2, y + 15, text=ex.TITLES[k], font=("Segoe UI", 9, "bold"), tags=(tag,))
             sub = STATE_TEXT[state] + ("  · optional" if k in ex.OPTIONAL else "")
-            c.create_text(x + box_w / 2, y + 37, text=sub, font=("Segoe UI", 8), fill="#555", tags=(tag,))
+            c.create_text(x + box_w / 2, y + 33, text=sub, font=("Segoe UI", 8), fill="#555", tags=(tag,))
+            badge = ex.stage_badge(e, k)
+            if badge:
+                c.create_text(x + box_w / 2, y + 50, text=badge, font=("Segoe UI", 8, "bold"),
+                              fill="#1565c0" if state == "running" else "#37474f", tags=(tag,))
             c.tag_bind(tag, "<Button-1>", lambda _e, k=k: self.select_stage(k))
+            c.tag_bind(tag, "<Enter>", lambda _e, k=k, s=state, r=st[k][1]: self.hover.set(
+                f"{ex.TITLES[k]} — {s}: {r}"))
+            c.tag_bind(tag, "<Leave>", lambda _e: self.hover.set(""))
 
     def select_stage(self, key):
         self.sel_stage = key
@@ -479,6 +547,41 @@ class App:
             t.insert("end", text, tag) if tag else t.insert("end", text)
         t.configure(state="disabled")
 
+    def _fill_card(self, e):
+        sm = ex.summary(e)
+        self.card_title.set(e.name)
+        bits = [e.kind]
+        if sm["spin"] is not None:
+            bits.append(f"n = {float(sm['spin']):.6g} rpm")
+        bits.append(f"{sm['cases']} cases")
+        if sm["kappa"]:
+            bits.append(f"kappa {sm['kappa'][0]:g}-{sm['kappa'][1]:g}")
+        bits.append(f"main path {sm['done']}/{sm['total']} done")
+        self.card_line.set("  ·  ".join(bits))
+        self.desc.set(e.cfg.get("description", ""))
+        if e.training is not None:
+            self.card_link.set(f"trained on: {e.training.name}")
+        else:
+            users = [n for n in ex.dependents(e.name)]
+            self.card_link.set(f"reference for: {', '.join(users)}" if users else "")
+
+    @staticmethod
+    def _hint(reason: str) -> str:
+        """What to do about a reason why a stage cannot run."""
+        if "of experiment" in reason:
+            return "→ 'Go to blocking experiment' and finish that stage there"
+        if reason.startswith(("needs", "waits for")):
+            return "→ run that earlier stage first (click its box)" if "needs" in reason else "→ wait until it finishes"
+        if "imported run" in reason:
+            return "→ data imported from a folder: use 'New DOE…' to simulate again"
+        if reason.startswith("configuration error"):
+            return "→ fix it with 'Edit config' or 'Edit YAML' (left)"
+        if reason.startswith("input missing"):
+            return "→ run the earlier stage that produces it (its box comes before this one)"
+        if "is running and writes" in reason:
+            return "→ wait for that stage to finish (two writers would damage the file)"
+        return ""
+
     def _show_stage(self, e, st):
         k = self.sel_stage
         if not st:
@@ -491,39 +594,66 @@ class App:
         S = ex.stages(e)
         s = S[k]
         state, reason = st[k]
-        self.panel.configure(text=f"Stage: {ex.TITLES[k]}  ({k})")
-        tag = {"done": "ok", "failed": "bad", "stale": "warn", "blocked": "warn"}.get(state)
-        parts = [(f"{state.upper()}", tag), (f"  {reason}\n", None)]
+        self.panel.configure(text=f"Stage: {ex.TITLES[k]}")
+        tag = {"done": "ok", "failed": "bad", "stale": "warn", "blocked": "warn", "running": "run"}.get(state)
+        what, check = ex.STAGE_INFO.get(k, ("", ""))
+        parts = [(f"{ex.TITLES[k]}   ", "title"), (state.upper(), tag), (f"  {reason}\n", None),
+                 (what + "\n", "what")]
         if k in ex.OPTIONAL:
-            parts.append((f"optional stage: configure it in the '{k}' section of the experiment YAML\n", "warn"))
-        if s.inputs:
-            parts.append(("\nInputs\n", "head"))
-            for p in s.inputs:
-                ok = os.path.exists(p)
-                parts += [("  ✓ " if ok else "  ✗ ", "ok" if ok else "bad"), (f"{p}\n", None)]
-        parts.append(("\nOutputs\n", "head"))
-        for p in s.outputs:
-            ok = os.path.exists(p)
-            parts += [("  ✓ " if ok else "  · ", "ok" if ok else None), (f"{p}\n", None)]
+            parts.append((f"Optional stage: set it in the '{k}' section of the experiment YAML.\n", "hint"))
+        # what the output holds
+        summ = ex.stage_summary(e, k)
+        if summ:
+            parts.append(("\nResult\n", "head"))
+            parts += [(f"  {t}\n", tg) for t, tg in summ]
+        if check:
+            parts.append((f"  Check: {check}\n", "hint"))
+        # progress / timing
         rec = ex.read_record(e, k)
+        tm = ex.run_timing(e, k)
+        if state == "running":
+            pr = ex.stage_progress(e, k)
+            parts.append(("\nProgress\n", "head"))
+            if pr and pr[1]:
+                n = int(30 * pr[0] / pr[1])
+                parts.append((f"  [{'#' * n}{'-' * (30 - n)}] {pr[0]}/{pr[1]}  ({100 * pr[0] / pr[1]:.0f} %)\n", "run"))
+            parts.append((f"  running for {ex._fmt_dur(tm.get('elapsed'))}"
+                          + (f", about {ex._fmt_dur(tm['eta'])} left" if tm.get("eta") else "") + "\n", "run"))
         if rec:
             parts.append(("\nLast run\n", "head"))
-            parts.append((f"  {rec.get('status')}  start {ex._fmt_time(rec.get('start'))}  end "
-                          f"{ex._fmt_time(rec.get('end')) if rec.get('end') else '-'}  exit {rec.get('exit_code', '-')}\n",
-                          None))
+            line = f"  {rec.get('status')}  {ex._fmt_time(rec.get('end') or rec.get('start'))}"
+            if tm.get("duration") is not None:
+                line += f"  ·  took {ex._fmt_dur(tm['duration'])}"
+            if rec.get("exit_code") not in (None, 0):
+                line += f"  ·  exit code {rec.get('exit_code')}"
+            parts.append((line + "\n", "bad" if rec.get("status") == "failed" else None))
             log = rec.get("log")
-            if log and os.path.isfile(log):
+            if log and os.path.isfile(log) and state in ("failed", "running"):
                 with open(log, encoding="utf-8", errors="replace") as f:
-                    tail = f.read().splitlines()[-LOG_TAIL:]
-                parts.append(("  log tail:\n" + "\n".join("    " + x for x in tail) + "\n", None))
-        blockers = ex.run_blockers(e, k) if state not in ("running",) else ["already running"]
-        if blockers:
+                    tail = [x for x in f.read().splitlines() if x.strip()][-LOG_TAIL:]
+                parts.append(("  last lines of the log:\n" + "\n".join("    " + x for x in tail) + "\n", None))
+        # why it cannot run + what to do
+        blockers = ex.run_blockers(e, k) if state != "running" else ["already running"]
+        if blockers and state != "running":
             parts.append(("\nCannot run now\n", "head"))
-            parts += [(f"  - {b}\n", "bad") for b in blockers]
+            for b in blockers:
+                parts.append((f"  - {b}\n", "bad"))
+                h = self._hint(b)
+                if h:
+                    parts.append((f"    {h}\n", "hint"))
+        # files, short: names + their folder
+        parts.append(("\nFiles\n", "head"))
+        for title, paths in (("in ", s.inputs), ("out", s.outputs)):
+            for pth in paths:
+                if not pth:
+                    continue
+                ok = os.path.exists(pth)
+                mark, mtag = ("✓", "ok") if ok else (("✗", "bad") if title == "in " else ("·", None))
+                parts += [(f"  {title} {mark} ", mtag),
+                          (f"{os.path.basename(pth)}   ", None), (f"{os.path.dirname(pth)}\n", "hint")]
         if s.cmds:
-            parts.append(("\nCommand\n", "head"))
-            parts.append(("  " + quote(ex.run_command(e.name, k, stage_python()[0])) + "\n", None))
-            parts.append(("  runs: " + "\n        ".join(quote(c) for c in s.cmds) + "\n", None))
+            parts.append(("\nCommand  ", "head"))
+            parts.append((f"experiment.py run {e.name} {k}   (full command: 'Copy command')\n", "hint"))
         errs, warns = ex.check(e)
         if errs or warns:
             parts.append(("\nExperiment checks\n", "head"))
@@ -537,6 +667,7 @@ class App:
         self._enable(btn["log"], bool(rec and rec.get("log") and os.path.isfile(rec["log"])))
         self._enable(btn["view"], state != "running" and any(p.endswith(".h5") and os.path.isfile(p) for p in s.outputs))
         self._enable(btn["goto"], self._blocking is not None)
+        self._enable(btn["labels"], k in ("label_template", "label_build") and os.path.isfile(e.label["labels_yaml"]))
         self._enable(btn["folder"], any(os.path.exists(os.path.dirname(p)) for p in s.outputs))
 
     @staticmethod
@@ -561,6 +692,24 @@ class App:
             messagebox.showwarning("Python", warn)
         open_console(ex.run_command(e.name, k, py, yes=True))
         self.root.after(1500, lambda: self.refresh(True))
+
+    def run_next(self):
+        nxt = getattr(self, "_next", None)
+        if nxt:
+            self.select(nxt[0].name, nxt[1])
+            self.run_stage()
+
+    def open_labels(self):
+        os.startfile(self.exp().label["labels_yaml"])
+
+    def show_help(self):
+        tk = self.tk
+        w = tk.Toplevel(self.root)
+        w.title("How the app works")
+        t = tk.Text(w, width=104, height=30, wrap="word", font=("Segoe UI", 10))
+        t.insert("1.0", HELP)
+        t.configure(state="disabled")
+        t.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
     def copy_cmd(self):
         e, k = self.exp(), self.sel_stage
@@ -1127,6 +1276,10 @@ class DeriveDialog(_Dialog):
 def run_gui():
     import tkinter as tk
     root = tk.Tk()
+    try:
+        root.state("zoomed")   # maximised: the diagram and the stage panel need the room
+    except tk.TclError:
+        root.geometry("1500x900")
     App(root)
     root.mainloop()
 

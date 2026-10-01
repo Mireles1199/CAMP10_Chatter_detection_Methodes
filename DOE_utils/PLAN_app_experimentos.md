@@ -384,17 +384,24 @@ Orden: F1 → F2 → F3 son la base; F5 puede empezar con F1–F2 hechas. F4, F6
 | F8 | Comparar: tabla con las métricas de `/metrics` de dos validaciones (bal. acc, MCC, AUC, TPR, TNR, F1, exactitud, retardo vs inicio por amplitud, alarma en estables, persistencia) | Plan |
 | F6–F8 | Prueba de diálogos guardada como `check_app_dialogs.py`: trabaja sobre una copia temporal de los experimentos y de `configs/`, rellena y guarda cada formulario y deja capturas en `%TEMP%/app_dialog_shots` | Repetible sin tocar datos reales |
 | F9 | **Prueba real de punta a punta**: `experiment.py run train_1DOF150_n12098_k0.5-2.0 indicators` (lo mismo que "Run in console") corrió 136/136 tareas (34 casos × 4 variantes) en ~57 min sin errores; salida en `DOE_..._RUN_10_0.5-2.0/train_1DOF150_n12098_k0.5-2.0/doe_indicator_results.h5` con atributos `experiment*`; el entrenamiento queda 5/5 y el visor lo abre (34 casos). Son resultados en la misma muestra de entrenamiento (sirven de referencia, no de validación) | Comprobar el flujo completo con un script real |
+| R2 | **Ronda de mejoras (noche del 2026-10-02)**: panel de etapa con *qué hace*, *Resultado* (contenido real de la salida), *Check* (qué revisar), progreso + tiempo restante, última corrida con duración, por qué no puede correr **y qué hacer**, archivos en forma corta; tarjeta del experimento (tipo, n, casos, κ, descripción, entrenamiento / validaciones enlazadas); tercera línea en cada caja (casos, S·G·U, variantes, % al correr); motivo al pasar el ratón; "▶ Run next step"; ayuda (? Help); colores en la lista; ventana maximizada; barra de desplazamiento | Pedido: fácil, intuitiva e informativa |
+| R2 | **Hallazgo en tus datos**: el `reference_labels.yaml` de la carpeta del entrenamiento es el del etiquetado por **κ** (κ = 1.0 inestable) y no el que generó `reference_dataset_amp.h5` (amplitud: κ = 1.0 estable); discrepan en 7 casos. La app lo avisa en rojo. Al importar, ahora solo enlaza un `reference_labels.yaml` que coincide con el dataset; en tu entrenamiento quité ese enlace (y su registro de partida): la plantilla queda *pending* y el dataset *done* con la nota "earlier step missing". Tu archivo no se tocó | Que la app no diga que la plantilla del dataset es otra |
+| R2 | El siguiente paso ya no retrocede a etapas cuyas sucesoras están hechas (antes proponía regenerar la plantilla con el dataset hecho) | Bug encontrado al quitar el enlace |
+| R2 | Una etapa no se puede lanzar si falta uno de sus archivos de entrada ("input missing", con qué hacer) | Antes "Run" quedaba activo y la etapa fallaba |
+| R2 | Una salida hecha a la que le falta un paso anterior sigue pasando por las comprobaciones de desactualización (antes las saltaba) | Bug encontrado por `check_app_dialogs.py` |
+| R2 | Lo que dice ya el resumen del entrenamiento (en la misma muestra): las 4 variantes marcan los 13/13 inestables; en estables marcan green 2/20, maxent 4/20, ssq 2/20, **rms_cv 17/20** | Información útil, no validación |
 
 ## 14. Guía rápida
 
 1. `python launcher.py` (entorno_CAMP10). A la izquierda, los experimentos; al seleccionar uno, su diagrama y su meta.
-2. **Siguiente paso**: arriba ("Next step: …", botón "Show next step"). Si la caja está bloqueada por otro experimento, "Go to blocking experiment".
-3. **Ejecutar**: clic en la caja → "▶ Run in console". Se abre una consola (no se cierra con la app); el estado pasa a *running* y al terminar a *done* / *failed* con el final del log en el panel.
-4. **Configurar**: "Edit config" en la etapa (formulario en el camino principal; YAML en las opcionales). Cambiar una configuración ya ejecutada deja esa etapa y las siguientes en naranja.
-5. **Crear**: "New DOE…" (desde una config plantilla: n, κ, nombre), "Import folder…" (DOE ya simulado), "New validation…" (abre el planificador de validación), "Derive…" (otra n u otras variantes), "Duplicate…", "Delete" (solo el YAML).
-6. **Variantes**: en el formulario de indicadores, "Duplicate variant…" para crear una nueva (las que ya tienen resultados no se editan); "Show resolved config…" para ver la config final de un caso.
-7. **Comparar**: pestaña Compare, dos validaciones.
-8. Por consola: `python experiment.py status`, `check EXP`, `run EXP STAGE`, `resolve`, `import`.
+2. **Siguiente paso**: arriba ("Next step: …"; "Show" lo selecciona, "▶ Run next step" lo lanza). Si la caja está bloqueada por otro experimento, "Go to blocking experiment".
+3. **Entender una etapa**: pasar el ratón por la caja dice por qué está en ese estado; al hacer clic, el panel explica qué hace, qué contiene su resultado, qué revisar y, si no puede correr, qué hacer. "? Help" resume todo.
+4. **Ejecutar**: clic en la caja → "▶ Run in console". Se abre una consola (no se cierra con la app); el estado pasa a *running* y al terminar a *done* / *failed* con el final del log en el panel.
+5. **Configurar**: "Edit config" en la etapa (formulario en el camino principal; YAML en las opcionales). Cambiar una configuración ya ejecutada deja esa etapa y las siguientes en naranja.
+6. **Crear**: "New DOE…" (desde una config plantilla: n, κ, nombre), "Import folder…" (DOE ya simulado), "New validation…" (abre el planificador de validación), "Derive…" (otra n u otras variantes), "Duplicate…", "Delete" (solo el YAML).
+7. **Variantes**: en el formulario de indicadores, "Duplicate variant…" para crear una nueva (las que ya tienen resultados no se editan); "Show resolved config…" para ver la config final de un caso.
+8. **Comparar**: pestaña Compare, dos validaciones.
+9. Por consola: `python experiment.py status`, `check EXP`, `run EXP STAGE`, `resolve`, `import`.
 
 ## 15. Para revisar por la mañana
 

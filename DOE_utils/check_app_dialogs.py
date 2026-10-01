@@ -92,7 +92,7 @@ try:
     lab = ex.own_yaml(TR)["label"]
     assert lab["lim_sup_pct"] == 45.0 and lab["out"].endswith("reference_dataset_amp.h5")
     st = ex.status(ex.load(TR))
-    assert st["label_template"][0] == "stale" and st["label_build"][0] == "stale", st
+    assert st["label_build"][0] == "stale" and st["indicators"][0] == "stale", st   # and what depends on it
     print("F6 label form OK -> label stages stale:", st["label_build"][1])
     lv = L.LabelForm(app, ex.load(VA))
     assert str(lv.vars["strategy"]._name) and lv.body.winfo_children()
