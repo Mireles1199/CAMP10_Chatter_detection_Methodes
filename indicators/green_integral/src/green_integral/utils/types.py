@@ -291,7 +291,6 @@ class LyapunovResult:
     global_data: Dict[str, Any]
     Name: str
     t_d: Optional[float] = None
-    t_d_no_FAR: Optional[float] = None
     mu_log: Optional[float] = None
     sigma_log: Optional[float] = None
     upper_log: Optional[float] = None
@@ -344,7 +343,5 @@ class IndicatorResult:
     """Indicator values along ``t``."""
     t_d: np.ndarray = field(default_factory=lambda: np.array([]))
     """Detection timestamps [s]; empty array when no detection occurred (never ``None``)."""
-    t_d_no_FAR: np.ndarray = field(default_factory=lambda: np.array([]))
-    """Detection timestamps [s] excluding false alarms; empty array when none (never ``None``)."""
     meta: Dict[str, Any] = field(default_factory=dict)
     """Auxiliary artifacts (raw result, resolved config, resolver trace, etc.)."""

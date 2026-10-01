@@ -371,7 +371,6 @@ def main() -> None:
     raw          = meta_r["raw_result"]
     sig_internal = meta_r["signal"]
     t_d          = result_std.t_d
-    t_d_no_FAR   = result_std.t_d_no_FAR
 
     # ------------------------------------------------------------------
     # Debug: create a DebugManager mirroring the internal pipeline settings

@@ -87,10 +87,8 @@ from doe_model_snr_plotter import (
 from doe_noise_plotter import (
     gather_detection_rows        as _noise_gather_df,
     plot_td_for_indicator        as _noise_plot_td_ind,
-    plot_td_both_for_indicator   as _noise_plot_td_both,
     plot_td_lollipop             as _noise_plot_lollipop,
     plot_delay_vs_snr            as _noise_plot_delay,
-    plot_far_cost_vs_snr         as _noise_plot_far_cost,
     gather_indicator_curves      as _noise_gather_curves,
     plot_it_overlay              as _noise_plot_it_overlay,
 )
@@ -219,7 +217,7 @@ def detect_h5_type(h5_path: str) -> str:
 #   var_val   : dict       — todas las variables DOE del caso
 #   signals   : dict       — {"Axial_disp": (t, y), "Axial_vel": (t, y)} o {}
 #   forces    : dict       — {"res_R_p": (t, y)} o {}
-#   runs      : dict       — {run_name: {t, I_t, t_d, t_d_no_FAR, attrs}} o {}
+#   runs      : dict       — {run_name: {t, I_t, t_d, attrs}} o {}
 #   snr       : dict       — {"Axial_disp": float, ...} o {}
 #   dt_us     : float|None — delta t en µs (solo para $nb_dt_rev$)
 #   wall_time_s: float|None
@@ -291,7 +289,6 @@ def _read_runs(grp: h5py.Group) -> Dict[str, Any]:
             "t":          rgrp["t"][()]          if "t"          in rgrp else np.array([]),
             "I_t":        rgrp["I_t"][()]        if "I_t"        in rgrp else np.array([]),
             "t_d":        rgrp["t_d"][()]        if "t_d"        in rgrp else np.array([]),
-            "t_d_no_FAR": rgrp["t_d_no_FAR"][()] if "t_d_no_FAR" in rgrp else np.array([]),
             "attrs":      dict(rgrp.attrs),
         }
     return runs
@@ -752,49 +749,38 @@ def _make_summary_entries(h5_type: str, cases: list, h5_path: str):
             # Figuras correctas para DOE de ruido: usan doe_noise_plotter
             # Usar los run names completos como clave (son los indicadores reales del HDF5)
             for ind in all_runs:
-                # Figura combinada (t_d + t_d_no_FAR juntos)
                 entries.append((
-                    f"{ind} — t_d & t_d_no_FAR vs SNR",
-                    "_noise_td_both",
-                    {"h5_path": h5_path, "indicator": ind},
+                    f"{ind} — t_d vs SNR",
+                    "_noise_td_ind",
+                    {"h5_path": h5_path, "indicator": ind, "td_col": "t_d"},
                 ))
-                # Figuras individuales
-                for td_col, lbl_col in (("t_d", "t_d"), ("t_d_no_FAR", "t_d_no_FAR")):
-                    entries.append((
-                        f"{ind} — {lbl_col} vs SNR",
-                        "_noise_td_ind",
-                        {"h5_path": h5_path, "indicator": ind, "td_col": td_col},
-                    ))
             entries.append(("Lollipop t_d vs indicador",  "_noise_lollipop", {"h5_path": h5_path}))
             entries.append(("Retraso (t_d - t_gt) vs SNR", "_noise_delay",    {"h5_path": h5_path}))
-            entries.append(("Coste FAR vs SNR",            "_noise_far_cost", {"h5_path": h5_path}))
             for ind in all_runs:
                 entries.append((f"I_t overlay — {ind}", "_noise_it_overlay",
                                 {"h5_path": h5_path, "indicator": ind}))
         else:
-            for use_no_far, lbl_suffix in [(False, "t_d"), (True, "t_d_no_FAR")]:
-                # Figura global (todos los indicadores juntos)
+            # Figura global (todos los indicadores juntos)
+            entries.append((
+                f"t_d vs {_col_header(lk)}  [todos]",
+                _plot_td_single,
+                {"cases": cases, "xs": xs, "all_runs": all_runs,
+                 "label_key": lk, "out_dir": None},
+            ))
+            # Una figura por indicador
+            for rn in all_runs:
                 entries.append((
-                    f"{lbl_suffix} vs {_col_header(lk)}  [todos]",
-                    _plot_td_single,
-                    {"cases": cases, "xs": xs, "all_runs": all_runs,
-                     "label_key": lk, "use_no_far": use_no_far, "out_dir": None},
+                    f"{rn} — t_d vs {_col_header(lk)}",
+                    _plot_td_per_run,
+                    {"cases": cases, "xs": xs, "run_name": rn,
+                     "label_key": lk, "out_dir": None},
                 ))
-                # Una figura por indicador
-                for rn in all_runs:
-                    entries.append((
-                        f"{rn} — {lbl_suffix} vs {_col_header(lk)}",
-                        _plot_td_per_run,
-                        {"cases": cases, "xs": xs, "run_name": rn,
-                         "label_key": lk, "use_no_far": use_no_far, "out_dir": None},
-                ))
-            for use_no_far, lbl_suffix in [(False, "I_t overlay — t_d"), (True, "I_t overlay — no FAR")]:
-                entries.append((
-                    lbl_suffix,
-                    plot_It_overlay,
-                    {"cases": cases, "label_key": lk,
-                     "run_name_filter": None, "use_no_far": use_no_far, "out_dir": None},
-                ))
+            entries.append((
+                "I_t overlay — t_d",
+                plot_It_overlay,
+                {"cases": cases, "label_key": lk,
+                 "run_name_filter": None, "out_dir": None},
+            ))
 
     elif h5_type == TYPE_DOE_NOISE:
         entries.append(("Overlay Axial_disp por SNR", "_noise_overlay", {"signal": "Axial_disp"}))
@@ -813,6 +799,11 @@ def _make_summary_entries(h5_type: str, cases: list, h5_path: str):
                 for j, f in enumerate(sorted(x[0] for x in m["modes"])):
                     entries.append((f"SLD — {p} [modo {f:.0f} Hz]", sld_model.plot_sld,
                                     {"cases": cases, "preset": p, "seg": j}))
+        # doe_validation_results.h5: casos coloreados por TP/TN/FN/FP de cada indicador ($outcome_<run>$)
+        for rn in sorted({k[len("outcome_"):] for c in cases for k in c.get("var_val", {}) if k.startswith("outcome_")}):
+            for p in sld_model.MODELS:
+                entries.append((f"SLD — {p} [outcome {rn}]", sld_model.plot_sld,
+                                {"cases": cases, "preset": p, "outcome_run": rn}))
 
     return entries
 
@@ -1410,10 +1401,6 @@ class DoeSelectorUnifiedApp:
 
         ttk.Separator(frm).pack(fill=tk.X, pady=3)
 
-        # t_d / t_d_no_FAR toggle
-        self._use_no_far_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(frm, text="use t_d_no_FAR",
-                        variable=self._use_no_far_var).pack(anchor=tk.W)
 
     def _extract_indicators(self) -> List[str]:
         """Extrae los prefijos de indicador de los run_names."""
@@ -1464,11 +1451,11 @@ class DoeSelectorUnifiedApp:
                 except Exception:
                     pass
 
-        # Arma columnas: "case" + claves visibles de var_val + t_d / t_d_no_FAR por run (indicadores)
+        # Arma columnas: "case" + claves visibles de var_val + t_d por run (indicadores)
         cols = ["case"] + self._visible_keys
         if self.h5_type in (TYPE_DOE_INDICATOR, TYPE_NOISE_IND) and self._all_runs:
             for rn in self._all_runs[:4]:
-                cols += [f"td_{rn}", f"tdnf_{rn}"]
+                cols += [f"td_{rn}"]
         if self.h5_type == TYPE_MODEL_SNR and self.cases:
             snr_keys = sorted({k for c in self.cases for k in c.get("snr", {})})
             cols += [f"snr_{s}" for s in snr_keys]
@@ -1486,9 +1473,6 @@ class DoeSelectorUnifiedApp:
             elif col.startswith("td_"):
                 hdr = "t_d:" + col[3:][:10]
                 w   = 90
-            elif col.startswith("tdnf_"):
-                hdr = "t_d(noFAR):" + col[5:][:10]
-                w   = 110
             elif col.startswith("snr_"):
                 hdr = "SNR:" + col[4:]
                 w   = 90
@@ -1527,10 +1511,6 @@ class DoeSelectorUnifiedApp:
                 elif col.startswith("td_"):
                     rn   = col[3:]
                     td   = c.get("runs", {}).get(rn, {}).get("t_d", np.array([]))
-                    row.append(f"{td[0]:.2e} s" if td.size > 0 else "—")
-                elif col.startswith("tdnf_"):
-                    rn   = col[5:]
-                    td   = c.get("runs", {}).get(rn, {}).get("t_d_no_FAR", np.array([]))
                     row.append(f"{td[0]:.2e} s" if td.size > 0 else "—")
                 elif col.startswith("snr_"):
                     sig  = col[4:]
@@ -2321,8 +2301,7 @@ class DoeSelectorUnifiedApp:
             return
 
         run_filter = self._selected_run_filter()
-        use_no_far = self._use_no_far_var.get() if hasattr(self, "_use_no_far_var") else False
-        td_key     = "t_d_no_FAR" if use_no_far else "t_d"
+        td_key     = "t_d"
 
         # Filtrar runs según indicadores seleccionados
         runs_to_show = self._get_runs_to_show() if hasattr(self, "_get_runs_to_show") else self._all_runs
@@ -2399,8 +2378,8 @@ class DoeSelectorUnifiedApp:
                                 label=f"{lk_disp}={lv_str} | {rn}",
                                 zorder=_it_ctrl_zo if is_ctrl else (3 + ci),
                                 rasterized=True)
-                # t_d / t_d_no_FAR vlines
-                for key, style in (("t_d", "--"), ("t_d_no_FAR", ":")):
+                # t_d vline
+                for key, style in (("t_d", "--"),):
                     td = run_data.get(key, np.array([]))
                     if td.size > 0:
                         self.ax_It.axvline(td[0], color=color, lw=2.2,
@@ -2423,9 +2402,8 @@ class DoeSelectorUnifiedApp:
         self.ax_It.grid(False)
         self.ax_It.set_yscale(_it_plot_yscale(runs_to_show))
 
-        far_txt = " (no FAR)" if use_no_far else ""
         run_txt = run_filter or "(all)"
-        self.ax_It.set_title(f"I_t(t){far_txt}  —  run: {run_txt}", fontsize=13)
+        self.ax_It.set_title(f"I_t(t)  —  run: {run_txt}", fontsize=13)
 
         n = len(selected) * len(runs_to_show)
         if n <= 10 and plotted:

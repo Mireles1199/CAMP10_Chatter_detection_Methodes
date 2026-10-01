@@ -323,7 +323,6 @@ def run_green_std(
                 dtype=float,
             )
         t_d_raw = raw_result.t_d
-        t_d_no_FAR_raw = None  # not tracked by the Default/clustering variant
 
     else:  # Lyapunov (constant-duration window, exponential-growth estimate)
         lyapunov_cfg = {"func": "Lyapunov", "params": native_params}
@@ -337,14 +336,9 @@ def run_green_std(
             I_t_out = np.asarray(raw_result.sigma_ewma, dtype=float)
 
         t_d_raw = raw_result.t_d
-        t_d_no_FAR_raw = raw_result.t_d_no_FAR
 
     # ── Standardize detection timestamps: always np.ndarray, never None ──────
     t_d = np.atleast_1d(t_d_raw).astype(float) if t_d_raw is not None else np.array([])
-    t_d_no_FAR = (
-        np.atleast_1d(t_d_no_FAR_raw).astype(float)
-        if t_d_no_FAR_raw is not None else np.array([])
-    )
 
     if t_d.size > 0:
         logger.info(_section("CHATTER INDICATOR - Green Area"))
@@ -376,10 +370,6 @@ def run_green_std(
         logger.info("  %-24s %.10f", "Upper Limit:", _attr_or_nan(raw_result, "upper_log"))
         logger.info("  %-24s %.10f", "Lower Limit:", _attr_or_nan(raw_result, "lower_log"))
         logger.info("  %-24s %.3f s", "First Detection:", t_d[0])
-        if t_d_no_FAR.size > 0:
-            logger.info("  %-24s %.3f s", "First Detection Non FAR:", t_d_no_FAR[0])
-        else:
-            logger.info("  %-24s %s", "First Detection Non FAR:", "n/a")
         logger.info("  %-24s %d", "Total Detections:", t_d.size)
         if t_out.size > 1:
             logger.info("  %-24s %.4f, %.4f ms", "Tiempo I[0], I[1]:", t_out[0]*1000, t_out[1]*1000)
@@ -414,6 +404,5 @@ def run_green_std(
         t=t_out,
         I_t=I_t_out,
         t_d=t_d,
-        t_d_no_FAR=t_d_no_FAR,
         meta=meta,
     )

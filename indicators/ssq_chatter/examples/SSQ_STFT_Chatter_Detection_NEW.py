@@ -327,7 +327,6 @@ def main() -> None:
     param_mode = meta.get("param_mode", "native")
     t_i = results_SST_SVD.t
     t_d        = results_SST_SVD.t_d
-    t_d_no_FAR = results_SST_SVD.t_d_no_FAR
     chatter_pct = meta.get("chatter", "N/A")
 
 

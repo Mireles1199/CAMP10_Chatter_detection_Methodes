@@ -4,7 +4,7 @@ Modos de uso:
   # Señales crudas (Axial_disp / Axial_vel) con/sin ruido:
   python doe_noise_plotter.py --noise_results doe_noise_results.h5 --plot-signals [--show]
 
-  # Tiempos de detección t_d y t_d_no_FAR vs SNR por indicador:
+  # Tiempos de detección t_d vs SNR por indicador:
   python doe_noise_plotter.py --indicator_results doe_noise_indicator_results.h5 --plot-detections [--show] [--out-dir figs]
 
   # Listar SNRs disponibles:
@@ -100,7 +100,6 @@ DEFAULT_RUN_PLOT_IT = True
 DEFAULT_RUN_PLOT_IT_COMPARE = False
 DEFAULT_RUN_PLOT_LOLLIPOP = False
 DEFAULT_RUN_PLOT_DELAY = False
-DEFAULT_RUN_PLOT_FAR_COST = False
 DEFAULT_RUN_SHOW = True
 
 # Tiempo de referencia del chatter real usado en I_t
@@ -311,9 +310,9 @@ def plot_signals(data: dict, out_dir: str = None, show: bool = True,
 
 def gather_detection_rows(h5_path: str) -> pd.DataFrame:
     """
-    Recorre case → indicator_subgroup y extrae el primer t_d y t_d_no_FAR.
+    Recorre case → indicator_subgroup y extrae el primer t_d.
     Devuelve DataFrame con columnas:
-        case, indicator, snr_db (NaN para control), t_d, t_d_no_FAR
+        case, indicator, snr_db (NaN para control), t_d
     """
     rows = []
     with h5py.File(h5_path, "r") as f:
@@ -341,18 +340,16 @@ def gather_detection_rows(h5_path: str) -> pd.DataFrame:
                 if run_name in ("Axial_disp", "Axial_vel"):
                     continue
 
-                t_d        = _first_or_nan(run_obj["t_d"])        if "t_d"        in run_obj else np.nan
-                t_d_no_FAR = _first_or_nan(run_obj["t_d_no_FAR"]) if "t_d_no_FAR" in run_obj else np.nan
+                t_d = _first_or_nan(run_obj["t_d"]) if "t_d" in run_obj else np.nan
 
                 rows.append({
-                    "case":       case_name,
-                    "indicator":  run_name,
-                    "snr_db":     snr_db,
-                    "t_d":        t_d,
-                    "t_d_no_FAR": t_d_no_FAR,
+                    "case":      case_name,
+                    "indicator": run_name,
+                    "snr_db":    snr_db,
+                    "t_d":       t_d,
                 })
 
-    return pd.DataFrame(rows, columns=["case", "indicator", "snr_db", "t_d", "t_d_no_FAR"])
+    return pd.DataFrame(rows, columns=["case", "indicator", "snr_db", "t_d"])
 
 
 def _control_x(snrs_sorted: list) -> float:
@@ -394,7 +391,7 @@ def _plot_td_single(df_ind: pd.DataFrame, indicator: str,
                     t_gt: float = None) -> None:
     """
     Genera UNA figura para el indicador dado usando la columna td_col
-    ('t_d' o 't_d_no_FAR').
+    (hoy solo 't_d').
     - Control: punto cuadrado negro a la izquierda del primer SNR.
     - No-detección (NaN): símbolo 'X' rojo encima del eje Y.
     - t_gt (opcional): línea horizontal de referencia (tiempo de chatter real).
@@ -459,7 +456,7 @@ def _plot_td_single(df_ind: pd.DataFrame, indicator: str,
         cbar = fig.colorbar(sm_det, ax=ax, pad=0.01)
         cbar.set_label("SNR (dB)", fontsize=18)
 
-    ylabel = r"$t_d$ (s)" if td_col == "t_d" else r"$t_{d,\mathrm{no\,FAR}}$ (s)"
+    ylabel = r"$t_d$ (s)"
     ax.set_xlabel("SNR (dB)")
     ax.set_ylabel(ylabel)
     ax.set_title(f"{pretty_ind}  —  {ylabel} vs SNR")
@@ -480,84 +477,9 @@ def plot_td_for_indicator(df_ind: pd.DataFrame, indicator: str,
     _plot_td_single(df_ind, indicator, "t_d", out_dir, show, t_gt=t_gt)
 
 
-def plot_td_no_far_for_indicator(df_ind: pd.DataFrame, indicator: str,
-                                 out_dir: str = None, show: bool = True,
-                                 t_gt: float = None) -> None:
-    _plot_td_single(df_ind, indicator, "t_d_no_FAR", out_dir, show, t_gt=t_gt)
-
-
-def plot_td_both_for_indicator(df_ind: pd.DataFrame, indicator: str,
-                               out_dir: str = None, show: bool = True,
-                               t_gt: float = None) -> None:
-    """
-    Genera UNA figura con dos subplots (t_d y t_d_no_FAR) para el indicador dado.
-    """
-    snr_rows = df_ind[df_ind["snr_db"].notna()].sort_values("snr_db")
-    ctrl_rows = df_ind[df_ind["snr_db"].isna()]
-    snrs = snr_rows["snr_db"].tolist()
-    x_ctrl = _control_x(snrs)
-
-    cmap_det = matplotlib.colormaps["turbo"]
-    norm_det = mcolors.Normalize(vmin=min(snrs), vmax=max(snrs)) if len(snrs) >= 2 else None
-    sm_det = cm.ScalarMappable(cmap=cmap_det, norm=norm_det) if norm_det else None
-    if sm_det:
-        sm_det.set_array([])
-
-    fig, axes = plt.subplots(1, 2, figsize=(fig_size(scale=3.0)[0] * 2, fig_size(scale=3.0)[1]),
-                             sharey=False)
-    ylabels = [r"$t_d$ (s)", r"$t_{d,\mathrm{no\,FAR}}$ (s)"]
-    for ax, td_col, ylabel in zip(axes, ("t_d", "t_d_no_FAR"), ylabels):
-        xs_valid, ys_valid, cs_valid, xs_miss = [], [], [], []
-        for _, r in snr_rows.iterrows():
-            if np.isnan(r[td_col]):
-                xs_miss.append(r["snr_db"])
-            else:
-                xs_valid.append(r["snr_db"])
-                ys_valid.append(r[td_col])
-                cs_valid.append(cmap_det(norm_det(r["snr_db"])) if norm_det else color_orange)
-        if xs_valid:
-            ax.plot(xs_valid, ys_valid, linestyle="-", color="gray", lw=1.8, zorder=2)
-            for x, y, c in zip(xs_valid, ys_valid, cs_valid):
-                ax.scatter(x, y, color=c, s=55, zorder=4)
-        if not ctrl_rows.empty:
-            y_ctrl = ctrl_rows[td_col].iloc[0]
-            if not np.isnan(y_ctrl):
-                ax.plot(x_ctrl, y_ctrl, marker="s", color="black",
-                        markersize=8, label="control", zorder=5)
-            else:
-                xs_miss.append(x_ctrl)
-        all_ys = ys_valid + ([ctrl_rows[td_col].iloc[0]] if not ctrl_rows.empty
-                              and not np.isnan(ctrl_rows[td_col].iloc[0]) else [])
-        y_top = (max(all_ys) * 1.12 + 0.01) if all_ys else 0.1
-        if xs_miss:
-            ax.scatter(xs_miss, [y_top] * len(xs_miss), marker="x", color=color_red,
-                       s=80, linewidths=2, label="no detección", zorder=6)
-        if t_gt is not None:
-            ax.axhline(t_gt, color="black", lw=1.5, linestyle=":",
-                       label=rf"$t_{{GT}}$={t_gt:.2f}s", zorder=3)
-        if sm_det:
-            cbar = fig.colorbar(sm_det, ax=ax, pad=0.01)
-            cbar.set_label("SNR (dB)", fontsize=18)
-        ax.set_xlabel("SNR (dB)")
-        ax.set_ylabel(ylabel)
-        ax.set_title(ylabel)
-        ax.invert_xaxis()
-        ax.legend(fontsize=24)
-        ax.grid(False, linestyle="--", alpha=0.35)
-
-    fig.suptitle(_pretty_indicator_name(indicator), fontsize=16)
-    fig.tight_layout()
-    if out_dir:
-        os.makedirs(out_dir, exist_ok=True)
-        fname = f"{_sanitize(indicator)}_td_both_vs_snr.png"
-        fig.savefig(os.path.join(out_dir, fname), dpi=150, bbox_inches="tight")
-    if show:
-        plt.show()
-
-
 def plot_detections(df: pd.DataFrame, out_dir: str, show: bool,
                     indicators_filter: list = None, t_gt: float = None) -> None:
-    """Genera dos figuras separadas: t_d vs SNR y t_d_no_FAR vs SNR."""
+    """Genera la figura t_d vs SNR por indicador."""
     indicators = sorted(df["indicator"].dropna().unique())
     if indicators_filter:
         indicators = [i for i in indicators if i in indicators_filter]
@@ -570,7 +492,7 @@ def plot_detections(df: pd.DataFrame, out_dir: str, show: bool,
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
 
-    for td_col in ("t_d", "t_d_no_FAR"):
+    for td_col in ("t_d",):
         fig, ax = plt.subplots(figsize=(fig_size(scale=3.0)[0], fig_size(scale=3.0)[1]))
         snr_rows = df_p[df_p["snr_db"].notna()].copy()
         snrs = sorted(snr_rows["snr_db"].dropna().unique())
@@ -627,15 +549,15 @@ def plot_detections(df: pd.DataFrame, out_dir: str, show: bool,
         #     cbar.set_label("SNR (dB)", fontsize=16)
 
         ax.set_xlabel("SNR (dB)")
-        ax.set_ylabel(r"$t_d$ (s)" if td_col == "t_d" else r"$t_{d,\mathrm{no\,FAR}}$ (s)")
-        ax.set_title("Detection time vs SNR" if td_col == "t_d" else "Detection time without FAR vs SNR")
+        ax.set_ylabel(r"$t_d$ (s)")
+        ax.set_title("Detection time vs SNR")
         ax.invert_xaxis()
         ax.grid(True, linestyle=":", alpha=0.25)
         ax.legend(fontsize=11, loc="best")
         fig.tight_layout()
 
         if out_dir:
-            suffix = "td" if td_col == "t_d" else "td_no_far"
+            suffix = "td"
             path = os.path.join(out_dir, f"detections_{suffix}_vs_snr.png")
             fig.savefig(path, dpi=300, bbox_inches="tight")
             print(f"  Guardado: {path}")
@@ -647,7 +569,7 @@ def plot_detections(df: pd.DataFrame, out_dir: str, show: bool,
 def gather_indicator_curves(h5_path: str, indicators_filter: list = None) -> dict:
     """
     Carga t e I_t por cada (indicador, caso).
-    Resultado: {ind: {case_name: {"t": ndarray, "I_t": ndarray, "t_d": float, "t_d_no_FAR": float, "snr_db": float|nan}}}
+    Resultado: {ind: {case_name: {"t": ndarray, "I_t": ndarray, "t_d": float, "snr_db": float|nan}}}
     """
     result = {}
     with h5py.File(h5_path, "r") as f:
@@ -681,7 +603,6 @@ def gather_indicator_curves(h5_path: str, indicators_filter: list = None) -> dic
                     "t":      np.asarray(run_obj["t"]),
                     "I_t":    np.asarray(run_obj["I_t"]),
                     "t_d":    _first_or_nan(run_obj["t_d"]) if "t_d" in run_obj else np.nan,
-                    "t_d_no_FAR": _first_or_nan(run_obj["t_d_no_FAR"]) if "t_d_no_FAR" in run_obj else np.nan,
                     "snr_db": snr_db,
                 }
     return result
@@ -909,7 +830,7 @@ def plot_it_compare(curves: dict, indicator: str,
 
 
 # ==============================================================================
-# PARTE 4 — RETRASO Y COSTE FAR (doe_noise_indicator_results.h5)
+# PARTE 4 — RETRASO (doe_noise_indicator_results.h5)
 # ==============================================================================
 
 _COLORS_IND = [color_orange, color_azul, color_purple, color_verde, color_red]
@@ -1040,63 +961,6 @@ def plot_delay_vs_snr(df: pd.DataFrame, t_gt: float, out_dir: str = None,
         print(f"  Guardado: {path}")
 
 
-def plot_far_cost_vs_snr(df: pd.DataFrame, out_dir: str = None,
-                         indicators_filter: list = None) -> None:
-    """
-    Figura 5: (t_d_no_FAR - t_d) vs SNR — coste del filtro FAR.
-    Figura combinada, una curva por indicador.
-    """
-    df_p = df.copy()
-    if indicators_filter:
-        df_p = df_p[df_p["indicator"].isin(indicators_filter)]
-    indicators = sorted(df_p["indicator"].dropna().unique())
-    if not indicators:
-        return
-
-    x_ctrl = _x_ctrl_from_df(df_p)
-    fig, ax = plt.subplots(figsize=fig_size(scale=3.0))
-
-    for i, ind in enumerate(indicators):
-        sub    = df_p[df_p["indicator"] == ind]
-        snr_r  = sub[sub["snr_db"].notna()].sort_values("snr_db")
-        ctrl_r = sub[sub["snr_db"].isna()]
-        c      = _COLORS_IND[i % len(_COLORS_IND)]
-
-        xs, ys, xs_m = [], [], []
-        for _, row in snr_r.iterrows():
-            if np.isnan(row["t_d"]) or np.isnan(row["t_d_no_FAR"]):
-                xs_m.append(row["snr_db"])
-            else:
-                xs.append(row["snr_db"])
-                ys.append(row["t_d_no_FAR"] - row["t_d"])
-
-        if xs:
-            ax.plot(xs, ys, marker="o", linestyle="-", color=c, lw=1.5, label=ind)
-        if not ctrl_r.empty:
-            td_c   = ctrl_r["t_d"].iloc[0]
-            td_nf  = ctrl_r["t_d_no_FAR"].iloc[0]
-            if not np.isnan(td_c) and not np.isnan(td_nf):
-                ax.plot(x_ctrl, td_nf - td_c,
-                        marker="s", color=c, markersize=8, zorder=5)
-        if xs_m:
-            y_top = (max(ys) * 1.12 + 0.01) if ys else 0.1
-            ax.scatter(xs_m, [y_top] * len(xs_m), marker="x", color=c, s=60, zorder=6)
-
-    ax.axhline(0, color="gray", lw=1.4, linestyle=":", label="sin retraso FAR")
-    ax.invert_xaxis()
-    ax.set_xlabel("SNR (dB)")
-    ax.set_ylabel(r"$t_{d,\mathrm{no\,FAR}} - t_d$ (s)")
-    ax.set_title(r"Coste filtro FAR: $t_{d,\mathrm{no\,FAR}} - t_d$ vs SNR")
-    ax.legend()
-    ax.grid(False, linestyle="--", alpha=0.35)
-    fig.tight_layout()
-
-    if out_dir:
-        os.makedirs(out_dir, exist_ok=True)
-        path = os.path.join(out_dir, "far_cost_vs_snr.png")
-        fig.savefig(path, dpi=300)
-        print(f"  Guardado: {path}")
-
 # ==============================================================================
 # CLI
 # ==============================================================================
@@ -1111,7 +975,7 @@ Ejemplos:
   python doe_noise_plotter.py --indicator_results doe_noise_indicator_results.h5 --plot-detections
   python doe_noise_plotter.py --indicator_results doe_noise_indicator_results.h5 --plot-it --plot-it-compare
   python doe_noise_plotter.py --indicator_results doe_noise_indicator_results.h5 --plot-lollipop
-  python doe_noise_plotter.py --indicator_results doe_noise_indicator_results.h5 --plot-delay --t-gt 8.1 --plot-far-cost
+  python doe_noise_plotter.py --indicator_results doe_noise_indicator_results.h5 --plot-delay --t-gt 8.1
   python doe_noise_plotter.py --indicator_results doe_noise_indicator_results.h5 --plot-all --t-gt 8.1
   python doe_noise_plotter.py --indicator_results doe_noise_indicator_results.h5 --list-snr
 
@@ -1130,7 +994,7 @@ Modo de ejecución:
     p.add_argument("--plot-signals",      action="store_true",
                    help="[S] Señales Axial_disp / Axial_vel con colormap SNR")
     p.add_argument("--plot-detections",   action="store_true",
-                   help="[D] t_d y t_d_no_FAR vs SNR — 2 figuras por indicador")
+                   help="[D] t_d vs SNR — una figura por indicador")
     p.add_argument("--plot-it",           action="store_true",
                    help="[I] I_t(t) overlay — control + SNRs en una figura por indicador")
     p.add_argument("--plot-it-compare",   action="store_true",
@@ -1139,8 +1003,6 @@ Modo de ejecución:
                    help="[L] Lollipop horizontal: t_d por indicador × SNR")
     p.add_argument("--plot-delay",        action="store_true",
                    help="[4] (t_d - t_gt) vs SNR — requiere --t-gt")
-    p.add_argument("--plot-far-cost",     action="store_true",
-                   help="[5] (t_d_no_FAR - t_d) vs SNR — coste del filtro FAR")
     p.add_argument("--plot-all",          action="store_true",
                    help="Activa todas las figuras anteriores")
 
@@ -1177,7 +1039,6 @@ def main():
         args.plot_it_compare = DEFAULT_RUN_PLOT_IT_COMPARE
         args.plot_lollipop = DEFAULT_RUN_PLOT_LOLLIPOP
         args.plot_delay = DEFAULT_RUN_PLOT_DELAY
-        args.plot_far_cost = DEFAULT_RUN_PLOT_FAR_COST
         args.plot_all = False
         args.list_snr = False
         args.show = DEFAULT_RUN_SHOW
@@ -1205,11 +1066,11 @@ def main():
     if args.plot_all:
         args.plot_signals = args.plot_detections = args.plot_it = True
         args.plot_it_compare = args.plot_lollipop = True
-        args.plot_delay = args.plot_far_cost = True
+        args.plot_delay = True
 
     any_action = any([args.plot_signals, args.plot_detections, args.plot_it,
                       args.plot_it_compare, args.plot_lollipop,
-                      args.plot_delay, args.plot_far_cost, args.list_snr])
+                      args.plot_delay, args.list_snr])
     if not any_action:
         print("Ninguna acción seleccionada. Usa --plot-all o algún flag de plotting.")
         return
@@ -1232,7 +1093,7 @@ def main():
 
     # ── Requieren indicator_results ───────────────────────────────────────────
     needs_ind = (args.plot_detections or args.plot_it or args.plot_it_compare
-                 or args.plot_lollipop or args.plot_delay or args.plot_far_cost
+                 or args.plot_lollipop or args.plot_delay
                  or args.list_snr)
     if needs_ind:
         if not args.indicator_results:
@@ -1253,7 +1114,7 @@ def main():
             df.to_csv(csv_path, index=False)
             print(f"  CSV resumen: {csv_path}")
 
-        # [D] t_d y t_d_no_FAR vs SNR
+        # [D] t_d vs SNR
         if args.plot_detections:
             plot_detections(df, out_dir=args.out_dir, show=args.show,
                             indicators_filter=indicators_filter, t_gt=args.t_gt)
@@ -1285,10 +1146,6 @@ def main():
                 plot_delay_vs_snr(df, t_gt=args.t_gt, out_dir=args.out_dir,
                                   indicators_filter=indicators_filter)
 
-        # [5] Coste FAR
-        if args.plot_far_cost:
-            plot_far_cost_vs_snr(df, out_dir=args.out_dir,
-                                 indicators_filter=indicators_filter)
 
     # Todas las figuras de golpe
     if args.show:

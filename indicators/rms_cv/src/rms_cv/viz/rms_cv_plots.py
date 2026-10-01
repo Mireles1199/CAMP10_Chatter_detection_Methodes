@@ -628,9 +628,7 @@ def plots_rms_cv(
     # ── auto vlines — labeled tuples (value, label, color) ──────────────────
     # Only two vertical lines are ever allowed on a detection-over-time panel:
     # (a) t_gt/t_theorical, and (b) the single first detection -- always the
-    # raw t_d[0] (never t_d_no_FAR[0], which by construction always falls
-    # after t_gt and would make this line redundant with it).
-    # Never one line per detection, and never both t_d[0] AND t_d_no_FAR[0].
+    # raw t_d[0]. Never one line per detection.
     _t_d = np.asarray(result.t_d) if result.t_d is not None and len(result.t_d) > 0 else np.array([])
     _t_first_detection = float(_t_d[0]) if _t_d.size > 0 else None
     _avl = []

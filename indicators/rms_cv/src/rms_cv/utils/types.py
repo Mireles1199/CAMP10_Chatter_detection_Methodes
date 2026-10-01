@@ -98,5 +98,4 @@ class IndicatorResult:
     t: np.ndarray
     I_t: np.ndarray
     t_d: np.ndarray = field(default_factory=lambda: np.array([]))
-    t_d_no_FAR: np.ndarray = field(default_factory=lambda: np.array([]))
     meta: Dict[str, Any] = field(default_factory=dict)

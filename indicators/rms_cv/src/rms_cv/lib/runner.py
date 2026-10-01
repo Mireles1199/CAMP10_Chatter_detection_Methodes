@@ -391,10 +391,6 @@ def run_rms_cv(signal: SignalData, INDICATOR_CONFIG: dict ) -> IndicatorResult:
         ) 
 
         logger.info("  %-24s %.5f s",  "Primera deteccion:", result.t_d[0])
-        if len(result.t_d_no_FAR) > 0:
-            logger.info("  %-24s %.3f s", "Primera Detecion Non Far:", result.t_d_no_FAR[0])
-        else:
-            logger.info("  %-24s %s", "Primera Detecion Non Far:", "n/a (sin t_theorical)")
         logger.info("  %-24s %d",      "Total detecciones:", len(result.t_d))
         logger.info("  %-24s %.4f, %.4f ms", "Tiempo I[0], I[1]:", result.t[0]*1000, result.t[1]*1000)
         logger.info("  %-24s %.4f, %.4f ms", "Hop[0], H[1] ", result.t[1]*1000 - result.t[0]*1000, result.t[2]*1000 - result.t[1]*1000 )
@@ -638,12 +634,6 @@ def rms_cv_pipeline(
     mask                = np.where(cv_array > cv_threshold_used)[0]
     chatter_points_time = t_array[mask]
 
-    if t_theorical is not None:
-        t_d_no_FAR_idx = np.where(chatter_points_time > t_theorical)[0]
-        t_d_no_FAR = chatter_points_time[t_d_no_FAR_idx] if t_d_no_FAR_idx.size > 0 else np.array([])
-    else:
-        t_d_no_FAR = np.array([])
-
     
 
 
@@ -655,7 +645,6 @@ def rms_cv_pipeline(
         t=results["time"],
         I_t=results["cv"],
         t_d=chatter_points_time,
-        t_d_no_FAR=t_d_no_FAR,
         meta={
             "n" : results["n"],
             "mu" : results["mu"],

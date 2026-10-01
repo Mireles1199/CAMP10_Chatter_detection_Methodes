@@ -66,7 +66,7 @@ assert res_ref.meta["training_mu"] != res_internal.meta["training_mu"]
 
 # result shape/contract must stay intact regardless of training source
 assert res_ref.I_t.shape == res_internal.I_t.shape
-assert isinstance(res_ref.t_d, np.ndarray) and isinstance(res_ref.t_d_no_FAR, np.ndarray)
+assert isinstance(res_ref.t_d, np.ndarray)
 
 # 3) reference_signal takes priority over training_intervals when both given
 cfg_both = dict(cfg_ref)

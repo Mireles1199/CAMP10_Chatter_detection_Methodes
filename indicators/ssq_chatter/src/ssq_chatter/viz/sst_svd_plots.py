@@ -855,7 +855,7 @@ def plots_sst_svd(
     t_s = np.arange(Sx.shape[1]) * meta.get("hop_ms", 10e-3)
 
     # ── auto vlines — ONLY one line allowed on any time-series panel: a single
-    # "first detection" marker, always the RAW t_d[0] (never t_d_no_FAR[0]).
+    # "first detection" marker, always the RAW t_d[0].
     # No line per subsequent detection -- one detector run can flag thousands
     # of points, and a vline per point makes every panel unreadable.
     _t_d = np.asarray(result.t_d) if result.t_d is not None and len(result.t_d) > 0 else np.array([])

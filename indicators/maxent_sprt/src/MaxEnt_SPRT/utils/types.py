@@ -65,8 +65,6 @@ class IndicatorResult:
     """Indicator values evaluated along ``t``."""
     t_d: np.ndarray = field(default_factory=lambda: np.array([]))
     """Array of detection timestamps in seconds; empty array when no detection occurred."""
-    t_d_no_FAR: np.ndarray = field(default_factory=lambda: np.array([]))
-    """Array of detection timestamps in seconds above the theoretical (no-FAR) threshold; empty array when no detection occurred."""
     meta: Dict[str, Any] = field(default_factory=dict)
     """Auxiliary artifacts required for analysis, visualization, reproducibility, or post-hoc debugging."""
 

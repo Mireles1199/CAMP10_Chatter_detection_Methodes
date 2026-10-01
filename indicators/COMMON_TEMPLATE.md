@@ -30,12 +30,11 @@ class IndicatorResult:
     t: np.ndarray
     I_t: np.ndarray
     t_d: np.ndarray = field(default_factory=lambda: np.array([]))
-    t_d_no_FAR: np.ndarray = field(default_factory=lambda: np.array([]))
     meta: Dict[str, Any] = field(default_factory=dict)
 ```
-`t_d`/`t_d_no_FAR` son **siempre `np.ndarray`** de timestamps de detección en segundos. Array vacío = sin detección, **nunca `None`** ni un escalar.
+`t_d` es **siempre `np.ndarray`** de timestamps de detección en segundos. Array vacío = sin detección, **nunca `None`** ni un escalar.
 
-**Patrón de bug recurrente confirmado en los 4 indicadores** (cada uno lo tenía en su propia variante): código que loguea o indexa `t_d_no_FAR[0]` asumiendo que no está vacío, sin guardar contra el caso "hubo detecciones en `t_d` pero ninguna pasó el filtro de `t_d_no_FAR`" (`IndexError` en maxent_sprt/rms_cv/ssq_chatter) o directamente nunca lo define en alguna rama (`UnboundLocalError` en green_integral). Guardar siempre con `if result.t_d_no_FAR.size > 0: ... else: ...` antes de indexar.
+Guardar siempre con `if result.t_d.size > 0: ... else: ...` antes de indexar `t_d[0]`. (El campo `t_d_no_FAR` ya no existe en ningún indicador.)
 
 ## 3. Contrato de `INDICATOR_CONFIG`
 
@@ -291,7 +290,7 @@ Hallazgos originales (referencia, ya resueltos):
 - No tiene `param_mode`. Adoptar `param_mode` (`native`/`by_revolution`/`by_modal`) + `params_physical` con `T_rev`/`T_modal`/`N_rev_window`/`N_modal_window`/`step_rev`/`step_modal`, en vez del esquema actual `f_cycle`/`N_cycles_per_seg`/`step_cycles` en `lib/runner_std.py`.
 - El `f_cycle` actual (línea ~119 de `lib/runner_std.py`) se calcula a partir de un valor recibido directamente, no derivado de `T_rev`/`T_modal` según el modo — alinear con la regla de §3.
 - `StdSignalData` (en `utils/types.py`) existe solo para imitar `SignalData` de este contrato — una vez que `run_green_std` adopte el contrato estándar directamente, evaluar si `StdSignalData` sigue siendo necesaria o se puede unificar con la `SignalData` nativa de Green.
-- Tipo de `t_d`/`t_d_no_FAR` — confirmar que sean siempre `np.ndarray`.
+- Tipo de `t_d` — confirmar que sea siempre `np.ndarray`.
 - `"func": "Default" | "FixedWindow"` ya es un punto de extensión legítimo (documentado en `runner_std.py`), se mantiene tal cual.
 - `examples/`: la mayoría de los scripts principales (`Green_Integral_Detection_NEW.py`, `Green_Integral_FixedWindow_Tutorial.py`, `phase_area_indicator.py`, `test_synthetic_signal.py`, `augmented_trajectory_exploration.py`, `DDE_signal_sources.py`) **sí** insertan `src/` local — bien. Los demos (`Demo_Spirale*.py`, `Demo_Trayectoria_8.py`, `Green_Area_*.py`) no lo hacen; revisar si valen la pena o son candidatos a legacy/borrado antes de arreglarlos.
 - `pyproject.toml` ya declara `h5py`, `scipy`, `matplotlib`, `scikit-learn` — sin hallazgos de dependencias faltantes por ahora; re-verificar con el comando de §9 si se agregan imports nuevos.

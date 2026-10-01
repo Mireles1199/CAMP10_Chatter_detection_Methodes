@@ -101,7 +101,7 @@ in `params_physical` and is forwarded unchanged to the pipeline.
 |---|---|---|---|---|
 | `cut_start_time` | `float` | seconds | `t_analysis[0]` | Start of the analysis window. Ignores signal before this time. Useful to skip transient startup. |
 | `cut_end_time` | `float` | seconds | `t_analysis[-1]` | End of the analysis window. |
-| `t_theorical` | `float` | seconds | `None` | Theoretical/ground-truth chatter onset, used only for debug/plots (`t_d_no_FAR`) — not used in detection itself. |
+| `t_theorical` | `float` | seconds | `None` | Theoretical/ground-truth chatter onset, used only for debug/plots — not used in detection itself. |
 
 ---
 

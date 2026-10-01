@@ -1280,9 +1280,8 @@ def plots_maxent_sprt(
     # ── Auto vertical lines ───────────────────────────────────────────
     # Rule: the only vertical lines allowed on a detection-over-time panel are
     # (a) t_gt/t_theorical and (b) the single first detection — never one line
-    # per detection. Deliberately the RAW first detection (result.t_d[0]), not
-    # result.t_d_no_FAR[0] — the latter is by construction always > t_gt, which
-    # would hide early/false triggers instead of showing them.
+    # per detection. Deliberately the RAW first detection (result.t_d[0]), so
+    # early/false triggers are shown.
     _t_d = np.asarray(result.t_d) if result.t_d is not None and len(result.t_d) > 0 else np.array([])
     _t_first_det = float(_t_d[0]) if _t_d.size > 0 else None
     _avl = []

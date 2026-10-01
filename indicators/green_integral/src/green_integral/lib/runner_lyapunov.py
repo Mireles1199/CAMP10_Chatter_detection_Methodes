@@ -1096,11 +1096,6 @@ def _lyapunov_pipeline(
         "reference_n_pieces": reference_n_pieces,
         "reference_piece_window_counts": reference_piece_window_counts,
     }
-    if t_d_detected is not None and config.t_theorical is not None:
-        t_d_detected_no_FAR_idx = np.where(t_d_detected >= config.t_theorical)[0]
-        td_detected_no_FAR = t_d_detected[t_d_detected_no_FAR_idx]
-    else:
-        td_detected_no_FAR = None
 
 
 
@@ -1116,7 +1111,6 @@ def _lyapunov_pipeline(
         global_data=global_data,
         Name=signal.name,
         t_d=t_d_detected,
-        t_d_no_FAR=td_detected_no_FAR,
         mu_log=mu_log,
         sigma_log=sigma_log,
         upper_log=upper_log,

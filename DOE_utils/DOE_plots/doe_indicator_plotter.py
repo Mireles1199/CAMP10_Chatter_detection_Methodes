@@ -112,7 +112,7 @@ RMS_THRESHOLD_MODE = "geometric_mean"
 
 # Figuras a generar cuando se lanza sin args desde VS Code
 PLOT_TD = False    # Figura t_d vs parámetro DOE
-PLOT_IT = False    # Figura I_t(t) overlay por run_name (con t_d y t_d_no_FAR)
+PLOT_IT = False    # Figura I_t(t) overlay por run_name (con t_d)
 PLOT_SIGNALS = True  # Figuras de superposición de señales (Axial_disp y Axial_vel)
 PLOT_SIGNAL_RMS = True  # Figuras RMS móvil de señales (Axial_disp y Axial_vel)
 PLOT_RMS_CROSSING = False  # Figuras de tiempo de cruce RMS móvil vs parámetro DOE
@@ -210,7 +210,7 @@ def load_indicator_results(h5_path: str) -> List[Dict[str, Any]]:
 
     Cada dict:
       {group, label_key, label_val, var_val,
-    runs: {run_name: {t, I_t, t_d, t_d_no_FAR, attrs}},
+    runs: {run_name: {t, I_t, t_d, attrs}},
     signals: {Axial_disp, Axial_vel: {t, y}}}
     """
     _SIGNAL_NAMES = {"Axial_disp", "Axial_vel"}
@@ -261,7 +261,6 @@ def load_indicator_results(h5_path: str) -> List[Dict[str, Any]]:
                     "t":          rgrp["t"][()]          if "t"          in rgrp else np.array([]),
                     "I_t":        rgrp["I_t"][()]        if "I_t"        in rgrp else np.array([]),
                     "t_d":        rgrp["t_d"][()]        if "t_d"        in rgrp else np.array([]),
-                    "t_d_no_FAR": rgrp["t_d_no_FAR"][()] if "t_d_no_FAR" in rgrp else np.array([]),
                     "attrs":      dict(rgrp.attrs),
                 }
 
@@ -1551,8 +1550,7 @@ def plot_signal_vel_log_rms_crossing_scatter(cases, label_key, run_name_filter=N
 
 
 # ==============================================================================
-# FIGURA 1a — t_d vs parámetro DOE
-# FIGURA 1b — t_d_no_FAR vs parámetro DOE  (figura separada)
+# FIGURA 1 — t_d vs parámetro DOE
 # ==============================================================================
 
 def _plot_td_per_run(
@@ -1560,14 +1558,12 @@ def _plot_td_per_run(
     xs: list,
     run_name: str,
     label_key: str,
-    use_no_far: bool,
     out_dir,
 ) -> None:
-    """Genera una figura de t_d (o t_d_no_FAR) vs label_val para UN solo indicador."""
-    key    = "t_d_no_FAR" if use_no_far else "t_d"
-    suffix = "_no_FAR" if use_no_far else ""
-    ylabel = r"$t_d^{\mathrm{noFAR}}$ (s)" if use_no_far else r"$t_d$ (s)"
-    title  = f"{run_name} — {'t_d_no_FAR' if use_no_far else 't_d'} vs {label_key}"
+    """Genera una figura de t_d vs label_val para UN solo indicador."""
+    key    = "t_d"
+    ylabel = r"$t_d$ (s)"
+    title  = f"{run_name} — t_d vs {label_key}"
 
     ys = [
         c["runs"][run_name][key][0]
@@ -1592,7 +1588,7 @@ def _plot_td_per_run(
     fig.tight_layout()
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
-        path = os.path.join(out_dir, f"td{suffix}_{_sanitize(run_name)}_vs_{_sanitize(label_key)}.png")
+        path = os.path.join(out_dir, f"td_{_sanitize(run_name)}_vs_{_sanitize(label_key)}.png")
         fig.savefig(path)
     else:
         fig.canvas.manager.set_window_title(title)
@@ -1603,20 +1599,14 @@ def _plot_td_single(
     xs: List[float],
     all_runs: List[str],
     label_key: str,
-    use_no_far: bool,
     out_dir: Optional[str],
 ) -> None:
-    """Genera una figura de t_d (o t_d_no_FAR) vs label_val."""
-    key      = "t_d_no_FAR" if use_no_far else "t_d"
-    suffix   = "_no_FAR" if use_no_far else ""
+    """Genera una figura de t_d vs label_val."""
+    key      = "t_d"
     label_key = _pretty_label_key(label_key)
-    title    = (
-        rf"Detection Time Without FAR vs {label_key}"
-        if use_no_far
-        else rf"Detection Time vs {label_key}"
-    )
-    ylabel   = r"$t_d^{\mathrm{noFAR}}$ (s)" if use_no_far else r"$t_d$ (s)"
-    win_title = f"t_d{suffix} vs {label_key}"
+    title    = rf"Detection Time vs {label_key}"
+    ylabel   = r"$t_d$ (s)"
+    win_title = f"t_d vs {label_key}"
 
     fig, ax = plt.subplots(figsize=fig_size(scale=3.0))
     plotted = False
@@ -1659,7 +1649,7 @@ def _plot_td_single(
 
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
-        path = os.path.join(out_dir, f"td{suffix}_vs_{_sanitize(label_key)}.png")
+        path = os.path.join(out_dir, f"td_vs_{_sanitize(label_key)}.png")
         fig.savefig(path)
         print(f"  Guardado: {path}")
     else:
@@ -1672,7 +1662,7 @@ def plot_td_vs_param(
     run_name_filter: Optional[str] = None,
     out_dir: Optional[str] = None,
 ) -> None:
-    """Genera dos figuras separadas: t_d y t_d_no_FAR vs label_val."""
+    """Genera la figura t_d vs label_val."""
     if not cases:
         print("  No hay casos.")
         return
@@ -1685,27 +1675,21 @@ def plot_td_vs_param(
         print(f"  No se encontraron runs (filter={run_name_filter}).")
         return
 
-    print("    → Figura t_d ...")
-    _plot_td_single(cases, xs, all_runs, label_key, use_no_far=False, out_dir=out_dir)
-    print("    → Figura t_d_no_FAR ...")
-    _plot_td_single(cases, xs, all_runs, label_key, use_no_far=True,  out_dir=out_dir)
+    _plot_td_single(cases, xs, all_runs, label_key, out_dir=out_dir)
 
 # ==============================================================================
-# FIGURA 2a — I_t(t) overlay con t_d por run_name
-# FIGURA 2b — I_t(t) overlay con t_d_no_FAR por run_name
+# FIGURA 2 — I_t(t) overlay con t_d por run_name
 # ==============================================================================
 
 def plot_It_overlay(
     cases: List[Dict[str, Any]],
     label_key: str,
     run_name_filter: Optional[str] = None,
-    use_no_far: bool = False,
     out_dir: Optional[str] = None,
 ) -> None:
     """Una figura por run_name: I_t(t) de todos los casos coloreados por label_val.
 
-    Si use_no_far=True, las líneas verticales marcan t_d_no_FAR.
-    En ambos casos se usa una barra de color continua para el parámetro DOE.
+    Las líneas verticales marcan t_d. Se usa una barra de color continua para el parámetro DOE.
     """
 
     def _colorbar_ticks_from_data(values: List[float], normalization: mcolors.Normalize) -> List[float]:
@@ -1768,8 +1752,6 @@ def plot_It_overlay(
     for rname in all_runs:
         # Título legible: reemplazar _ por espacio y capitalizar
         readable_title = _pretty_indicator_name(rname)
-        if use_no_far:
-            readable_title = readable_title + " | No FAR"
 
         fig, ax = plt.subplots(figsize=(fig_size(scale=3.0)[0] * 1.0, fig_size(scale=3.0)[1]))
 
@@ -1799,7 +1781,7 @@ def plot_It_overlay(
                     rasterized=True)
 
             # Marca el tiempo de detección elegido con vline más evidente
-            td = run_data["t_d_no_FAR"] if use_no_far else run_data["t_d"]
+            td = run_data["t_d"]
             if td.size > 0:
                 if case_idx == CONTROL_IDX:
 
@@ -1849,13 +1831,11 @@ def plot_It_overlay(
 
         if out_dir:
             os.makedirs(out_dir, exist_ok=True)
-            suffix = "_noFAR" if use_no_far else ""
-            path = os.path.join(out_dir, f"It_overlay{suffix}_{_sanitize(rname)}.png")
+            path = os.path.join(out_dir, f"It_overlay_{_sanitize(rname)}.png")
             fig.savefig(path)
             print(f"  Guardado: {path}")
         else:
-            suffix = " (no FAR)" if use_no_far else ""
-            fig.canvas.manager.set_window_title(f"I_t overlay{suffix} — {rname}")
+            fig.canvas.manager.set_window_title(f"I_t overlay — {rname}")
 
 
 # ==============================================================================
@@ -2056,9 +2036,7 @@ def main() -> None:
 
     if plot_It_flag:
         print("\n[2/2] I_t(t) overlay con t_d ...")
-        plot_It_overlay(cases, lk, run_name_filter=rn_filter, use_no_far=False, out_dir=out_dir)
-        print("\n[2/2] I_t(t) overlay con t_d_no_FAR ...")
-        plot_It_overlay(cases, lk, run_name_filter=rn_filter, use_no_far=True, out_dir=out_dir)
+        plot_It_overlay(cases, lk, run_name_filter=rn_filter, out_dir=out_dir)
 
     if plot_signal_disp_flag:
         print("\n[3/4] Axial_disp overlay ...")

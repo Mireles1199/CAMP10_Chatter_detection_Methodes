@@ -73,8 +73,7 @@ def main() -> None:
     _F_MODAL   = 150.0               # [Hz] frecuencia modal del chatter
     _T_REV     = 60.0 / _RPM         # 0.005 s -- periodo de una revolución
     _T_MODAL   = 1.0 / _F_MODAL      # 0.00667 s -- periodo modal
-    _T_GT      = 5.365770208787228   # [s] onset de chatter: t_d_no_FAR = detecciones > _T_GT
-                                     #     (y región estable si USE_EXTERNAL_REFERENCE = False)
+    _T_GT      = 5.365770208787228   # [s] onset de chatter (y región estable si USE_EXTERNAL_REFERENCE = False)
 
     # -- entrenamiento de umbrales -------------------------------------------------
     #   True  -> tramos "stable" (y "unstable" en MaxEnt) de _REFERENCE_H5, uno por
@@ -407,7 +406,7 @@ GUÍA RÁPIDA
 ===========
 Qué hace
   Corre MaxEnt-SPRT, RMS-CV, SST-SVD y Green Integral sobre cada caso de un HDF5
-  del DOE y guarda t, I_t, t_d, t_d_no_FAR por (caso, indicador). El formato de
+  del DOE y guarda t, I_t, t_d por (caso, indicador). El formato de
   entrada se detecta solo:
     doe_results.h5        (case_*)          -> doe_indicator_results.h5
     doe_noise_results.h5  (control, snr_*)  -> doe_noise_indicator_results.h5
@@ -443,7 +442,7 @@ Recetas
     USE_EXTERNAL_REFERENCE = False   (usa el tramo (_CUT_START, _T_GT))
 
 Salida
-  <caso>/<run_name>/{t, I_t, t_d, t_d_no_FAR} + attrs (config usada, meta_*)
+  <caso>/<run_name>/{t, I_t, t_d} + attrs (config usada, meta_*)
   run_name se arma solo desde los parámetros, ej. maxent_revo_dec4_1step
   Volver a correr la misma config sobreescribe ese grupo; las demás se conservan.
   Siguiente paso: DOE_plots/doe_indicator_plotter.py | doe_noise_plotter.py
@@ -650,7 +649,7 @@ def _empty(grp_name: str, run_name: str, label_key: Optional[str],
     return {
         "case": grp_name, "run_name": run_name,
         "t": np.array([]), "I_t": np.array([]),
-        "t_d": np.array([]), "t_d_no_FAR": np.array([]),
+        "t_d": np.array([]),
         "meta": meta, "attrs": {},
         "label_key": label_key, "label_val": label_val,
     }
@@ -710,15 +709,13 @@ def _run_one(
         return _empty(grp_name, run_name, label_key, label_val, error=str(exc))
 
     t_d = np.asarray(result.t_d if result.t_d is not None else [], dtype=float)
-    t_d_no_FAR = np.asarray(result.t_d_no_FAR if result.t_d_no_FAR is not None else [], dtype=float)
     meta = {
         k: v for k, v in dict(getattr(result, "meta", {})).items()
         if not callable(v) and k not in ("raw_result", "signal")
     }
 
     if t_d.size > 0:
-        log.info("  [%s / %s] t_d = %.4f s | t_d_no_FAR = %s", grp_name, run_name, t_d[0],
-                 f"{t_d_no_FAR[0]:.4f} s" if t_d_no_FAR.size > 0 else "-")
+        log.info("  [%s / %s] t_d = %.4f s", grp_name, run_name, t_d[0])
     else:
         log.info("  [%s / %s] sin detección", grp_name, run_name)
     log.info("  [%s / %s] FIN \n", grp_name, run_name)
@@ -729,7 +726,6 @@ def _run_one(
         "t": np.asarray(getattr(result, "t", []), dtype=float),
         "I_t": np.asarray(getattr(result, "I_t", []), dtype=float),
         "t_d": t_d,
-        "t_d_no_FAR": t_d_no_FAR,
         "meta": meta,
         "attrs": {
             "indicator": _PREFIX[(ind_id, cfg.get("func", "Default"))],
@@ -800,11 +796,9 @@ def write_results(out_path: str, res: Dict[str, Any], h5_src: str,
                 log.warning("No se pudieron copiar señales del caso '%s': %s", res["case"], exc)
 
         grp = case_grp.create_group(res["run_name"])
-        for ds in ("t", "I_t", "t_d", "t_d_no_FAR"):
+        for ds in ("t", "I_t", "t_d"):
             if res[ds].size > 0:
                 grp.create_dataset(ds, data=res[ds], compression="gzip")
-        if "t_d_no_FAR" not in grp:
-            grp.create_dataset("t_d_no_FAR", data=np.array([]))
 
         if res.get("label_key"):
             grp.attrs["label_key"] = res["label_key"]
