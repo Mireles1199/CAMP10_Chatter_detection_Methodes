@@ -347,3 +347,17 @@ Orden: F1 → F2 → F3 son la base; F5 puede empezar con F1–F2 hechas. F4, F6
 - Puedes crear una validación nueva o derivar otra `n` sin editar ningún `.py`.
 - Cada etapa se lanza desde la app y su estado (hecha, corriendo, falló, desactualizada) se ve en el diagrama.
 - Todos los selftests pasan.
+
+## 13. Bitácora de ejecución (decisiones tomadas durante la implementación)
+
+| Fase | Decisión | Por qué |
+|---|---|---|
+| F0 | Antes de F1 se commitearon aparte el trabajo previo de la sesión (eliminación de `t_d_no_FAR`; herramientas de validación). Los YAML `configs/Ap_Cons_test_ind.yaml` y `configs/test_validaicon.yaml` se dejaron sin commitear porque son tuyos | Que cada fase tenga su diff limpio |
+| F1 | Tu entrenamiento se importa como **una sola corrida** (`DOE_..._RUN_10_0.5-2.0`, 34 casos): esa carpeta ya contiene las 34 carpetas de casos (0–33), incluidas las de 0.91–1.09. No hay etapa de fusión | Es lo que hay en disco; añadir una fusión ficticia solo complicaría |
+| F1 | Las corridas importadas sin config (`dir:`) son **de solo lectura**: simulate/extract no se pueden relanzar desde la app | Sin config, `doe_runner extract` no conoce el `ap_ref` y recalcularía mal κ. Cubre el hueco 1 sin detectar fusiones en el sitio |
+| F1 | Una etapa solo se marca "bloqueada" si **falta su salida**. Si la salida existe pero falta un paso anterior (ej. dataset importado sin su `reference_labels.yaml`), queda "hecha" con el aviso "earlier step missing" | Si no, datos importados válidos quedarían bloqueados |
+| F1 | `extends` entre experimentos mezcla las secciones un nivel (claves de `indicators` se combinan); las listas se reemplazan | Derivar cambiando solo `variants` sin perder `f_modal`, `workers`… |
+| F1 | El YAML de experimentos rechaza claves duplicadas | PyYAML se queda con la última en silencio; justo el caso de variantes repetidas |
+| F1 | El siguiente paso de una validación pone el etiquetado antes que los indicadores | Ambos son válidos; etiquetar primero permite revisar la verdad antes de gastar CPU |
+| F1 | `--merge_out` de `doe_runner` copia la carpeta base entera (`copytree`, con todas las simulaciones): ocupa disco | Se mantiene porque es lo seguro; anotado para que lo sepas |
+| F1 | Experimentos reales creados: `train_1DOF150_n12098_k0.5-2.0` (importado) y `val_1DOF150_n12098_k0.53-1.91` (config `test_validaicon`, 18 casos, aún sin simular) | Primeros experimentos reales |
