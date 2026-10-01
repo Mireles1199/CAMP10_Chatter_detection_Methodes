@@ -3,6 +3,26 @@
 Entorno: `entorno_CAMP10\Scripts\python.exe` (salvo `doe_runner.py --command n2m_sch`, que usa el Python de Nessy2m).
 El orden real lo marcan los **archivos HDF5**, no los `import` (solo `doe_merge_auto → doe_runner` y los selectores → plotters se importan entre sí).
 
+## App de experimentos (punto de entrada recomendado)
+
+`python launcher.py` (entorno_CAMP10) abre la app. Cada **experimento** (`experiments/<nombre>.yaml`) reúne sus
+corridas (`configs/*.yaml` o carpetas ya simuladas), el etiquetado, las variantes de indicadores
+(`experiments/indicator_variants.yaml`) y la validación; la app muestra el diagrama de etapas con su estado, la meta
+y el siguiente paso, y lanza cada etapa en su consola a través de `experiment.py run`.
+
+| Pieza | Qué hace |
+|---|---|
+| `launcher.py` | La ventana: lista de experimentos, diagrama, panel de etapa, formularios, crear / importar / derivar, comparar validaciones, pestaña Tools (cada script suelto) |
+| `experiment.py` | El núcleo sin interfaz: `status`, `check`, `run` (envoltorio con registro y log en `experiments/.runs/`), `resolve`, `import`, `selftest` |
+| `experiments/indicator_variants.yaml` | Las configuraciones de indicadores; `T_rev`/`T_modal` se calculan por caso desde el `.h5` |
+| `doe_indicators.py --experiment E` | Corre las variantes del experimento con la referencia de su entrenamiento |
+| `static_deflection.py` / `doe_noise.py` / `doe_model_snr.py --experiment E` | Su sección del YAML sobrescribe sus constantes de `CONFIG` |
+| `check_app_dialogs.py`, `DOE_analisis/check_indicators_experiment.py` | Comprobaciones (diálogos sobre copia temporal; equivalencia `CONFIG` vs `--experiment`, lenta) |
+
+Las salidas que dependen de la configuración del experimento (etiquetas, indicadores, validación) van en
+`<carpeta del DOE>/<experimento>/`; la simulación y `doe_results.h5` siguen compartidas. Detalle y decisiones:
+`PLAN_app_experimentos.md`.
+
 ## Diagrama
 
 ```mermaid
@@ -62,6 +82,7 @@ flowchart TD
 | 5c | `reference_dataset.py build` | `doe_results.h5` + YAML | `reference_dataset*.h5` (`/stable`, `/unstable`, `/gray` → `caso/canal__NNN/{t,y}`) | `--channels`, `--t-start`, `--t-end` (SOBRESCRIBE) |
 | 5d | `reference_dataset.py combine` | `reference_dataset.h5` | `reference_combined.h5` | Solo para el visor; los indicadores ya no lo usan |
 | 6 | `DOE_analisis/doe_indicators.py` | `doe_results.h5` **o** `doe_noise_results.h5` + `reference_dataset*.h5` | `doe_indicator_results.h5` **o** `doe_noise_indicator_results.h5` (`caso/run_name/{t, I_t, t_d}` + attrs `pp_*`, `meta_*`) | CONFIG: `RUNS`, `INDICATOR_CONFIG_*`, `_T_GT`, `USE_EXTERNAL_REFERENCE`. CLI: `--doe_results`, `--cases`, `--workers`, `--label_key`, `--list`, `--dry_run` |
+| 6 (app) | `doe_indicators.py --experiment E` | `doe_results.h5` del experimento + dataset de su entrenamiento | `<DOE>/<exp>/doe_indicator_results.h5` | variantes de `experiments/indicator_variants.yaml`; `T_rev` por caso |
 | 6b | `DOE_analisis/validate_indicators.py` | `doe_indicator_results.h5` del DOE de **validación** + `reference_dataset*.h5` de validación (verdad) | `doe_validation_results.h5` (mismo layout que `doe_indicator_results.h5` + `pred`, `truth_w`, `$zone$`, `$truth$`, `$outcome_<run>$`, `/summary`, `/training`); abre en `doe_unified_selector.py` (resumen `SLD — <modelo> [outcome <run>]`: casos coloreados por TP/TN/FN/FP) | `--ind_results`, `--labels`, `--reference`, `--out`, `--channel`, `--selftest` |
 | 7 | `DOE_analisis/doe_model_snr.py` | Carpetas del DOE (`sens_out.hdf5` por índice) | `doe_model_snr_results.h5` (attrs `snr_mod_dB` por señal y caso) | `DOE_NAME`, `CASE_NAME`, `CONTROL_IDX`, `BASE_DIR`; `--doe_name`, `--control_idx`, `--out`, `--list`, `--dry_run` |
 | 8 | `DOE_plots/*` | Ver tabla de abajo | Figuras / ventana interactiva | — |

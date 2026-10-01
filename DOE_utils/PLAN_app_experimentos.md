@@ -1,6 +1,6 @@
 # Plan — App de experimentos DOE (launcher.py → app central)
 
-Fecha: 2026-10-01 · Estado: propuesto, sin empezar
+Fecha: 2026-10-01 · Estado: implementado (F0–F9) la noche del 2026-10-01, ver §13–§15
 
 ## 1. Objetivo
 
@@ -383,3 +383,25 @@ Orden: F1 → F2 → F3 son la base; F5 puede empezar con F1–F2 hechas. F4, F6
 | F7 | Delete borra el YAML **y** sus registros `.runs/<exp>` (metadatos de la app), nunca datos; se niega si otro experimento lo extiende o lo usa como entrenamiento | Evitar registros huérfanos y referencias rotas |
 | F8 | Comparar: tabla con las métricas de `/metrics` de dos validaciones (bal. acc, MCC, AUC, TPR, TNR, F1, exactitud, retardo vs inicio por amplitud, alarma en estables, persistencia) | Plan |
 | F6–F8 | Prueba de diálogos guardada como `check_app_dialogs.py`: trabaja sobre una copia temporal de los experimentos y de `configs/`, rellena y guarda cada formulario y deja capturas en `%TEMP%/app_dialog_shots` | Repetible sin tocar datos reales |
+
+## 14. Guía rápida
+
+1. `python launcher.py` (entorno_CAMP10). A la izquierda, los experimentos; al seleccionar uno, su diagrama y su meta.
+2. **Siguiente paso**: arriba ("Next step: …", botón "Show next step"). Si la caja está bloqueada por otro experimento, "Go to blocking experiment".
+3. **Ejecutar**: clic en la caja → "▶ Run in console". Se abre una consola (no se cierra con la app); el estado pasa a *running* y al terminar a *done* / *failed* con el final del log en el panel.
+4. **Configurar**: "Edit config" en la etapa (formulario en el camino principal; YAML en las opcionales). Cambiar una configuración ya ejecutada deja esa etapa y las siguientes en naranja.
+5. **Crear**: "New DOE…" (desde una config plantilla: n, κ, nombre), "Import folder…" (DOE ya simulado), "New validation…" (abre el planificador de validación), "Derive…" (otra n u otras variantes), "Duplicate…", "Delete" (solo el YAML).
+6. **Variantes**: en el formulario de indicadores, "Duplicate variant…" para crear una nueva (las que ya tienen resultados no se editan); "Show resolved config…" para ver la config final de un caso.
+7. **Comparar**: pestaña Compare, dos validaciones.
+8. Por consola: `python experiment.py status`, `check EXP`, `run EXP STAGE`, `resolve`, `import`.
+
+## 15. Para revisar por la mañana
+
+Hecho y comprobado sin ti (selftests de `experiment.py`, `launcher.py`, `validate_indicators.py`, `doe_val_planner.py`, `static_deflection.py`; equivalencia de indicadores con datos reales; diálogos sobre copia temporal con capturas):
+
+- [ ] Abrir `python launcher.py` y recorrer los dos experimentos reales (clic en cajas, cambiar la meta, pestaña Tools).
+- [ ] Revisar la bitácora (§13), sobre todo: entrenamiento importado como una corrida; resultados con `--experiment` usan el `$spin_rate$` real (12098.28) y no 12000.
+- [ ] `configs/test_validaicon.yaml` lo usa el experimento de validación y **sigue sin commitear** (es tuyo): commitearlo si quieres que el experimento sea reproducible desde git.
+- [ ] Probar "New validation…" con el planificador real (abre `doe_val_planner` con el dataset y el nombre ya puestos).
+- [ ] Simular la validación (`simulate` de `val_1DOF150_n12098_k0.53-1.91`, horas) y seguir la cadena extract → label_template (revisar YAML) → label_build → indicators → validate; después, pestaña Compare.
+- [ ] Probar a mano lo que no pude: ratón en el diagrama, consolas abiertas por "Run in console", "Open output in viewer".

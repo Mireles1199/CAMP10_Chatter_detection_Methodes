@@ -535,7 +535,7 @@ class App:
         self._enable(btn["run"], not blockers and bool(s.cmds))
         self._enable(btn["copy"], bool(s.cmds))
         self._enable(btn["log"], bool(rec and rec.get("log") and os.path.isfile(rec["log"])))
-        self._enable(btn["view"], any(p.endswith(".h5") and os.path.isfile(p) for p in s.outputs))
+        self._enable(btn["view"], state != "running" and any(p.endswith(".h5") and os.path.isfile(p) for p in s.outputs))
         self._enable(btn["goto"], self._blocking is not None)
         self._enable(btn["folder"], any(os.path.exists(os.path.dirname(p)) for p in s.outputs))
 
