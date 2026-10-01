@@ -406,6 +406,11 @@ class App:
         c.delete("all")
         S = ex.stages(e)
         keys = list(S)
+        if not keys:   # e.g. a validation whose config the planner has not saved yet
+            msg = "No stages yet:\n" + "\n".join(e.errors or ["the experiment has no runs"])
+            c.create_text(MARGIN, MARGIN, text=msg, anchor="nw", fill="#c62828", font=("Segoe UI", 9),
+                          width=max(c.winfo_width(), 600) - 2 * MARGIN)
+            return
         ncols = 1 + max(diagram_layout(keys, e.training is not None, 1.0)[k][0] - MARGIN for k in keys)
         avail = max(c.winfo_width(), 600)
         step_x = max(110.0, min(STEP_X, (avail - 2 * MARGIN) / max(ncols, 1)))   # fit the panel width
@@ -476,6 +481,10 @@ class App:
 
     def _show_stage(self, e, st):
         k = self.sel_stage
+        if not st:
+            self._set_info([("This experiment has no stages yet.\n", "head")] +
+                           [(f"  ERROR {x}\n", "bad") for x in ex.check(e)[0]])
+            return
         if k is None or k not in st:
             self._set_info([("Click a stage of the diagram.", None)])
             return

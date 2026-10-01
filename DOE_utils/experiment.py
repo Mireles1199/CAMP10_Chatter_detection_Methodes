@@ -790,7 +790,7 @@ def propose_name(kind: str, case: str, spin, kappas) -> str:
     if spin:
         parts.append(f"n{float(spin):.0f}")
     if kappas:
-        parts.append(f"k{min(kappas):.2f}-{max(kappas):.2f}".replace(".00", ".0"))
+        parts.append(f"k{round(min(kappas), 2):g}-{round(max(kappas), 2):g}")
     base, existing = "_".join(parts), set(list_experiments())
     name, i = base, 2
     while name in existing:
