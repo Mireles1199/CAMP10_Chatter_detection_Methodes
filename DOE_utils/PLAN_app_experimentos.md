@@ -383,6 +383,7 @@ Orden: F1 → F2 → F3 son la base; F5 puede empezar con F1–F2 hechas. F4, F6
 | F7 | Delete borra el YAML **y** sus registros `.runs/<exp>` (metadatos de la app), nunca datos; se niega si otro experimento lo extiende o lo usa como entrenamiento | Evitar registros huérfanos y referencias rotas |
 | F8 | Comparar: tabla con las métricas de `/metrics` de dos validaciones (bal. acc, MCC, AUC, TPR, TNR, F1, exactitud, retardo vs inicio por amplitud, alarma en estables, persistencia) | Plan |
 | F6–F8 | Prueba de diálogos guardada como `check_app_dialogs.py`: trabaja sobre una copia temporal de los experimentos y de `configs/`, rellena y guarda cada formulario y deja capturas en `%TEMP%/app_dialog_shots` | Repetible sin tocar datos reales |
+| F9 | **Prueba real de punta a punta**: `experiment.py run train_1DOF150_n12098_k0.5-2.0 indicators` (lo mismo que "Run in console") corrió 136/136 tareas (34 casos × 4 variantes) en ~57 min sin errores; salida en `DOE_..._RUN_10_0.5-2.0/train_1DOF150_n12098_k0.5-2.0/doe_indicator_results.h5` con atributos `experiment*`; el entrenamiento queda 5/5 y el visor lo abre (34 casos). Son resultados en la misma muestra de entrenamiento (sirven de referencia, no de validación) | Comprobar el flujo completo con un script real |
 
 ## 14. Guía rápida
 
