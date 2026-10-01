@@ -685,6 +685,183 @@ def import_dir(name: str, doe_dir: str, kind: str = "training", training: str | 
     return path
 
 
+# ============================================================================== run (the wrapper)
+BACKUP_BEFORE_RUN = {"label_template"}   # its script refuses to overwrite: the old file is kept as .bak-<time>
+
+
+def _norm(p: str) -> str:
+    return os.path.normcase(os.path.abspath(p))
+
+
+def _overlap(a: str, b: str) -> bool:
+    """Same file, or one is a folder that contains the other."""
+    a, b = _norm(a), _norm(b)
+    return a == b or a.startswith(b + os.sep) or b.startswith(a + os.sep)
+
+
+def write_conflicts(exp: Exp, key: str) -> list:
+    """Stages running now (any experiment) that write a file this stage reads or writes."""
+    st = stages(exp)[key]
+    mine = [p for p in st.inputs + st.writes if p]
+    out = []
+    for name in list_experiments():
+        try:
+            other = load(name)
+        except Exception:
+            continue
+        for k, o in stages(other).items():
+            if other.name == exp.name and k == key:
+                continue
+            rec = read_record(other, k)
+            if not (rec and rec.get("status") == "running" and pid_alive(rec.get("pid"))):
+                continue
+            hit = [w for w in o.writes for p in mine if _overlap(w, p)]
+            if hit:
+                out.append(f"'{k}' of experiment '{other.name}' is running and writes {os.path.basename(hit[0])}")
+    return out
+
+
+def run_blockers(exp: Exp, key: str) -> list:
+    """Reasons why the stage must not start now (empty list = it can run)."""
+    S = stages(exp)
+    if key not in S:
+        return [f"stage '{key}' does not apply to experiment '{exp.name}'"]
+    st, out = S[key], []
+    if not st.runnable:
+        out.append(st.why_not)
+    errs, _ = check(exp)
+    out += [f"configuration error: {e}" for e in errs]
+    state, reason = status(exp)[key]
+    if state == "running":
+        out.append("already running")
+    elif state == "blocked":
+        out.append(reason)
+    out += write_conflicts(exp, key)
+    return out
+
+
+def existing_outputs(exp: Exp, key: str) -> list:
+    """Outputs that a run would replace (asked before running)."""
+    st = stages(exp)[key]
+    return [p for p in st.outputs if os.path.isfile(p)] if st.present() else []
+
+
+def stamp_outputs(exp: Exp, st: Stage) -> None:
+    """Traceability attrs on the .h5 outputs of a successful run."""
+    import h5py
+    for p in st.outputs:
+        if p.endswith(".h5") and os.path.isfile(p):
+            try:
+                with h5py.File(p, "a") as f:
+                    f.attrs.update(experiment=exp.name, experiment_stage=st.key, experiment_hash=st.hash,
+                                   experiment_date=datetime.datetime.now().isoformat(timespec="seconds"))
+            except OSError as exc:   # traceability must never fail a finished run
+                print(f"[experiment] could not stamp {p}: {exc}")
+
+
+def run_stage(name: str, key: str, yes: bool = False, cmds=None) -> int:
+    """Run one stage: checks, record 'running', tee output to the console and the log, record the result.
+    cmds overrides the stage commands (selftest only). Returns the exit code."""
+    import subprocess
+    exp = load(name)
+    blockers = run_blockers(exp, key)
+    if blockers:
+        print("[experiment] cannot run:\n  - " + "\n  - ".join(blockers))
+        return 2
+    st = stages(exp)[key]
+    old = existing_outputs(exp, key)
+    if old and not yes:
+        ans = input(f"[experiment] this run replaces {[os.path.basename(p) for p in old]}. Continue? [y/N] ")
+        if ans.strip().lower() not in ("y", "yes", "s", "si"):
+            print("[experiment] cancelled")
+            return 1
+    if key in BACKUP_BEFORE_RUN:
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        for p in old:
+            os.replace(p, f"{p}.bak-{stamp}")
+    for p in st.outputs:
+        if p.endswith((".h5", ".yaml")):
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+    os.makedirs(exp.runs_dir(), exist_ok=True)
+    log_path = os.path.join(exp.runs_dir(), f"{key}.log")
+    cmds = cmds if cmds is not None else st.cmds
+    rec = {"stage": key, "status": "running", "start": time.time(), "pid": os.getpid(), "hash": st.hash,
+           "cmds": [[sys.executable, *c] for c in cmds], "log": log_path}
+    write_record(exp, key, rec)
+    code = 0
+    with open(log_path, "w", encoding="utf-8") as log:
+        try:
+            for c in cmds:
+                line = f"$ {sys.executable} {' '.join(c)}"
+                print(line)
+                log.write(line + "\n")
+                p = subprocess.Popen([sys.executable, "-u", *c], cwd=os.path.dirname(c[0]) or None,
+                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                                     encoding="utf-8", errors="replace")
+                for out_line in p.stdout:
+                    sys.stdout.write(out_line)
+                    log.write(out_line)
+                    log.flush()
+                code = p.wait()
+                if code != 0:
+                    break
+        except KeyboardInterrupt:
+            code = -2
+            log.write("\n[experiment] interrupted\n")
+    rec.update(status="done" if code == 0 else "failed", end=time.time(), exit_code=code)
+    write_record(exp, key, rec)
+    if code == 0:
+        stamp_outputs(exp, st)
+    print(f"[experiment] {key}: {'done' if code == 0 else f'FAILED (exit {code})'} - log: {log_path}")
+    return code
+
+
+def run_command(name: str, key: str, python: str | None = None, yes: bool = True) -> list:
+    """argv the app uses to open a console with the wrapper."""
+    return [python or sys.executable, os.path.abspath(__file__), "run", name, key] + (["--yes"] if yes else [])
+
+
+def _selftest_run(e: Exp) -> None:
+    """Wrapper checks on the selftest training experiment (its label_build is done at this point)."""
+    import subprocess
+    import h5py
+    tmp = tempfile.mkdtemp(prefix="exp_run_")
+    ok, bad, tpl = (os.path.join(tmp, n) for n in ("ok.py", "bad.py", "tpl.py"))
+    with open(ok, "w") as f:
+        f.write("import sys, h5py\nprint('hello from the stage')\nh5py.File(sys.argv[1], 'w').close()\n")
+    with open(bad, "w") as f:
+        f.write("print('about to fail')\nraise SystemExit(3)\n")
+    with open(tpl, "w") as f:
+        f.write("import sys\nopen(sys.argv[1], 'w').write('new')\n")
+    out = e.indicators["out"]
+    assert run_stage(e.name, "indicators", yes=True, cmds=[[ok, out]]) == 0
+    rec = read_record(e, "indicators")
+    assert rec["status"] == "done" and rec["exit_code"] == 0 and "hello from the stage" in open(rec["log"]).read()
+    with h5py.File(out, "r") as f:
+        assert f.attrs["experiment"] == e.name and f.attrs["experiment_stage"] == "indicators"
+    assert status(e)["indicators"][0] == "done" and existing_outputs(e, "indicators") == [out]
+    assert run_stage(e.name, "indicators", yes=True, cmds=[[bad]]) == 3
+    assert status(e)["indicators"][0] == "failed" and "exit code 3" in status(e)["indicators"][1]
+    # label_template keeps the old file as .bak-<time> (its script refuses to overwrite)
+    assert run_stage(e.name, "label_template", yes=True, cmds=[[tpl, e.label["labels_yaml"]]]) == 0
+    assert any(f.startswith("reference_labels.yaml.bak-") for f in os.listdir(os.path.dirname(e.label["labels_yaml"])))
+    # a running stage that writes doe_results.h5 blocks the stages that read it, in any experiment
+    sleeper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    try:
+        write_record(e, "static_deflection", {"status": "running", "start": time.time(), "pid": sleeper.pid})
+        blk = run_blockers(e, "label_template")
+        assert any("is running and writes doe_results.h5" in b for b in blk), blk
+        assert run_stage(e.name, "label_template", yes=True, cmds=[[ok, "x.h5"]]) == 2
+        assert run_blockers(e, "static_deflection") == ["already running"] or "already running" in run_blockers(e, "static_deflection")
+    finally:
+        sleeper.kill()
+        sleeper.wait()
+    assert not write_conflicts(e, "label_template")                 # process gone: nothing blocks
+    os.remove(record_path(e, "static_deflection"))
+    assert run_command(e.name, "extract")[2:5] == ["run", e.name, "extract"]
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 # ============================================================================== CLI text
 SYMBOL = {"done": "OK ", "stale": "OLD", "running": "RUN", "failed": "ERR", "pending": " . ", "blocked": " x "}
 
@@ -827,6 +1004,7 @@ def _selftest():
             raise AssertionError("import over an existing experiment")
         except ValueError:
             pass
+        _selftest_run(load("train"))
         print("experiment selftest OK")
     finally:
         set_root(old[0])
@@ -849,10 +1027,16 @@ def main():
     im.add_argument("--training")
     im.add_argument("--label-out")
     im.add_argument("--description")
+    r = sub.add_parser("run", help="run one stage in this console (what the app opens)")
+    r.add_argument("exp")
+    r.add_argument("stage", choices=STAGES)
+    r.add_argument("--yes", action="store_true", help="do not ask before replacing existing outputs")
     sub.add_parser("selftest")
     a = p.parse_args()
     if a.cmd == "selftest":
         return _selftest()
+    if a.cmd == "run":
+        sys.exit(run_stage(a.exp, a.stage, a.yes))
     if a.cmd == "status":
         names = [a.exp] if a.exp else list_experiments()
         print("\n\n".join(status_text(load(n), a.goal) for n in names) or "no experiments in " + EXP_DIR)

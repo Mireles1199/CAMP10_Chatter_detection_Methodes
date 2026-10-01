@@ -361,3 +361,7 @@ Orden: F1 → F2 → F3 son la base; F5 puede empezar con F1–F2 hechas. F4, F6
 | F1 | El siguiente paso de una validación pone el etiquetado antes que los indicadores | Ambos son válidos; etiquetar primero permite revisar la verdad antes de gastar CPU |
 | F1 | `--merge_out` de `doe_runner` copia la carpeta base entera (`copytree`, con todas las simulaciones): ocupa disco | Se mantiene porque es lo seguro; anotado para que lo sepas |
 | F1 | Experimentos reales creados: `train_1DOF150_n12098_k0.5-2.0` (importado) y `val_1DOF150_n12098_k0.53-1.91` (config `test_validaicon`, 18 casos, aún sin simular) | Primeros experimentos reales |
+| F2 | El envoltorio corre los scripts de la etapa con **su propio Python** (`sys.executable`). `pick_python()` lo usa la app una sola vez, al abrir la consola del envoltorio | Un solo punto donde se elige el Python |
+| F2 | Cualquier error de configuración del experimento (`check`) bloquea todas sus etapas | Más simple y seguro que decidir qué error afecta a qué etapa |
+| F2 | `label_template` guarda el YAML anterior como `reference_labels.yaml.bak-<fecha>` antes de regenerarlo (su script se niega a sobrescribir); nada se borra | Nunca perder etiquetas revisadas a mano |
+| F2 | Los atributos `experiment*` van en la raíz del `.h5` de salida. En salidas compartidas (ruido, SNR) queda el último experimento que lo escribió | Suficiente para rastrear; un registro por experimento sería otra estructura |
