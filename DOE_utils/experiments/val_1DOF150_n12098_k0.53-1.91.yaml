@@ -1,7 +1,7 @@
 name: val_1DOF150_n12098_k0.53-1.91
 kind: validation
-description: validation of the indicators, tube 1DOF 150 Hz, n = 12098.28 rpm, 17
-  new kappa (test_validaicon)
+description: validation of the indicators, tube 1DOF 150 Hz, n = 12098.28 rpm, 18
+  new cases (config test_validaicon)
 training: train_1DOF150_n12098_k0.5-2.0
 runs:
 - config: test_validaicon
