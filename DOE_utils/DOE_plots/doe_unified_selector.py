@@ -2492,6 +2492,15 @@ def _draw_amp_limits(ax, rows: List[Dict[str, Any]], vertical: bool = False) -> 
             draw(-v, color="black", ls=ls, lw=1.2)
 
 
+def _plot_normal_fit(ax, y_flat: np.ndarray, color) -> None:
+    """Curva normal N(μ, σ) ajustada a `y_flat`, discontinua sobre su histograma."""
+    mu, sigma = float(np.mean(y_flat)), float(np.std(y_flat))
+    if sigma > 0:
+        x = np.linspace(y_flat.min(), y_flat.max(), 300)
+        pdf = np.exp(-0.5 * ((x - mu) / sigma) ** 2) / (sigma * np.sqrt(2 * np.pi))
+        ax.plot(x, pdf, color=color, lw=1.4, ls="--")
+
+
 def _index_reference_dataset(h5_path: str) -> List[Dict[str, Any]]:
     """Lee attrs de cada tramo de un reference_dataset.h5 (to_hdf5 anidado) -- sin t/y."""
     rows: List[Dict[str, Any]] = []
@@ -2689,10 +2698,12 @@ class ReferenceViewerApp:
                         y_flat, bins=40, density=True, color=color, alpha=0.35, hatch=hatch,
                         edgecolor=color, label=piece_label if detailed else None,
                     )
+                    _plot_normal_fit(axes["distribution"], y_flat, color)
                     if detailed and sigma > 0:
                         axes["distribution"].axvline(mu, color=color, lw=1.2)
 
-            if len(channels) == 1:  # límites en unidades de UN canal -> no con canales mezclados
+            # límites en unidades de UN canal -> no con canales mezclados
+            if len(channels) == 1 and self._tramos_show_limits_var.get():
                 for kind, ax in axes.items():
                     _draw_amp_limits(ax, pieces, vertical=(kind == "distribution"))
 
@@ -2849,6 +2860,14 @@ class ReferenceViewerApp:
             bar, text="📊 Show distribution", variable=self._tramos_show_distribution_var,
             command=self._plot_selected_tramos,
         ).pack(side=tk.LEFT, padx=4)
+        # límites operacionales (±lim_inf / ±lim_sup de --strategy amplitude): el toggle
+        # solo aparece si el .h5 se etiquetó por amplitud; activado por defecto
+        self._tramos_show_limits_var = tk.BooleanVar(value=True)
+        if any(r["amp_limits"] for r in self._index):
+            ttk.Checkbutton(
+                bar, text="📏 Operational limits", variable=self._tramos_show_limits_var,
+                command=self._plot_selected_tramos,
+            ).pack(side=tk.LEFT, padx=4)
 
         ttk.Separator(bar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6, pady=2)
         ttk.Button(bar, text="💾 Export figure", command=self._export_tramos_figure).pack(side=tk.LEFT, padx=4)
@@ -2980,6 +2999,7 @@ class ReferenceViewerApp:
             if "distribution" in axes:
                 dist_label = f"{piece_label}  (μ={mu:.3g}, σ²={sigma ** 2:.3g})" if detailed else piece_label
                 axes["distribution"].hist(y_flat, bins=60, density=True, color=color, alpha=0.4, label=dist_label)
+                _plot_normal_fit(axes["distribution"], y_flat, color)
                 if detailed and sigma > 0:
                     axes["distribution"].axvline(mu, color=color, lw=1.4, ls="-")
                     axes["distribution"].axvline(mu - sigma, color=color, lw=1.0, ls=":")
@@ -2989,9 +3009,10 @@ class ReferenceViewerApp:
             channel = next(iter(selected_channels))
             plot_title = _channel_title(channel)
             plot_ylabel = _channel_ylabel(channel)
-            sel_rows = [self._index[int(iid)] for iid in sel]
-            for kind, ax in axes.items():
-                _draw_amp_limits(ax, sel_rows, vertical=(kind == "distribution"))
+            if self._tramos_show_limits_var.get():
+                sel_rows = [self._index[int(iid)] for iid in sel]
+                for kind, ax in axes.items():
+                    _draw_amp_limits(ax, sel_rows, vertical=(kind == "distribution"))
         else:
             plot_title = "Selected segments (mixed channels)"
             plot_ylabel = "value"
