@@ -76,47 +76,122 @@ def read_tutorial() -> str:
         return f"# Tutorial{chr(10)}{chr(10)}The file {TUTORIAL_FILE} could not be read: {exc}{chr(10)}"
 
 
-def render_markdown(widget, text: str) -> None:
-    """Minimal markdown into a Tk Text (read-only afterwards): # / ## headings, **bold**, `code`, ``` blocks,
-    pipe tables (monospace, separator row dropped) and - / 1. lists. Enough for TUTORIAL.md; not a full parser."""
+TUT_IMG_DIR = os.path.join(HERE, "tutorial_img")
+TUT_WIDTH = 980   # px of the reading column; tables and images are fitted to it
+
+
+def configure_tutorial_tags(t, size: int = 10) -> None:
+    t.configure(font=("Segoe UI", size), spacing3=4, background="#ffffff")
+    for tag, cfg in (("h1", dict(font=("Segoe UI", size + 8, "bold"), spacing1=8, spacing3=10)),
+                     ("h2", dict(font=("Segoe UI", size + 4, "bold"), foreground="#1565c0", spacing1=18, spacing3=6)),
+                     ("h3", dict(font=("Segoe UI", size + 1, "bold"), spacing1=8)),
+                     ("bold", dict(font=("Segoe UI", size, "bold"))),
+                     ("code", dict(font=("Consolas", size), foreground="#37474f", background="#eceff1")),
+                     ("codeblock", dict(font=("Consolas", size - 1), foreground="#263238", background="#eceff1",
+                                        lmargin1=20, lmargin2=20, spacing1=1, spacing3=1)),
+                     ("bullet", dict(lmargin1=22, lmargin2=40, spacing3=3)),
+                     ("num", dict(lmargin1=22, lmargin2=42, spacing3=3)),
+                     ("note", dict(background="#fff8e1", lmargin1=18, lmargin2=18, rmargin=18, spacing1=6,
+                                   spacing3=6, foreground="#5d4037")),
+                     ("cap", dict(font=("Segoe UI", size - 1, "italic"), foreground="#607d8b", justify="center",
+                                  spacing3=10))):
+        t.tag_configure(tag, **cfg)
+
+
+def _md_table(widget, rows: list, size: int, width: int) -> None:
+    """A real grid (one Label per cell) embedded in the Text: header row, striped rows, wrapped cells."""
+    import tkinter as tk
+    fr = tk.Frame(widget, bg="#b0bec5")
+    ncol = max(len(r) for r in rows)
+    weight = [max(8, min(40, max(len(r[c]) if c < len(r) else 0 for r in rows))) for c in range(ncol)]
+    total = sum(weight)
+    for ri, r in enumerate(rows):
+        for ci in range(ncol):
+            wrap = int((width - 60) * weight[ci] / total)
+            bg = "#e3f2fd" if ri == 0 else ("#ffffff" if ri % 2 else "#f5f7f8")
+            tk.Label(fr, text=r[ci] if ci < len(r) else "", justify="left", anchor="nw", wraplength=wrap - 14,
+                     bg=bg, font=("Segoe UI", size, "bold" if ri == 0 else "normal"), padx=7, pady=4
+                     ).grid(row=ri, column=ci, sticky="nsew", padx=(0, 1), pady=(0, 1))
+    widget.window_create("end", window=fr, padx=8, pady=8)
+    widget.insert("end", chr(10))
+
+
+def render_markdown(widget, text: str, size: int = 10, width: int = TUT_WIDTH, base_dir: str = TUT_IMG_DIR) -> list:
+    """Markdown subset into a Tk Text, read-only afterwards. Supports # / ## / ### headings, **bold**, `code`,
+    ``` blocks, pipe tables (drawn as grids), - and 1. lists, '> ' notes and ![caption](file) images (scaled to
+    the column). Returns [(title, mark)] for each '## ' section so the app can build an index."""
+    import math
     import re
+    import tkinter as tk
+    configure_tutorial_tags(widget, size)
     widget.configure(state="normal")
     widget.delete("1.0", "end")
-    in_code = False
+    widget._images = []
+    sections, in_code, table = [], False, []
 
     def inline(line, base=()):
         pos = 0
         for m in re.finditer(r"\*\*(.+?)\*\*|`([^`]+)`", line):
             widget.insert("end", line[pos:m.start()], base)
-            if m.group(1) is not None:
-                widget.insert("end", m.group(1), base + ("bold",))
-            else:
-                widget.insert("end", m.group(2), base + ("code",))
+            widget.insert("end", m.group(1) or m.group(2), base + (("bold",) if m.group(1) else ("code",)))
             pos = m.end()
         widget.insert("end", line[pos:], base)
 
+    def flush_table():
+        nonlocal table
+        if table:
+            _md_table(widget, table, size, width)
+            table = []
+
     for raw in text.splitlines():
         if raw.strip().startswith("```"):
+            flush_table()
             in_code = not in_code
             continue
         if in_code:
-            widget.insert("end", raw + chr(10), ("code",))
+            widget.insert("end", raw + chr(10), ("codeblock",))
+            continue
+        if raw.lstrip().startswith("|"):
+            if not re.fullmatch(r"[|\s:-]+", raw.strip()):
+                table.append([c.strip().replace("**", "").replace("`", "") for c in raw.strip().strip("|").split("|")])
+            continue
+        flush_table()
+        m_img = re.fullmatch(r"!\[(.*?)\]\((.+?)\)", raw.strip())
+        if m_img:
+            path = os.path.join(base_dir, m_img.group(2))
+            try:
+                img = tk.PhotoImage(file=path)
+                z = 2
+                img = img.zoom(z).subsample(max(1, math.ceil(z * img.width() / (width - 20))))
+                widget._images.append(img)
+                widget.insert("end", chr(10))
+                widget.image_create("end", image=img, padx=10, pady=4)
+                widget.insert("end", chr(10) + m_img.group(1) + chr(10), ("cap",))
+            except tk.TclError:
+                widget.insert("end", f"[image missing: {m_img.group(2)}]" + chr(10), ("note",))
         elif raw.startswith("# "):
             widget.insert("end", raw[2:] + chr(10), ("h1",))
         elif raw.startswith("## "):
+            n = len(sections)
+            widget.mark_set(f"sec{n}", "end-1c")
+            widget.mark_gravity(f"sec{n}", "left")
+            sections.append((raw[3:], f"sec{n}"))
             widget.insert("end", raw[3:] + chr(10), ("h2",))
-        elif raw.lstrip().startswith("|"):
-            if re.fullmatch(r"[|\s:-]+", raw.strip()):
-                continue
-            cells = [c.strip().replace("**", "").replace("`", "") for c in raw.strip().strip("|").split("|")]
-            widget.insert("end", "  " + "  |  ".join(cells) + chr(10), ("table",))
-        elif re.match(r"\s*([-*]|\d+\.)\s", raw):
-            inline(raw.strip() + chr(10), ("bullet",))
+        elif raw.startswith("### "):
+            widget.insert("end", raw[4:] + chr(10), ("h3",))
+        elif raw.startswith("> "):
+            inline("  " + raw[2:] + chr(10), ("note",))
+        elif re.match(r"\s*[-*]\s", raw):
+            inline("\u2022  " + re.sub(r"^\s*[-*]\s+", "", raw) + chr(10), ("bullet",))
+        elif re.match(r"\s*\d+\.\s", raw):
+            inline(raw.strip() + chr(10), ("num",))
         elif raw.strip():
             inline(raw + chr(10))
         else:
             widget.insert("end", chr(10))
+    flush_table()
     widget.configure(state="disabled")
+    return sections
 
 
 HELP = """How the app works
@@ -393,28 +468,60 @@ class App:
 
     def _build_tutorial(self):
         tk, ttk = self.tk, self.ttk
-        f = ttk.Frame(self.tab_tut, padding=8)
+        f = ttk.Frame(self.tab_tut, padding=6)
         f.pack(fill=tk.BOTH, expand=True)
+        self.tut_size = 10
         bar = ttk.Frame(f)
-        bar.pack(fill=tk.X)
-        ttk.Label(bar, text=f"Tutorial ({os.path.basename(TUTORIAL_FILE)})", foreground="#555").pack(side=tk.LEFT)
+        bar.pack(fill=tk.X, pady=(0, 4))
+        ttk.Label(bar, text="Tutorial", font=("Segoe UI", 10, "bold")).pack(side=tk.LEFT)
+        ttk.Label(bar, text=f"  {os.path.basename(TUTORIAL_FILE)}", foreground="#777").pack(side=tk.LEFT)
         ttk.Button(bar, text="Open file", command=lambda: os.startfile(TUTORIAL_FILE)).pack(side=tk.RIGHT)
-        box = ttk.Frame(f)
-        box.pack(fill=tk.BOTH, expand=True, pady=4)
-        t = tk.Text(box, wrap="word", font=("Segoe UI", 10), padx=14, pady=8, state="disabled", spacing3=3)
+        ttk.Button(bar, text="Reload", command=self._render_tutorial).pack(side=tk.RIGHT, padx=4)
+        ttk.Button(bar, text="A+", width=4, command=lambda: self._tut_zoom(1)).pack(side=tk.RIGHT)
+        ttk.Button(bar, text="A\u2212", width=4, command=lambda: self._tut_zoom(-1)).pack(side=tk.RIGHT, padx=2)
+        body = ttk.Frame(f)
+        body.pack(fill=tk.BOTH, expand=True)
+        side = ttk.Frame(body, width=270)
+        side.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 6))
+        side.pack_propagate(False)
+        ttk.Label(side, text="Contents", font=("Segoe UI", 9, "bold")).pack(anchor="w")
+        self.tut_toc = tk.Listbox(side, activestyle="none", exportselection=False, font=("Segoe UI", 9),
+                                  borderwidth=0, highlightthickness=1, highlightbackground="#ccc",
+                                  selectbackground="#e3f2fd", selectforeground="#0d47a1")
+        self.tut_toc.pack(fill=tk.BOTH, expand=True, pady=4)
+        self.tut_toc.bind("<<ListboxSelect>>", self._tut_goto)
+        box = ttk.Frame(body)
+        box.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        t = tk.Text(box, wrap="word", padx=24, pady=10, state="disabled", borderwidth=0, cursor="arrow")
         sb = ttk.Scrollbar(box, orient=tk.VERTICAL, command=t.yview)
         t.configure(yscrollcommand=sb.set)
         sb.pack(side=tk.RIGHT, fill=tk.Y)
         t.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        for tag, cfg in (("h1", dict(font=("Segoe UI", 16, "bold"), spacing1=6, spacing3=8)),
-                         ("h2", dict(font=("Segoe UI", 13, "bold"), foreground="#1565c0", spacing1=14, spacing3=4)),
-                         ("bold", dict(font=("Segoe UI", 10, "bold"))),
-                         ("code", dict(font=("Consolas", 9), foreground="#37474f", background="#f1f3f4")),
-                         ("table", dict(font=("Consolas", 9), foreground="#263238")),
-                         ("bullet", dict(lmargin1=24, lmargin2=40))):
-            t.tag_configure(tag, **cfg)
-        render_markdown(t, read_tutorial())
-        self.tut_text = t
+        t.bind("<Configure>", lambda e: t.configure(padx=max(20, (e.width - TUT_WIDTH) // 2)))   # centred column
+        self.tut_text, self._tut_marks = t, []
+        self._render_tutorial()
+
+    def _render_tutorial(self):
+        sections = render_markdown(self.tut_text, read_tutorial(), self.tut_size)
+        self._tut_marks = [m for _, m in sections]
+        self.tut_toc.delete(0, "end")
+        for title, _ in sections:
+            self.tut_toc.insert("end", title)
+
+    def _tut_zoom(self, d):
+        self.tut_size = max(8, min(16, self.tut_size + d))
+        top = self.tut_text.yview()[0]
+        self._render_tutorial()
+        self.tut_text.yview_moveto(top)
+
+    def _tut_images_ok(self):
+        return list(getattr(self.tut_text, "_images", []))
+
+    def _tut_goto(self, _e=None):
+        sel = self.tut_toc.curselection()
+        if sel:
+            self.tut_text.see("end")   # scroll so that the section lands at the top, not at the bottom
+            self.tut_text.yview(self._tut_marks[sel[0]])
 
     def _build_tools(self):
         tk, ttk = self.tk, self.ttk
@@ -1419,19 +1526,25 @@ def _selftest():
     lay = diagram_layout(["simulate", "extract", "label_template", "label_build", "indicators", "validate"], True)
     assert lay["label_template"][0] == MARGIN + 2 * STEP_X and lay["@training"][0] == lay["indicators"][0] - STEP_X
     assert diagram_layout(["simulate", "extract", "merge", "label_template"], False)["label_template"][0] == MARGIN + 3 * STEP_X
-    md = "# T" + chr(10) + "## S" + chr(10) + "a **b** `c`" + chr(10) + "| x | y |" + chr(10) + "|---|---|" + chr(10) \
-        + "| 1 | 2 |" + chr(10) + "- item" + chr(10)
+    NL = chr(10)
+    md = NL.join(["# T", "## S", "a **b** `c`", "| x | y |", "|---|---|", "| 1 | 2 |", "- item", "1. one",
+                  "> note", "![cap](nope.png)", "```", "code line", "```"]) + NL
     assert os.path.isfile(TUTORIAL_FILE) and "## 3." in read_tutorial()
+    imgs = [m.group(1) for m in __import__("re").finditer(r"!\[.*?\]\((.+?)\)", read_tutorial())]
+    assert imgs and all(os.path.isfile(os.path.join(TUT_IMG_DIR, f)) for f in imgs), imgs
     # the window builds and draws every real experiment without errors (no mainloop)
     import tkinter as tk
     root = tk.Tk()
     root.withdraw()
     try:
         app = App(root, auto_refresh=False)
-        render_markdown(app.tut_text, md)
+        secs = render_markdown(app.tut_text, md)
         txt = app.tut_text.get("1.0", "end")
-        assert "T" in txt and "b c" in txt and "---" not in txt and "x  |  y" in txt and "item" in txt, txt
-        render_markdown(app.tut_text, read_tutorial())
+        assert secs == [("S", "sec0")] and "b c" in txt and "\u2022  item" in txt and "image missing" in txt, (secs, txt)
+        assert "---" not in txt and "code line" in txt and "1. one" in txt
+        app._render_tutorial()
+        assert app.tut_toc.size() >= 6 and len(app._tut_images_ok()) == len(imgs)
+        app._tut_zoom(1)
         assert "Recorrido completo" in app.tut_text.get("1.0", "end")
         for n in ex.list_experiments():
             app.select(n)
