@@ -185,3 +185,18 @@ documentación) y no por bloque.
 | 27 / 32 | Organización de salidas documentada (tutorial §7); flujos generales | |
 | Pruebas | `experiment.py selftest`, `doe_indicators.py --selftest` (nuevo, sin indicadores), `launcher.py --selftest`, `check_app_dialogs.py` (reescrito: todos los formularios v2 sobre copia temporal + capturas), selftests de `reference_dataset`, `validate_indicators`, `static_deflection`; `doe_indicators --experiment … --dry_run` sobre el entrenamiento real | |
 | Pendiente (tú) | Probar con ratón: New experiment real, una simulación corta, el visor con la banda nueva, el log. Si quieres confirmar con números que quitar `t_gt` no cambia resultados: `DOE_analisis/check_indicators_experiment.py` (~10 min) | |
+
+### Ronda 2 (2026-10-02, después de borrar los experimentos viejos para probar desde cero)
+
+| Pedido | Hecho |
+|---|---|
+| Borrar experimentos, configs y `.runs` viejos | Borrados (sin commit: los YAML siguen en git hasta que hagas commit de su borrado). Quedan `base.yaml` e `indicator_variants.yaml` |
+| Nombre al importar | El de la carpeta (único); no se inventa nada |
+| Ver qué hay en la carpeta antes de importar | Vista previa en Import: casos simulados, `doe_config.yaml`, el `.h5` (casos, señales, `n`, κ, duración, atributos que faltan), datasets etiquetados, YAML de etiquetas, resultados y qué etapas se activarán |
+| Cerrar la consola sola | Activado por defecto; solo si termina bien (`--pause-on-error`: si falla espera Enter) |
+| Elegir el dataset etiquetado al importar | Desplegable (`amp` / `kappa` / ninguno) con su recuento y cómo se etiquetó; `import_dir(label_out="-")` = ninguno |
+| κ repetidos o cercanos a la referencia | Aviso en la vista previa del formulario de simulación (`kappa_overlap`, tolerancia 0.01) |
+| Notificación al terminar | Toast de Windows (PowerShell, sin módulos) al terminar una etapa de más de 60 s o una cadena |
+| Estimar el tiempo de simulación | `estimate_time`: mediana de `wall_time_s.txt` de la misma carpeta y discretización (si no hay, el espaciado de fechas de `sens_out.hdf5`) / `nb_proc` |
+| Lanzar la cadena entera | **▶▶ Run to goal** / `experiment.py chain`: una consola, se para en error, en otra experiencia y tras Label template (revisión) |
+| Pruebas | `check_app_dialogs.py` ya no copia tus experimentos: empieza vacío e importa tus carpetas reales (solo lectura) |

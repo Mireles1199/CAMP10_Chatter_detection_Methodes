@@ -445,6 +445,8 @@ class App:
         self.btn_next.pack(side=tk.LEFT)
         self.btn_run_next = ttk.Button(top, text="▶ Run next step", command=self.run_next)
         self.btn_run_next.pack(side=tk.LEFT, padx=4)
+        self.btn_chain = ttk.Button(top, text="▶▶ Run to goal", command=self.run_to_goal)
+        self.btn_chain.pack(side=tk.LEFT)
         ttk.Button(top, text="Tutorial", command=self.show_tutorial).pack(side=tk.RIGHT)
         ttk.Button(top, text="?  Help", command=self.show_help).pack(side=tk.RIGHT, padx=4)
         ttk.Button(top, text="Dry-run (check all)", command=self.dry_run).pack(side=tk.RIGHT, padx=4)
@@ -493,8 +495,8 @@ class App:
             self.stage_btns[key] = b
         low = ttk.Frame(panel)
         low.pack(fill=tk.X)
-        self.close_console = tk.BooleanVar(value=bool(load_settings().get("close_console")))
-        ttk.Checkbutton(low, text="close the console when the stage ends (its log stays: 'Log')",
+        self.close_console = tk.BooleanVar(value=load_settings().get("close_console", True))
+        ttk.Checkbutton(low, text="close the console when the stage ends OK (stays open on error; log: 'Log')",
                         variable=self.close_console,
                         command=lambda: save_settings(close_console=self.close_console.get())).pack(side=tk.RIGHT)
         self.status_msg = tk.StringVar()
@@ -718,6 +720,8 @@ class App:
         self._next = nxt
         self._enable(self.btn_run_next, bool(nxt and nxt[2] in ("pending", "stale", "failed")
                                              and not ex.run_blockers(nxt[0], nxt[1])))
+        self._enable(self.btn_chain, bool(nxt and nxt[0] is e and nxt[2] in ("pending", "stale", "failed")
+                                          and not ex.run_blockers(e, nxt[1])))
         self._draw_diagram(e, st, chain, nxt)
         if self.sel_stage not in st:
             self.sel_stage = nxt[1] if nxt and nxt[0] is e else next(iter(st), None)
@@ -992,9 +996,31 @@ class App:
         py, warn = stage_python()
         if warn:
             messagebox.showwarning("Python", warn)
-        open_console(ex.run_command(e.name, k, py, yes=True), close=self.close_console.get())
+        open_console(ex.run_command(e.name, k, py, yes=True) + (["--pause-on-error"] if self.close_console.get() else []),
+                     close=self.close_console.get())
         self.status_msg.set(f"{ex.TITLES[k]} started in a new console"
                             + (" (it closes by itself at the end; the log stays: 'Log')" if self.close_console.get() else ""))
+        self.root.after(1500, lambda: self.refresh(True))
+
+    def run_to_goal(self):
+        """One console runs the next steps of the goal one after the other; it stops on an error, at a stage of
+        another experiment and after Label template (to review the labels)."""
+        from tkinter import messagebox
+        e, goal = self.exp(), self.goal.get()
+        todo = ex.chain_stages(e, goal)
+        if not todo:
+            return
+        stop = " (it stops after Label template so you can review the labels)" if "label_template" in todo else ""
+        if not messagebox.askyesno("Run to goal", f"Run in one console, one after the other:\n  "
+                                   + " → ".join(ex.TITLES[k] for k in todo) + f"\n\nGoal: {goal}{stop}.\n"
+                                   "Existing outputs of these stages are replaced. Continue?"):
+            return
+        py, warn = stage_python()
+        if warn:
+            messagebox.showwarning("Python", warn)
+        open_console(ex.chain_command(e.name, goal, py) + (["--pause-on-error"] if self.close_console.get() else []),
+                     close=self.close_console.get())
+        self.status_msg.set(f"running to '{goal}' in a new console: " + " → ".join(ex.TITLES[k] for k in todo))
         self.root.after(1500, lambda: self.refresh(True))
 
     def run_next(self):
@@ -1186,6 +1212,7 @@ class _Dialog:
         """One row: label, entry (or combobox with `values`; editable=True lets the user type too), note."""
         tk, ttk = self.tk, self.ttk
         var = var if var is not None else tk.StringVar()
+        self.__dict__.setdefault("_keep", []).append(var)   # Tk forgets a variable nobody references (empty field)
         ttk.Label(self.body, text=label).grid(row=self.row, column=0, sticky="w", pady=2)
         if values is not None:
             w = ttk.Combobox(self.body, textvariable=var, values=values, width=width - 2,
@@ -1797,7 +1824,13 @@ class SimulationFrame:
             t.insert("end", f"ERROR {x}\n", "bad")
         for x in warns:
             t.insert("end", f"warning {x}\n", "warn")
+        ref = getattr(self.dlg, "ref_exp", lambda: None)()
+        for x in ex.kappa_overlap([d.get("kappa") for d in rows], ref):
+            t.insert("end", f"warning {x}\n", "warn")
         t.insert("end", f"{len(rows)} case(s) → {sim['base_dir']}/{sim['doe_name']}\n", "ok" if not errs else None)
+        est = ex.estimate_time(sim)
+        if est:
+            t.insert("end", est + "\n")
         extra = [k for k in (rows[0] if rows else {}) if k not in ("case", "Ap_start", "Ap_end", "spin_rate", "kappa",
                                                                     "kappa_error")]
         t.insert("end", f"{'case':>5} {'Ap [mm]':>10} {'kappa':>8} {'n [rpm]':>10}  " + "  ".join(extra) + "\n")
@@ -1846,6 +1879,9 @@ class SimulationForm(_Dialog):
                             command=lambda: launch("gui", "DOE_simulacion/doe_planner.py", [r.config])).pack(side="left")
         self.buttons()
         self.frame.preview()
+
+    def ref_exp(self):
+        return self.e.ref
 
     def save(self):
         if self.frame is None:
@@ -1909,6 +1945,13 @@ class NewExperimentDialog(_Dialog):
         self.frame_row = self.row
         self.frame = SimulationFrame(self, {})
         self.buttons("Create")
+
+    def ref_exp(self):
+        r = self.ref.get()
+        try:
+            return None if r in ("", "(none)") else ex.load(r)
+        except Exception:
+            return None
 
     def _load(self):
         try:
@@ -2071,15 +2114,76 @@ class ImportDialog(_Dialog):
                              note="the .h5 with case_* groups (Standardize an .h5… fixes one that is not)")
         self.ref = self.field("reference experiment", tk.StringVar(value="(none)"), values=["(none)"] + _experiment_names(),
                               note="set it to validate these cases against it")
-        info = ex.h5_info(os.path.join(d, self.h5.get())) if self.h5.get() else None
-        spin = info["first"].get("$spin_rate$") if info else None
-        self.name = self.field("experiment name", tk.StringVar(
-            value=ex.propose_name("Labelled dataset (training)", ex.detect_case(d), spin, info["kappa"] if info else None)),
-            width=50)
-        self.ref.trace_add("write", lambda *_: self.name.set(ex.propose_name(
-            "Validation against a reference" if self.ref.get() != "(none)" else "Labelled dataset (training)",
-            ex.detect_case(d), spin, info["kappa"] if info else None)))
+        refs = sorted(f for f in os.listdir(d) if f.startswith("reference_dataset") and f.endswith(".h5"))
+        tagged = [f for f in refs if ex._label_attrs(os.path.join(d, f)).get("strategy")]
+        self.lab = self.field("labelled dataset", tk.StringVar(value=(tagged or refs or ["(none)"])[0]),
+                              values=["(none)"] + refs,
+                              note="the ground truth of these cases (ignored with a reference: labels are redone)")
+        # the name follows the folder (what the data are called), made unique; the user can change it
+        base, nm, i = os.path.basename(os.path.normpath(d)), None, 2
+        nm = base
+        while nm in ex.list_experiments():
+            nm, i = f"{base}_{i}", i + 1
+        self.name = self.field("experiment name", tk.StringVar(value=nm), width=50,
+                               note="by default the name of the folder")
+        self.section("What is in the folder (what Import would turn on)")
+        self.prev = tk.Text(self.body, width=120, height=16, font=("Consolas", 9))
+        self.prev.grid(row=self.row, column=0, columnspan=3, pady=4)
+        self.row += 1
+        for tag, col in (("ok", "#2e7d32"), ("bad", "#c62828"), ("warn", "#b26a00")):
+            self.prev.tag_configure(tag, foreground=col)
+        self.h5.trace_add("write", lambda *_: self.preview())
+        self.lab.trace_add("write", lambda *_: self.preview())
+        self.ref.trace_add("write", lambda *_: self.preview())
+        self.preview()
         self.buttons("Import")
+
+    def preview(self):
+        """Contents of the folder, before importing: cases, datasets, results, and the stages that would be marked
+        done (only what is really found)."""
+        t, d, h5 = self.prev, self.dir, self.h5.get()
+        t.delete("1.0", "end")
+
+        def line(txt, tag=None):
+            t.insert("end", txt + "\n", tag) if tag else t.insert("end", txt + "\n")
+        idx = sorted((i for i in os.listdir(d) if i.isdigit()), key=int)
+        sims = sum(os.path.isfile(os.path.join(d, i, ex.detect_case(d), "sens_out.hdf5")) for i in idx)
+        line(f"{len(idx)} case folders, {sims} with sens_out.hdf5 (simulated)   case: {ex.detect_case(d)}",
+             "ok" if sims else "warn")
+        line("doe_config.yaml (simulation config left by doe_runner): " +
+             ("yes" if os.path.isfile(os.path.join(d, "doe_config.yaml")) else "no (the simulation cannot be re-run from here)"))
+        if h5:
+            rep = ex.inspect_h5(os.path.join(d, h5))
+            for x in rep["problems"]:
+                line(f"PROBLEM {h5}: {x}", "bad")
+            if rep["ok"]:
+                info = ex.h5_info(os.path.join(d, h5))
+                kap = info["kappa"]
+                line(f"{h5}: {len(rep['cases'])} cases, signals {', '.join(rep['signals'])}", "ok")
+                line("  n = " + (f"{float(info['first']['$spin_rate$']):.10g} rpm" if "$spin_rate$" in info["first"] else "missing")
+                     + (f"   kappa {min(kap):g}-{max(kap):g}" if kap else "   kappa missing") + f"   duration {info['duration']} s")
+                miss = [a for a in ex.STD_ATTRS if rep["missing"][a]]
+                if miss:
+                    line(f"  attributes missing in some cases: {', '.join(miss)} (Standardize an .h5… adds them)", "warn")
+        found = {k: sorted(f for f in os.listdir(d) if f.startswith(k) and f.endswith(ext))
+                 for k, ext in (("reference_dataset", ".h5"), ("reference_labels", ".yaml"),
+                                ("doe_indicator_results", ".h5"), ("doe_validation_results", ".h5"))}
+        for k, fs in found.items():
+            line(f"{k}*: " + (", ".join(fs) if fs else "none"), "ok" if fs else None)
+        lab = self.lab.get()
+        if lab not in ("", "(none)") and self.ref.get() in ("", "(none)"):
+            la = ex._label_attrs(os.path.join(d, lab))
+            by = {}
+            for _c, (lb, _k) in ex._label_cases(os.path.join(d, lab)).items():
+                by[lb] = by.get(lb, 0) + 1
+            line(f"chosen labelled dataset {lab}: " + "  ".join(f"{k} {v}" for k, v in by.items())
+                 + (f"   labelled by {la.get('strategy')} on {la.get('amp_signal', '?')}" if la else
+                    "   (no labelling attributes: how it was labelled is unknown)"), "ok" if la else "warn")
+        ref = self.ref.get() not in ("", "(none)")
+        on = ["Simulate", "Extract"] + (["Label template", "Label build", "Indicators", "Validate"] if ref else
+                                         (["Label build"] if self.lab.get() not in ("", "(none)") else []) +
+                                         (["Indicators"] if found["doe_indicator_results"] else []))
+        line("Stages turned on: " + ", ".join(on) + ("   (a stage is marked done only if its file exists above)"), "warn")
 
     def save(self):
         h5 = self.h5.get()
@@ -2088,7 +2192,8 @@ class ImportDialog(_Dialog):
             raise ValueError("\n".join(rep["problems"]) + "\n\nUse 'Standardize an .h5…' first.")
         name = self.name.get().strip()
         ref = None if self.ref.get() in ("", "(none)") else self.ref.get()
-        ex.import_dir(name, self.dir, ref, h5=h5)
+        lab = self.lab.get()
+        ex.import_dir(name, self.dir, ref, label_out=None if ref else ("-" if lab in ("", "(none)") else lab), h5=h5)
         self.app.root.after(50, lambda: self.app.select(name))
 
 

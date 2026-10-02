@@ -18,7 +18,8 @@ import launcher as L  # noqa: E402
 
 TR, VA, N9 = "train_1DOF150_n12098_k0.5-2", "val_1DOF150_n12098_k0.51-1.99", "train_1DOF150_n9000_k1-1.5"
 tmp = tempfile.mkdtemp(prefix="app_dialogs_")
-shutil.copytree(ex.EXP_DIR, os.path.join(tmp, "experiments"))
+os.makedirs(os.path.join(tmp, "experiments"))   # empty: only the presets (the user's experiments are not touched)
+shutil.copy(ex.VARIANTS_FILE, os.path.join(tmp, "experiments"))
 dr = ex._doe_runner()
 cfg_tmp = os.path.join(tmp, "configs")
 shutil.copytree(ex.CONFIGS_DIR, cfg_tmp)
@@ -30,6 +31,16 @@ os.makedirs(os.path.join(base, "1DOF_150Hz", "p"))
 launched = []
 L.launch = lambda kind, script, args: launched.append((script, args)) or (None, None)   # no real tools
 L.open_console = lambda argv, cwd=None, close=False: launched.append(("console", argv, close))
+# the experiments of the check: N9 reads an older-style config of configs/; TR and VA are made below by importing
+# the real training / validation folders (only read; records go to the temp copy)
+with open(os.path.join(cfg_tmp, "cfg_n9000.yaml"), "w") as fh:
+    fh.write(f"base_dir: {base.replace(chr(92), '/')}\ncase: 1DOF_150Hz\ndoe_name: DOE_n9000\nmode: sweep\nnb_proc: 2\n"
+             "sweep:\n  $Ap_start$: [0.008056]\n  $Ap_end$: [0.008056]\n  $spin_rate$: 9000.0\n"
+             "  $f_tooth$: 0.05\n  $dxl_size$: 0.0002\n  $nb_dt_rev$: 200\n")
+ex.create_experiment(N9, [{"config": "cfg_n9000"}], stages_on=ex.FLOWS["Indicators"])
+TR_DIR = os.path.join(os.path.dirname(DOE), "Convergency_Simulation", "4_DOE_Data_Training_Tube",
+                      "DOE_Training_Tube_dxl_20e-5_RUN_10_0.5-2.0")
+VA_DIR = "D:/Thesis/03-Code_Storage/02-Altintlas_Nessy2m_Storage/Data/1DOF_150_Ap_Cont_test_ind/Ap_Cons_test_ind"
 
 import tkinter as tk  # noqa: E402
 from tkinter import messagebox  # noqa: E402
@@ -60,6 +71,26 @@ try:
     app.view_h5("D:/x y/doe_results.h5")
     assert launched[-1] == ("DOE_plots/doe_unified_selector.py", ["--h5", "D:/x y/doe_results.h5"]), launched[-1]
     print("viewer arguments OK")
+    # ---- import: preview of the folder before OK, name = folder, choice of the labelled dataset
+    from tkinter import filedialog
+    filedialog.askdirectory = lambda **k: TR_DIR
+    im = L.ImportDialog(app)
+    assert im.name.get() == os.path.basename(TR_DIR), im.name.get()
+    im.lab.set("reference_dataset_amp.h5")
+    txt = im.prev.get("1.0", "end")
+    assert "34 case folders" in txt and "chosen labelled dataset reference_dataset_amp.h5" in txt and "Label build" in txt, txt
+    shot(im.win, "v2_import_preview.png")
+    im.name.set(TR)
+    im._ok()
+    t = ex.load(TR)
+    assert t.label["out"].endswith("reference_dataset_amp.h5") and ex.status(t)["label_build"][0] == "done"
+    ex.import_dir(VA, VA_DIR, reference=TR)
+    print("import with preview OK:", TR, "+", VA)
+    # ---- run to goal: one console with the chain
+    app.select(N9)
+    app.run_to_goal()
+    assert launched[-1][0] == "console" and "chain" in launched[-1][1], launched[-1]
+    print("run to goal OK:", ex.chain_stages(ex.load(N9)))
     # ---- new experiment from scratch: a single Ap
     nd = L.NewExperimentDialog(app)
     nd.flow.set("Simulation only")
@@ -100,6 +131,9 @@ try:
     fr.doe_name.set("val_from_dialog")
     fr.depths.set("0.8:1.2:0.2")
     assert fr.preview(), fr.out.get("1.0", "end")
+    txt = fr.out.get("1.0", "end")
+    assert "already in the reference" in txt and "time:" in txt, txt     # the training has kappa 0.8, 1.0, 1.2
+    shot(nd.win, "v2_new_validation_preview.png")
     nd._ok()
     v = ex.load("val_from_dialog")
     assert v.ref.name == TR and "validate" in ex.stages(v) and v.runs[0].cfg["ap_ref"]["mode"] == "model_at_spin"

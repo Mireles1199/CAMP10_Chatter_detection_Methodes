@@ -37,7 +37,8 @@ Un experimento puede apuntar a otro como **referencia**: el dataset etiquetado d
 
 - **Izquierda**: los experimentos y su flujo. Verde = meta alcanzada, azul = algo corriendo, rojo = una etapa falló.
 - **Arriba a la derecha (tarjeta)**: flujo, `n`, casos, `κ`, etapas hechas y, en gris, **de dónde sale todo**: cada corrida (simulación escrita en el experimento, config o carpeta importada) y su carpeta de datos, la carpeta de salidas del experimento y el archivo. En azul, su referencia y de quién es referencia.
-- **Goal**: lo que quieres conseguir. Empieza en la etapa más lejana que activaste. **Next step** dice la siguiente etapa que falta; **Select that stage** la selecciona y **▶ Run next step** la lanza. **Dry-run (check all)** muestra, sin ejecutar nada, los casos de cada corrida (`Ap`, `κ`, `n`), las carpetas, los comandos y todos los problemas.
+- **Goal**: lo que quieres conseguir. Empieza en la etapa más lejana que activaste. **Next step** dice la siguiente etapa que falta; **Select that stage** la selecciona y **▶ Run next step** la lanza. **▶▶ Run to goal** corre, en una sola consola, todas las etapas que faltan una detrás de otra; se para si una falla, si la siguiente es de otro experimento y después de Label template, para que revises las etiquetas (vuelve a pulsarlo y sigue desde Label build).
+- **Notificaciones**: cuando termina (bien o mal) una etapa que tardó más de un minuto, o una cadena *Run to goal*, Windows muestra una notificación. **Dry-run (check all)** muestra, sin ejecutar nada, los casos de cada corrida (`Ap`, `κ`, `n`), las carpetas, los comandos y todos los problemas.
 - **Diagrama**: una caja por etapa, con su color y lo que contiene su resultado. El ratón encima dice por qué está en ese estado. La caja punteada *reference dataset* es el dataset de la referencia (clic para ir a él).
 - **Panel de abajo**: qué hace la etapa, su **Resultado**, qué revisar, el progreso, la última corrida, por qué no puede correr y qué hacer, sus **entradas y salidas** (qué es cada archivo y si existe) y **qué canal** usa.
 
@@ -59,7 +60,7 @@ Borde oscuro = etapas necesarias para la meta, borde azul = siguiente paso, mora
 
 | Botón | Qué hace |
 |---|---|
-| ▶ Run in console | La lanza en una consola nueva. Con **close the console when the stage ends** la consola se cierra sola al terminar (el log se queda) |
+| ▶ Run in console | La lanza en una consola nueva. Con **close the console when the stage ends OK** (activada por defecto) la consola se cierra sola si termina bien; si falla, se queda abierta hasta que pulses Enter. El log siempre se queda |
 | Copy command | Copia el comando, para lanzarlo a mano |
 | Log | Abre el visor del log (ver §5) |
 | Viewer | Abre su `.h5` de salida en el visor; abajo aparece "Opening the viewer…" mientras carga |
@@ -83,7 +84,7 @@ Pulsa **New experiment…**.
 
 1. **what for** = *Validation against a reference* y **reference experiment** = tu entrenamiento.
 2. Rellena la simulación: carpeta (`base_dir`), caso (el modelo Nessy2m), `n`, y las profundidades **en `Ap` [mm] o en `κ`**. Con `κ` eliges `ap_ref`: *manual* (una profundidad), *model* (el mínimo del SLD de un modelo) o *model_at_spin* (el límite del SLD a la `n` de cada caso), con el modelo del SLD.
-3. **Check / preview cases** muestra la tabla de casos (`Ap`, `κ`, `n`) y los problemas. Nada se guarda mientras haya un error en rojo (p. ej. una `n` en un hueco entre lóbulos, donde el límite es infinito).
+3. **Check / preview cases** muestra la tabla de casos (`Ap`, `κ`, `n`) y los problemas. Nada se guarda mientras haya un error en rojo (p. ej. una `n` en un hueco entre lóbulos, donde el límite es infinito). También avisa de los `κ` que ya están (o casi) en la referencia, que no prueban nada nuevo, y estima el tiempo de simulación con las simulaciones anteriores de esa carpeta (`wall_time_s.txt`, con la misma discretización).
 4. **Propose names** propone el nombre del experimento y de la carpeta de datos (sin prefijo obligatorio; puede ser un solo caso).
 5. ¿Quieres que el planificador de validación elija los `κ` alrededor de los casos del entrenamiento? **Pick kappa with the validation planner…**, guarda su YAML en `configs/` y elígelo en **load values from**, que solo rellena los campos.
 
@@ -153,7 +154,7 @@ Por variante: TP, FN, TN, FP, exactitud balanceada, MCC, AUC, tiempos de detecci
 
 | Botón | Para qué |
 |---|---|
-| Import folder… | Una carpeta ya simulada con `doe_results.h5` (u otro `.h5` con el mismo formato). Lo que ya existe aparece en verde |
+| Import folder… | Una carpeta ya simulada con `doe_results.h5` (u otro `.h5` con el mismo formato). Antes de aceptar muestra qué hay dentro (casos simulados, `n`, `κ`, datasets etiquetados, resultados) y qué etapas activará; eliges qué dataset etiquetado es la verdad (p. ej. `amp` o `kappa`) y el nombre es el de la carpeta. Lo que ya existe aparece en verde |
 | Standardize an .h5… | Un `.h5` hecho fuera de la app: dice qué tiene y qué falta, añade los atributos que faltan a cada caso (modelo simulado `sim_case` / `sim_model`, `n`, `κ` desde un `ap_ref`) sin tocar las señales, y crea su experimento |
 | Delete | Borra el archivo del experimento y sus registros (`.runs/<experimento>`), nunca datos; se niega si otro experimento lo usa |
 
@@ -182,6 +183,7 @@ python experiment.py check EXP            errores y avisos de la configuración
 python experiment.py dryrun EXP           qué se correría: casos, carpetas, comandos (no corre nada)
 python experiment.py accept EXP [ETAPA]   marca al día etapas naranjas por un cambio de configuración sin efecto
 python experiment.py run EXP ETAPA        corre una etapa (lo mismo que "Run in console")
+python experiment.py chain EXP [--goal G] corre las etapas que faltan hasta la meta (lo mismo que "Run to goal")
 python experiment.py import NOMBRE CARPETA [--reference EXP] [--h5 ARCHIVO]
 python experiment.py selftest
 ```

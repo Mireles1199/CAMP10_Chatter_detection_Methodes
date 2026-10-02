@@ -1659,7 +1659,9 @@ def import_dir(name: str, doe_dir: str, reference: str | None = None, label_out:
         d["reference"] = reference
     d["runs"] = [run]
     refs = sorted(f for f in os.listdir(doe_dir) if f.startswith("reference_dataset") and f.endswith(".h5"))
-    if label_out:
+    if label_out == "-":   # the user chose not to link any labelled dataset
+        refs = []
+    elif label_out:
         refs = [label_out]
     elif len(refs) > 1:   # prefer the one that says how it was labelled
         refs = [f for f in refs if _label_attrs(os.path.join(doe_dir, f)).get("strategy")][:1] or refs[:1]
@@ -1921,7 +1923,7 @@ def stamp_outputs(exp: Exp, st: Stage) -> None:
                 print(f"[experiment] could not stamp {p}: {exc}")
 
 
-def run_stage(name: str, key: str, yes: bool = False, cmds=None) -> int:
+def run_stage(name: str, key: str, yes: bool = False, cmds=None, notify_end: bool = True) -> int:
     """Run one stage: checks, record 'running', tee output to the console and the log, record the result.
     cmds overrides the stage commands (selftest only). Returns the exit code."""
     import subprocess
@@ -1972,6 +1974,9 @@ def run_stage(name: str, key: str, yes: bool = False, cmds=None) -> int:
             code = -2
             log.write("\n[experiment] interrupted\n")
     rec.update(status="done" if code == 0 else "failed", end=time.time(), exit_code=code)
+    if notify_end and cmds is None and rec["end"] - rec["start"] > NOTIFY_AFTER_S:
+        notify(f"{exp.name}: {TITLES[key]} " + ("done" if code == 0 else "FAILED"),
+               f"took {_fmt_dur(rec['end'] - rec['start'])}" + ("" if code == 0 else f", exit code {code}: see Log"))
     write_record(exp, key, rec)
     if code == 0:
         stamp_outputs(exp, st)
@@ -2066,6 +2071,10 @@ def _selftest_edit(root: str, train_cfg: str) -> None:
         assert fr.flow == "Indicators" and default_goal(fr) == "Indicators computed"
         assert any("no indicator variant" in x for x in check(fr)[0])          # the selftest presets have no defaults
         assert any("case   1: Ap 12.0000 mm" in t for t, _ in dry_run(fr)), dry_run(fr)
+        w = kappa_overlap([0.5, 0.505, 1.0], load("train"))     # the training data have kappa 0.5 and 1.5
+        assert "1 kappa already in the reference" in w[0] and "within" in w[1], w
+        assert chain_stages(fr) == ["simulate", "extract", "label_template", "label_build", "indicators"]
+        assert estimate_time(sim).startswith("time:")
         # only the stages turned on (plus what they need)
         create_experiment("simonly", [{"simulation": one}], stages_on=["extract"])
         assert list(stages(load("simonly"))) == ["simulate", "extract"]
@@ -2087,6 +2096,154 @@ def _selftest_edit(root: str, train_cfg: str) -> None:
             assert "used by" in str(exc)
     finally:
         CONFIGS_DIR, dr.CONFIGS_DIR = old
+
+
+# ============================================================================== extras: kappa overlap, time, notify, chain
+def kappa_overlap(kappas, ref, tol: float = 0.01) -> list:
+    """Warnings for the kappa of a new DOE that repeat (or are closer than tol to) a kappa of the reference
+    experiment: they test nothing new. Meaningful when both use the same ap_ref."""
+    info = h5_info(ref.data_h5) if ref is not None and ref.data_h5 else None
+    if not info or not info["kappa"]:
+        return []
+    rk = sorted(info["kappa"])
+    ks = [float(k) for k in kappas if k is not None]
+    same = sorted({round(k, 3) for k in ks if min(abs(k - r) for r in rk) < 1e-3})
+    near = sorted({round(k, 3) for k in ks if 1e-3 <= min(abs(k - r) for r in rk) < tol})
+    out = []
+    if same:
+        out.append(f"{len(same)} kappa already in the reference '{ref.name}': {same[:8]} (they test nothing new)")
+    if near:
+        out.append(f"{len(near)} kappa within {tol:g} of a reference kappa: {near[:8]}")
+    return out
+
+
+@lru_cache(maxsize=32)
+def _case_times(base_dir: str, case: str, stamp: float) -> list:
+    """[(dxl_size, nb_dt_rev, seconds per case, exact)] of every DOE already simulated in base_dir: wall_time_s.txt
+    (written by --timed: exact) or, without it, the spacing of the sens_out.hdf5 dates of that DOE (approximate:
+    it already includes the parallelism of that run)."""
+    dr = _doe_runner()
+    out = []
+    for doe in os.listdir(base_dir) if os.path.isdir(base_dir) else []:
+        d = os.path.join(base_dir, doe)
+        idx = [i for i in os.listdir(d) if i.isdigit()] if os.path.isdir(d) else []
+        rows = []
+        for i in idx:
+            vv = os.path.join(d, i, case, "var_val.py")
+            so = os.path.join(d, i, case, "sens_out.hdf5")
+            if not os.path.isfile(so):
+                continue
+            try:
+                v = dr.read_var_val(vv)
+            except Exception:
+                v = {}
+            wt = os.path.join(d, i, "wall_time_s.txt")
+            try:
+                sec = float(open(wt).read().strip()) if os.path.isfile(wt) else None
+            except ValueError:
+                sec = None
+            rows.append((v.get("$dxl_size$"), v.get("$nb_dt_rev$"), sec, _mtime(so)))
+        exact = [r for r in rows if r[2] is not None]
+        out += [(r[0], r[1], r[2], True) for r in exact]
+        if not exact and len(rows) >= 3:
+            ts = sorted(r[3] for r in rows)
+            out += [(rows[0][0], rows[0][1], (ts[-1] - ts[0]) / (len(ts) - 1), False)]
+    return out
+
+
+def estimate_time(sim: dict) -> str:
+    """Rough duration of a simulation from the DOEs already simulated in its base_dir with the same
+    discretisation (dxl_size, nb_dt_rev). Text for the preview."""
+    import statistics
+    try:
+        rows = case_rows(_doe_runner().load_config(_tmp_config(sim)))
+    except Exception:
+        return ""
+    base, case = sim.get("base_dir", ""), sim.get("case", "")
+    known = _case_times(base, case, _mtime(base))
+    if not known:
+        return "time: no earlier simulation in this base_dir to estimate it (run once with --timed to measure)"
+    nb = max(1, int(sim.get("nb_proc") or 1))
+    per, kinds = [], set()
+    for d in rows:
+        same = [t for t in known if t[0] is not None and t[1] is not None and d.get("dxl_size") is not None
+                and abs(float(t[0]) - float(d["dxl_size"])) < 1e-12 and abs(float(t[1]) - float(d.get("nb_dt_rev", -1))) < 1e-9]
+        pool = [t for t in same if t[3]] or same or known
+        kinds.add("exact" if pool[0][3] and pool is not known else ("approx." if pool is not known else "other discretisation"))
+        per.append(statistics.median(t[2] for t in pool))
+    total = sum(per) / nb
+    return (f"time: ~{_fmt_dur(statistics.median(per))} per case, ~{_fmt_dur(total)} for {len(rows)} case(s) with "
+            f"nb_proc {nb} ({', '.join(sorted(kinds))}, from {len(known)} earlier cases in this base_dir)")
+
+
+NOTIFY_AFTER_S = 60   # a Windows notification when a stage that took longer than this ends
+
+
+def notify(title: str, msg: str) -> None:
+    """Windows notification (toast), best effort, never blocks nor fails the caller."""
+    if os.name != "nt":
+        return
+    import subprocess
+    ps = ("[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null;"
+          "$x = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent("
+          "[Windows.UI.Notifications.ToastTemplateType]::ToastText02);"
+          "$t = $x.GetElementsByTagName('text');"
+          "$t.Item(0).AppendChild($x.CreateTextNode($env:EXP_N_TITLE)) > $null;"
+          "$t.Item(1).AppendChild($x.CreateTextNode($env:EXP_N_MSG)) > $null;"
+          "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("
+          r"'{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe')"
+          ".Show([Windows.UI.Notifications.ToastNotification]::new($x))")
+    try:
+        subprocess.Popen(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
+                         env=dict(os.environ, EXP_N_TITLE=title, EXP_N_MSG=msg), creationflags=0x08000000,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError:
+        pass
+
+
+def chain_stages(exp: Exp, goal: str | None = None) -> list:
+    """Stages of this experiment still to do for the goal, in order (what 'Run to goal' would run)."""
+    memo: dict = {}
+    g = goal if goal in GOALS else default_goal(exp)
+    return [k for e, k in goal_chain(exp, g)
+            if e is exp and status(e, memo)[k][0] not in ("done", "skipped")]
+
+
+def run_chain(name: str, goal: str | None = None, review: bool = True) -> int:
+    """Run the next steps of the goal one after the other in this console. Stops on an error, when the next step
+    belongs to another experiment, and (review=True) after Label template so the labels can be checked."""
+    ran = []
+    while True:
+        reload()
+        exp = load(name)
+        g = goal if goal in GOALS else default_goal(exp)
+        nxt = next_step(exp, g)
+        if nxt is None:
+            print(f"[experiment] goal '{g}' reached: {', '.join(ran) or 'nothing to run'}")
+            notify(f"{name}: goal reached", f"{g} ({', '.join(TITLES[k] for k in ran) or 'nothing to run'})")
+            return 0
+        e, k, state, reason = nxt
+        if e is not exp:
+            print(f"[experiment] next step is '{k}' of experiment '{e.name}' ({state}: {reason}): finish it there")
+            return 2
+        if k in ran or state in ("blocked", "running"):
+            print(f"[experiment] stop at '{k}' ({state}: {reason})")
+            return 2
+        code = run_stage(name, k, yes=True, notify_end=False)
+        if code:
+            notify(f"{name}: {TITLES[k]} FAILED", f"exit code {code}; the chain stopped (see Log)")
+            return code
+        ran.append(k)
+        if review and k == "label_template":
+            print("[experiment] labels proposed: review the labels YAML ('Labels YAML' in the app), then "
+                  "'Run to goal' again: it continues from Label build.")
+            notify(f"{name}: review the labels", "Label template done; check the labels YAML, then Run to goal again")
+            return 0
+
+
+def chain_command(name: str, goal: str, python: str | None = None) -> list:
+    """argv the app uses to open a console that runs the experiment up to its goal."""
+    return [python or sys.executable, os.path.abspath(__file__), "chain", name, "--goal", goal]
 
 
 def run_command(name: str, key: str, python: str | None = None, yes: bool = True) -> list:
@@ -2339,12 +2496,26 @@ def main():
     r.add_argument("exp")
     r.add_argument("stage", choices=STAGES)
     r.add_argument("--yes", action="store_true", help="do not ask before replacing existing outputs")
+    r.add_argument("--pause-on-error", action="store_true", help="wait for Enter if the stage fails (console closes otherwise)")
+    ch = sub.add_parser("chain", help="run the next steps of the goal one after the other (what 'Run to goal' opens)")
+    ch.add_argument("exp")
+    ch.add_argument("--goal", choices=list(GOALS))
+    ch.add_argument("--no-review", action="store_true", help="do not stop after Label template")
+    ch.add_argument("--pause-on-error", action="store_true")
     sub.add_parser("selftest")
     a = p.parse_args()
     if a.cmd == "selftest":
         return _selftest()
+    if a.cmd == "chain":
+        code = run_chain(a.exp, a.goal, not a.no_review)
+        if code and a.pause_on_error:
+            input("\n[experiment] the chain stopped: read the messages above, then press Enter to close ")
+        sys.exit(code)
     if a.cmd == "run":
-        sys.exit(run_stage(a.exp, a.stage, a.yes))
+        code = run_stage(a.exp, a.stage, a.yes)
+        if code and a.pause_on_error:
+            input("\n[experiment] the stage failed: read the messages above, then press Enter to close ")
+        sys.exit(code)
     if a.cmd == "status":
         names = [a.exp] if a.exp else list_experiments()
         print("\n\n".join(status_text(load(n), a.goal) for n in names) or "no experiments in " + EXP_DIR)
