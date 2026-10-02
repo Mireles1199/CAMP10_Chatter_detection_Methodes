@@ -678,6 +678,9 @@ def extract_doe_results(doe_dir: str, case_name: str, signals: list, dry_run: bo
 
     with h5py.File(out_path, "w") as out_f:
         out_f.attrs["ap_ref_mode"] = AP_REF_MODE or "none"
+        out_f.attrs["sim_case"] = case_name   # con que modelo Nessy2m se simulo (carpeta del caso)
+        if AP_REF_MODEL:
+            out_f.attrs["sim_model"] = AP_REF_MODEL   # preset del SLD (DOE_plots/sld_model.py)
         if ap_ref:
             out_f.attrs["ap_ref_m"] = ap_ref
         if AP_REF_MODE in ("model", "model_at_spin"):
@@ -689,6 +692,9 @@ def extract_doe_results(doe_dir: str, case_name: str, signals: list, dry_run: bo
             # -- var_val.py --
             var_val = read_var_val(os.path.join(case_path, "var_val.py"))
             grp = out_f.create_group(group_name)
+            grp.attrs["sim_case"] = case_name
+            if AP_REF_MODEL:
+                grp.attrs["sim_model"] = AP_REF_MODEL
             for k, v in var_val.items():
                 try:
                     grp.attrs[k] = v

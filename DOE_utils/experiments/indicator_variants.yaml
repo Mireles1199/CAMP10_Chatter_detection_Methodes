@@ -1,13 +1,16 @@
-# Indicator variant library for experiments (doe_indicators.py --experiment).
+# Indicator variant PRESETS: a new row of an experiment's indicator table starts from one of these
+# (the experiment keeps its own copy, so editing this file never changes an experiment already set up).
 # Generated 2026-10-01 from the CONFIG block of DOE_analisis/doe_indicators.py (all INDICATOR_CONFIG_* / RUNS,
 # enabled or not), so a variant reproduces exactly what that CONFIG ran.
 #
 # - The key of a variant is the name of its group in doe_indicator_results.h5 (same names as before).
 # - Values resolved PER CASE (never written here): "T_rev" = 60 / $spin_rate$ of the case,
 #   "T_modal" = 1 / f_modal of the experiment, "10*T_rev" = 10 x that T_rev.
-# - t_stable_total, cut_end_time, t_theorical and training_intervals are the legacy values of the CONFIG: with the
-#   external reference that every experiment gives (its training dataset) they are not used by the detection.
-# - A variant that already has results is not edited: duplicate it under a new name (the app enforces this).
+# - t_theorical (= the old fixed t_GT), and for MaxEnt t_stable_total / cut_end_time, were removed on 2026-10-02:
+#   with the external reference every experiment gives (a labelled dataset) the detection never reads them
+#   (MaxEnt still gets t_stable_total = None, its signature asks for it). training_intervals stays null.
+# - The app shows these as a table inside each experiment (Indicators > Edit config); add a preset here only to
+#   offer it to new tables.
 # - cut.start [s]: start of the analysed signal; cut.end null = end of each case signal.
 cut:
   start: 0.05
@@ -23,14 +26,11 @@ variants:
       N_rev_window: 7
       step_rev: 1
       segmentation: opr
-      t_stable_total: 5.365770208787228
       training_intervals: null
       alpha: 0.00135
       beta: 0.00135
       reset_on_H0: true
       cut_start_time: 0.05
-      cut_end_time: 16.0
-      t_theorical: 5.365770208787228
   rms_cv_revo_aux4_n_aux4_dec7_1step:
     indicator: RMS_CV
     func: Default
@@ -54,7 +54,6 @@ variants:
       z: 3.0
       alpha: 0.05
       fallback_mad: true
-      t_theorical: 5.365770208787228
   rms_cv_modal_aux4_n_aux4_dec7_1step:
     indicator: RMS_CV
     func: Default
@@ -78,7 +77,6 @@ variants:
       z: 3.0
       alpha: 0.05
       fallback_mad: true
-      t_theorical: 5.365770208787228
   ssq_revo_aux4_n_aux4_dec7_1step:
     indicator: SST_SVD
     func: Default
@@ -98,7 +96,6 @@ variants:
       alpha: 0.05
       z: 3.0
       fallback_mad: false
-      t_theorical: 5.365770208787228
   ssq_modal_aux4_n_aux4_dec7_1step:
     indicator: SST_SVD
     func: Default
@@ -118,7 +115,6 @@ variants:
       alpha: 0.05
       z: 3.0
       fallback_mad: false
-      t_theorical: 5.365770208787228
   green_default_revo_dec7_1step:
     indicator: Green_Integral
     func: Default
@@ -132,7 +128,6 @@ variants:
       training_intervals: null
       z_sigma: 3.0
       debug_level: 0
-      t_theorical: 5.365770208787228
       data_filtrated: true
       hilbert: false
       while_loop_extend: false
@@ -151,7 +146,6 @@ variants:
       training_intervals: null
       z_sigma: 3.0
       debug_level: 0
-      t_theorical: 5.365770208787228
       data_filtrated: true
       hilbert: false
       while_loop_extend: false
@@ -170,7 +164,6 @@ variants:
       training_intervals: null
       z_sigma: 3.0
       debug_level: 0
-      t_theorical: 5.365770208787228
       data_filtrated: true
       lambda_ewma: null
       accumulate: false
@@ -196,7 +189,6 @@ variants:
       training_intervals: null
       z_sigma: 3.0
       debug_level: 0
-      t_theorical: 5.365770208787228
       data_filtrated: true
       lambda_ewma: null
       accumulate: false

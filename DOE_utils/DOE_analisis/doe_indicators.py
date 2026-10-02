@@ -15,6 +15,8 @@ Guía completa:  python doe_indicators.py --help
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import logging
 import os
 import sys
@@ -330,7 +332,7 @@ def main() -> None:
     # -- --experiment: todo lo de arriba sale del experimento (DOE_utils/experiments/<exp>.yaml) ----------------
     #    variantes de experiments/indicator_variants.yaml con T_rev/T_modal por caso, referencia = dataset de
     #    entrenamiento, casos/workers del experimento, corte = biblioteca (fin = fin de la señal de cada caso).
-    spin_fallback = None
+    spin_fallback, truth, strategy, truth_h5 = None, {}, "", ""
     if args.experiment:
         ex = _experiment_module()
         exp = ex.load(args.experiment)
@@ -345,7 +347,12 @@ def main() -> None:
         os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
         info = ex.h5_info(exp.data_h5)
         spin_fallback = info["first"].get("$spin_rate$") if info else None   # casos sin $spin_rate$ (ruido)
+        # etiqueta verdadera de cada caso (dataset etiquetado del propio experimento, si ya existe)
+        truth_h5 = exp.label["out"]
+        truth = {c: lab for c, (lab, _) in ex._label_cases(truth_h5).items()}
+        strategy = str(exp.label.get("strategy", ""))
         log.info("Experimento: %s  (%s)", exp.name, exp.path)
+        log.info("Etiquetas  : %s", f"{len(truth)} casos de {truth_h5}" if truth else "aún no hay dataset etiquetado")
 
     h5_in = os.path.normpath(args.doe_results or os.path.join(BASE_DIR, DOE_NAME, H5_NAME))
     if not os.path.isfile(h5_in):
@@ -408,6 +415,7 @@ def main() -> None:
             "label_key": label_key,
             "reference_h5": reference_h5,
             "spin_fallback": spin_fallback,
+            "truth": truth, "strategy": strategy, "truth_h5": truth_h5,
         },
         nb_workers=workers,
         dry_run=args.dry_run,
@@ -691,6 +699,32 @@ def _empty(grp_name: str, run_name: str, label_key: Optional[str],
     }
 
 
+class _FloorFilter(io.TextIOBase):
+    """stdout de un indicador sin las líneas "varianza muy pequeña, aplicando floor" de MaxEnt (una por segmento
+    con entropía casi constante: no es un error). Se cuentan y salen una sola vez en el resumen del caso."""
+    MSG = "varianza muy peque"
+
+    def __init__(self, out):
+        self.out, self.n, self.buf = out, 0, ""
+
+    def write(self, s):
+        self.buf += s
+        *lines, self.buf = self.buf.split("\n")
+        for line in lines:
+            if self.MSG in line:
+                self.n += 1
+            else:
+                self.out.write(line + "\n")
+        return len(s)
+
+    def close_buffer(self):
+        if self.MSG in self.buf:
+            self.n += 1
+        elif self.buf:
+            self.out.write(self.buf)
+        self.buf = ""
+
+
 def _run_one(
     h5_path: str,
     grp_name: str,
@@ -745,17 +779,23 @@ def _run_one(
         for key, label in _REFERENCE_KEYS[ind_id].items():
             config[key] = _reference_pieces(ind_id, settings["reference_h5"], label, signal)
 
+    floor = _FloorFilter(sys.stdout)
     try:
-        result = runner(sig, config)
+        with contextlib.redirect_stdout(floor):
+            result = runner(sig, config)
     except Exception as exc:
         log.error("  [%s / %s] ERROR: %s", grp_name, run_name, exc, exc_info=True)
         return _empty(grp_name, run_name, label_key, label_val, error=str(exc))
+    finally:
+        floor.close_buffer()
 
     t_d = np.asarray(result.t_d if result.t_d is not None else [], dtype=float)
     meta = {
         k: v for k, v in dict(getattr(result, "meta", {})).items()
         if not callable(v) and k not in ("raw_result", "signal")
     }
+    if floor.n:
+        meta["variance_floor_count"] = floor.n
 
     if t_d.size > 0:
         log.info("  [%s / %s] t_d = %.4f s", grp_name, run_name, t_d[0])
@@ -815,6 +855,10 @@ def write_results(out_path: str, res: Dict[str, Any], h5_src: str,
     crudas (Axial_disp, Axial_vel, Axial_acc) desde h5_src.
     """
     with h5py.File(out_path, "a") as out_f:
+        for k in ("reference_h5", "truth_h5", "strategy"):   # de dónde salen el umbral y la verdad
+            if res.get(k):
+                out_f.attrs[{"reference_h5": "reference_dataset", "truth_h5": "label_dataset",
+                             "strategy": "label_strategy"}[k]] = res[k]
         case_grp = out_f.require_group(res["case"])
         if res["run_name"] in case_grp:
             del case_grp[res["run_name"]]
@@ -831,6 +875,12 @@ def write_results(out_path: str, res: Dict[str, Any], h5_src: str,
                                 case_grp.create_dataset(f"{sig}/{ds}", data=src[f"{sig}/{ds}"][()],
                                                         compression="gzip")
                 case_grp.attrs["signals_written"] = True
+                # lo que el visor necesita sin buscar otros archivos: kappa, Ap y la etiqueta verdadera
+                if "$Ap_start$" in case_grp.attrs:
+                    case_grp.attrs["Ap_mm"] = float(case_grp.attrs["$Ap_start$"]) * 1e3
+                if res.get("true_label"):
+                    case_grp.attrs["true_label"] = res["true_label"]
+                    case_grp.attrs["label_strategy"] = res.get("strategy", "")
                 if res.get("label_key"):
                     case_grp.attrs["label_key"] = res["label_key"]
                 if not np.isnan(res["label_val"]):
@@ -864,6 +914,41 @@ def write_results(out_path: str, res: Dict[str, Any], h5_src: str,
 # EJECUCIÓN PARALELA / SECUENCIAL
 # ==============================================================================
 
+def _case_summary(h5_path: str, case: str, results: list, true_label: str, strategy: str) -> None:
+    """Resumen de un caso al terminar todas sus variantes: kappa, Ap, etiqueta verdadera y, por variante,
+    detección (con acierto si se conoce la verdad), error o avisos de varianza mínima."""
+    try:
+        with h5py.File(h5_path, "r") as f:
+            a = f[case].attrs if case in f else {}
+            kappa, ap = a.get("kappa"), a.get("$Ap_start$")
+    except OSError:
+        kappa = ap = None
+    head = f"-- {case}"
+    if kappa is not None:
+        head += f"  kappa {float(kappa):.3f}"
+    if ap is not None:
+        head += f"  Ap {float(ap) * 1e3:.3f} mm"
+    head += f"  verdad: {true_label} ({strategy})" if true_label else "  verdad: sin etiqueta"
+    lines = [head]
+    for r in sorted(results, key=lambda r: r["run_name"]):
+        m = r.get("meta", {})
+        if m.get("error"):
+            txt = f"ERROR {m['error']}"
+        elif m.get("skipped"):
+            txt = f"omitido ({m.get('reason', '')})"
+        elif r["t_d"].size:
+            txt = f"detección en {r['t_d'][0]:.3f} s"
+        else:
+            txt = "sin detección"
+        if true_label in ("stable", "unstable") and not m.get("error") and not m.get("skipped"):
+            flag = bool(r["t_d"].size)
+            txt += "   OK" if flag == (true_label == "unstable") else ("   MAL: falsa alarma" if flag else "   MAL: no detecta")
+        if m.get("variance_floor_count"):
+            txt += f"   (varianza mínima aplicada {m['variance_floor_count']}x: tramos estables casi constantes)"
+        lines.append(f"     {r['run_name']:<40s} {txt}")
+    log.info("\n".join(lines))
+
+
 def run_all(
     h5_path: str,
     groups: List[str],
@@ -883,13 +968,21 @@ def run_all(
     total = len(tasks)
     log.info("Total tareas: %d casos × %d configs = %d", len(groups), len(runs), total)
     n_done = 0
+    per_case: Dict[str, list] = {}
+    truth = settings.get("truth") or {}
 
     def _handle(res: Dict[str, Any]) -> None:
         nonlocal n_done
         n_done += 1
+        res["true_label"] = truth.get(res["case"], "")
+        res.update(strategy=settings.get("strategy", ""), truth_h5=settings.get("truth_h5", ""),
+                   reference_h5=settings.get("reference_h5") or "")
         log.info("[%d/%d] completado: %s / %s", n_done, total, res["case"], res["run_name"])
         if out_path:
             write_results(out_path, res, h5_path, save_meta_arrays)
+        per_case.setdefault(res["case"], []).append(res)
+        if len(per_case[res["case"]]) == len(runs) and not dry_run:
+            _case_summary(h5_path, res["case"], per_case.pop(res["case"]), res["true_label"], res["strategy"])
 
     if nb_workers == 1 or dry_run:
         for grp, run in tasks:
@@ -933,5 +1026,40 @@ def list_cases(h5_path: str, groups: List[str], label_key: Optional[str]) -> Non
     print(f"\n  Total: {len(rows)} casos  |  label_key: {label_key}\n")
 
 
+def _selftest() -> None:
+    """Sin correr ningún indicador: filtro del aviso de varianza, atributos del caso, resumen por caso."""
+    import tempfile
+    out = io.StringIO()
+    flt = _FloorFilter(out)
+    with contextlib.redirect_stdout(flt):
+        print("resumen MaxEnt")
+        print("Advertencia: varianza muy pequeña, aplicando floor para evitar sigma=0.")
+        print("Advertencia: varianza muy pequeña, aplicando floor para evitar sigma=0.", end="")
+    flt.close_buffer()
+    assert flt.n == 2 and out.getvalue() == "resumen MaxEnt\n", (flt.n, out.getvalue())
+    tmp = tempfile.mkdtemp(prefix="doe_ind_")
+    src, dst = os.path.join(tmp, "doe_results.h5"), os.path.join(tmp, "ind.h5")
+    with h5py.File(src, "w") as f:
+        g = f.create_group("case_000")
+        g.attrs.update({"$Ap_start$": 0.0088, "kappa": 1.03})
+        g.create_dataset("Axial_disp/time", data=[0.0, 1.0])
+        g.create_dataset("Axial_disp/values", data=[0.0, 1.0])
+    res = {"case": "case_000", "run_name": "maxent_x", "t": np.array([0.0, 1.0]), "I_t": np.array([1.0, 2.0]),
+           "t_d": np.array([0.5]), "meta": {"variance_floor_count": 3}, "attrs": {"id": "MaxEnt_SPRT"},
+           "label_key": "kappa", "label_val": 1.03, "true_label": "unstable", "strategy": "amplitude",
+           "truth_h5": "lab.h5", "reference_h5": "ref.h5"}
+    write_results(dst, res, src)
+    with h5py.File(dst, "r") as f:
+        a = f["case_000"].attrs
+        assert a["true_label"] == "unstable" and a["label_strategy"] == "amplitude" and a["kappa"] == 1.03
+        assert abs(a["Ap_mm"] - 8.8) < 1e-9 and f.attrs["reference_dataset"] == "ref.h5"
+        assert f["case_000/maxent_x"].attrs["meta_variance_floor_count"] == 3
+    _case_summary(src, "case_000", [res], "unstable", "amplitude")
+    print("doe_indicators selftest OK")
+
+
 if __name__ == "__main__":
-    main()
+    if "--selftest" in sys.argv:
+        _selftest()
+    else:
+        main()
