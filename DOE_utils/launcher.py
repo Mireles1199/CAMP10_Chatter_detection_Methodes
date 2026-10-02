@@ -86,6 +86,7 @@ def configure_tutorial_tags(t, size: int = 10) -> None:
                      ("h2", dict(font=("Segoe UI", size + 4, "bold"), foreground="#1565c0", spacing1=18, spacing3=6)),
                      ("h3", dict(font=("Segoe UI", size + 1, "bold"), spacing1=8)),
                      ("bold", dict(font=("Segoe UI", size, "bold"))),
+                     ("ital", dict(font=("Segoe UI", size, "italic"))),
                      ("code", dict(font=("Consolas", size), foreground="#37474f", background="#eceff1")),
                      ("codeblock", dict(font=("Consolas", size - 1), foreground="#263238", background="#eceff1",
                                         lmargin1=20, lmargin2=20, spacing1=1, spacing3=1)),
@@ -131,9 +132,10 @@ def render_markdown(widget, text: str, size: int = 10, width: int = TUT_WIDTH, b
 
     def inline(line, base=()):
         pos = 0
-        for m in re.finditer(r"\*\*(.+?)\*\*|`([^`]+)`", line):
+        for m in re.finditer(r"\*\*(.+?)\*\*|`([^`]+)`|(?<![*\w])\*([^*\s][^*]*?)\*(?![*\w])", line):
             widget.insert("end", line[pos:m.start()], base)
-            widget.insert("end", m.group(1) or m.group(2), base + (("bold",) if m.group(1) else ("code",)))
+            kind = "bold" if m.group(1) else ("code" if m.group(2) else "ital")
+            widget.insert("end", m.group(1) or m.group(2) or m.group(3), base + (kind,))
             pos = m.end()
         widget.insert("end", line[pos:], base)
 

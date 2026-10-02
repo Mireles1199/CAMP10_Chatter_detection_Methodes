@@ -220,10 +220,30 @@ def detect_case(doe_dir: str) -> str:
 _LOADED: dict = {}
 
 
+def _deps_mtime(path: str, seen: tuple = ()) -> float:
+    """Newest modification time of everything an experiment is built from besides its own file: the experiments it
+    extends / trains on, the simulation configs (configs/*.yaml) and the variant library. A change in any of them
+    must reload the experiment (hand edits included)."""
+    files = [VARIANTS_FILE]
+    if os.path.isdir(CONFIGS_DIR):
+        files += [os.path.join(CONFIGS_DIR, f) for f in os.listdir(CONFIGS_DIR) if f.endswith(".yaml")]
+    t = max(_mtime(f) for f in files)
+    if path in seen:
+        return t
+    try:
+        d = yaml_load(path)
+    except Exception:
+        return t
+    for k in ("extends", "training"):
+        if isinstance(d.get(k), str) and os.path.isfile(exp_path(d[k])):
+            t = max(t, _mtime(exp_path(d[k])), _deps_mtime(exp_path(d[k]), seen + (path,)))
+    return t
+
+
 def load(name: str) -> "Exp":
-    """Load (cached per process; call reload() after editing a YAML)."""
+    """Load (cached per process by the mtime of the experiment file and of what it is built from)."""
     path = exp_path(name)
-    key = (path, _mtime(path))
+    key = (path, _mtime(path), _deps_mtime(path))
     if key not in _LOADED:
         _LOADED[key] = Exp(name)
     return _LOADED[key]

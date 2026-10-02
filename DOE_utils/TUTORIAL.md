@@ -171,3 +171,61 @@ Etapas: `simulate`, `extract`, `merge`, `label_template`, `label_build`, `indica
 | Capturas de este tutorial | `DOE_utils/tutorial_img/` (se regeneran con `python launcher.py --screenshot ARCHIVO.png EXP ETAPA`) |
 | Diseño y decisiones | `DOE_utils/PLAN_app_experimentos.md` |
 | Cada script suelto | pestaña **Tools** |
+
+## 8. Preguntas frecuentes
+
+### ¿Cómo sabe la app si una etapa terminó, está pendiente o falló? ¿Dónde se guarda?
+
+Combina tres cosas:
+
+- **Los archivos de salida.** Si existen, la etapa está hecha; si no, pendiente.
+- **Un registro por etapa**, que escribe el envoltorio cuando la lanzas desde la app: `DOE_utils/experiments/.runs/<experimento>/<etapa>.json` (inicio, fin, código de salida, número de proceso y una huella de la configuración usada) y su `.log`. Con él sabe si está **corriendo** (el proceso sigue vivo), si **falló** (código de salida distinto de 0, o el proceso murió sin terminar) o si está **desactualizada** (la huella de la configuración cambió).
+- **Las fechas**: si una entrada es más reciente que la etapa, queda desactualizada.
+
+Estos registros no están en git. Si los borras, las etapas con salida existente siguen apareciendo como hechas ("no run record"); solo pierdes el historial y el log.
+
+### ¿Qué pasa si uso un .h5 que no generé con la app?
+
+Funciona, con una condición: el archivo tiene que estar donde la app lo espera, o decírselo.
+
+- Si existe en la ruta esperada, la etapa aparece como **hecha** ("outputs exist, no run record: made outside the app"). Pasa a **desactualizada** si una de sus entradas es más reciente.
+- Si está en otro sitio, ponle la ruta en el YAML del experimento (`label: {out: …}`, `indicators: {out: …}`, `validate: {out: …}`, `labels_yaml`), o usa **Import folder…**, que lo detecta y deja las etapas hechas en verde.
+- La app **no revisa el contenido**, salvo un caso: avisa en rojo si el YAML de etiquetas y el dataset de etiquetas no coinciden.
+
+### ¿Se cubren las etapas aunque no llegue a los indicadores?
+
+Sí. Cada meta ("Goal") termina en una etapa distinta: *Simulated data* (hasta Extract), *Training dataset* (hasta Label build), *Indicators computed*, *Indicator validation*, además de ruido, SNR del modelo y deflexión estática. Un experimento de entrenamiento abre con *Training dataset*: no necesita indicadores para estar completo. Cambia la meta con el selector.
+
+### ¿Dónde se guardan los .h5?
+
+| Archivo | Dónde |
+|---|---|
+| `doe_results.h5`, carpetas de casos, deflexión estática (dentro del mismo `.h5`), ruido, SNR del modelo | La carpeta del DOE: `base_dir/doe_name` de su config, por ejemplo `Convergency_Simulation/4_DOE_Data_Training_Tube/<DOE>/` |
+| Etiquetas, dataset de etiquetas, indicadores, validación | `<carpeta del DOE>/<experimento>/` |
+| DOE fusionado (varias corridas) | Una carpeta nueva junto a las corridas |
+| El experimento mismo | `DOE_utils/experiments/<nombre>.yaml` |
+
+En el panel de cada etapa, la sección **Files** muestra la ruta exacta, y el botón **Folder** la abre.
+
+### ¿Cómo se configura el runner (la simulación)?
+
+Con el YAML de `DOE_simulacion/configs/` que usa el experimento (`runs: - config: <nombre>`), el mismo que usaba `doe_runner`. Cada config hereda de `base.yaml` (ruta de Nessy2m, procesos en paralelo, señales a extraer) y define `base_dir`, `case`, `doe_name`, el barrido de `Ap` y `spin_rate` y el `ap_ref`. La etapa Simulate ejecuta `doe_runner.py --config <nombre> --command n2m_sch`, y Extract el mismo con `--command extract`.
+
+Puedes crear la config con **New DOE…** (desde una config plantilla), con **New validation…** (planificador de validación) o editándola a mano, y abrirla en el planificador con **Edit config**.
+
+### ¿El planificador (doe_planner) ya no sirve?
+
+Sí sirve. Es la mejor forma de **ver el DOE sobre el SLD** y de ajustar una config. **Edit config** de las etapas Simulate y Extract lo abre con la config del experimento. Una diferencia: si lanzas la simulación desde su botón "Lanzar", se ejecuta fuera del envoltorio, así que la app no guarda registro ni log; solo ve los archivos que van apareciendo. Para tener estado, progreso y log, lanza desde la app.
+
+### ¿El planificador de validación (doe_val_planner) ya no es útil?
+
+Sí es útil, y **New validation…** lo abre. Elige los casos nuevos por zonas de `κ`, evitando los `κ` del entrenamiento, y los muestra junto a los de entrenamiento. **New DOE…** también acepta una lista de `κ`, pero no hace eso. Para una validación, úsalo.
+
+### ¿Tengo que editar algo desde la app? ¿Todo?
+
+No. La app es una comodidad, no un requisito.
+
+- Todo lo que guarda la app son archivos de texto (YAML) y los scripts de siempre. Puedes editarlos a mano: la app los relee cuando cambian, incluidos los `configs/*.yaml` y la biblioteca de variantes.
+- Los formularios existen para el camino principal (etiquetado, indicadores, validación, fusión). Para lo demás (deflexión, ruido, SNR) se edita el YAML.
+- Puedes correr cualquier script por tu cuenta (`doe_runner.py`, `doe_indicators.py`…). La app ve los archivos que aparezcan y los marca como hechos; solo no tendrá el registro ni el log de esa corrida.
+- Lo que la app **sí** vigila por ti: avisos de etapa desactualizada, de sobrescritura, de dos etapas escribiendo el mismo archivo y de etiquetado distinto entre validación y entrenamiento. Eso se pierde si te saltas la app.
