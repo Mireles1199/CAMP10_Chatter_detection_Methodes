@@ -1,7 +1,7 @@
-name: train_1DOF150_n12098_k0.5-2.0
+name: train_1DOF150_n12098_k0.5-2
 kind: training
-description: 'training, tube 1DOF 150 Hz, n = 12098.28 rpm, kappa 0.5-2.0 (includes
-  the 0.91-1.09 run merged in place: 34 cases)'
+description: 'training, imported from DOE_Training_Tube_dxl_20e-5_RUN_10_0.5-2.0:
+  34 cases, n = 12098.28 rpm, kappa 0.50-2.00'
 runs:
 - dir: D:/Thesis/03-Code_Storage/02-Altintlas_Nessy2m_Storage/Chatter-Criteria/CAMP10_Chatter_detection_Methodes/Convergency_Simulation/4_DOE_Data_Training_Tube/DOE_Training_Tube_dxl_20e-5_RUN_10_0.5-2.0
   case: 1DOF_150Hz
@@ -16,10 +16,6 @@ label:
   out: D:/Thesis/03-Code_Storage/02-Altintlas_Nessy2m_Storage/Chatter-Criteria/CAMP10_Chatter_detection_Methodes/Convergency_Simulation/4_DOE_Data_Training_Tube/DOE_Training_Tube_dxl_20e-5_RUN_10_0.5-2.0/reference_dataset_amp.h5
 indicators:
   variants:
-  - maxent_revo_dec4_1step
-  - rms_cv_revo_aux4_n_aux4_dec7_1step
-  - ssq_revo_aux4_n_aux4_dec7_1step
-  - green_fixed_revo_dec4_1step
-  f_modal: 150.0
+  - maxent_revo_dec7_1step
   cases: all
-  workers: 6
+  workers: 1

@@ -1,0 +1,8 @@
+name: val_1DOF150_n12098_k0.51-1.99
+kind: validation
+description: 'validation, imported from Ap_Cons_test_ind: 22 cases, n = 12098.28 rpm,
+  kappa 0.51-1.99'
+runs:
+- dir: D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\Data\1DOF_150_Ap_Cont_test_ind\Ap_Cons_test_ind
+  case: 1DOF_150Hz
+training: train_1DOF150_n12098_k0.5-2
