@@ -13,7 +13,10 @@ sys.path[:0] = [os.path.join(DOE, "DOE_analisis"), DOE]
 import doe_indicators as di  # noqa: E402
 import experiment as ex  # noqa: E402
 
-EXP = "train_1DOF150_n12098_k0.5-2.0"
+EXP = "train_1DOF150_n12098_k0.5-2"
+# keys removed from the presets on 2026-10-02 (unused with the external reference): (b) checks that the results
+# with the CONFIG (which still has them) and without them are identical
+DROPPED = {"t_theorical", "t_stable_total", "cut_end_time"}
 e = ex.load(EXP)
 H5 = e.data_h5
 CASE = "case_009"
@@ -34,8 +37,9 @@ lib = ex.variants_library()["variants"]
 rpm, fmod = 60.0 / cap["_T_REV"], 1.0 / cap["_T_MODAL"]
 for r in cap["RUNS"]:
     name = di._run_name(r)
-    want = r["indicator_config"]
-    got = ex.indicator_config(lib[name], rpm, fmod)
+    strip = lambda c: dict(c, params_physical={k: v for k, v in c["params_physical"].items() if k not in DROPPED})  # noqa: E731
+    want = strip(r["indicator_config"])
+    got = strip(ex.indicator_config(lib[name], rpm, fmod))
     assert got == want, (name, {k: (got["params_physical"].get(k), v) for k, v in want["params_physical"].items()
                                 if got["params_physical"].get(k) != v})
 print(f"(a) OK: {len(cap['RUNS'])} variants == CONFIG dicts (rpm {rpm:g}, f_modal {fmod:g})")

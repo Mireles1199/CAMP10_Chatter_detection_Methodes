@@ -1,7 +1,16 @@
 name: train_1DOF150_n12098_k0.5-2
-kind: training
 description: 'training, imported from DOE_Training_Tube_dxl_20e-5_RUN_10_0.5-2.0:
   34 cases, n = 12098.28 rpm, kappa 0.50-2.00'
+stages:
+- simulate
+- extract
+- label_template
+- label_build
+- indicators
+- static_deflection
+- noise
+- noise_indicators
+- model_snr
 runs:
 - dir: D:/Thesis/03-Code_Storage/02-Altintlas_Nessy2m_Storage/Chatter-Criteria/CAMP10_Chatter_detection_Methodes/Convergency_Simulation/4_DOE_Data_Training_Tube/DOE_Training_Tube_dxl_20e-5_RUN_10_0.5-2.0
   case: 1DOF_150Hz
@@ -16,6 +25,20 @@ label:
   out: D:/Thesis/03-Code_Storage/02-Altintlas_Nessy2m_Storage/Chatter-Criteria/CAMP10_Chatter_detection_Methodes/Convergency_Simulation/4_DOE_Data_Training_Tube/DOE_Training_Tube_dxl_20e-5_RUN_10_0.5-2.0/reference_dataset_amp.h5
 indicators:
   variants:
-  - maxent_revo_dec7_1step
+    maxent_revo_dec7_1step:
+      indicator: MaxEnt_SPRT
+      func: Default
+      mode: by_revolution
+      signal: Axial_vel
+      params_physical:
+        T_rev: T_rev
+        N_rev_window: 7
+        step_rev: 1
+        segmentation: opr
+        training_intervals: null
+        alpha: 0.00135
+        beta: 0.00135
+        reset_on_H0: true
+        cut_start_time: 0.05
   cases: all
   workers: 1

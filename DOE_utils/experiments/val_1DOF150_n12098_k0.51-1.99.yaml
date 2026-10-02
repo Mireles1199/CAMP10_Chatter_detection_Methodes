@@ -1,8 +1,35 @@
 name: val_1DOF150_n12098_k0.51-1.99
-kind: validation
 description: 'validation, imported from Ap_Cons_test_ind: 22 cases, n = 12098.28 rpm,
   kappa 0.51-1.99'
+stages:
+- simulate
+- extract
+- label_template
+- label_build
+- indicators
+- validate
+- static_deflection
+- noise
+- noise_indicators
+- model_snr
+reference: train_1DOF150_n12098_k0.5-2
 runs:
 - dir: D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\Data\1DOF_150_Ap_Cont_test_ind\Ap_Cons_test_ind
   case: 1DOF_150Hz
-training: train_1DOF150_n12098_k0.5-2
+indicators:
+  variants:
+    maxent_revo_dec7_1step:
+      indicator: MaxEnt_SPRT
+      func: Default
+      mode: by_revolution
+      signal: Axial_vel
+      params_physical:
+        T_rev: T_rev
+        N_rev_window: 7
+        step_rev: 1
+        segmentation: opr
+        training_intervals: null
+        alpha: 0.00135
+        beta: 0.00135
+        reset_on_H0: true
+        cut_start_time: 0.05

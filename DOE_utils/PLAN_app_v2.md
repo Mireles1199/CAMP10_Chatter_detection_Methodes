@@ -1,6 +1,6 @@
 # Plan v2 — App de experimentos DOE: generalizar y mejorar la experiencia
 
-Fecha: 2026-10-02 · Estado: **pendiente de 4 decisiones (§4)**, nada implementado todavía.
+Fecha: 2026-10-02 · Estado: **implementado** la noche del 2026-10-02 (decisiones 1a, 2a, 3a, 4a; bitácora §5).
 Plan anterior (v1, implementado): `DOE_utils/PLAN_app_experimentos.md` (bitácora §13, filas F0–F9, R2, R3).
 Código: `DOE_utils/launcher.py` (ventana), `DOE_utils/experiment.py` (núcleo), `DOE_utils/experiments/` (YAML de
 experimentos y `indicator_variants.yaml`), `DOE_utils/TUTORIAL.md` (tutorial, también pestaña de la app).
@@ -142,6 +142,46 @@ aclarar.
 
 ## 5. Bitácora v2
 
+Decisiones del usuario (2026-10-02): **1a, 2a, 3a, 4a** ("de acuerdo con todo"), con la condición de **no correr
+los indicadores de verdad** (tardan mucho): todo se comprobó con autopruebas, *dry-run* y una copia temporal.
+
+Commits (rama `Aplication-Indicateur-Validacion-Training`, sin push): `00d17eb` núcleo, `d5830d7` app,
+`ebe357d` visor, y uno final con la migración de los experimentos, el tutorial y esta bitácora. Los bloques
+§3.1–§3.5 se tocaban en los mismos archivos, así que los commits van por archivos (núcleo / app / visor / datos y
+documentación) y no por bloque.
+
 | Bloque | Decisión | Por qué |
 |---|---|---|
-| — | (vacía) | |
+| Esquema | Experimento = `stages:` (las que activa el usuario) + `reference:` opcional + `out_dir:` opcional + `runs:`. `kind`/`training` se siguen leyendo (archivos viejos); `stages` ausente = comportamiento viejo | Decisión 1a sin romper lo existente |
+| Esquema | Las etapas activas traen solas las que necesitan (activar Indicators trae el etiquetado); `merge` es automática con varias corridas | No se puede activar una etapa sin su entrada |
+| Esquema | Con referencia, el etiquetado se hereda de la referencia y no se edita (como antes la validación) | La verdad debe etiquetarse como el dataset del que aprenden los indicadores |
+| Simulación | `runs: - simulation: {...}` con todas las claves de `doe_runner`; la app escribe el archivo que lee `doe_runner` en `.runs/<exp>/sim_<doe>.yaml` (regenerado, no se edita). `config:` y `dir:` siguen valiendo | Decisión 2a: un archivo, todo explícito (punto 11) |
+| Simulación | El formulario genera siempre `mode: sweep` con una fila por caso (o el producto si se marca *every combination*) | Lo que se ve es lo que corre, sin ambigüedad factorial |
+| Fallo 16 / 4 | Causa real del "un solo Ap no funciona": `ap_lim` del SLD a 9000 rpm es `inf` (hueco entre lóbulos) → `Ap = inf` → Nessy2m `NameError: inf`. Ahora: `ap_ref_value` da error con el motivo; `check()` bloquea Run si algún `Ap` no es finito y > 0; un solo `Ap` está cubierto por autoprueba | Log real de `.runs/train_1DOF150_n9000_k1-1` |
+| Fallo 6 | `ap_ref` en el formulario: none / manual [mm] / model / model_at_spin + preset; se guarda tal cual en la simulación | |
+| Fallo 3 / 9 | `launch()` recibe listas; `split_args` quita las comillas del texto de la pestaña Tools. Edit config de Simulate abre el formulario de simulación de la app (el planificador sigue en un botón) | |
+| Fallo 7 | El combobox de referencia lista todos los experimentos (antes filtraba por `kind` y podía quedar vacío) | |
+| Fallo 20 | La "foto" del redibujado incluye el progreso y la fecha del log de la etapa seleccionada | |
+| Fallo 31 | Huella: rutas normalizadas (mayúsculas, separadores), se ignoran `nb_proc`, `workers`, `n2m_bat`, `timed`, `auto_extract`, `description`. Simulate/Extract: carpeta + tabla de casos + `ap_ref` + señales (una carpeta importada usa el `doe_config.yaml` que deja `doe_runner`). Botón **Mark up to date** / `experiment.py accept` | La validación salía naranja solo por pasar de `config:` a `dir:` de la misma carpeta |
+| Fallo 31 | **Hallazgo**: el archivo de simulación generado contaba como entrada por fecha y ponía Simulate en naranja al regenerarse; ya no cuenta (la huella cubre su contenido) | Encontrado al migrar |
+| Migración | Los 3 experimentos reales se reescribieron completos (`make_explicit`) y sus etapas hechas se marcaron al día (`accept`). La validación se comprobó antes: misma carpeta y mismos 22 `Ap` que `configs/Ap_Cons_test_ind`. Estado final igual al de antes del cambio: entrenamiento 5/5, validación 6/6, n9000 solo Simulate | La huella cambió de formato |
+| 23 | Quitados de los presets `t_theorical` (todas) y en MaxEnt `t_stable_total` y `cut_end_time`; `indicator_config` pasa `t_stable_total=None` (la firma de MaxEnt lo exige). Comprobado leyendo el código (con las dos referencias externas esas claves no intervienen) y enlazando la firma; **no** se corrió `check_indicators_experiment.py` (10 min, indicadores reales). `frac_stable` de SSQ se deja (su firma lo exige) | Petición: no correr indicadores |
+| 23 | Cambia la huella de Indicators del entrenamiento; se marcó al día porque el resultado no cambia | |
+| 13 | Variantes = tabla dentro del experimento (`indicators.variants: {nombre: spec}`); `indicator_variants.yaml` queda como presets. Se quitaron `save_variant` / `variant_used` / `VariantEditor` (la regla "no editar variantes usadas" ya no hace falta: cada experimento tiene su copia y cambiarla lo pone en naranja) | Decisión 3a |
+| 5 / 8 / 2 | New experiment desde cero; *load values from* (experimento o config) solo rellena; nombre libre propuesto `<sim|train|ind|val>_<máquina>_n<rpm>_k<κ>`, sin `DOE_` | |
+| 36 / 14 | Derive y Duplicate → **Copy…** (copia explícita, sufijo opcional de carpeta de datos). Show → **Select that stage** | |
+| 37 / 38 / 10 / 12 | **Experiment settings…** (descripción, etapas, referencia, carpeta de salidas) vs **Edit config** (ajustes de una etapa); la tarjeta dice de dónde sale cada corrida y dónde van las salidas | |
+| 21 / 34 | `--timed` / `--auto-extract` en la sección `simulate:` (formulario de simulación); casilla "close the console when the stage ends" (`cmd /c`), guardada en `.runs/app_settings.json` | |
+| 15 / 39 / 41 | Cada entrada/salida dice qué es (`Stage.roles`); el panel dice el canal de etiquetado, el analizado por cada variante y el de la verdad, y qué es cada canal (`CHANNELS`) | |
+| 22 | Estado nuevo **skipped** ("not needed"): no se corrió pero una etapa posterior ya tiene su resultado | |
+| 18 / 35 | Visor de log integrado (colores, búsqueda, sigue el archivo) | |
+| 17 | **Dry-run (check all)** / `experiment.py dryrun`: casos de cada corrida, carpetas, comandos y problemas; el formulario de simulación valida antes de guardar | |
+| 24 | Explicado en el panel (hint) y en el tutorial: Indicators necesita un dataset etiquetado | |
+| 25 / 26 | `doe_indicators`: resumen al terminar **cada caso** (κ, Ap, verdad, detección OK/MAL); las líneas de varianza mínima de MaxEnt se filtran y se cuentan (`meta_variance_floor_count`) | El paquete MaxEnt no se tocó (es de otra sesión) |
+| 28 / 30 / 42 | El `.h5` de indicadores lleva por caso `true_label`, `label_strategy`, `Ap_mm` (y `kappa`, que ya venía); `link_truth()` lo añade a resultados existentes sin recalcular y sin cambiar su fecha (hecho en el entrenamiento: 34 casos). Visor: κ como eje, columnas `true_label`; sin línea `t_GT` fija; `doe_indicator_plotter.T_GT = None` salvo `--t_gt` | |
+| 29 / 33 / 40 | Visor de datasets: columna `Ap [mm]`, interruptor *Fitted normal*, banda "LABELLED DATASET / TRAINING data / trained on …" (atributos `experiment_role` y `experiment_reference` que estampa el envoltorio). La app dice "Opening the viewer…" y muestra su error si falla | |
+| 43 / 44 | **Standardize an .h5…**: informe de lo que tiene/falta, añade `sim_case`, `sim_model`, `$spin_rate$`, `κ` desde un `ap_ref` (con confirmación, señales intactas) y crea el experimento (`import_dir` acepta otro nombre de `.h5`). `doe_runner extract` escribe `sim_case` / `sim_model` desde ahora | |
+| 19 | `delete()` sí borra `.runs/<exp>`. La carpeta huérfana `.runs/train_1DOF150_n9000_k1-1` viene de renombrar el YAML a mano; `orphan_runs()` las lista. **No la borré** (es tu log del fallo `inf`) | |
+| 27 / 32 | Organización de salidas documentada (tutorial §7); flujos generales | |
+| Pruebas | `experiment.py selftest`, `doe_indicators.py --selftest` (nuevo, sin indicadores), `launcher.py --selftest`, `check_app_dialogs.py` (reescrito: todos los formularios v2 sobre copia temporal + capturas), selftests de `reference_dataset`, `validate_indicators`, `static_deflection`; `doe_indicators --experiment … --dry_run` sobre el entrenamiento real | |
+| Pendiente (tú) | Probar con ratón: New experiment real, una simulación corta, el visor con la banda nueva, el log. Si quieres confirmar con números que quitar `t_gt` no cambia resultados: `DOE_analisis/check_indicators_experiment.py` (~10 min) | |
