@@ -65,6 +65,60 @@ BOX_W, BOX_H, STEP_X, STEP_Y, MARGIN = 132, 64, 160, 100, 18
 LOG_TAIL = 15
 
 
+TUTORIAL_FILE = os.path.join(HERE, "TUTORIAL.md")
+
+
+def read_tutorial() -> str:
+    try:
+        with open(TUTORIAL_FILE, encoding="utf-8") as f:
+            return f.read()
+    except OSError as exc:
+        return f"# Tutorial{chr(10)}{chr(10)}The file {TUTORIAL_FILE} could not be read: {exc}{chr(10)}"
+
+
+def render_markdown(widget, text: str) -> None:
+    """Minimal markdown into a Tk Text (read-only afterwards): # / ## headings, **bold**, `code`, ``` blocks,
+    pipe tables (monospace, separator row dropped) and - / 1. lists. Enough for TUTORIAL.md; not a full parser."""
+    import re
+    widget.configure(state="normal")
+    widget.delete("1.0", "end")
+    in_code = False
+
+    def inline(line, base=()):
+        pos = 0
+        for m in re.finditer(r"\*\*(.+?)\*\*|`([^`]+)`", line):
+            widget.insert("end", line[pos:m.start()], base)
+            if m.group(1) is not None:
+                widget.insert("end", m.group(1), base + ("bold",))
+            else:
+                widget.insert("end", m.group(2), base + ("code",))
+            pos = m.end()
+        widget.insert("end", line[pos:], base)
+
+    for raw in text.splitlines():
+        if raw.strip().startswith("```"):
+            in_code = not in_code
+            continue
+        if in_code:
+            widget.insert("end", raw + chr(10), ("code",))
+        elif raw.startswith("# "):
+            widget.insert("end", raw[2:] + chr(10), ("h1",))
+        elif raw.startswith("## "):
+            widget.insert("end", raw[3:] + chr(10), ("h2",))
+        elif raw.lstrip().startswith("|"):
+            if re.fullmatch(r"[|\s:-]+", raw.strip()):
+                continue
+            cells = [c.strip().replace("**", "").replace("`", "") for c in raw.strip().strip("|").split("|")]
+            widget.insert("end", "  " + "  |  ".join(cells) + chr(10), ("table",))
+        elif re.match(r"\s*([-*]|\d+\.)\s", raw):
+            inline(raw.strip() + chr(10), ("bullet",))
+        elif raw.strip():
+            inline(raw + chr(10))
+        else:
+            widget.insert("end", chr(10))
+    widget.configure(state="disabled")
+
+
 HELP = """How the app works
 
 An EXPERIMENT (left list) is one DOE taken from simulation to results: its runs (configs/*.yaml or an
@@ -89,6 +143,7 @@ New validation (opens the validation planner) · Derive (another n or other vari
 (only the experiment file; data are never deleted).
 
 COMPARE tab: metrics of two validations side by side. TOOLS tab: every script on its own.
+TUTORIAL tab: step-by-step guide (the same text as DOE_utils/TUTORIAL.md).
 Console: python experiment.py status | check EXP | run EXP STAGE | resolve | import.
 """
 
@@ -198,12 +253,16 @@ class App:
         nb = ttk.Notebook(root)
         nb.pack(fill=tk.BOTH, expand=True)
         self.tab_exp, self.tab_cmp, self.tab_tools = ttk.Frame(nb), ttk.Frame(nb), ttk.Frame(nb)
+        self.tab_tut = ttk.Frame(nb)
         nb.add(self.tab_exp, text="Experiments")
         nb.add(self.tab_cmp, text="Compare")
         nb.add(self.tab_tools, text="Tools")
+        nb.add(self.tab_tut, text="Tutorial")
+        self.notebook = nb
         self._build_experiments()
         self._build_compare()
         self._build_tools()
+        self._build_tutorial()
         self.refresh(force=True)
         if auto_refresh:
             root.after(self.REFRESH_MS, self._tick)
@@ -260,7 +319,8 @@ class App:
         self.btn_next.pack(side=tk.LEFT)
         self.btn_run_next = ttk.Button(top, text="▶ Run next step", command=self.run_next)
         self.btn_run_next.pack(side=tk.LEFT, padx=4)
-        ttk.Button(top, text="?  Help", command=self.show_help).pack(side=tk.RIGHT)
+        ttk.Button(top, text="Tutorial", command=self.show_tutorial).pack(side=tk.RIGHT)
+        ttk.Button(top, text="?  Help", command=self.show_help).pack(side=tk.RIGHT, padx=4)
 
         self.canvas = tk.Canvas(right, height=3 * STEP_Y + 2 * MARGIN - (STEP_Y - BOX_H), bg="white",
                                 highlightthickness=1, highlightbackground="#ccc")
@@ -330,6 +390,31 @@ class App:
         self.cmp_tree.configure(xscrollcommand=xs.set)
         self.cmp_tree.pack(fill=tk.BOTH, expand=True)
         xs.pack(fill=tk.X)
+
+    def _build_tutorial(self):
+        tk, ttk = self.tk, self.ttk
+        f = ttk.Frame(self.tab_tut, padding=8)
+        f.pack(fill=tk.BOTH, expand=True)
+        bar = ttk.Frame(f)
+        bar.pack(fill=tk.X)
+        ttk.Label(bar, text=f"Tutorial ({os.path.basename(TUTORIAL_FILE)})", foreground="#555").pack(side=tk.LEFT)
+        ttk.Button(bar, text="Open file", command=lambda: os.startfile(TUTORIAL_FILE)).pack(side=tk.RIGHT)
+        box = ttk.Frame(f)
+        box.pack(fill=tk.BOTH, expand=True, pady=4)
+        t = tk.Text(box, wrap="word", font=("Segoe UI", 10), padx=14, pady=8, state="disabled", spacing3=3)
+        sb = ttk.Scrollbar(box, orient=tk.VERTICAL, command=t.yview)
+        t.configure(yscrollcommand=sb.set)
+        sb.pack(side=tk.RIGHT, fill=tk.Y)
+        t.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        for tag, cfg in (("h1", dict(font=("Segoe UI", 16, "bold"), spacing1=6, spacing3=8)),
+                         ("h2", dict(font=("Segoe UI", 13, "bold"), foreground="#1565c0", spacing1=14, spacing3=4)),
+                         ("bold", dict(font=("Segoe UI", 10, "bold"))),
+                         ("code", dict(font=("Consolas", 9), foreground="#37474f", background="#f1f3f4")),
+                         ("table", dict(font=("Consolas", 9), foreground="#263238")),
+                         ("bullet", dict(lmargin1=24, lmargin2=40))):
+            t.tag_configure(tag, **cfg)
+        render_markdown(t, read_tutorial())
+        self.tut_text = t
 
     def _build_tools(self):
         tk, ttk = self.tk, self.ttk
@@ -701,6 +786,9 @@ class App:
 
     def open_labels(self):
         os.startfile(self.exp().label["labels_yaml"])
+
+    def show_tutorial(self):
+        self.notebook.select(self.tab_tut)
 
     def show_help(self):
         tk = self.tk
@@ -1292,7 +1380,11 @@ def screenshot(out: str, exp_name: str | None = None, stage: str | None = None):
     root.geometry("1300x800+10+10")
     root.attributes("-topmost", True)   # in front of everything while it is captured
     app = App(root, auto_refresh=False)
-    if exp_name:
+    if exp_name == "@tutorial":   # capture of the Tutorial tab
+        app.show_tutorial()
+        if stage:
+            app.tut_text.see(app.tut_text.search(stage, "1.0") or "1.0")
+    elif exp_name:
         app.select(exp_name, stage)
     root.update()
     root.lift()
@@ -1327,12 +1419,20 @@ def _selftest():
     lay = diagram_layout(["simulate", "extract", "label_template", "label_build", "indicators", "validate"], True)
     assert lay["label_template"][0] == MARGIN + 2 * STEP_X and lay["@training"][0] == lay["indicators"][0] - STEP_X
     assert diagram_layout(["simulate", "extract", "merge", "label_template"], False)["label_template"][0] == MARGIN + 3 * STEP_X
+    md = "# T" + chr(10) + "## S" + chr(10) + "a **b** `c`" + chr(10) + "| x | y |" + chr(10) + "|---|---|" + chr(10) \
+        + "| 1 | 2 |" + chr(10) + "- item" + chr(10)
+    assert os.path.isfile(TUTORIAL_FILE) and "## 3." in read_tutorial()
     # the window builds and draws every real experiment without errors (no mainloop)
     import tkinter as tk
     root = tk.Tk()
     root.withdraw()
     try:
         app = App(root, auto_refresh=False)
+        render_markdown(app.tut_text, md)
+        txt = app.tut_text.get("1.0", "end")
+        assert "T" in txt and "b c" in txt and "---" not in txt and "x  |  y" in txt and "item" in txt, txt
+        render_markdown(app.tut_text, read_tutorial())
+        assert "Recorrido completo" in app.tut_text.get("1.0", "end")
         for n in ex.list_experiments():
             app.select(n)
             st = ex.status(ex.load(n))

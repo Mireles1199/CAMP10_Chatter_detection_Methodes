@@ -391,7 +391,7 @@ Orden: F1 → F2 → F3 son la base; F5 puede empezar con F1–F2 hechas. F4, F6
 | R2 | Una salida hecha a la que le falta un paso anterior sigue pasando por las comprobaciones de desactualización (antes las saltaba) | Bug encontrado por `check_app_dialogs.py` |
 | R2 | Lo que dice ya el resumen del entrenamiento (en la misma muestra): las 4 variantes marcan los 13/13 inestables; en estables marcan green 2/20, maxent 4/20, ssq 2/20, **rms_cv 17/20** | Información útil, no validación |
 
-## 14. Guía rápida
+## 14. Guía rápida (la versión completa está en `TUTORIAL.md` y en la pestaña Tutorial de la app)
 
 1. `python launcher.py` (entorno_CAMP10). A la izquierda, los experimentos; al seleccionar uno, su diagrama y su meta.
 2. **Siguiente paso**: arriba ("Next step: …"; "Show" lo selecciona, "▶ Run next step" lo lanza). Si la caja está bloqueada por otro experimento, "Go to blocking experiment".
