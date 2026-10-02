@@ -70,7 +70,6 @@ from doe_indicator_plotter import (
     plot_It_overlay,
     _resolve_label_key,
     _x_values as _ind_x_values,
-    T_GT as _IND_T_GT,
     _RUN_COLORS,
     DECIMATE as _IND_DECIMATE,
     _sanitize,
@@ -312,6 +311,12 @@ def _best_label_key(cases: List[Dict]) -> str:
         all_keys.update(c.get("var_val", {}).keys())
 
     best_key, best_score = "case_idx", -1.0
+    kap = [c["var_val"].get("kappa") for c in cases]
+    try:   # kappa first: it is what the labels and the SLD speak about
+        if len({round(float(k), 9) for k in kap if k is not None}) > 1:
+            return "kappa"
+    except (TypeError, ValueError):
+        pass
     for k in sorted(all_keys):
         vals = []
         for c in cases:
@@ -428,6 +433,10 @@ def load_doe_indicator_unified(h5_path: str) -> List[Dict]:
         for c in raw:
             grp = f.get(c["group"])
             if grp is not None:
+                for k in ("kappa", "Ap_mm", "true_label", "label_strategy"):
+                    if k in grp.attrs:
+                        v = grp.attrs[k]
+                        c["var_val"][k] = v.decode() if isinstance(v, bytes) else (v.item() if hasattr(v, "item") else v)
                 sigs = _read_signals(grp)
                 c["signals"] = sigs
                 c["Axial_disp"] = sigs.get("Axial_disp")
@@ -983,6 +992,10 @@ class DoeSelectorUnifiedApp:
         )
         self._type_label.pack(side=tk.LEFT, padx=8)
         ttk.Button(bar, text="🔍  Inspect", command=self._open_inspector).pack(side=tk.LEFT, padx=4)
+        role = file_role(self.h5_path)
+        if role:
+            tk.Label(self.container, text=role, bg="#fff8e1", fg="#5d4037", anchor="w", padx=8,
+                     font=("Arial", 9, "bold")).pack(side=tk.TOP, fill=tk.X)
 
         ttk.Separator(bar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6, pady=2)
         self._persistent_color_var = tk.BooleanVar(value=True)
@@ -2392,10 +2405,6 @@ class DoeSelectorUnifiedApp:
                                                edgecolor="black", linewidths=0.3, zorder=7)
                 plotted = True
 
-        # t_GT reference
-        self.ax_It.axvline(_IND_T_GT, color="black", lw=2.0,
-                           linestyle=":", label=rf"$t_{{GT}}$={_IND_T_GT:.2f}s", zorder=5)
-
         self.ax_It.set_xlabel(r"$t$ (s)", fontsize=14)
         self.ax_It.set_ylabel(r"$I(t)$", fontsize=14)
         # self.ax_It.grid(False, linestyle="--", alpha=0.3)
@@ -2705,13 +2714,53 @@ def _draw_amp_limits(ax, rows: List[Dict[str, Any]], vertical: bool = False) -> 
             draw(-v, color="black", ls=ls, lw=1.2)
 
 
+SHOW_NORMAL = [True]   # interruptor "Fitted normal" del visor de datasets (todas las vistas)
+
+
 def _plot_normal_fit(ax, y_flat: np.ndarray, color) -> None:
-    """Curva normal N(μ, σ) ajustada a `y_flat`, discontinua sobre su histograma."""
+    """Curva normal N(μ, σ) ajustada a `y_flat`, discontinua sobre su histograma (si SHOW_NORMAL)."""
+    if not SHOW_NORMAL[0]:
+        return
     mu, sigma = float(np.mean(y_flat)), float(np.std(y_flat))
     if sigma > 0:
         x = np.linspace(y_flat.min(), y_flat.max(), 300)
         pdf = np.exp(-0.5 * ((x - mu) / sigma) ** 2) / (sigma * np.sqrt(2 * np.pi))
         ax.plot(x, pdf, color=color, lw=1.4, ls="--")
+
+
+def file_role(h5_path: str) -> str:
+    """Qué es este archivo, para la banda superior del visor: experimento que lo hizo, su papel (dataset
+    etiquetado = verdad / con el que aprenden los indicadores; resultados de indicadores y con qué se entrenaron)."""
+    try:
+        with h5py.File(h5_path, "r") as f:
+            a = {k: (v.decode() if isinstance(v, bytes) else v) for k, v in f.attrs.items()}
+            lab = None
+            for g in ("stable", "unstable", "gray"):
+                if g in f:
+                    for case in f[g].values():
+                        piece = next(iter(case.values()), None)
+                        if piece is not None:
+                            lab = {k: piece.attrs[k] for k in piece.attrs if str(k).startswith("labeling_")}
+                        break
+                    break
+    except OSError:
+        return ""
+    bits = []
+    if a.get("experiment"):
+        bits.append(f"experiment {a['experiment']} · stage {a.get('experiment_stage', '?')}")
+    if a.get("experiment_role"):
+        bits.append(str(a["experiment_role"]))
+    if lab is not None:
+        bits.append("LABELLED DATASET (ground truth)" + (f": labels by {lab.get('labeling_strategy')} on "
+                                                         f"{lab.get('labeling_signal', '?')}" if lab else ""))
+        ref = a.get("experiment_reference")
+        if ref and os.path.normcase(os.path.abspath(str(ref))) == os.path.normcase(os.path.abspath(h5_path)):
+            bits.append("TRAINING data: the indicators of this experiment learn their thresholds from it")
+    elif a.get("reference_dataset"):
+        bits.append(f"indicators trained on {os.path.basename(str(a['reference_dataset']))}")
+        if a.get("label_strategy"):
+            bits.append(f"true label of each case: {a.get('label_strategy')} labelling (column true_label)")
+    return "   |   ".join(bits)
 
 
 def _index_reference_dataset(h5_path: str) -> List[Dict[str, Any]]:
@@ -2728,12 +2777,14 @@ def _index_reference_dataset(h5_path: str) -> List[Dict[str, Any]]:
                     channel = attrs.get("channel") or piece_name.rsplit("__", 1)[0]
                     idx_str = piece_name.rsplit("__", 1)[-1]
                     kappa = attrs.get("kappa")
+                    ap = attrs.get("$Ap_start$")
                     rows.append({
                         "label": label, "case": case_name, "channel": str(channel),
                         "idx": int(idx_str) if idx_str.isdigit() else 0,
                         "piece_name": piece_name,
                         "t0": float(attrs.get("t0", 0.0)), "t1": float(attrs.get("t1", 0.0)),
                         "kappa": float(kappa) if kappa is not None else None,
+                        "Ap_mm": float(ap) * 1e3 if ap is not None else None,
                         "amp_limits": _amp_limits(attrs, str(channel)),
                     })
     return rows
@@ -2822,10 +2873,23 @@ class ReferenceViewerApp:
             self.root.minsize(1000, 600)
             self.root.state("zoomed")
 
+        role = file_role(h5_path)
+        if role:
+            tk.Label(self.container, text=role, bg="#fff8e1", fg="#5d4037", anchor="w", padx=8,
+                     font=("Arial", 9, "bold")).pack(side=tk.TOP, fill=tk.X)
         if h5_type == TYPE_REFERENCE_DATASET:
             self._build_tramos_ui()
         else:
             self._build_combinado_ui()
+
+    def _add_normal_toggle(self, bar, replot) -> None:
+        """Interruptor de la ley normal ajustada sobre los histogramas."""
+        self._normal_var = tk.BooleanVar(value=SHOW_NORMAL[0])
+
+        def flip():
+            SHOW_NORMAL[0] = self._normal_var.get()
+            replot()
+        ttk.Checkbutton(bar, text="Fitted normal", variable=self._normal_var, command=flip).pack(side=tk.LEFT, padx=4)
 
     # ── ABRIR ARCHIVO (comun a las dos vistas) ────────────────────────────────
     def _open_file(self) -> None:
@@ -3088,6 +3152,7 @@ class ReferenceViewerApp:
                 command=self._plot_selected_tramos,
             ).pack(side=tk.LEFT, padx=4)
 
+        self._add_normal_toggle(bar, self._plot_selected_tramos)
         ttk.Separator(bar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6, pady=2)
         ttk.Button(bar, text="💾 Export figure", command=self._export_tramos_figure).pack(side=tk.LEFT, padx=4)
 
@@ -3114,8 +3179,8 @@ class ReferenceViewerApp:
         self.container.bind("<Configure>", _sync_left_pane_width)
         self.container.after(50, _sync_left_pane_width)
 
-        self._tree_cols = ("label", "case", "channel", "idx", "t0", "t1", "duration", "kappa")
-        widths = (60, 90, 100, 40, 65, 65, 75, 60)
+        self._tree_cols = ("label", "case", "channel", "idx", "t0", "t1", "duration", "kappa", "Ap [mm]")
+        widths = (60, 90, 100, 40, 65, 65, 75, 60, 65)
         self._tree_sort_col: Optional[str] = None
         self._tree_sort_rev = False
         self._tree = ttk.Treeview(left, columns=self._tree_cols, show="headings", selectmode="extended")
@@ -3150,9 +3215,10 @@ class ReferenceViewerApp:
             if ch != "(all)" and r["channel"] != ch:
                 continue
             kappa_txt = f"{r['kappa']:.3f}" if r["kappa"] is not None else ""
+            ap_txt = f"{r['Ap_mm']:.3f}" if r.get("Ap_mm") is not None else ""
             self._tree.insert("", tk.END, iid=str(i), values=(
                 r["label"], r["case"], r["channel"], r["idx"],
-                f"{r['t0']:.3f}", f"{r['t1']:.3f}", f"{r['t1'] - r['t0']:.3f}", kappa_txt,
+                f"{r['t0']:.3f}", f"{r['t1']:.3f}", f"{r['t1'] - r['t0']:.3f}", kappa_txt, ap_txt,
             ))
         if self._tree_sort_col:
             self._sort_tree_by(self._tree_sort_col, toggle=False)
@@ -3304,6 +3370,7 @@ class ReferenceViewerApp:
             bar, text="🎨 Color segments", variable=self._color_by_piece_var,
             command=self._replot_combinado,
         ).pack(side=tk.LEFT, padx=4)
+        self._add_normal_toggle(bar, self._replot_combinado)
         self._combinado_grid_page = 0
         self._combinado_grid_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(
@@ -3617,7 +3684,7 @@ class ReferenceViewerApp:
         y = np.asarray(y).ravel()
         mu, sigma = float(np.mean(y)), float(np.std(y))
         ax.hist(y, bins=80, density=True, color=color, alpha=0.5, edgecolor="none")
-        if sigma > 0:
+        if sigma > 0 and SHOW_NORMAL[0]:
             x = np.linspace(y.min(), y.max(), 300)
             pdf = np.exp(-0.5 * ((x - mu) / sigma) ** 2) / (sigma * np.sqrt(2 * np.pi))
             ax.plot(x, pdf, color="black", lw=1.2, ls="--", label="Fitted normal")

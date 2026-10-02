@@ -90,8 +90,9 @@ DOE_NAME   = "DOE_Influence_dexel_RPM_12000_ftooth_005_dt_200"
 # None → auto-detectar desde attrs del HDF5; str → clave explícita ej. "$dxl_size$"
 LABEL_KEY: Optional[str] = None
 
-# Tiempo de onset de chatter (línea de referencia en figura t_d)
-T_GT = 5.365770208787228   # [s]
+# Tiempo de onset de chatter (línea de referencia en figura t_d). None = sin línea: cada caso tiene su propia
+# etiqueta (true_label) y no hay un onset fijo común; --t_gt T la vuelve a dibujar.
+T_GT = None   # [s]
 
 # Filtro de run_names: None → todos los runs; str → solo ese run_name
 RUN_NAME_FILTER: Optional[str] = None
@@ -1577,8 +1578,9 @@ def _plot_td_per_run(
     fig, ax = plt.subplots(figsize=fig_size(scale=3.5))
     col = _RUN_COLORS[0]
     ax.plot(xs, ys, marker="o", color=col, lw=1.8, ms=6, label=run_name, zorder=4)
-    ax.axhline(T_GT, color=color_red, lw=1.4, linestyle=":",
-               label=rf"$t_{{GT}}$ = {T_GT:.2f} s", zorder=5)
+    if T_GT is not None:
+        ax.axhline(T_GT, color=color_red, lw=1.4, linestyle=":",
+                   label=rf"$t_{{GT}}$ = {T_GT:.2f} s", zorder=5)
     ax.set_xlabel(_pretty_label_key(label_key))
     ax.set_ylabel(ylabel)
     ax.set_title(title)
@@ -1636,8 +1638,9 @@ def _plot_td_single(
         return
 
     # Referencia t_GT
-    ax.axhline(T_GT, color=color_red, lw=1.4, linestyle=":",
-               label=rf"$t_{{GT}}$ = {T_GT:.2f} s", zorder=5)
+    if T_GT is not None:
+        ax.axhline(T_GT, color=color_red, lw=1.4, linestyle=":",
+                   label=rf"$t_{{GT}}$ = {T_GT:.2f} s", zorder=5)
 
     ax.set_xlabel(_pretty_label_key(label_key))
     ax.set_ylabel(ylabel)
@@ -1808,8 +1811,9 @@ def plot_It_overlay(
                                 edgecolor="black", linewidths=0.5, zorder=7)
 
         # Referencia t_GT
-        ax.axvline(T_GT, color=color_red, lw=2.4, linestyle=":",
-                   label=rf"Ground truth $t_{{GT}}$ = {T_GT:.2f} s", zorder=5)
+        if T_GT is not None:
+            ax.axvline(T_GT, color=color_red, lw=2.4, linestyle=":",
+                       label=rf"Ground truth $t_{{GT}}$ = {T_GT:.2f} s", zorder=5)
 
         cbar = fig.colorbar(sm, ax=ax, pad=0.01)
         cb_ticks = _colorbar_ticks_from_data(param_vals, norm)
