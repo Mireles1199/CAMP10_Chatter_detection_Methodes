@@ -1,10 +1,41 @@
 # Plan v2 — App de experimentos DOE: generalizar y mejorar la experiencia
 
-Fecha: 2026-10-02 · Estado: **implementado** la noche del 2026-10-02 (decisiones 1a, 2a, 3a, 4a; bitácora §5).
+Fecha: 2026-10-02 · Estado: **implementado** (decisiones 1a, 2a, 3a, 4a; bitácora §5, ronda 2 al final).
 Plan anterior (v1, implementado): `DOE_utils/PLAN_app_experimentos.md` (bitácora §13, filas F0–F9, R2, R3).
 Código: `DOE_utils/launcher.py` (ventana), `DOE_utils/experiment.py` (núcleo), `DOE_utils/experiments/` (YAML de
 experimentos y `indicator_variants.yaml`), `DOE_utils/TUTORIAL.md` (tutorial, también pestaña de la app).
-Rama: `Aplication-Indicateur-Validacion-Training` (último commit de v1: `cfa314e`, sin push).
+Rama: `Aplication-Indicateur-Validacion-Training`, sin push. Commits v2: `00d17eb` núcleo, `d5830d7` app,
+`ebe357d` visor, `09fd03f` docs + migración, `d61f159` ronda 2.
+
+## 0. Para retomar (estado al 2026-10-03)
+
+**Dónde estamos.** Los 44 puntos de §1 y los 5 extras de la ronda 2 están hechos y probados sin ratón:
+`experiment.py selftest`, `launcher.py --selftest`, `DOE_analisis/doe_indicators.py --selftest`,
+`check_app_dialogs.py` (formularios sobre copia temporal; capturas en `%TEMP%/app_dialog_shots`). Nunca se corrieron
+indicadores reales: el usuario lo pidió (tardan ~1 h).
+
+**Estado del repo.** El usuario pidió borrar los experimentos y configs viejos para probar desde cero; está borrado
+pero **sin commit** (`git status`: `D` de 3 experimentos y 4 configs de `configs/`; queda `base.yaml`). Después el
+usuario creó en la app sus propios experimentos (`train_1DOF150`, `Ap_Cons_test_ind`,
+`train_1DOF150_n12098_k0.51-1.99` y un `val_1DOF150_n12098_k0.51-1.99` modificado): **son suyos, no tocarlos**;
+el commit de todo eso lo decide él.
+
+**Siguiente paso.** El usuario está probando la app con ratón. Esperar sus comentarios y corregir lo que encuentre.
+Pendiente opcional: `DOE_analisis/check_indicators_experiment.py` (~10 min, indicadores reales) confirma con
+números que quitar `t_gt` de los presets no cambia resultados; ahora usa el experimento
+`train_1DOF150_n12098_k0.5-2`, que ya no existe → cambiar `EXP` por el entrenamiento que el usuario haya importado.
+
+**Cómo está hecho (lo mínimo para tocar código).**
+- Experimento = `stages:` + `reference:` opcional + `out_dir:` opcional + `runs:` (`simulation:` explícita, o
+  `config:` / `dir:` antiguos) + secciones `label`, `indicators.variants` (tabla `{nombre: spec}`), `validate`,
+  `simulate: {timed, auto_extract}`. `kind`/`training`/`extends`/listas de presets se siguen leyendo.
+- Estados: done / skipped (not needed) / stale / running / failed / pending / blocked. Huella: `_hash` con
+  `_canon` (rutas normalizadas, `HASH_IGNORE`); `accept()` = Mark up to date.
+- CLI: `status`, `check`, `dryrun`, `accept`, `run [--pause-on-error]`, `chain` (Run to goal), `import`
+  (`--reference`, `--h5`), `selftest`.
+- **Trampa de herramientas**: en el Bash de esta sesión las barras invertidas dentro de heredocs se estropean
+  (`\\n` → salto de línea, `\\0` → NUL). Escribir los scripts de parche con la herramienta Write y ejecutarlos con
+  el Python de `entorno_CAMP10` (`D:/Thesis/03-Code_Storage/02-Altintlas_Nessy2m_Storage/Env/entorno_CAMP10/Scripts/python.exe`).
 
 ## 1. Qué pidió el usuario (revisión del 2026-10-02, resumida)
 
