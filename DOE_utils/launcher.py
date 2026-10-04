@@ -1838,7 +1838,7 @@ class SimulationFrame:
         for x in warns:
             t.insert("end", f"warning {x}\n", "warn")
         ref = getattr(self.dlg, "ref_exp", lambda: None)()
-        for x in ex.kappa_overlap([d.get("kappa") for d in rows], ref):
+        for x in ex.kappa_overlap(rows, ref):
             t.insert("end", f"warning {x}\n", "warn")
         t.insert("end", f"{len(rows)} case(s) → {sim['base_dir']}/{sim['doe_name']}\n", "ok" if not errs else None)
         est = ex.estimate_time(sim)

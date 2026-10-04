@@ -2320,8 +2320,10 @@ def _selftest_edit(root: str, train_cfg: str) -> None:
         assert fr.flow == "Indicators" and default_goal(fr) == "Indicators computed"
         assert any("no indicator variant" in x for x in check(fr)[0])          # the selftest presets have no defaults
         assert any("case   1: Ap 12.0000 mm" in t for t, _ in dry_run(fr)), dry_run(fr)
-        w = kappa_overlap([0.5, 0.505, 1.0], load("train"))     # the training data have kappa 0.5 and 1.5
-        assert "1 kappa already in the reference" in w[0] and "within" in w[1], w
+        w = kappa_overlap([{"kappa": k, "spin_rate": 12000.0} for k in (0.5, 0.505, 1.0)], load("train"))
+        assert "1 kappa already in the reference" in w[0] and "within" in w[1], w   # training: kappa 0.5 and 1.5, 12000
+        w = kappa_overlap([{"kappa": 0.5, "spin_rate": 9000.0}], load("train"))     # another n: no comparison
+        assert len(w) == 1 and "not the reference's" in w[0] and "already" not in w[0], w
         assert [k for _, k in chain_stages(fr)] == ["simulate", "extract", "label_template", "label_build", "indicators"]
         # a test linked to a training that has not run yet: the training's stages come first, then the test's
         create_experiment("te_new", [{"simulation": dict(sim, doe_name="D_TE")}],
@@ -2373,14 +2375,31 @@ def _selftest_edit(root: str, train_cfg: str) -> None:
 
 
 # ============================================================================== extras: kappa overlap, time, notify, chain
-def kappa_overlap(kappas, ref, tol: float = 0.01) -> list:
-    """Warnings for the kappa of a new DOE that repeat (or are closer than tol to) a kappa of the reference
-    experiment: they test nothing new. Meaningful when both use the same ap_ref."""
+def kappa_overlap(rows, ref, tol: float = 0.01) -> list:
+    """Warnings for the cases of a new DOE (rows: case_rows of the simulation) whose kappa repeats (or is closer
+    than tol to) a kappa of the reference experiment: they test nothing new. kappa = Ap / limit at the case's n,
+    so it is only comparable at the SAME n: at another n the same kappa is another depth, and the check says so."""
     info = h5_info(ref.data_h5) if ref is not None and ref.data_h5 else None
     if not info or not info["kappa"]:
         return []
+    rn = info["first"].get("$spin_rate$")
     rk = sorted(info["kappa"])
-    ks = [float(k) for k in kappas if k is not None]
+    mine = [(float(d["kappa"]), float(d["spin_rate"])) for d in rows
+            if d.get("kappa") is not None and d.get("spin_rate") is not None]
+    if not mine:
+        return []
+    if rn is not None:
+        other = sorted({round(n, 1) for _, n in mine if abs(n - float(rn)) > 1.0})
+        if other:
+            same_n = [(k, n) for k, n in mine if abs(n - float(rn)) <= 1.0]
+            note = (f"n {', '.join(f'{n:g}' for n in other)} rpm is not the reference's {float(rn):g} rpm: kappa is "
+                    "relative to the limit at each n, so kappa is not compared with the reference's")
+            if not same_n:
+                return [note]
+            mine = same_n
+            ks = [k for k, _ in mine]
+            return [note] + kappa_overlap([{"kappa": k, "spin_rate": rn} for k in ks], ref, tol)
+    ks = [k for k, _ in mine]
     same = sorted({round(k, 3) for k in ks if min(abs(k - r) for r in rk) < 1e-3})
     near = sorted({round(k, 3) for k in ks if 1e-3 <= min(abs(k - r) for r in rk) < tol})
     out = []
