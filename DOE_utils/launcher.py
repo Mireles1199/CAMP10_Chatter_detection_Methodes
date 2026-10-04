@@ -1886,7 +1886,7 @@ class SldPicker:
         e.bind("<Return>", lambda _e: self.draw())
         ttk.Button(top, text="Redraw", command=self.draw).pack(side=tk.LEFT)
         self.model.trace_add("write", lambda *_: self.draw())
-        ttk.Label(top, text="   click = add an Ap at the n line · right click = remove the nearest",
+        ttk.Label(top, text="   click = add a depth at the n line (in the units of the y axis) · right click = remove the nearest",
                   foreground="#555").pack(side=tk.LEFT)
         row = ttk.Frame(w, padding=(6, 0))
         row.pack(fill=tk.X)
@@ -1899,7 +1899,7 @@ class SldPicker:
         ttk.Label(row, text="cases").pack(side=tk.LEFT)
         ttk.Entry(row, textvariable=self.r_n, width=5).pack(side=tk.LEFT, padx=2)
         for u in ("kappa", "Ap [mm]"):
-            ttk.Radiobutton(row, text=u, value=u, variable=self.r_unit).pack(side=tk.LEFT)
+            ttk.Radiobutton(row, text=u, value=u, variable=self.r_unit, command=self.draw).pack(side=tk.LEFT)
         ttk.Button(row, text="Fill", command=self.fill).pack(side=tk.LEFT, padx=4)
         ttk.Button(row, text="Clear", command=lambda: (self.aps.clear(), self.draw())).pack(side=tk.LEFT)
         body = ttk.Frame(w)
@@ -1948,34 +1948,41 @@ class SldPicker:
             ax.text(0.5, 0.5, f"cannot draw: {exc}", ha="center", va="center", transform=ax.transAxes)
             self.canvas.draw()
             return
+        lim = self.limit()
+        # y axis: Ap [mm], or kappa = Ap / (limit at this n) when 'kappa' is chosen and that limit is finite
+        self.div = div = lim if (self.r_unit.get() == "kappa" and lim is not None and math.isfinite(lim)) else 1.0
+        kap = div != 1.0
         for j in range(lb.shape[0]):
             for i in range(lb.shape[1]):
                 x, y = lb[j, i, :, 0], lb[j, i, :, 1]
                 ok = [math.isfinite(a) and math.isfinite(b) for a, b in zip(x, y)]
-                ax.plot(x[ok], y[ok], color="black", lw=0.9)
+                ax.plot(x[ok], y[ok] / div, color="black", lw=0.9)
         pts = ex.case_points_of(self.ref)
         for lab in sorted({p[2] for p in pts}):
             sel = [p for p in pts if p[2] == lab]
-            ax.scatter([p[0] for p in sel], [p[1] for p in sel], s=18, color=self.LAB_COL.get(lab, "#555"),
+            ax.scatter([p[0] for p in sel], [p[1] / div for p in sel], s=18, color=self.LAB_COL.get(lab, "#555"),
                        label=f"reference {lab or 'case'} ({len(sel)})", zorder=3)
-        lim = self.limit()
         ax.axvline(n, color="#1565c0", ls="--", lw=1)
         if lim is not None and math.isfinite(lim):
-            ax.plot([n], [lim], marker="_", markersize=22, color="#1565c0", mew=2, label=f"limit at n: {lim:.3f} mm")
+            ax.plot([n], [lim / div], marker="_", markersize=22, color="#1565c0", mew=2,
+                    label=f"limit at n: {lim:.3f} mm" + (" (kappa = 1)" if kap else ""))
+        if kap:
+            ax.axhline(1.0, color="#1565c0", lw=0.8, ls=":")
         if self.aps:
-            ax.scatter([n] * len(self.aps), self.aps, marker="x", s=50, color="#c62828", zorder=4,
+            ax.scatter([n] * len(self.aps), [a / div for a in self.aps], marker="x", s=50, color="#c62828", zorder=4,
                        label=f"chosen ({len(self.aps)})")
         cap = sm.ap_crit(self.model.get())
-        top = max([cap * 4] + [a * 1.15 for a in self.aps] + [p[1] * 1.1 for p in pts])
-        ax.set_ylim(0, top)
+        top = max([cap * 4] + [a * 1.15 for a in self.aps] + [p[1] * 1.1 for p in pts]) / div
+        ax.set_ylim(0, min(top, 4.0) if kap else top)
         xs = [v for v in lb[..., 0].ravel() if math.isfinite(v)]
         if xs:
             ax.set_xlim(min(xs + [n]) * 0.95, max(xs + [n]) * 1.02)
         ax.set_xlabel("n [rpm]")
-        ax.set_ylabel("Ap [mm]")
+        ax.set_ylabel(f"kappa = Ap / {lim:.3f} mm (limit at n)" if kap else "Ap [mm]")
         ax.set_title(f"{self.model.get()} · n = {n:g} rpm · " + (
-            "pocket between lobes (no finite limit)" if lim is not None and not math.isfinite(lim) else
-            f"limit {lim:.3f} mm" if lim is not None else "outside the lobes computed"), fontsize=10)
+            "pocket between lobes (no finite limit: axis stays in Ap)" if lim is not None and not math.isfinite(lim)
+            else f"limit {lim:.3f} mm" if lim is not None else "outside the lobes computed (axis stays in Ap)"),
+            fontsize=10)
         if ax.get_legend_handles_labels()[0]:
             ax.legend(fontsize=8, loc="upper right")
         self.canvas.draw()
@@ -1988,10 +1995,11 @@ class SldPicker:
     def on_click(self, ev):
         if ev.inaxes is not self.ax or ev.ydata is None or self.toolbar.mode:
             return
+        div = getattr(self, "div", 1.0)   # kappa axis: the click is a kappa, stored as Ap = kappa x limit
         if ev.button == 1 and ev.ydata > 0:
-            self.aps = sorted(set(self.aps + [round(float(ev.ydata), 3)]))
+            self.aps = sorted(set(self.aps + [round(float(ev.ydata) * div, 4 if div != 1.0 else 3)]))
         elif ev.button == 3 and self.aps:
-            self.aps.remove(min(self.aps, key=lambda a: abs(a - ev.ydata)))
+            self.aps.remove(min(self.aps, key=lambda a: abs(a / div - ev.ydata)))
         self.draw()
 
     def fill(self):

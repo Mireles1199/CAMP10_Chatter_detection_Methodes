@@ -213,13 +213,20 @@ try:
     pk.fill()
     assert len(pk.aps) == 3 and "kappa  1.000" in pk.lst.get(1), pk.lst.get(0, "end")
 
-    class _Ev:   # a left click at Ap = 5 mm
-        inaxes, ydata, button = pk.ax, 5.0, 1
+    lim = pk.limit()
+    assert "kappa" in pk.ax.get_ylabel() and abs(pk.div - lim) < 1e-12      # kappa chosen -> the y axis is kappa
+
+    class _Ev:   # a left click at kappa = 0.5 -> Ap = 0.5 x limit
+        inaxes, ydata, button = pk.ax, 0.5, 1
     pk.on_click(_Ev)
-    assert 5.0 in pk.aps and len(pk.aps) == 4
+    assert any(abs(a - 0.5 * lim) < 1e-3 for a in pk.aps) and len(pk.aps) == 4, pk.aps
+    shot(pk.win, "v2_sld_picker_kappa.png")
+    pk.r_unit.set("Ap [mm]")
+    pk.draw()
+    assert pk.ax.get_ylabel() == "Ap [mm]" and pk.div == 1.0
     shot(pk.win, "v2_sld_picker.png")
     pk.use()
-    assert nd.frame.ap_mode.get() == "model_at_spin" and nd.frame.depths.get().startswith("5")
+    assert nd.frame.ap_mode.get() == "model_at_spin" and abs(float(nd.frame.depths.get().split(",")[0]) - 0.5 * lim) < 1e-3
     assert nd.frame.preview(), nd.frame.out.get("1.0", "end")
     nd._ok()
     vp = ex.load("val_picked")
