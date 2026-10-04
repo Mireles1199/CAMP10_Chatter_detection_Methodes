@@ -70,6 +70,10 @@ DEFAULT_LIM_INF_PCT     = 10.0          # amp < 10% base -> stable
 DEFAULT_LIM_SUP_PCT     = 40.0          # amp > 40% base -> unstable; entre medio -> gray
 DEFAULT_IN_H5           = None   # None -> "<carpeta de h5_path>/reference_dataset.h5" (entrada de "combine")
 DEFAULT_OUT_COMBINED    = None   # None -> "<carpeta de h5_path>/reference_combined.h5" (salida de "combine")
+# casos en rampa de Ap: la regla de amplitud ventana a ventana, con la ventana de los indicadores (PLAN_ramps.md)
+DEFAULT_WINDOW_MODE     = "by_revolution"   # by_revolution (T = 60/n del caso) | by_modal (T = 1/f_modal)
+DEFAULT_WINDOW_N        = 7.0               # largo de la ventana en T (la de decisión de las variantes, dec7)
+DEFAULT_WINDOW_STEP     = 1.0               # paso entre ventanas en T
 DEFAULT_T_START         = 0.05   # None -> sin corte al inicio. Recorte fijo de señal (ej. quitar entrada de herramienta)
 DEFAULT_T_END           = 14.0   # None -> sin corte al final. Idem para la salida de herramienta
 
@@ -135,6 +139,7 @@ class ReferenceDataset:
                             g.attrs[k] = v
                         except Exception:
                             g.attrs[k] = str(v)
+                    g.attrs.update(_piece_depth(sig, t0, t1))
 
     @classmethod
     def from_hdf5(cls, path: str) -> "ReferenceDataset":
@@ -162,6 +167,22 @@ class ReferenceDataset:
         return cls(signals=signals)
 
 
+def _piece_depth(sig: "ReferenceSignal", t0: float, t1: float) -> dict:
+    """Ap [mm] (y kappa, si el caso lo tiene) al inicio y al fin de una pieza: en una rampa, Ap(t) lineal sobre
+    la señal entera del caso (experiment.ap_of_t; signal_t0/t1 = su intervalo antes del recorte); constante:
+    el Ap del caso en los dos extremos. {} si el caso no tiene $Ap_start$."""
+    a = sig.attrs
+    if "$Ap_start$" not in a:
+        return {}
+    span = (float(a.get("signal_t0", sig.t[0])), float(a.get("signal_t1", sig.t[-1])))
+    ap0, ap1 = (_experiment().ap_of_t(a, t, span) for t in (t0, t1))
+    out = {"Ap_start_mm": ap0 * 1e3, "Ap_end_mm": ap1 * 1e3}
+    if is_ramp(a) and "kappa_start" in a and "kappa_end" in a:   # kappa = Ap / limit at the case's n: linear too
+        k0, k1, a0, a1 = (float(a[k]) for k in ("kappa_start", "kappa_end", "$Ap_start$", "$Ap_end$"))
+        out.update({f"kappa_{w}": k0 + (k1 - k0) * (ap - a0) / (a1 - a0) for w, ap in (("t0", ap0), ("t1", ap1))})
+    return out
+
+
 # ==============================================================================
 # PIEZA 1 — Etiquetado
 # ==============================================================================
@@ -183,11 +204,73 @@ def _label_by_kappa(
     return [(t_range[0] + warmup, t_range[1], label)]
 
 
+def is_ramp(attrs: dict) -> bool:
+    """Caso con rampa de Ap ($Ap_end$ != $Ap_start$; misma definición que experiment.is_ramp)."""
+    try:
+        return abs(float(attrs["$Ap_end$"]) - float(attrs["$Ap_start$"])) > 1e-9
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
+def _experiment():
+    """DOE_utils/experiment.py: las definiciones comunes de las rampas (ap_of_t, resolve_physics)."""
+    import sys
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    import experiment
+    return experiment
+
+
+def window_seconds(attrs: dict, window_mode: str, window_N: float, window_step: float,
+                   f_modal: Optional[float] = None) -> Tuple[float, float]:
+    """(largo, paso) [s] de la ventana de etiquetado en un caso, con la misma resolución que los indicadores:
+    by_revolution -> N x T_rev (T_rev = 60 / $spin_rate$ del caso), by_modal -> N x T_modal (1 / f_modal)."""
+    if window_mode not in ("by_revolution", "by_modal"):
+        raise ValueError(f"window_mode {window_mode!r}: by_revolution o by_modal")
+    spin = attrs.get("$spin_rate$")
+    t_rev = 60.0 / float(spin) if spin else None
+    t_modal = 1.0 / float(f_modal) if f_modal else None
+    unit = "T_rev" if window_mode == "by_revolution" else "T_modal"
+    rp = _experiment().resolve_physics
+    return float(rp(f"{float(window_N)}*{unit}", t_rev, t_modal)), float(rp(f"{float(window_step)}*{unit}", t_rev, t_modal))
+
+
+def windowed_labels(t: np.ndarray, y: np.ndarray, t0: float, t1: float, win: float, step: float,
+                    lim_inf: float, lim_sup: float) -> List[Tuple[float, float, str]]:
+    """Regla de amplitud ventana a ventana: ventanas de largo `win` que empiezan en t0, t0 + step, ... (enteras
+    dentro de [t0, t1]); en cada una max|y| > lim_sup -> unstable, < lim_inf -> stable, entre medio -> gray.
+    Cada instante lleva la etiqueta de la última ventana que empezó antes que él (los solapes del paso se
+    resuelven así); ventanas seguidas iguales forman un intervalo y la última llega hasta t1. Sin suavizado: si
+    las etiquetas alternan cerca del umbral, quedan tal cual. Señal más corta que una ventana: una sola ventana."""
+    if win <= 0 or step <= 0:
+        raise ValueError(f"ventana {win} s y paso {step} s deben ser > 0")
+    starts = np.arange(t0, t1 - win + 1e-12, step) if t1 - t0 >= win else np.array([t0])
+    ay = np.abs(y)
+    i0 = np.searchsorted(t, starts, side="left")
+    i1 = np.searchsorted(t, np.minimum(starts + win, t1), side="left")
+    i1 = np.where(starts + win >= t1, np.searchsorted(t, t1, side="right"), i1)   # the last one includes t1
+    labs = []
+    for a, b in zip(i0, i1):
+        amp = float(ay[a:b].max()) if b > a else 0.0
+        labs.append("unstable" if amp > lim_sup else ("stable" if amp < lim_inf else "gray"))
+    out: List[Tuple[float, float, str]] = []
+    for i, (s, lab) in enumerate(zip(starts, labs)):
+        end = float(starts[i + 1]) if i + 1 < len(starts) else float(t1)
+        if out and out[-1][2] == lab:
+            out[-1] = (out[-1][0], end, lab)
+        else:
+            out.append((float(s), end, lab))
+    return out
+
+
 def _label_by_amplitude(
     grp_name: str, attrs: dict, t_range: Tuple[float, float], grp,
     base_attr: str = DEFAULT_BASE_ATTR, base_scale: float = DEFAULT_BASE_SCALE,
     signal: str = DEFAULT_AMP_SIGNAL, lim_inf_pct: float = DEFAULT_LIM_INF_PCT,
     lim_sup_pct: float = DEFAULT_LIM_SUP_PCT, warmup: float = 0.0,
+    window_mode: str = DEFAULT_WINDOW_MODE, window_N: float = DEFAULT_WINDOW_N,
+    window_step: float = DEFAULT_WINDOW_STEP, f_modal: Optional[float] = None,
 ) -> List[Tuple[float, float, str]]:
     """Criterio práctico/operacional: etiqueta la señal entera (menos `warmup`)
     por su amplitud cruda max|y| frente a un % de una variable base del caso
@@ -199,6 +282,11 @@ def _label_by_amplitude(
     tiene sentido si base y señal son la misma magnitud (avance <-> desplazamiento).
     max|y| incluye el offset de deflexión estática; si pesa frente a lim_inf,
     usar signal="Axial_disp_out_deflex".
+
+    Caso en RAMPA de Ap ($Ap_end$ != $Ap_start$, PLAN_ramps.md): la misma regla, ventana a ventana
+    (`windowed_labels`), con ventanas de `window_N` x T y paso `window_step` x T resueltos como en los
+    indicadores (window_mode by_revolution: T = T_rev = 60/n del caso; by_modal: T = 1/f_modal). Varios
+    intervalos por caso. Los casos constantes no cambian (una ventana = la señal entera).
     """
     if not 0 <= lim_inf_pct < lim_sup_pct:
         raise ValueError(f"se espera 0 <= lim_inf_pct < lim_sup_pct, dio {lim_inf_pct} / {lim_sup_pct}")
@@ -217,6 +305,13 @@ def _label_by_amplitude(
     if not mask.any():
         log.warning("Grupo '%s': '%s' sin muestras en [%s, %s] — se deja sin etiquetar", grp_name, signal, t0, t1)
         return []
+    if is_ramp(attrs):
+        win, step = window_seconds(attrs, window_mode, window_N, window_step, f_modal)
+        out = windowed_labels(t, ch_grp["values"][()], t0, t1, win, step, lim_inf_pct / 100.0 * base,
+                              lim_sup_pct / 100.0 * base)
+        log.info("%s (rampa): ventanas de %.4f s, paso %.4f s -> %s", grp_name, win, step,
+                 " | ".join(f"{a:.3f}-{b:.3f} {lab}" for a, b, lab in out))
+        return out
     amp = float(np.abs(ch_grp["values"][()][mask]).max())
 
     if amp > lim_sup_pct / 100.0 * base:
@@ -335,6 +430,7 @@ def make_label_template(
         if p.default is not inspect.Parameter.empty
     })
     labeling.update(strategy_kwargs)
+    labeling = {k: v for k, v in labeling.items() if v is not None}   # f_modal sin by_modal: no se escribe
     labeling_line = yaml.safe_dump(
         {"labeling": labeling}, default_flow_style=None, sort_keys=False, width=10**6,
     ).strip()
@@ -344,7 +440,11 @@ def make_label_template(
         for grp_name in sorted(f.keys()):
             grp = f[grp_name]
             attrs = dict(grp.attrs)
-            kappa_bits = {k: v for k, v in attrs.items() if str(k).startswith("kappa")}
+            ramp = is_ramp(attrs)   # una rampa: su 'kappa' (= el de inicio, si existe) no se muestra
+            kappa_bits = {k: v for k, v in attrs.items() if str(k).startswith("kappa") and not (ramp and k == "kappa")}
+            if ramp:
+                kappa_bits = {"ramp Ap_mm": f"{float(attrs['$Ap_start$']) * 1e3:g}->{float(attrs['$Ap_end$']) * 1e3:g}",
+                              **kappa_bits}
 
             case_channels = _discover_channels(grp)
             t_range = None
@@ -450,6 +550,7 @@ def from_doe_h5(
 
                 t = ch_grp["time"][()]
                 y = ch_grp["values"][()]
+                span = (float(t[0]), float(t[-1]))   # Ap(t) de una rampa va de Ap_start a Ap_end sobre esto
                 if t_start is not None or t_end is not None:
                     lo = t[0] if t_start is None else t_start
                     hi = t[-1] if t_end is None else t_end
@@ -473,6 +574,7 @@ def from_doe_h5(
                 attrs["source_file"] = os.path.basename(h5_path)
                 attrs["group"] = grp_name
                 attrs["channel"] = ch
+                attrs["signal_t0"], attrs["signal_t1"] = span
                 attrs.update({f"labeling_{k}": v for k, v in labeling.items()})
 
                 signals.append(ReferenceSignal(
@@ -684,7 +786,8 @@ def _self_test() -> None:
             amp_labeling = yaml.safe_load(f)["labeling"]
         assert amp_labeling == {
             "strategy": "amplitude", "base_attr": "$f_tooth$", "base_scale": 1e-3, "signal": "Axial_disp",
-            "lim_inf_pct": 10.0, "lim_sup_pct": 40.0, "warmup": 0.5,
+            "lim_inf_pct": 10.0, "lim_sup_pct": 40.0, "warmup": 0.5, "window_mode": "by_revolution",
+            "window_N": 7.0, "window_step": 1.0,
         }, amp_labeling
         gray_piece = next(s for s in ds_amp.signals if s.intervals[0][2] == "gray")
         assert gray_piece.attrs["labeling_strategy"] == "amplitude"
@@ -694,6 +797,66 @@ def _self_test() -> None:
         assert {s.id for s in combine_by_label(ds_amp).signals} == {
             "stable/Axial_disp", "gray/Axial_disp", "unstable/Axial_disp",
         }
+
+        # 2d. rampas de Ap: la regla de amplitud ventana a ventana (ventana 7 vueltas, paso 1; n = 6000 rpm ->
+        # T_rev = 0.01 s); lim_inf 5e-6 m, lim_sup 2e-5 m. Los casos constantes siguen igual (una ventana).
+        ramp_h5, ramp_yaml = os.path.join(tmp, "ramp_doe.h5"), os.path.join(tmp, "ramp_labels.yaml")
+        tr = np.arange(0.0, 10.0 + 1e-9, 1e-3)
+        carrier = np.sin(2 * np.pi * 50 * tr)
+        amps = {"up": 3e-5 * tr / 10, "down": 3e-5 * (1 - tr / 10), "flat": np.full(tr.shape, 1e-6),
+                "alt": 2e-5 + 1e-6 * np.sin(2 * np.pi * 1.0 * tr), "const": 3e-5 * tr / 10}
+        with h5py.File(ramp_h5, "w") as f:
+            for name, amp in amps.items():
+                grp = f.create_group(f"case_{name}")
+                a0, a1 = (0.005, 0.015) if name != "down" else (0.015, 0.005)
+                grp.attrs.update({"$f_tooth$": 0.05, "$spin_rate$": 6000.0, "$Ap_start$": a0,
+                                  "$Ap_end$": a0 if name == "const" else a1, "kappa": 0.58,
+                                  "kappa_start": a0 / 0.0086, "kappa_end": a1 / 0.0086})
+                sub = grp.create_group("Axial_disp")
+                sub.create_dataset("time", data=tr)
+                sub.create_dataset("values", data=amp * carrier)
+        make_label_template(ramp_h5, ramp_yaml, strategy="amplitude", t_start=None, t_end=None)
+        rc = _parse_labels_file(ramp_yaml)
+        labs = lambda c: [lab for _, _, lab in rc[c]]   # noqa: E731
+        assert rc["case_const"] == [(0.0, 10.0, "unstable")], rc["case_const"]          # whole signal, as before
+        assert labs("case_up") == ["stable", "gray", "unstable"], rc["case_up"]
+        t_on = rc["case_up"][2][0]                     # start of the first unstable window: amp(s + 0.07) > 2e-5
+        assert abs(t_on - 6.60) < 0.02 and rc["case_up"][-1][1] == 10.0, rc["case_up"]
+        assert abs(rc["case_up"][1][0] - (5e-6 / 3e-6 - 0.07)) < 0.02                  # first gray window
+        assert labs("case_down") == ["unstable", "gray", "stable"] and rc["case_down"][0][0] == 0.0, rc["case_down"]
+        assert rc["case_flat"] == [(0.0, 10.0, "stable")], rc["case_flat"]               # a ramp that does not cross
+        alt = rc["case_alt"]
+        assert len(alt) > 10 and set(labs("case_alt")) == {"unstable", "gray"}, alt     # alternates: left as it is
+        assert all(a[1] == b[0] and a[2] != b[2] for a, b in zip(alt, alt[1:]))         # touching, never merged
+        with open(ramp_yaml, encoding="utf-8") as f:
+            txt = f.read()
+        assert "ramp Ap_mm=5->15" in txt and "kappa=0.58" not in txt.split("case_up")[1].split("\n")[0], txt
+        # windows by_modal (f_modal 100 Hz -> T = 0.01 s, same windows) and an explicit window of 14 x T, step 2
+        rm_yaml = os.path.join(tmp, "ramp_modal.yaml")
+        make_label_template(ramp_h5, rm_yaml, strategy="amplitude", t_start=None, t_end=None,
+                            window_mode="by_modal", f_modal=100.0)
+        assert _parse_labels_file(rm_yaml)["case_up"] == rc["case_up"]
+        assert window_seconds({"$spin_rate$": 6000.0}, "by_revolution", 14, 2) == (0.14, 0.02)
+        try:
+            window_seconds({"$spin_rate$": 6000.0}, "by_modal", 7, 1)
+            raise AssertionError("by_modal without f_modal accepted")
+        except ValueError:
+            pass
+        # build: every piece keeps Ap (and kappa) at its two ends, Ap(t) linear over the whole signal
+        ramp_out = os.path.join(tmp, "ramp_dataset.h5")
+        rb_yaml = os.path.join(tmp, "ramp_labels_build.yaml")
+        make_label_template(ramp_h5, rb_yaml, strategy="amplitude", t_start=1.0, t_end=None)
+        from_doe_h5(ramp_h5, rb_yaml, t_start=1.0, t_end=None).to_hdf5(ramp_out)
+        with h5py.File(ramp_out, "r") as f:
+            un = f["unstable/case_up/Axial_disp__000"].attrs
+            assert abs(un["Ap_end_mm"] - 15.0) < 1e-9 and abs(un["Ap_start_mm"] - (5 + 10 * un["t0"] / 10)) < 1e-9
+            assert abs(un["kappa_t1"] - 0.015 / 0.0086) < 1e-9 and un["signal_t0"] == 0.0
+            st0 = f["stable/case_up/Axial_disp__000"].attrs
+            assert abs(st0["Ap_start_mm"] - 6.0) < 1e-9 and st0["t0"] == 1.0          # cropped at 1 s: Ap(1 s) = 6 mm
+            dn = f["unstable/case_down/Axial_disp__000"].attrs
+            assert abs(dn["Ap_start_mm"] - 14.0) < 1e-9 and dn["Ap_end_mm"] < dn["Ap_start_mm"]
+            c = f["unstable/case_const/Axial_disp__000"].attrs
+            assert c["Ap_start_mm"] == c["Ap_end_mm"] == 5.0 and "kappa_t0" not in c
 
         # 3. completar el YAML programáticamente
         labels = {
@@ -1023,6 +1186,22 @@ def _main() -> None:
              f"(default: {DEFAULT_LIM_SUP_PCT})",
     )
     p_template.add_argument(
+        "--window-mode", choices=["by_revolution", "by_modal"], default=DEFAULT_WINDOW_MODE,
+        help=f"--strategy amplitude, casos en RAMPA de Ap: ventanas en vueltas (T = 60/n del caso) o en periodos "
+             f"modales (T = 1/--f-modal) (default: {DEFAULT_WINDOW_MODE!r})",
+    )
+    p_template.add_argument(
+        "--window-N", type=float, default=DEFAULT_WINDOW_N,
+        help=f"rampas: largo de la ventana en T (default: {DEFAULT_WINDOW_N})",
+    )
+    p_template.add_argument(
+        "--window-step", type=float, default=DEFAULT_WINDOW_STEP,
+        help=f"rampas: paso entre ventanas en T (default: {DEFAULT_WINDOW_STEP})",
+    )
+    p_template.add_argument(
+        "--f-modal", type=float, default=None, help="rampas con --window-mode by_modal: frecuencia modal [Hz]",
+    )
+    p_template.add_argument(
         "--t-start", type=float, default=DEFAULT_T_START,
         help=f"recorta la señal desde este tiempo [s] antes de calcular el rango, ej. para descartar "
              f"entrada de herramienta (default: DEFAULT_T_START = {DEFAULT_T_START!r}, None = sin recorte)",
@@ -1119,6 +1298,8 @@ def _main() -> None:
             kwargs = {
                 "base_attr": args.base_attr, "base_scale": args.base_scale, "signal": args.amp_signal,
                 "lim_inf_pct": args.lim_inf_pct, "lim_sup_pct": args.lim_sup_pct, "warmup": args.warmup,
+                "window_mode": args.window_mode, "window_N": args.window_N, "window_step": args.window_step,
+                "f_modal": args.f_modal,
             }
         make_label_template(
             args.h5_path, out_yaml, strategy=args.strategy,

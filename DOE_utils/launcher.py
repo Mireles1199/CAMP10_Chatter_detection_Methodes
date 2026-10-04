@@ -1403,7 +1403,8 @@ class LogViewer:
 
 class LabelForm(_Dialog):
     FIELDS = ("strategy", "amp_signal", "base_attr", "base_scale", "lim_inf_pct", "lim_sup_pct", "warmup",
-              "kappa_threshold", "t_start", "t_end")
+              "kappa_threshold", "t_start", "t_end", "window_mode", "window_N", "window_step", "f_modal")
+    TEXT = ("strategy", "amp_signal", "base_attr", "window_mode")
 
     def __init__(self, app, e):
         super().__init__(app, f"Labelling — {e.name}")
@@ -1416,13 +1417,19 @@ class LabelForm(_Dialog):
         for k in self.FIELDS:
             v = self.tk.StringVar(value="" if e.label.get(k) is None else str(e.label.get(k)))
             vals = ["amplitude", "kappa", "manual"] if k == "strategy" else (
-                ["Axial_disp", "Axial_vel", "Axial_acc", "Axial_disp_out_deflex"] if k == "amp_signal" else None)
+                ["Axial_disp", "Axial_vel", "Axial_acc", "Axial_disp_out_deflex"] if k == "amp_signal" else (
+                    ["by_revolution", "by_modal"] if k == "window_mode" else None))
             note = {"amp_signal": "channel the labels are computed from",
                     "base_attr": "attribute the limits are a % of (feed per tooth)",
                     "lim_inf_pct": "max|signal| below this % of the base → stable",
                     "lim_sup_pct": "above this % → unstable (in between: gray)",
                     "kappa_threshold": "strategy kappa: stable below it",
-                    "t_start": "[s] start of the cut pieces (empty = auto)"}.get(k, "")
+                    "t_start": "[s] start of the cut pieces (empty = auto)",
+                    "window_mode": "RAMP cases only: the same rule window by window (T = 60/n of the case, or 1/f_modal)",
+                    "window_N": "window length in T (as an indicator's window)" + (
+                        f"; now from {e.label['window_from']}" if e.label.get("window_from") else ""),
+                    "window_step": "step between windows in T",
+                    "f_modal": "[Hz] only for window_mode by_modal"}.get(k, "")
             self.vars[k] = self.field(k, v, values=vals, state="disabled" if locked else "normal", note=note)
         self.note("Channels: " + "   ".join(f"{c} = {d}" for c, d in ex.CHANNELS.items() if c.startswith("Axial")))
         self.field("labels YAML", self.tk.StringVar(value=e.label["labels_yaml"]), width=90, state="readonly")
@@ -1442,7 +1449,7 @@ class LabelForm(_Dialog):
             t = v.get().strip()
             if t == "":
                 continue
-            d[k] = t if k in ("strategy", "amp_signal", "base_attr") else float(t)
+            d[k] = t if k in self.TEXT else float(t)
         old = ex.own_yaml(self.e.name).get("label") or {}
         for k in ("out", "labels_yaml", "channels"):   # explicit paths (imported experiments) are kept
             if k in old:
@@ -2671,7 +2678,7 @@ class SettingsDialog(_Dialog):
         if "indicators" in d["stages"] and "indicators" not in d:
             d["indicators"] = ex.indicators_for(None if ref in ("", "(none)") else ref)
         if "label_template" in d["stages"] and "label" not in d and ref in ("", "(none)"):
-            d["label"] = dict(ex.LABEL_DEFAULTS)
+            d["label"] = ex.label_defaults(d.get("indicators"))
         order = ["name", "description", "stages", "reference", "out_dir"]
         ex.yaml_save({**{k: d[k] for k in order if k in d}, **{k: v for k, v in d.items() if k not in order}},
                      ex.exp_path(self.e.name))

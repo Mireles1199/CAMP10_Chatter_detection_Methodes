@@ -71,10 +71,14 @@ CHANNELS = {"Axial_disp": "tool displacement along its axis (z of the tool frame
             "res_R_p": "resultant cutting force [N]",
             "Axial_disp_out_deflex": "axial displacement minus the static deflection [m]"}
 LABEL_PARAMS = ("strategy", "amp_signal", "base_attr", "base_scale", "lim_inf_pct", "lim_sup_pct", "warmup",
-                "kappa_threshold", "t_start", "t_end", "channels")
+                "kappa_threshold", "t_start", "t_end", "channels", "window_mode", "window_N", "window_step", "f_modal")
 LABEL_FLAGS = {"amp_signal": "--amp-signal", "base_attr": "--base-attr", "base_scale": "--base-scale",
                "lim_inf_pct": "--lim-inf-pct", "lim_sup_pct": "--lim-sup-pct", "warmup": "--warmup",
-               "kappa_threshold": "--kappa-threshold", "t_start": "--t-start", "t_end": "--t-end"}
+               "kappa_threshold": "--kappa-threshold", "t_start": "--t-start", "t_end": "--t-end",
+               "window_mode": "--window-mode", "window_N": "--window-N", "window_step": "--window-step",
+               "f_modal": "--f-modal"}
+# the window of the amplitude rule on RAMP cases (PLAN_ramps.md): resolved per case like an indicator's window
+WINDOW_KEYS = ("window_mode", "window_N", "window_step")
 STRATEGY_SHORT = {"amplitude": "amp", "kappa": "kappa", "manual": "manual"}
 DISCRETISATION = ("$dxl_size$", "$nb_dt_rev$", "$f_tooth$")
 
@@ -254,11 +258,12 @@ def _h5_info(path: str, mtime: float) -> dict:
     with h5py.File(path, "r") as f:
         cases = sorted(k for k in f if k.startswith("case_"))
         first = {k: (v.item() if hasattr(v, "item") else v) for k, v in f[cases[0]].attrs.items()} if cases else {}
-        kappa, kappa_ramps, ramp_text = [], [], []
+        kappa, kappa_ramps, ramp_text, ramp_cases = [], [], [], []
         for c in cases:
             k, k0, k1 = case_kappa(f[c].attrs)
             if is_ramp(f[c].attrs):
                 kappa_ramps.append((k0, k1))
+                ramp_cases.append(c)
                 ramp_text.append(f"{c}: Ap {ap_text(f[c].attrs, '.3g')}, kappa {kappa_text(f[c].attrs)}")
             elif k is not None:
                 kappa.append(k)
@@ -271,7 +276,8 @@ def _h5_info(path: str, mtime: float) -> dict:
                 duration = float(g[signals[0]]["time"][-1])
         groups = sorted(k for k in f if not k.startswith("case_"))   # control / snr_* in noise files
     return dict(cases=cases, first=first, kappa=kappa, deflex=deflex, signals=signals, duration=duration,
-                groups=groups, kappa_ramps=kappa_ramps, ramps=len(kappa_ramps), ramp_text=ramp_text)
+                groups=groups, kappa_ramps=kappa_ramps, ramps=len(kappa_ramps), ramp_text=ramp_text,
+                ramp_cases=ramp_cases)
 
 
 def h5_info(path: str):
@@ -290,6 +296,41 @@ def _doe_runner():
         sys.path.insert(0, SIM)
     import doe_runner
     return doe_runner
+
+
+def variant_window(spec: dict) -> tuple:
+    """(mode, N, step) of the decision window of an indicator variant, in T_rev or T_modal: the window, or for
+    RMS-CV / SST-SVD (aux windows) window + (n_aux - 1) x step, as in the variant names (dec7)."""
+    pp, mode = spec.get("params_physical") or {}, spec.get("mode", "by_revolution")
+    u = "rev" if mode == "by_revolution" else "modal"
+    win, step = float(pp.get(f"N_{u}_window", 0) or 0), float(pp.get(f"step_{u}", 1) or 1)
+    n_aux = ((pp.get(f"n_max_{u}") or pp.get(f"Ai_length_{u}"))
+             if spec.get("indicator") in ("RMS_CV", "SST_SVD") else None)
+    return mode, (win + (float(n_aux) - 1) * step if n_aux else win), step
+
+
+DEFAULT_WINDOW = {"window_mode": "by_revolution", "window_N": 7.0, "window_step": 1.0}
+
+
+def default_window(specs: dict, spin=None, f_modal=None) -> dict:
+    """Labelling window of the ramps from the indicator variants: theirs when they agree, else the longest (in
+    seconds at the n of the first case and f_modal; without them, the longest N of the commonest mode). No
+    variants: 7 revolutions, step 1."""
+    ws = [variant_window(s) for s in (specs or {}).values() if isinstance(s, dict)]
+    ws = [w for w in ws if w[1] > 0]
+    if not ws:
+        return dict(DEFAULT_WINDOW)
+    t = {"by_revolution": 60.0 / float(spin) if spin else None, "by_modal": 1.0 / float(f_modal) if f_modal else None}
+    if all(t[m] for m, _, _ in ws):
+        mode, n, step = max(ws, key=lambda w: (w[1] * t[w[0]], -w[2]))
+    else:
+        modes = [m for m, _, _ in ws]
+        common = max(set(modes), key=modes.count)
+        mode, n, step = max((w for w in ws if w[0] == common), key=lambda w: (w[1], -w[2]))
+    out = {"window_mode": mode, "window_N": float(n), "window_step": float(step)}
+    if mode == "by_modal" and f_modal:
+        out["f_modal"] = float(f_modal)
+    return out
 
 
 # ============================================================================== experiment
@@ -480,8 +521,29 @@ class Exp:
             self.errors.append("no runs")
         od = self.cfg.get("out_dir")
         self.out_dir = os.path.normpath(str(od)) if od else (os.path.join(self.data_dir, self.name) if self.data_dir else "")
+        self.indicators = self._indicators()   # first: the labelling window of the ramps comes from the variants
         self.label = self._label()
-        self.indicators = self._indicators()
+
+    def has_ramps(self) -> bool:
+        """True when a case of the data (or, before Extract, of the planned simulation) is a ramp of Ap."""
+        info = h5_info(self.data_h5) if self.data_h5 else None
+        if info:
+            return info["ramps"] > 0
+        return any(_planned_ramps(r) for r in self.runs)
+
+    def first_spin(self):
+        """n [rpm] of the first case (data, else the planned simulation), or None."""
+        info = h5_info(self.data_h5) if self.data_h5 else None
+        if info and info["first"].get("$spin_rate$") is not None:
+            return float(info["first"]["$spin_rate$"])
+        for r in self.runs:
+            try:
+                lst, val = r.table() if r.cfg else ([], [])
+            except Exception:
+                continue
+            if val and "$spin_rate$" in lst:
+                return float(val[0][lst.index("$spin_rate$")])
+        return None
 
     @property
     def flow(self) -> str:
@@ -510,6 +572,14 @@ class Exp:
                 self.errors.append(f"label {diff} differs from reference '{self.ref.name}' "
                                    f"(labels compared with the reference must use its parameters)")
         lab.setdefault("strategy", "amplitude")
+        # ramps labelled by windows: the window written in the experiment (or its reference's); when none is
+        # written, the window of the experiment's indicator variants. Only for data with ramps, so the labelling
+        # of the constant experiments (and their fingerprint) does not change.
+        if lab["strategy"] == "amplitude" and any(k not in lab for k in WINDOW_KEYS) and self.has_ramps():
+            for k, v in default_window(self.indicators["specs"], self.first_spin(),
+                                       self.indicators.get("f_modal")).items():
+                lab.setdefault(k, v)
+            lab["window_from"] = "the indicator variants (no window written in the label section)"
         short = STRATEGY_SHORT.get(lab["strategy"], lab["strategy"])
         lab["labels_yaml"] = self.out("label", "labels_yaml", "reference_labels.yaml")
         lab["out"] = self.out("label", "out", f"reference_dataset_{short}.h5")
@@ -1098,26 +1168,80 @@ def _wall_times(r: "Run") -> list:
     return out
 
 
-def _label_cases(path: str) -> dict:
-    """{case: (label, kappa)} of a reference_dataset*.h5 (one label per case: the first piece)."""
+def case_label(intervals) -> str:
+    """One label for a case from its intervals [(t0, t1, label)]: 'mixed' when it has stable AND unstable parts
+    (a ramp that crosses), else unstable / stable / gray (gray only when nothing else), 'none' without intervals.
+    Same rule as validate_indicators.case_truth."""
+    labs = {iv[2] for iv in intervals}
+    if "unstable" in labs:
+        return "mixed" if "stable" in labs else "unstable"
+    return "stable" if "stable" in labs else ("gray" if "gray" in labs else "none")
+
+
+def t_onset(intervals):
+    """Start of the first unstable interval (the crossing of the ground truth of a ramp), or None."""
+    return min((float(iv[0]) for iv in intervals if iv[2] == "unstable"), default=None)
+
+
+def transitions_text(intervals, n: int = 4) -> str:
+    """'stable -> unstable at 10.66 s' (the label changes of a case, the first n)."""
+    iv = sorted(intervals, key=lambda x: float(x[0]))
+    if not iv:
+        return "no labels"
+    if len(iv) == 1:
+        return f"{iv[0][2]} all along"
+    parts = [iv[0][2]] + [f"{b[2]} at {float(b[0]):.2f} s" for b in iv[1:n + 1]]
+    return " -> ".join(parts) + (f" (+{len(iv) - n - 1} changes)" if len(iv) > n + 1 else "")
+
+
+def label_info(path: str) -> dict:
+    """{case: {label, kappa, intervals, t_onset, ramp}} of a reference_dataset*.h5: label from every piece of the
+    case (case_label), kappa of a constant case (NaN for a ramp), intervals of its labelling channel."""
     import h5py
     out = {}
     if os.path.isfile(path):
         with h5py.File(path, "r") as f:
             for lab in f:
                 for case, g in f[lab].items():
-                    piece = next(iter(g.values()), None)
-                    k = case_kappa(piece.attrs)[0] if piece is not None else None   # a ramp has no single kappa
-                    out.setdefault(case, (lab, float("nan") if k is None else k))
+                    d = out.setdefault(case, {"pieces": [], "kappa": float("nan"), "ramp": False, "ch": None})
+                    for piece in g.values():
+                        a = piece.attrs
+                        if d["ch"] is None:
+                            d["ch"] = str(a.get("channel", ""))
+                            k = case_kappa(a)[0]
+                            d["kappa"], d["ramp"] = (float("nan") if k is None else k), is_ramp(a)
+                        if str(a.get("channel", "")) == d["ch"] and "t0" in a:
+                            d["pieces"].append((float(a["t0"]), float(a["t1"]), lab))
+                        elif "t0" not in a:
+                            d["pieces"].append((0.0, 0.0, lab))
+    for d in out.values():
+        iv = sorted(set(d.pop("pieces")))
+        d.update(intervals=iv, label=case_label(iv), t_onset=t_onset(iv))
+        d.pop("ch")
+    return out
+
+
+def _label_cases(path: str) -> dict:
+    """{case: (label, kappa)} of a reference_dataset*.h5: label stable / gray / unstable / mixed (a ramp with
+    stable and unstable parts); kappa of a constant case (NaN for a ramp: it has no single kappa)."""
+    return {c: (d["label"], d["kappa"]) for c, d in label_info(path).items()}
+
+
+def yaml_label_info(path: str) -> dict:
+    """{case: {label, intervals, t_onset}} of a reference_labels.yaml."""
+    if not os.path.isfile(path):
+        return {}
+    d = yaml_load(path).get("cases") or {}
+    out = {}
+    for c, iv in d.items():
+        iv = [tuple(x) for x in iv or []]
+        out[c] = {"label": case_label(iv), "intervals": iv, "t_onset": t_onset(iv)}
     return out
 
 
 def _yaml_labels(path: str) -> dict:
-    """{case: label} of a reference_labels.yaml (label of its first interval)."""
-    if not os.path.isfile(path):
-        return {}
-    d = yaml_load(path).get("cases") or {}
-    return {c: (iv[0][2] if iv else "none") for c, iv in d.items()}
+    """{case: label} of a reference_labels.yaml (case_label of its intervals: 'none' without any)."""
+    return {c: d["label"] for c, d in yaml_label_info(path).items()}
 
 
 def stage_progress(exp: Exp, key: str):
@@ -1222,15 +1346,39 @@ def _stage_summary(exp: Exp, key: str) -> list:
                 out.append((disc, None))
         return out
     if key in ("label_template", "label_build"):
-        built, yml = _label_cases(exp.label["out"]), _yaml_labels(exp.label["labels_yaml"])
+        binfo, yinfo = label_info(exp.label["out"]), yaml_label_info(exp.label["labels_yaml"])
+        built = {c: (d["label"], d["kappa"]) for c, d in binfo.items()}
+        yml = {c: d["label"] for c, d in yinfo.items()}
+        data = h5_info(exp.data_h5) if exp.data_h5 else None
+        ramp_set = set((data or {}).get("ramp_cases", [])) | {c for c, d in binfo.items() if d["ramp"]}
         src = built if key == "label_build" else {c: (lab, built.get(c, (None, float("nan")))[1]) for c, lab in yml.items()}
         if not src:
             return [("nothing yet", None)]
+        ivs = {c: (binfo[c]["intervals"] if key == "label_build" else yinfo[c]["intervals"]) for c in src}
+        ramps = sorted(c for c in src if c in ramp_set)
+        src = {c: v for c, v in src.items() if c not in ramp_set}   # constants: counts, kappa, boundary
         by = {}
         for c, (lab, k) in src.items():
             by.setdefault(lab, []).append(k)
+        if ramps:   # the ramps apart: where the ground truth changes along the cut
+            ons = [t_onset(ivs[c]) for c in ramps]
+            ons = [t for t in ons if t is not None]
+            out.append((f"ramps {len(ramps)}" + (f": crosses at t ≈ {', '.join(f'{t:.2f}' for t in ons[:6])} s"
+                                                 if ons else ": none crosses into unstable"), "ok"))
+            out += [(f"  ramp {c}: {transitions_text(ivs[c])}", None) for c in ramps[:8]]
+            if len(ramps) > 8:
+                out.append((f"  … {len(ramps) - 8} more ramps", None))
+            p = exp.label
+            if all(k in p for k in WINDOW_KEYS):
+                out.append((f"  ramps labelled window by window: {p['window_N']:g} x "
+                            f"{'T_rev' if p['window_mode'] == 'by_revolution' else 'T_modal'}, step {p['window_step']:g}"
+                            + (f" (window of {p['window_from']})" if p.get("window_from") else ""), None))
+            if not src:
+                out.append(("(no constant cases)", None))
         order = [lab for lab in ("stable", "gray", "unstable") if lab in by] + [l for l in by if l not in ("stable", "gray", "unstable")]
-        out.append(("  ·  ".join(f"{lab} {len(by[lab])}" for lab in order), "ok"))
+        if order:
+            out.append(("  ·  ".join(f"{lab} {len(by[lab])}" for lab in order)
+                        + ("   (constant cases)" if ramps else ""), "ok"))
         for lab in order:
             ks = [k for k in by[lab] if k == k]
             out.append((f"  {lab:<8s} kappa {_krange(ks)}", None))
@@ -1321,7 +1469,8 @@ def stage_badge(exp: Exp, key: str) -> str:
             by = {}
             for lab, _ in _label_cases(exp.label["out"]).values():
                 by[lab] = by.get(lab, 0) + 1
-            return " · ".join(f"{lab[0].upper()} {by[lab]}" for lab in ("stable", "gray", "unstable") if lab in by)
+            return " · ".join(f"{lab[0].upper()} {by[lab]}" for lab in ("stable", "gray", "unstable", "mixed")
+                              if lab in by)
         if key == "indicators":
             return f"{len(exp.indicators['variants'])} variants"
         if key == "validate":
@@ -1674,6 +1823,15 @@ METRIC_COLUMNS = ("balanced_accuracy", "MCC", "AUC", "TPR", "TNR", "F1", "accura
                   "mean_alarm_fraction_stable", "mean_persistence")
 
 
+def label_defaults(indicators_section=None) -> dict:
+    """label section of a new experiment: LABEL_DEFAULTS + the labelling window of the ramps, written explicitly
+    (the window of the indicator variants of the section given, else of the default presets)."""
+    sec = indicators_section or default_indicators()
+    v = sec.get("variants")
+    specs = v if isinstance(v, dict) else ({n: presets()[n] for n in v if n in presets()} if isinstance(v, list) else {})
+    return {**LABEL_DEFAULTS, **default_window(specs, None, sec.get("f_modal"))}
+
+
 def default_indicators() -> dict:
     lib = presets()
     return {"f_modal": 150.0, "cases": "all", "workers": 6,
@@ -1706,10 +1864,10 @@ def create_experiment(name: str, runs: list, stages_on=None, reference: str | No
     if out_dir:
         d["out_dir"] = os.path.normpath(out_dir).replace("\\", "/")
     d["runs"] = runs
-    if "label_template" in st and not reference and "label" not in sections:
-        sections["label"] = dict(LABEL_DEFAULTS)
     if "indicators" in st and "indicators" not in sections:
         sections["indicators"] = indicators_for(reference)
+    if "label_template" in st and not reference and "label" not in sections:
+        sections["label"] = label_defaults(sections.get("indicators"))
     if "validate" in st and "validate" not in sections:
         sections["validate"] = {"channel": "Axial_disp"}
     d.update({k: v for k, v in sections.items() if v})
@@ -1856,7 +2014,9 @@ def orphan_runs() -> list:
 # ============================================================================== import
 _LABEL_ATTRS = {"labeling_strategy": "strategy", "labeling_signal": "amp_signal", "labeling_base_attr": "base_attr",
                 "labeling_base_scale": "base_scale", "labeling_lim_inf_pct": "lim_inf_pct",
-                "labeling_lim_sup_pct": "lim_sup_pct", "labeling_warmup": "warmup"}
+                "labeling_lim_sup_pct": "lim_sup_pct", "labeling_warmup": "warmup",
+                "labeling_window_mode": "window_mode", "labeling_window_N": "window_N",
+                "labeling_window_step": "window_step", "labeling_f_modal": "f_modal"}
 
 
 def _label_attrs(path: str) -> dict:
@@ -3029,6 +3189,46 @@ def _selftest():
             assert abs(f["case_001"].attrs["kappa"] - 0.8) < 1e-12
         assert not inspect_h5(rh5)["missing"]["kappa"]
         os.remove(rh5)
+        # labelling of the ramps: the window comes from the variants (only when the data have ramps: the constant
+        # experiments keep their commands and fingerprints), the labels per case (mixed, t_onset), the summary
+        assert variant_window({"indicator": "RMS_CV", "mode": "by_revolution", "params_physical": {
+            "N_rev_window": 4, "step_rev": 1, "n_max_rev": 4}}) == ("by_revolution", 7.0, 1.0)
+        assert default_window({}) == DEFAULT_WINDOW and default_window(
+            {"a": {"indicator": "MaxEnt_SPRT", "mode": "by_modal", "params_physical": {"N_modal_window": 2, "step_modal": 1}},
+             "b": {"indicator": "MaxEnt_SPRT", "mode": "by_revolution", "params_physical": {"N_rev_window": 7, "step_rev": 1}}},
+            12000, 150) == {"window_mode": "by_revolution", "window_N": 7.0, "window_step": 1.0}   # 35 ms > 13 ms
+        rdir = os.path.join(base, "DOE_RMP")
+        os.makedirs(os.path.join(rdir, "0", "1DOF_150Hz"))
+        with h5py.File(os.path.join(rdir, "doe_results.h5"), "w") as f:
+            f.create_group("case_000").attrs.update({"$Ap_start$": 0.004, "$Ap_end$": 0.012, "$spin_rate$": 12000.0,
+                                                     "$dxl_size$": 2e-4, "$nb_dt_rev$": 200.0, "$f_tooth$": 0.05,
+                                                     "kappa_start": 0.5, "kappa_end": 1.5})
+            f.create_group("case_001").attrs.update({"$Ap_start$": 0.004, "$Ap_end$": 0.004, "$spin_rate$": 12000.0,
+                                                     "$dxl_size$": 2e-4, "$nb_dt_rev$": 200.0, "$f_tooth$": 0.05,
+                                                     "kappa": 0.5})
+        import_dir("rmp", rdir, reference="train")
+        rp = load("rmp")
+        assert rp.has_ramps() and not load("train").has_ramps()
+        assert rp.label["window_N"] == 4.0 and rp.label["window_step"] == 1.0 and "window_from" in rp.label, rp.label
+        tpl_r = stages(rp)["label_template"].cmds[0]
+        assert tpl_r[tpl_r.index("--window-N") + 1] == "4.0" and "--window-N" not in stages(load("train"))["label_template"].cmds[0]
+        os.makedirs(os.path.dirname(rp.label["out"]), exist_ok=True)
+        with h5py.File(rp.label["out"], "w") as f:
+            for lab, case, t0, t1 in (("stable", "case_000", 0.0, 5.0), ("gray", "case_000", 5.0, 5.5),
+                                      ("unstable", "case_000", 5.5, 10.0), ("stable", "case_001", 0.0, 10.0)):
+                p = f.require_group(f"{lab}/{case}").create_dataset("Axial_disp__000", data=[0.0])
+                p.attrs.update({"channel": "Axial_disp", "t0": t0, "t1": t1, "$Ap_start$": 0.004, "kappa": 0.5,
+                                "$Ap_end$": 0.012 if case == "case_000" else 0.004})
+        li = label_info(rp.label["out"])
+        assert li["case_000"]["label"] == "mixed" and li["case_000"]["t_onset"] == 5.5 and li["case_000"]["ramp"]
+        assert li["case_000"]["kappa"] != li["case_000"]["kappa"] and li["case_001"]["label"] == "stable"
+        assert li["case_001"]["kappa"] == 0.5 and _label_cases(rp.label["out"])["case_000"][0] == "mixed"
+        summ = [t for t, _ in stage_summary(rp, "label_build")]
+        assert summ[0] == "ramps 1: crosses at t ≈ 5.50 s" and "ramp case_000: stable -> gray at 5.00 s -> unstable at 5.50 s" in summ[1], summ
+        assert any(t.startswith("stable 1   (constant cases)") for t in summ) and not any("boundary" in t for t in summ), summ
+        assert stage_badge(rp, "label_build") in ("", "S 1 · M 1")
+        assert case_label([(0, 1, "gray")]) == "gray" and case_label([]) == "none" and transitions_text([(0, 9, "stable")]) == "stable all along"
+        delete("rmp")
         _selftest_run(load("train"))
         _selftest_edit(root, cfg)
         print("experiment selftest OK")
