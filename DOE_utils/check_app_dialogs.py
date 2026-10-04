@@ -213,6 +213,9 @@ try:
     pk.fill()
     assert len(pk.aps) == 3 and "kappa  1.000" in pk.lst.get(1), pk.lst.get(0, "end")
 
+    pk.set_min_n()   # the button: n goes to the lowest point of the SLD, and that point's limit is ap_crit
+    assert abs(pk.limit() - ex._sld().ap_crit("1DOF_150")) < 1e-6, (pk.limit(), ex._sld().ap_crit("1DOF_150"))
+    assert abs(pk._n() - pk.min_limit_rpm()) < 0.1 and pk.n.get() == f"{pk.min_limit_rpm():.1f}"
     lim = pk.limit()
     assert "kappa" in pk.ax.get_ylabel() and abs(pk.div - lim) < 1e-12      # kappa chosen -> the y axis is kappa
 

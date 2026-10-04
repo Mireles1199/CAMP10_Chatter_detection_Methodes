@@ -1885,6 +1885,7 @@ class SldPicker:
         e.pack(side=tk.LEFT, padx=4)
         e.bind("<Return>", lambda _e: self.draw())
         ttk.Button(top, text="Redraw", command=self.draw).pack(side=tk.LEFT)
+        ttk.Button(top, text="n at the minimum limit", command=self.set_min_n).pack(side=tk.LEFT, padx=4)
         self.model.trace_add("write", lambda *_: self.draw())
         ttk.Label(top, text="   click = add a depth at the n line (in the units of the y axis) · right click = remove the nearest",
                   foreground="#555").pack(side=tk.LEFT)
@@ -1930,6 +1931,30 @@ class SldPicker:
 
     def _n(self) -> float:
         return float(self.n.get())
+
+    def min_limit_rpm(self) -> float:
+        """Spin [rpm] where the stability limit of the model is smallest (the lowest point of the SLD, the
+        minimum ap_crit reports): the n of the global minimum of the lobes."""
+        import math
+        lb, _ = ex._sld().lobes(self.model.get())
+        best, rpm = math.inf, None
+        for j in range(lb.shape[0]):
+            for i in range(lb.shape[1]):
+                for x, y in zip(lb[j, i, :, 0], lb[j, i, :, 1]):
+                    if math.isfinite(x) and math.isfinite(y) and y < best:
+                        best, rpm = y, x
+        if rpm is None:
+            raise ValueError(f"SLD '{self.model.get()}' has no lobes")
+        return float(rpm)
+
+    def set_min_n(self):
+        try:
+            rpm = self.min_limit_rpm()
+        except Exception as exc:
+            self.app._msg("SLD", f"cannot find the minimum: {exc}", "warn")
+            return
+        self.n.set(f"{rpm:.1f}")
+        self.draw()
 
     def limit(self):
         try:
