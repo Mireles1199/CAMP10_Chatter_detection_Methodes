@@ -1006,13 +1006,11 @@ def check(exp: Exp) -> tuple:
 
 
 def _gray_fraction(path: str):
+    """Fraction of the cases that are gray (only gray: a ramp passing through gray is not counted twice)."""
     if not os.path.isfile(path):
         return None
-    import h5py
-    with h5py.File(path, "r") as f:
-        n = {g: len(f[g]) for g in f if g in ("stable", "unstable", "gray")}
-    tot = sum(n.values())
-    return n.get("gray", 0) / tot if tot else None
+    labs = [d["label"] for d in label_info(path).values()]
+    return sum(lab == "gray" for lab in labs) / len(labs) if labs else None
 
 
 def summary(exp: Exp) -> dict:
@@ -3260,6 +3258,7 @@ def _selftest():
         assert summ[0] == "ramps 1: crosses at t ≈ 5.50 s" and "ramp case_000: stable -> gray at 5.00 s -> unstable at 5.50 s" in summ[1], summ
         assert any(t.startswith("stable 1   (constant cases)") for t in summ) and not any("boundary" in t for t in summ), summ
         assert stage_badge(rp, "label_build") in ("", "S 1 · M 1")
+        assert _gray_fraction(rp.label["out"]) == 0.0      # the ramp passes through gray: still one mixed case
         assert case_label([(0, 1, "gray")]) == "gray" and case_label([]) == "none" and transitions_text([(0, 9, "stable")]) == "stable all along"
         delete("rmp")
         _selftest_run(load("train"))
