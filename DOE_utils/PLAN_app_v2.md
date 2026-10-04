@@ -231,3 +231,10 @@ documentación) y no por bloque.
 | Estimar el tiempo de simulación | `estimate_time`: mediana de `wall_time_s.txt` de la misma carpeta y discretización (si no hay, el espaciado de fechas de `sens_out.hdf5`) / `nb_proc` |
 | Lanzar la cadena entera | **▶▶ Run to goal** / `experiment.py chain`: una consola, se para en error, en otra experiencia y tras Label template (revisión) |
 | Pruebas | `check_app_dialogs.py` ya no copia tus experimentos: empieza vacío e importa tus carpetas reales (solo lectura) |
+
+### Ronda 3 (2026-10-04)
+
+| Pedido | Hecho |
+|---|---|
+| Importar una carpeta simulada pero sin extraer (sin `.h5`) y extraer desde la app | Import → *(not extracted yet)* + `ap_ref`: `simulation_from_folder` reconstruye la simulación desde los `var_val.py` (comprueba casos 0..N-1, mismas variables y la carpeta del caso junto al DOE); run `{simulation, existing: true}`: Simulate hecha y bloqueada (doe_runner borraría la carpeta), Extract lista. CLI `import --not-extracted --ap-ref manual:0.0086`. Probado con `doe_runner --dry-run` sobre dos carpetas reales (34 y 17 casos encontrados) sin escribir nada |
+| Nota | La prueba `check_app_dialogs.py` ya no usa carpetas reales (se movieron: el entrenamiento está ahora en `Data/1DOF_150_Training_Tube/` sin `.h5`); fabrica sus datos en la carpeta temporal |

@@ -154,7 +154,7 @@ Por variante: TP, FN, TN, FP, exactitud balanceada, MCC, AUC, tiempos de detecci
 
 | Botón | Para qué |
 |---|---|
-| Import folder… | Una carpeta ya simulada con `doe_results.h5` (u otro `.h5` con el mismo formato). Antes de aceptar muestra qué hay dentro (casos simulados, `n`, `κ`, datasets etiquetados, resultados) y qué etapas activará; eliges qué dataset etiquetado es la verdad (p. ej. `amp` o `kappa`) y el nombre es el de la carpeta. Lo que ya existe aparece en verde |
+| Import folder… | Una carpeta ya simulada con `doe_results.h5` (u otro `.h5` con el mismo formato). Antes de aceptar muestra qué hay dentro (casos simulados, `n`, `κ`, datasets etiquetados, resultados) y qué etapas activará; eliges qué dataset etiquetado es la verdad (p. ej. `amp` o `kappa`) y el nombre es el de la carpeta. Lo que ya existe aparece en verde. Si la carpeta está simulada pero **sin extraer** (no hay `.h5`), elige *(not extracted yet)* y el `ap_ref` para `κ`: la app reconstruye la simulación desde el `var_val.py` de cada caso, deja Simulate hecha y bloqueada (relanzarla borraría la carpeta) y Extract lista para correr |
 | Standardize an .h5… | Un `.h5` hecho fuera de la app: dice qué tiene y qué falta, añade los atributos que faltan a cada caso (modelo simulado `sim_case` / `sim_model`, `n`, `κ` desde un `ap_ref`) sin tocar las señales, y crea su experimento |
 | Delete | Borra el archivo del experimento y sus registros (`.runs/<experimento>`), nunca datos; se niega si otro experimento lo usa |
 

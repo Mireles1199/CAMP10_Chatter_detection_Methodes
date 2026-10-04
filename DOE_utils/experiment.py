@@ -273,6 +273,9 @@ class Run:
         self.doe_dir = os.path.join(self.base_dir, self.doe_name)
         self.h5 = os.path.join(self.doe_dir, str(entry.get("h5") or "doe_results.h5"))
         self.imported = self.config is None
+        # existing: simulated outside the app, no .h5 yet. The simulation is rebuilt from the folder (var_val.py)
+        # so that Extract can run; Simulate stays done and blocked (doe_runner would delete the folder)
+        self.existing = bool(entry.get("existing")) and self.config is not None
 
     def table(self, cfg: dict | None = None) -> tuple:
         """(variables, rows) of the cases of this run's config (or of cfg)."""
@@ -519,8 +522,10 @@ def _all_stages(exp: Exp) -> dict:
     sim_in = [r.config for r in cfg_runs if "simulation" not in r.entry]
     S["simulate"] = Stage(exp, "simulate", [], sim_in, [r.doe_dir for r in runs],
                           [_py(dr_script, "--config", r.config, "--yes", "--command", "n2m_sch", *flags) for r in cfg_runs],
-                          sig, runnable=not any(r.imported for r in runs),
-                          why_not=imported_why,
+                          sig, runnable=not any(r.imported or r.existing for r in runs),
+                          why_not=imported_why if any(r.imported for r in runs) else
+                          "simulated outside the app (imported without .h5): re-simulating would delete that folder; "
+                          "run Extract",
                           present=lambda: all(r.imported and os.path.isdir(r.doe_dir) or
                                               (r.n_cases or 0) > 0 and r.simulated() >= r.n_cases for r in runs),
                           roles=(["simulation config"] * len(sim_in), ["DOE folder (one sub-folder per case)"] * len(runs)))
@@ -1523,7 +1528,8 @@ def resolved_yaml(name: str) -> dict:
     if e.ref is not None:
         d["reference"] = e.ref.name
     d["stages"] = [k for k in e.enabled if k != "merge"]   # merge is automatic with several runs
-    d["runs"] =[{"simulation": explicit_simulation(r.cfg)} if r.cfg else dict(r.entry) for r in e.runs]
+    d["runs"] = [({"simulation": explicit_simulation(r.cfg), **({"existing": True} if r.existing else {})}
+                  if r.cfg else dict(r.entry)) for r in e.runs]
     if "indicators" in d or e.indicators["specs"]:
         ind = dict(d.get("indicators") or {})
         if ind.get("variants") != "inherit":
@@ -1556,6 +1562,7 @@ def copy_experiment(src: str, name: str, description: str = "", doe_suffix: str 
         for r in d["runs"]:
             if "simulation" in r:
                 r["simulation"]["doe_name"] += doe_suffix
+                r.pop("existing", None)   # another folder: the copy is simulated by the app
     d.pop("out_dir", None)
     yaml_save(d, exp_path(name))
     reload()
@@ -1568,8 +1575,8 @@ def set_simulation(name: str, i: int, sim: dict) -> None:
     runs = list(d.get("runs") or [])
     if i >= len(runs):
         runs.append({"simulation": sim})
-    else:
-        runs[i] = {"simulation": sim}
+    else:   # a run simulated outside the app keeps its flag (Simulate stays blocked)
+        runs[i] = {"simulation": sim, **({"existing": True} if runs[i].get("existing") else {})}
     d["runs"] = runs
     yaml_save(d, exp_path(name))
     reload()
@@ -1640,20 +1647,61 @@ def _label_attrs(path: str) -> dict:
     return {}
 
 
+def simulated_cases(doe_dir: str) -> tuple:
+    """(case, [(index, var_val)]) of the simulated cases of a DOE folder (index folders with sens_out.hdf5 and
+    var_val.py), sorted by index."""
+    dr, case = _doe_runner(), detect_case(doe_dir)
+    out = []
+    for i in sorted((i for i in os.listdir(doe_dir) if i.isdigit()), key=int) if os.path.isdir(doe_dir) else []:
+        c = os.path.join(doe_dir, i, case)
+        if os.path.isfile(os.path.join(c, "sens_out.hdf5")) and os.path.isfile(os.path.join(c, "var_val.py")):
+            out.append((int(i), dr.read_var_val(os.path.join(c, "var_val.py"))))
+    return case, out
+
+
+def simulation_from_folder(doe_dir: str, ap_ref=None) -> dict:
+    """Explicit simulation of a DOE folder simulated outside the app, from the var_val.py of its cases: what
+    doe_runner extract needs (folder, case, ap_ref for kappa, signals). Raises if it cannot be rebuilt."""
+    case, cases = simulated_cases(doe_dir)
+    if not cases:
+        raise ValueError(f"{doe_dir}: no simulated case (index folders with {case}/sens_out.hdf5 and var_val.py)")
+    keys = list(cases[0][1])
+    bad = [i for i, v in cases if list(v) != keys]
+    if bad:
+        raise ValueError(f"cases {bad[:5]} have other variables than case {cases[0][0]}: {keys}")
+    if [i for i, _ in cases] != list(range(len(cases))):
+        raise ValueError(f"case folders are not 0..{len(cases) - 1} (some missing or not simulated): "
+                         f"{[i for i, _ in cases][:10]}")
+    base = os.path.dirname(os.path.normpath(doe_dir))
+    if not os.path.isdir(os.path.join(base, case)):
+        raise ValueError(f"doe_runner extract needs the case folder {os.path.join(base, case)} next to the DOE folder")
+    sim = {"base_dir": base.replace("\\", "/"), "case": case, "doe_name": os.path.basename(os.path.normpath(doe_dir)),
+           "nb_proc": 1, "mode": "sweep", "sweep": {k: [float(v[k]) for _, v in cases] for k in keys},
+           "ap_ref": dict(ap_ref or {"mode": "none"}), "extract_signals": ["Axial_disp", "Axial_vel", "Axial_acc"],
+           "force_signal": "res_R_p"}
+    _doe_runner().load_config(_tmp_config(sim))   # same validation as any simulation
+    return sim
+
+
 def import_dir(name: str, doe_dir: str, reference: str | None = None, label_out: str | None = None,
-               description: str | None = None, h5: str = "doe_results.h5") -> str:
+               description: str | None = None, h5: str = "doe_results.h5", ap_ref=None) -> str:
     """Create experiments/<name>.yaml from an already simulated DOE folder (h5 = its signals file); the stages
     whose results are found are turned on, plus validate when a reference is given. Existing outputs get an
-    'imported' baseline record so nothing shows as stale because of a history the app does not know."""
+    'imported' baseline record so nothing shows as stale because of a history the app does not know.
+    h5 empty (the folder was simulated but never extracted): the simulation is rebuilt from the folder
+    (simulation_from_folder, ap_ref for kappa) so Extract can run from the app; Simulate stays blocked."""
     doe_dir = os.path.normpath(os.path.abspath(doe_dir))
     path = exp_path(name)
     if os.path.exists(path):
         raise ValueError(f"experiment '{name}' already exists ({path})")
-    if not os.path.isfile(os.path.join(doe_dir, h5)):
+    if not h5:
+        run = {"simulation": simulation_from_folder(doe_dir, ap_ref), "existing": True}
+    elif not os.path.isfile(os.path.join(doe_dir, h5)):
         raise ValueError(f"{doe_dir} has no {h5}")
-    run = {"dir": doe_dir.replace("\\", "/"), "case": detect_case(doe_dir)}
-    if h5 != "doe_results.h5":
-        run["h5"] = h5
+    else:
+        run = {"dir": doe_dir.replace("\\", "/"), "case": detect_case(doe_dir)}
+        if h5 != "doe_results.h5":
+            run["h5"] = h5
     d = {"name": name, "description": description or "", "stages": ["simulate", "extract"]}
     if reference:
         d["reference"] = reference
@@ -1688,6 +1736,11 @@ def import_dir(name: str, doe_dir: str, reference: str | None = None, label_out:
         d["stages"] += ["label_template", "label_build", "indicators", "validate"]
         d["indicators"] = {"variants": "inherit"}
         d["validate"] = {"channel": "Axial_disp"}
+    if not d["description"] and not h5:
+        sw = run["simulation"]["sweep"]
+        n = sorted(set(sw.get("$spin_rate$", [])))
+        d["description"] = (f"imported from {os.path.basename(doe_dir)} (simulated, not extracted): "
+                            f"{len(next(iter(sw.values())))} cases" + (f", n = {n[0]:.10g} rpm" if len(n) == 1 else ""))
     if not d["description"]:
         info = h5_info(os.path.join(doe_dir, h5))
         spin = info["first"].get("$spin_rate$")
@@ -2134,7 +2187,7 @@ def _case_times(base_dir: str, case: str, stamp: float) -> list:
             if not os.path.isfile(so):
                 continue
             try:
-                v = dr.read_var_val(vv)
+                v = dr.read_var_val(vv) if os.path.isfile(vv) else {}
             except Exception:
                 v = {}
             wt = os.path.join(d, i, "wall_time_s.txt")
@@ -2464,6 +2517,30 @@ def _selftest():
             raise AssertionError("import over an existing experiment")
         except ValueError:
             pass
+        # a folder simulated outside the app but never extracted: Simulate done + blocked, Extract runnable
+        raw = os.path.join(base, "DOE_RAW")
+        for i, ap in enumerate((0.004, 0.012)):
+            c = os.path.join(raw, str(i), "1DOF_150Hz")
+            os.makedirs(c)
+            open(os.path.join(c, "sens_out.hdf5"), "w").close()
+            with open(os.path.join(c, "var_val.py"), "w") as f:
+                f.write(f"var_val = {{'$Ap_start$': {ap}, '$Ap_end$': {ap}, '$spin_rate$': 12000.0}}\n")
+        try:
+            import_dir("raw", raw, h5="doe_results.h5")
+            raise AssertionError("import of a folder without .h5 accepted as extracted")
+        except ValueError:
+            pass
+        import_dir("raw", raw, h5="", ap_ref={"mode": "manual", "manual": 0.008})
+        rw = load("raw")
+        st = status(rw)
+        assert rw.runs[0].existing and rw.runs[0].n_cases == 2 and st["simulate"][0] == "done", st
+        assert st["extract"][0] == "pending" and not run_blockers(rw, "extract"), (st, run_blockers(rw, "extract"))
+        assert run_blockers(rw, "simulate") and "would delete" in run_blockers(rw, "simulate")[0]
+        assert "existing" in resolved_yaml("raw")["runs"][0]
+        import subprocess   # doe_runner itself finds the 2 cases with the generated config (dry-run: nothing written)
+        r = subprocess.run([sys.executable, os.path.join(SIM, "doe_runner.py"), "--config", rw.runs[0].config,
+                            "--command", "extract", "--dry-run"], capture_output=True, text=True)
+        assert r.returncode == 0 and "Casos encontrados: 2" in r.stdout + r.stderr, r.stdout + r.stderr
         _selftest_run(load("train"))
         _selftest_edit(root, cfg)
         print("experiment selftest OK")
@@ -2491,6 +2568,10 @@ def main():
     im.add_argument("--reference", help="experiment whose labelled dataset trains the indicators (turns on validate)")
     im.add_argument("--label-out")
     im.add_argument("--h5", default="doe_results.h5", help="signals file of the folder")
+    im.add_argument("--not-extracted", action="store_true",
+                    help="the folder was simulated but has no .h5 yet: rebuild its simulation so Extract can run")
+    im.add_argument("--ap-ref", default=None, metavar="MODE[:VALUE]",
+                    help="with --not-extracted, for kappa: manual:<m>, model:<preset> or model_at_spin:<preset>")
     im.add_argument("--description")
     r = sub.add_parser("run", help="run one stage in this console (what the app opens)")
     r.add_argument("exp")
@@ -2528,7 +2609,12 @@ def main():
     elif a.cmd == "accept":
         print("marked up to date:", accept(load(a.exp), a.stages or None) or "nothing (no stale configuration)")
     elif a.cmd == "import":
-        print("written:", import_dir(a.name, a.dir, a.reference, a.label_out, a.description, a.h5))
+        ap = None
+        if a.ap_ref:
+            mode, _, val = a.ap_ref.partition(":")
+            ap = {"mode": mode, **({"manual": float(val)} if mode == "manual" else {"model": val} if val else {})}
+        print("written:", import_dir(a.name, a.dir, a.reference, a.label_out, a.description,
+                                     "" if a.not_extracted else a.h5, ap))
 
 
 if __name__ == "__main__":

@@ -38,9 +38,39 @@ with open(os.path.join(cfg_tmp, "cfg_n9000.yaml"), "w") as fh:
              "sweep:\n  $Ap_start$: [0.008056]\n  $Ap_end$: [0.008056]\n  $spin_rate$: 9000.0\n"
              "  $f_tooth$: 0.05\n  $dxl_size$: 0.0002\n  $nb_dt_rev$: 200\n")
 ex.create_experiment(N9, [{"config": "cfg_n9000"}], stages_on=ex.FLOWS["Indicators"])
-TR_DIR = os.path.join(os.path.dirname(DOE), "Convergency_Simulation", "4_DOE_Data_Training_Tube",
-                      "DOE_Training_Tube_dxl_20e-5_RUN_10_0.5-2.0")
-VA_DIR = "D:/Thesis/03-Code_Storage/02-Altintlas_Nessy2m_Storage/Data/1DOF_150_Ap_Cont_test_ind/Ap_Cons_test_ind"
+import numpy as np  # noqa: E402
+
+
+def fake_doe(folder, kappas, labelled):
+    """An already extracted DOE folder (temp): case folders, doe_results.h5 and, if labelled, an amplitude
+    reference_dataset (the check never depends on where the user keeps the real data)."""
+    t = np.linspace(0, 1, 50)
+    with h5py.File(os.path.join(_mk(folder), "doe_results.h5"), "w") as h:
+        for i, k in enumerate(kappas):
+            os.makedirs(os.path.join(folder, str(i), "1DOF_150Hz"))
+            open(os.path.join(folder, str(i), "1DOF_150Hz", "sens_out.hdf5"), "w").close()
+            g = h.create_group(f"case_{i:03d}")
+            g.attrs.update({"$Ap_start$": k * 0.0086, "$Ap_end$": k * 0.0086, "$spin_rate$": 12098.28,
+                            "$dxl_size$": 2e-4, "$nb_dt_rev$": 200.0, "$f_tooth$": 0.05, "kappa": k})
+            for s in ("Axial_disp", "Axial_vel"):
+                g.create_dataset(f"{s}/time", data=t)
+                g.create_dataset(f"{s}/values", data=np.sin(20 * t) * k)
+    if labelled:
+        with h5py.File(os.path.join(folder, "reference_dataset_amp.h5"), "w") as h:
+            for i, k in enumerate(kappas):
+                p = h.create_group(f"{'stable' if k < 1 else 'unstable'}/case_{i:03d}").create_dataset(
+                    "Axial_disp__000", data=[0.0])
+                p.attrs.update(labeling_strategy="amplitude", labeling_signal="Axial_disp", kappa=k)
+
+
+def _mk(d):
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+TR_DIR, VA_DIR = os.path.join(base, "TRAIN"), os.path.join(base, "VALID")
+fake_doe(TR_DIR, [0.6, 0.8, 1.0, 1.2, 1.4], True)
+fake_doe(VA_DIR, [0.7, 0.9, 1.1], False)
 
 import tkinter as tk  # noqa: E402
 from tkinter import messagebox  # noqa: E402
@@ -78,7 +108,7 @@ try:
     assert im.name.get() == os.path.basename(TR_DIR), im.name.get()
     im.lab.set("reference_dataset_amp.h5")
     txt = im.prev.get("1.0", "end")
-    assert "34 case folders" in txt and "chosen labelled dataset reference_dataset_amp.h5" in txt and "Label build" in txt, txt
+    assert "5 case folders" in txt and "chosen labelled dataset reference_dataset_amp.h5" in txt and "Label build" in txt, txt
     shot(im.win, "v2_import_preview.png")
     im.name.set(TR)
     im._ok()
@@ -86,6 +116,27 @@ try:
     assert t.label["out"].endswith("reference_dataset_amp.h5") and ex.status(t)["label_build"][0] == "done"
     ex.import_dir(VA, VA_DIR, reference=TR)
     print("import with preview OK:", TR, "+", VA)
+    # ---- import a folder simulated but never extracted (no .h5): Extract runs from the app
+    raw = os.path.join(base, "RAW")
+    for i, ap in enumerate((0.004, 0.012)):
+        c = os.path.join(raw, str(i), "1DOF_150Hz")
+        os.makedirs(c)
+        open(os.path.join(c, "sens_out.hdf5"), "w").close()
+        with open(os.path.join(c, "var_val.py"), "w") as fh:
+            fh.write(f"var_val = {{'$Ap_start$': {ap}, '$Ap_end$': {ap}, '$spin_rate$': 12000.0}}\n")
+    filedialog.askdirectory = lambda **k: raw
+    im = L.ImportDialog(app)
+    assert im.h5.get() == L.NOT_EXTRACTED
+    im.ap_mode.set("manual")
+    im.ap_manual.set("8")
+    txt = im.prev.get("1.0", "end")
+    assert "not extracted yet: 2 cases" in txt and "kappa 0.5-1.5" in txt, txt
+    shot(im.win, "v2_import_not_extracted.png")
+    im._ok()
+    rw = ex.load("RAW")
+    assert ex.status(rw)["extract"][0] == "pending" and not ex.run_blockers(rw, "extract")
+    assert "would delete" in ex.run_blockers(rw, "simulate")[0]
+    print("import not extracted OK: Extract ready, Simulate blocked")
     # ---- run to goal: one console with the chain
     app.select(N9)
     app.run_to_goal()

@@ -1867,6 +1867,10 @@ class SimulationForm(_Dialog):
             self.buttons("Close")
             return
         vals = ex.simulation_form(ex.explicit_simulation(r.cfg)) if r is not None else {}
+        if r is not None and r.existing:
+            self.note("Simulated outside the app (imported without .h5). Extract reads the cases from the folder: "
+                      "only ap_ref (kappa) and the signals to extract matter here. Simulate stays blocked so the "
+                      "folder is never deleted.", "#b26a00")
         if r is not None and "config" in r.entry:
             self.note(f"This run reads {r.source}. Saving writes the whole simulation inside the experiment "
                       "(nothing inherited from base.yaml any more); the config file itself is not changed.", "#1565c0")
@@ -2097,6 +2101,9 @@ class CopyDialog(_Dialog):
         self.app.root.after(50, lambda: self.app.select(name, "simulate"))
 
 
+NOT_EXTRACTED = "(not extracted yet)"
+
+
 class ImportDialog(_Dialog):
     def __init__(self, app):
         from tkinter import filedialog
@@ -2110,8 +2117,14 @@ class ImportDialog(_Dialog):
         h5s = sorted(f for f in os.listdir(d) if f.endswith(".h5"))
         self.field("folder", tk.StringVar(value=d), width=90, state="readonly")
         self.h5 = self.field("signals file", tk.StringVar(value="doe_results.h5" if "doe_results.h5" in h5s else
-                                                          (h5s[0] if h5s else "")), values=h5s,
-                             note="the .h5 with case_* groups (Standardize an .h5… fixes one that is not)")
+                                                          (h5s[0] if h5s else NOT_EXTRACTED)), values=h5s + [NOT_EXTRACTED],
+                             note="the .h5 with case_* groups; 'not extracted yet' = simulated without .h5: Extract "
+                                  "runs from the app")
+        self.ap_mode = self.field("ap_ref (not extracted only)", tk.StringVar(value="none"),
+                                  values=["none", "manual", "model", "model_at_spin"],
+                                  note="for kappa = Ap / ap_ref, computed by Extract")
+        self.ap_manual = self.field("  ap_ref manual [mm]", tk.StringVar())
+        self.ap_model = self.field("  SLD model", tk.StringVar(), values=ex.sld_models())
         self.ref = self.field("reference experiment", tk.StringVar(value="(none)"), values=["(none)"] + _experiment_names(),
                               note="set it to validate these cases against it")
         refs = sorted(f for f in os.listdir(d) if f.startswith("reference_dataset") and f.endswith(".h5"))
@@ -2132,11 +2145,16 @@ class ImportDialog(_Dialog):
         self.row += 1
         for tag, col in (("ok", "#2e7d32"), ("bad", "#c62828"), ("warn", "#b26a00")):
             self.prev.tag_configure(tag, foreground=col)
-        self.h5.trace_add("write", lambda *_: self.preview())
-        self.lab.trace_add("write", lambda *_: self.preview())
-        self.ref.trace_add("write", lambda *_: self.preview())
+        for v in (self.h5, self.lab, self.ref, self.ap_mode, self.ap_manual, self.ap_model):
+            v.trace_add("write", lambda *_: self.preview())
         self.preview()
         self.buttons("Import")
+
+    def ap_ref(self):
+        m = self.ap_mode.get() or "none"
+        if m == "manual":
+            return {"mode": m, "manual": float(self.ap_manual.get()) * 1e-3}
+        return {"mode": m, "model": self.ap_model.get()} if m in ("model", "model_at_spin") else {"mode": "none"}
 
     def preview(self):
         """Contents of the folder, before importing: cases, datasets, results, and the stages that would be marked
@@ -2152,7 +2170,21 @@ class ImportDialog(_Dialog):
              "ok" if sims else "warn")
         line("doe_config.yaml (simulation config left by doe_runner): " +
              ("yes" if os.path.isfile(os.path.join(d, "doe_config.yaml")) else "no (the simulation cannot be re-run from here)"))
-        if h5:
+        if h5 == NOT_EXTRACTED:
+            try:
+                sim = ex.simulation_from_folder(d, self.ap_ref())
+                rows = ex.case_rows(ex._doe_runner().load_config(ex._tmp_config(sim)))
+                ks = [r["kappa"] for r in rows if r.get("kappa") is not None]
+                aps = [r["Ap_start"] * 1e3 for r in rows if "Ap_start" in r]
+                ns = sorted({r["spin_rate"] for r in rows if "spin_rate" in r})
+                line(f"not extracted yet: {len(rows)} cases rebuilt from their var_val.py → Extract will write "
+                     f"doe_results.h5 here (Simulate stays blocked: it would delete this folder)", "ok")
+                line("  n = " + ", ".join(f"{n:g}" for n in ns[:6]) + " rpm"
+                     + (f"   Ap {min(aps):.4g}-{max(aps):.4g} mm" if aps else "")
+                     + (f"   kappa {min(ks):.3g}-{max(ks):.3g}" if ks else "   kappa: none (choose an ap_ref)"))
+            except Exception as exc:
+                line(f"PROBLEM cannot rebuild the simulation: {exc}", "bad")
+        elif h5:
             rep = ex.inspect_h5(os.path.join(d, h5))
             for x in rep["problems"]:
                 line(f"PROBLEM {h5}: {x}", "bad")
@@ -2187,13 +2219,18 @@ class ImportDialog(_Dialog):
 
     def save(self):
         h5 = self.h5.get()
-        rep = ex.inspect_h5(os.path.join(self.dir, h5)) if h5 else {"ok": False, "problems": ["no .h5 in the folder"]}
-        if not rep["ok"]:
-            raise ValueError("\n".join(rep["problems"]) + "\n\nUse 'Standardize an .h5…' first.")
+        if h5 != NOT_EXTRACTED:
+            rep = ex.inspect_h5(os.path.join(self.dir, h5)) if h5 else {"ok": False, "problems": ["no .h5 in the folder"]}
+            if not rep["ok"]:
+                raise ValueError("\n".join(rep["problems"]) + "\n\nUse 'Standardize an .h5…' first.")
         name = self.name.get().strip()
         ref = None if self.ref.get() in ("", "(none)") else self.ref.get()
         lab = self.lab.get()
-        ex.import_dir(name, self.dir, ref, label_out=None if ref else ("-" if lab in ("", "(none)") else lab), h5=h5)
+        ex.import_dir(name, self.dir, ref, label_out=None if ref else ("-" if lab in ("", "(none)") else lab),
+                      h5="" if h5 == NOT_EXTRACTED else h5, ap_ref=self.ap_ref() if h5 == NOT_EXTRACTED else None)
+        if h5 == NOT_EXTRACTED:
+            self.app.root.after(50, lambda: self.app.select(name, "extract"))
+            return
         self.app.root.after(50, lambda: self.app.select(name))
 
 
