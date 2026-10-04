@@ -433,7 +433,8 @@ def load_doe_indicator_unified(h5_path: str) -> List[Dict]:
         for c in raw:
             grp = f.get(c["group"])
             if grp is not None:
-                for k in ("kappa", "Ap_mm", "true_label", "label_strategy"):
+                for k in ("kappa", "Ap_mm", "true_label", "label_strategy", "kappa_start", "kappa_end", "t_onset",
+                          "Ap_end_mm"):
                     if k in grp.attrs:
                         v = grp.attrs[k]
                         c["var_val"][k] = v.decode() if isinstance(v, bytes) else (v.item() if hasattr(v, "item") else v)
@@ -518,8 +519,104 @@ def load_h5_unified(h5_path: str, h5_type: str) -> List[Dict]:
         TYPE_MODEL_SNR    : load_model_snr_unified,
     }
     cases = loaders[h5_type](h5_path)
+    _apply_ramps(cases, h5_path)
     _assign_case_colors(cases, qualitative=False)
     return cases
+
+
+# ── rampas de Ap (PLAN_ramps.md) ──────────────────────────────────────────────────────────────────────────────
+TRUTH_SHADE = {"stable": "#0072B2", "gray": "#999999", "unstable": "#D55E00"}
+
+
+def _is_ramp_vv(vv: dict) -> bool:
+    try:
+        return abs(float(vv["Ap_end"]) - float(vv["Ap_start"])) > 1e-9
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
+def _truth_from_dataset(path: str) -> Dict[str, List[Tuple[float, float, str]]]:
+    """{case: [(t0, t1, label)]} of a reference_dataset*.h5 (one channel: the first one met per case)."""
+    out: Dict[str, List[Tuple[float, float, str]]] = {}
+    chan: Dict[str, str] = {}
+    try:
+        with h5py.File(path, "r") as f:
+            for lab in f:
+                for case, g in f[lab].items():
+                    for piece in g.values():
+                        a = piece.attrs
+                        ch = str(a.get("channel", ""))
+                        if chan.setdefault(case, ch) == ch and "t0" in a:
+                            out.setdefault(case, []).append((float(a["t0"]), float(a["t1"]), lab))
+    except OSError:
+        return {}
+    return {c: sorted(v) for c, v in out.items()}
+
+
+def _apply_ramps(cases: List[Dict], h5_path: str) -> None:
+    """Ramp cases (Ap_end != Ap_start): their single 'kappa' is ignored (NaN), the table shows kappa_start /
+    kappa_end; with kappa as label key, a ramp takes its start kappa (ramps sort by the kappa where they start).
+    Each ramp gets 'truth_iv' (the intervals of its ground truth: datasets of a validation file, else the
+    labelled dataset named in the file) and 't_onset' (start of the first unstable interval), to draw them."""
+    ramps = [c for c in cases if _is_ramp_vv(c.get("var_val", {}))]
+    if not ramps:
+        return
+    truth_ds = None
+    try:
+        with h5py.File(h5_path, "r") as f:
+            lab_path = f.attrs.get("label_dataset")
+            for c in ramps:
+                g = f.get(c["group"])
+                if g is not None and "truth_t0" in g and "truth_label" in g:
+                    c["truth_iv"] = list(zip(g["truth_t0"][()].tolist(), g["truth_t1"][()].tolist(),
+                                             g["truth_label"].asstr()[()].tolist()))
+    except OSError:
+        lab_path = None
+    for c in ramps:
+        vv = c["var_val"]
+        c["ramp"] = True
+        if "kappa" in vv:
+            vv["kappa"] = float("nan")
+        if "truth_iv" not in c and lab_path:
+            if truth_ds is None:
+                truth_ds = _truth_from_dataset(str(lab_path.decode() if isinstance(lab_path, bytes) else lab_path))
+            if c["group"] in truth_ds:
+                c["truth_iv"] = truth_ds[c["group"]]
+        t_on = vv.get("t_onset")
+        if t_on is None or not np.isfinite(float(t_on)):
+            t_on = min((a for a, _, lab in c.get("truth_iv", []) if lab == "unstable"), default=None)
+        c["t_onset"] = None if t_on is None else float(t_on)
+        if c.get("label_key") == "kappa":
+            try:
+                c["label_val"] = float(vv.get("kappa_start", float("nan")))
+            except (TypeError, ValueError):
+                pass
+    cases.sort(key=lambda c: c["label_val"] if np.isfinite(c.get("label_val", float("nan"))) else float("inf"))
+
+
+def _case_legend(c: dict, lk: str, lv: float) -> str:
+    """Legend text of a case: 'kappa=1.03', a ramp 'kappa 0.58->1.74', else the group."""
+    vv = c.get("var_val", {})
+    if c.get("ramp"):
+        try:
+            return f"kappa {float(vv['kappa_start']):.3g}->{float(vv['kappa_end']):.3g}"
+        except (KeyError, TypeError, ValueError):
+            return f"{c.get('group', '?')} (ramp)"
+    return f"{_col_header(lk)}={lv:.3g}" if np.isfinite(lv) else c.get("group", "?")
+
+
+def _draw_truth_marks(axes, c: dict, color, shade: bool) -> None:
+    """A ramp case: vertical line where its ground truth turns unstable (t_onset) and, when one case is shown,
+    the stable / gray / unstable intervals of the truth shaded. Nothing for a constant case."""
+    if not c.get("ramp"):
+        return
+    for ax in axes:
+        if shade:
+            for t0, t1, lab in c.get("truth_iv", []):
+                ax.axvspan(t0, t1, color=TRUTH_SHADE.get(lab, "#999999"), alpha=0.08, lw=0, zorder=0)
+        if c.get("t_onset") is not None:
+            ax.axvline(c["t_onset"], color=color, ls=":", lw=1.8, zorder=8,
+                       label=f"truth turns unstable ({c['t_onset']:.2f} s)" if shade else None)
 
 
 def _assign_case_colors(cases: List[Dict], qualitative: bool = False) -> None:
@@ -1997,12 +2094,7 @@ class DoeSelectorUnifiedApp:
             lk   = c.get("label_key", "")
             lv   = c.get("label_val", float("nan"))
             _cbar_marks.append((lv, clr))
-            if is_ctrl:
-                lbl = "control"
-            elif np.isfinite(lv):
-                lbl = f"{_col_header(lk)}={lv:.3g}"
-            else:
-                lbl = c.get("group", "?")
+            lbl = "control" if is_ctrl else _case_legend(c, lk, lv)
             lw   = 2.2   if is_ctrl else _lw_nc
             _ctrl_zo  = int(self._ctrl_zo_var.get())  if hasattr(self, "_ctrl_zo_var")  else 100
             _ctrl_alp = self._ctrl_alpha_var.get() if hasattr(self, "_ctrl_alpha_var") else 1.0
@@ -2016,6 +2108,7 @@ class DoeSelectorUnifiedApp:
                 ax.plot(t[::DECIMATE], y[::DECIMATE], color=clr, lw=lw,
                         alpha=alpha, label=lbl,
                         zorder=zo, rasterized=True)
+            _draw_truth_marks([ax for _, ax, _n in self._sig_axes()], c, clr, shade=len(selected) == 1)
 
         axes_sig = self._sig_axes()
         for k, (sig, ax, _n) in enumerate(axes_sig):
@@ -2388,7 +2481,8 @@ class DoeSelectorUnifiedApp:
                 self.ax_It.plot(t[::_IND_DECIMATE], I_t[::_IND_DECIMATE],
                                 color=color, lw=lw,
                                 alpha=_it_ctrl_alp if is_ctrl else case_alpha,
-                                label=f"{lk_disp}={lv_str} | {rn}",
+                                label=(f"{_case_legend(c, c.get('label_key', ''), pv)} | {rn}" if c.get("ramp")
+                                       else f"{lk_disp}={lv_str} | {rn}"),
                                 zorder=_it_ctrl_zo if is_ctrl else (3 + ci),
                                 rasterized=True)
                 # t_d vline
@@ -2404,6 +2498,7 @@ class DoeSelectorUnifiedApp:
                             self.ax_It.scatter([td[0]], [y_td], s=24, color=color,
                                                edgecolor="black", linewidths=0.3, zorder=7)
                 plotted = True
+            _draw_truth_marks([self.ax_It], c, c.get("_color", "k"), shade=len(selected) == 1)
 
         self.ax_It.set_xlabel(r"$t$ (s)", fontsize=14)
         self.ax_It.set_ylabel(r"$I(t)$", fontsize=14)
@@ -2734,18 +2829,25 @@ def file_role(h5_path: str) -> str:
     try:
         with h5py.File(h5_path, "r") as f:
             a = {k: (v.decode() if isinstance(v, bytes) else v) for k, v in f.attrs.items()}
-            lab = None
-            for g in ("stable", "unstable", "gray"):
-                if g in f:
-                    for case in f[g].values():
-                        piece = next(iter(case.values()), None)
-                        if piece is not None:
+            lab, ramp_cases = None, set()
+            for g in ("stable", "unstable", "gray"):   # a labelled dataset (a label group can be empty)
+                for cname, case in (f[g].items() if g in f else []):
+                    for piece in case.values():
+                        if lab is None:
                             lab = {k: piece.attrs[k] for k in piece.attrs if str(k).startswith("labeling_")}
+                        if _is_ramp_vv({"Ap_start": piece.attrs.get("$Ap_start$"), "Ap_end": piece.attrs.get("$Ap_end$")}):
+                            ramp_cases.add(cname)
                         break
-                    break
+            for k in f:
+                if k.startswith("case_") and _is_ramp_vv({"Ap_start": f[k].attrs.get("$Ap_start$"),
+                                                         "Ap_end": f[k].attrs.get("$Ap_end$")}):
+                    ramp_cases.add(k)
     except OSError:
         return ""
     bits = []
+    if ramp_cases:
+        bits.append(f"{len(ramp_cases)} RAMP case(s) of Ap (kappa_start -> kappa_end; dotted line = where the truth "
+                    f"turns unstable)")
     if a.get("experiment"):
         bits.append(f"experiment {a['experiment']} · stage {a.get('experiment_stage', '?')}")
     if a.get("experiment_role"):
@@ -2778,7 +2880,7 @@ def _index_reference_dataset(h5_path: str) -> List[Dict[str, Any]]:
                     idx_str = piece_name.rsplit("__", 1)[-1]
                     kappa = attrs.get("kappa")
                     ap = attrs.get("$Ap_start$")
-                    rows.append({
+                    row = {
                         "label": label, "case": case_name, "channel": str(channel),
                         "idx": int(idx_str) if idx_str.isdigit() else 0,
                         "piece_name": piece_name,
@@ -2786,7 +2888,16 @@ def _index_reference_dataset(h5_path: str) -> List[Dict[str, Any]]:
                         "kappa": float(kappa) if kappa is not None else None,
                         "Ap_mm": float(ap) * 1e3 if ap is not None else None,
                         "amp_limits": _amp_limits(attrs, str(channel)),
-                    })
+                    }
+                    if _is_ramp_vv({"Ap_start": ap, "Ap_end": attrs.get("$Ap_end$")}):
+                        # a piece of a ramp: kappa and Ap at its two ends (its single 'kappa' is ignored)
+                        k0, k1 = attrs.get("kappa_t0"), attrs.get("kappa_t1")
+                        a0, a1 = attrs.get("Ap_start_mm"), attrs.get("Ap_end_mm")
+                        row["kappa"] = float(k0) if k0 is not None else None
+                        row["kappa_txt"] = f"{float(k0):.3f}->{float(k1):.3f}" if k0 is not None and k1 is not None else "ramp"
+                        row["Ap_mm"] = float(a0) if a0 is not None else row["Ap_mm"]
+                        row["ap_txt"] = f"{float(a0):.2f}->{float(a1):.2f}" if a0 is not None and a1 is not None else ""
+                    rows.append(row)
     return rows
 
 
@@ -3214,8 +3325,8 @@ class ReferenceViewerApp:
                 continue
             if ch != "(all)" and r["channel"] != ch:
                 continue
-            kappa_txt = f"{r['kappa']:.3f}" if r["kappa"] is not None else ""
-            ap_txt = f"{r['Ap_mm']:.3f}" if r.get("Ap_mm") is not None else ""
+            kappa_txt = r.get("kappa_txt") or (f"{r['kappa']:.3f}" if r["kappa"] is not None else "")
+            ap_txt = r.get("ap_txt") or (f"{r['Ap_mm']:.3f}" if r.get("Ap_mm") is not None else "")
             self._tree.insert("", tk.END, iid=str(i), values=(
                 r["label"], r["case"], r["channel"], r["idx"],
                 f"{r['t0']:.3f}", f"{r['t1']:.3f}", f"{r['t1'] - r['t0']:.3f}", kappa_txt, ap_txt,
@@ -3929,5 +4040,73 @@ def main() -> None:
     root.mainloop()
 
 
+def _selftest() -> None:
+    """Loading functions with ramps of Ap (no window): kappa of a ramp ignored, sorted by its start kappa, the
+    truth intervals / t_onset of indicator and validation files, the file band, the pieces of a dataset."""
+    import tempfile
+    d = tempfile.mkdtemp(prefix="unified_sel_")
+    t = np.linspace(0.0, 10.0, 101)
+    doe, ind, val, lab = (os.path.join(d, n) for n in ("doe_results.h5", "ind.h5", "val.h5", "lab.h5"))
+    cases = {"case_000": (0.009, 0.009, {"kappa": 1.05}),
+             "case_001": (0.005, 0.015, {"kappa": 0.58, "kappa_start": 0.58, "kappa_end": 1.74}),
+             "case_002": (0.015, 0.005, {"kappa": 1.74, "kappa_start": 1.74, "kappa_end": 0.58})}
+    with h5py.File(lab, "w") as f:
+        for c, iv in (("case_001", [(0.0, 6.0, "stable"), (6.0, 10.0, "unstable")]),
+                      ("case_002", [(0.0, 4.0, "unstable"), (4.0, 10.0, "stable")]), ("case_000", [(0.0, 10.0, "unstable")])):
+            for i, (a, b, lb) in enumerate(iv):
+                p = f.require_group(f"{lb}/{c}").create_dataset(f"Axial_disp__{i:03d}", data=[0.0])
+                a0, a1, extra = cases[c]
+                p.attrs.update({"t0": a, "t1": b, "channel": "Axial_disp", "$Ap_start$": a0, "$Ap_end$": a1,
+                                "kappa_t0": 0.58 + 0.116 * a, "kappa_t1": 0.58 + 0.116 * b,
+                                "Ap_start_mm": 5 + a, "Ap_end_mm": 5 + b, "labeling_strategy": "amplitude", **extra})
+    for path in (doe, ind, val):
+        with h5py.File(path, "w") as f:
+            if path == ind:
+                f.attrs["label_dataset"] = lab
+            for c, (a0, a1, extra) in cases.items():
+                g = f.create_group(c)
+                g.attrs.update({"$Ap_start$": a0, "$Ap_end$": a1, "$spin_rate$": 12000.0, **extra})
+                g.create_dataset("Axial_disp/time", data=t)
+                g.create_dataset("Axial_disp/values", data=np.sin(t))
+                if path != doe:
+                    r = g.create_group("maxent_x")
+                    r["t"], r["I_t"], r["t_d"] = t, np.cos(t), [7.0]
+                if path == val:
+                    g.attrs.update({"$kappa$": np.nan if a0 != a1 else extra["kappa"], "$truth$": "mixed"})
+                    iv = [(0.0, 6.0, "stable"), (6.0, 10.0, "unstable")]
+                    g["truth_t0"], g["truth_t1"] = [x[0] for x in iv], [x[1] for x in iv]
+                    g.create_dataset("truth_label", data=np.array([x[2] for x in iv], dtype=object),
+                                     dtype=h5py.string_dtype())
+                    if a0 != a1:
+                        g.attrs["$t_onset$"] = 6.0
+    for path in (doe, ind, val):
+        cs = load_h5_unified(path, detect_h5_type(path))
+        by = {c["group"]: c for c in cs}
+        assert [c["group"] for c in cs] == ["case_001", "case_000", "case_002"], (path, [c["group"] for c in cs])
+        r = by["case_001"]
+        assert r["ramp"] and np.isnan(r["var_val"]["kappa"]) and r["label_val"] == 0.58, (path, r["var_val"])
+        assert _case_legend(r, "kappa", r["label_val"]) == "kappa 0.58->1.74" and not by["case_000"].get("ramp")
+        if path == doe:
+            assert "truth_iv" not in r and r["t_onset"] is None
+        else:
+            assert r["truth_iv"][0] == (0.0, 6.0, "stable") and r["t_onset"] == 6.0, (path, r.get("truth_iv"))
+        if path == ind:
+            assert by["case_002"]["t_onset"] == 0.0 and by["case_002"]["truth_iv"][0][2] == "unstable"
+    fig = Figure()
+    ax = fig.add_subplot(111)
+    _draw_truth_marks([ax], by["case_001"], "C0", shade=True)
+    assert len(ax.lines) == 1 and ax.lines[0].get_xdata()[0] == 6.0 and len(ax.patches) == 2
+    _draw_truth_marks([ax], by["case_000"], "C0", shade=True)          # a constant case: nothing drawn
+    assert len(ax.lines) == 1
+    assert "3 RAMP" not in file_role(doe) and "2 RAMP case(s)" in file_role(doe) and "2 RAMP case(s)" in file_role(lab)
+    rows = {(x["case"], x["t0"]): x for x in _index_reference_dataset(lab)}
+    assert rows[("case_001", 6.0)]["kappa_txt"] == "1.276->1.740" and rows[("case_001", 6.0)]["ap_txt"] == "11.00->15.00"
+    assert "kappa_txt" not in rows[("case_000", 0.0)]
+    print("doe_unified_selector selftest OK")
+
+
 if __name__ == "__main__":
-    main()
+    if "--selftest" in sys.argv:
+        _selftest()
+    else:
+        main()
