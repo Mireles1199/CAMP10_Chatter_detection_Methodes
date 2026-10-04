@@ -201,7 +201,14 @@ def _h5_info(path: str, mtime: float) -> dict:
 
 
 def h5_info(path: str):
-    return _h5_info(path, _mtime(path)) if os.path.isfile(path) else None
+    """_h5_info, or None when the file does not exist or cannot be read yet (a stage is writing it: HDF5 locks
+    a file while it is open for writing)."""
+    if not os.path.isfile(path):
+        return None
+    try:
+        return _h5_info(path, _mtime(path))
+    except (OSError, KeyError, ValueError):
+        return None
 
 
 def _doe_runner():
@@ -1005,12 +1012,19 @@ def _yaml_labels(path: str) -> dict:
 
 
 def stage_progress(exp: Exp, key: str):
-    """(done, total) while a stage advances, else None: simulated cases, or '[k/N] completado' of the log."""
+    """(done, total) while a stage advances, else None: simulated cases, the cases extracted so far ('Casos
+    encontrados: N' / 'Caso k extraido' of doe_runner's log) or '[k/N] completado' of the indicators' log."""
     if key == "simulate":
         tot = sum(r.n_cases or 0 for r in exp.runs if not r.imported)
         return (sum(min(r.simulated(), r.n_cases or 0) for r in exp.runs if not r.imported), tot) if tot else None
     rec = read_record(exp, key)
     log = rec.get("log") if rec else None
+    if key == "extract" and log and os.path.isfile(log):
+        import re
+        with open(log, encoding="utf-8", errors="replace") as f:
+            txt = f.read()
+        tot = sum(int(n) for n in re.findall(r"Casos encontrados: (\d+)", txt))
+        return (len(re.findall(r"Caso \d+ extraido", txt)), tot) if tot else None
     if key in ("indicators", "noise_indicators") and log and os.path.isfile(log):
         import re
         with open(log, encoding="utf-8", errors="replace") as f:
@@ -1036,6 +1050,9 @@ def run_timing(exp: Exp, key: str) -> dict:
 
 def stage_summary(exp: Exp, key: str) -> list:
     """What the outputs of the stage contain: [(text, tag)], tag in ok / warn / bad / None. Never raises."""
+    rec = read_record(exp, key)
+    if key != "simulate" and rec and rec.get("status") == "running" and pid_alive(rec.get("pid")):
+        return [("being written by the running stage: its content appears when it ends (progress below)", None)]
     try:
         return _stage_summary(exp, key)
     except Exception as exc:   # an unreadable / half-written file must not break the panel
@@ -2537,6 +2554,18 @@ def _selftest():
         assert st["extract"][0] == "pending" and not run_blockers(rw, "extract"), (st, run_blockers(rw, "extract"))
         assert run_blockers(rw, "simulate") and "would delete" in run_blockers(rw, "simulate")[0]
         assert "existing" in resolved_yaml("raw")["runs"][0]
+        # Extract running: progress from doe_runner's log, the panel does not try to read the half-written file
+        log = os.path.join(rw.runs_dir(), "extract.log")
+        with open(log, "w") as f:
+            f.write("[INFO] Casos encontrados: 2 | DOE dir: x\n[INFO] Caso 000 extraido | var_val={}\n")
+        write_record(rw, "extract", {"status": "running", "start": time.time(), "pid": os.getpid(), "log": log})
+        with open(rw.runs[0].h5, "wb") as f:
+            f.write(b"not finished")                               # what a reader sees while it is written
+        assert stage_progress(rw, "extract") == (1, 2) and stage_badge(rw, "extract") == "50 %"
+        assert "being written" in stage_summary(rw, "extract")[0][0] and h5_info(rw.runs[0].h5) is None
+        assert summary(rw)["cases"] == 2                            # the list does not fail either
+        os.remove(record_path(rw, "extract"))
+        os.remove(rw.runs[0].h5)
         import subprocess   # doe_runner itself finds the 2 cases with the generated config (dry-run: nothing written)
         r = subprocess.run([sys.executable, os.path.join(SIM, "doe_runner.py"), "--config", rw.runs[0].config,
                             "--command", "extract", "--dry-run"], capture_output=True, text=True)
