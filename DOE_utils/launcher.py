@@ -1906,6 +1906,7 @@ class SldPicker:
         for u in ("kappa", "Ap [mm]"):
             ttk.Radiobutton(row, text=u, value=u, variable=self.r_unit, command=self.draw).pack(side=tk.LEFT)
         ttk.Button(row, text="Fill", command=self.fill).pack(side=tk.LEFT, padx=4)
+        ttk.Button(row, text="Propose (as the validation planner)", command=self.propose).pack(side=tk.LEFT, padx=2)
         ttk.Button(row, text="Clear", command=lambda: (self.aps.clear(), self.draw())).pack(side=tk.LEFT)
         body = ttk.Frame(w)
         body.pack(fill=tk.BOTH, expand=True)
@@ -2124,6 +2125,40 @@ class SldPicker:
             vals = [k * lim for k in vals]
         self.aps = sorted(set(self.aps + [round(v, 4) for v in vals if v > 0]))
         self.draw()
+
+    def propose(self):
+        """Same rule as doe_val_planner: the range [from, to] in kappa split into 'cases' strata, one case per
+        stratum with a little jitter, kept at least 0.02 away from the kappa already used by the reference (its
+        extracted cases; no labels needed to choose what to simulate). Kappa -> Ap with the limit at n."""
+        import math
+        sys.path.insert(0, ex.SIM) if ex.SIM not in sys.path else None
+        import doe_val_planner as vp
+        try:
+            a, b, n = float(self.r_from.get()), float(self.r_to.get()), int(self.r_n.get())
+        except ValueError:
+            self.app._msg("Propose", "give from, to (kappa) and the number of cases", "warn")
+            return
+        info = ex.h5_info(self.ref_h5()) if self.ref_h5() else None
+        used = list(info["kappa"]) if info and info["kappa"] else []
+        lim = self.limit()
+        if lim is None or not math.isfinite(lim):
+            self.app._msg("Propose", "kappa needs a finite stability limit at this n (pocket or outside the lobes)", "warn")
+            return
+        try:
+            picked = vp.sample_zones([("propose", a, b, n)], used, 0.02, 0.6, 1)
+        except ValueError as exc:
+            self.app._msg("Propose", str(exc), "warn")
+            return
+        self.aps = sorted(set(self.aps + [round(k * lim, 4) for _, k in picked]))
+        self.r_unit.set("kappa")
+        self.draw()
+        self.app.status_msg.set(f"{len(picked)} cases proposed in kappa {a:g}-{b:g}, away from the {len(used)} kappa of "
+                                f"the reference (gap 0.02)")
+
+    def ref_h5(self):
+        """The reference's extracted signals file (its kappa are the ones to stay away from), or None."""
+        ref = self.ref
+        return ref.data_h5 if ref is not None and ref.data_h5 and os.path.isfile(ref.data_h5) else None
 
     def use(self):
         if not self.aps:
