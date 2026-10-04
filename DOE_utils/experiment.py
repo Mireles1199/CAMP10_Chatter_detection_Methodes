@@ -1438,7 +1438,10 @@ def _stage_summary(exp: Exp, key: str) -> list:
             return [("no validation results yet", None)]
         f2 = lambda x: "-" if x is None or x != x else f"{x:.2f}"
         rank = sorted(m, key=lambda r: -(m[r].get("balanced_accuracy") or -1))
-        for i, r in enumerate(rank, 1):
+        empty = all(sum(m[r].get(k) or 0 for k in ("TP", "FN", "TN", "FP")) == 0 and "TP" in m[r] for r in rank)
+        if empty:   # only ramps that cross: nothing in the global metrics nor the ranking
+            out.append(("no constant case (or ramp that does not cross) scored: global metrics and ranking empty", None))
+        for i, r in enumerate([] if empty else rank, 1):
             d = m[r]
             out.append((f"{i}. {r}: bal.acc {f2(d.get('balanced_accuracy'))}  MCC {f2(d.get('MCC'))}  "
                         f"AUC {f2(d.get('AUC'))}  TP {d.get('TP')} FN {d.get('FN')} TN {d.get('TN')} FP {d.get('FP')}"

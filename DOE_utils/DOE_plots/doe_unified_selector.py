@@ -586,11 +586,17 @@ def _apply_ramps(cases: List[Dict], h5_path: str) -> None:
         if t_on is None or not np.isfinite(float(t_on)):
             t_on = min((a for a, _, lab in c.get("truth_iv", []) if lab == "unstable"), default=None)
         c["t_onset"] = None if t_on is None else float(t_on)
-        if c.get("label_key") == "kappa":
-            try:
-                c["label_val"] = float(vv.get("kappa_start", float("nan")))
-            except (TypeError, ValueError):
-                pass
+
+    def kap(c):   # kappa of a constant case, start kappa of a ramp
+        try:
+            return float(c["var_val"].get("kappa_start" if c.get("ramp") else "kappa", float("nan")))
+        except (TypeError, ValueError):
+            return float("nan")
+    ks = [kap(c) for c in cases]
+    # the key is kappa whenever every case has one (a ramp its start): never t_onset or another ramp-only attribute
+    if all(np.isfinite(k) for k in ks) and len({round(k, 9) for k in ks}) > 1 or cases[0].get("label_key") == "kappa":
+        for c, k in zip(cases, ks):
+            c["label_key"], c["label_val"] = "kappa", k
     cases.sort(key=lambda c: c["label_val"] if np.isfinite(c.get("label_val", float("nan"))) else float("inf"))
 
 
@@ -4102,6 +4108,15 @@ def _selftest() -> None:
     rows = {(x["case"], x["t0"]): x for x in _index_reference_dataset(lab)}
     assert rows[("case_001", 6.0)]["kappa_txt"] == "1.276->1.740" and rows[("case_001", 6.0)]["ap_txt"] == "11.00->15.00"
     assert "kappa_txt" not in rows[("case_000", 0.0)]
+    # ramps without a single 'kappa' (what doe_runner extract writes) and a t_onset that varies: the key is still
+    # kappa (the start kappa of a ramp), never t_onset
+    with h5py.File(ind, "a") as f:
+        for c in ("case_001", "case_002"):
+            del f[c].attrs["kappa"]
+            f[c].attrs["t_onset"] = 6.0 if c == "case_001" else 0.5
+    cs = load_h5_unified(ind, detect_h5_type(ind))
+    assert all(c["label_key"] == "kappa" for c in cs), [c["label_key"] for c in cs]
+    assert [c["group"] for c in cs] == ["case_001", "case_000", "case_002"] and cs[0]["label_val"] == 0.58
     print("doe_unified_selector selftest OK")
 
 
