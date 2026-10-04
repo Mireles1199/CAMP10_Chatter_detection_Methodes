@@ -339,6 +339,12 @@ try:
     sd._ok()
     assert len(ex.list_experiments()) == n_before
     assert ex.inspect_h5(os.path.join(ext, "old_results.h5"))["values"]["sim_model"][0] == "2DOF_150_250"
+    assert ex.own_yaml("ext_std")["runs"][0]["model"] == "2DOF_150_250" and ex.load("ext_std").runs[0].model == "2DOF_150_250"
+    sd = L.StandardizeDialog(app)                      # the values in the file are shown, nothing is re-written
+    assert sd.sim_model.get() == "2DOF_150_250" and sd.sim_case.get()
+    mt = os.path.getmtime(os.path.join(ext, "old_results.h5"))
+    sd._ok()
+    assert os.path.getmtime(os.path.join(ext, "old_results.h5")) == mt
     print("standardize of a file that has its experiment: only attributes, no new experiment OK")
     # ---- compare: two validations with fabricated metrics
     for n, ba in ((VA, 0.9), ("val_from_dialog", 0.7)):

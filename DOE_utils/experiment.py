@@ -283,6 +283,8 @@ class Run:
         # existing: simulated outside the app, no .h5 yet. The simulation is rebuilt from the folder (var_val.py)
         # so that Extract can run; Simulate stays done and blocked (doe_runner would delete the folder)
         self.existing = bool(entry.get("existing")) and self.config is not None
+        # model: the SLD preset of the simulated machine (run entry 'model', else the ap_ref model)
+        self.model = entry.get("model") or ((self.cfg or {}).get("ap_ref") or {}).get("model")
 
     def table(self, cfg: dict | None = None) -> tuple:
         """(variables, rows) of the cases of this run's config (or of cfg)."""
@@ -712,7 +714,7 @@ def _stage_state(exp, st, S, own, memo):
         return "failed", f"exit code {rec.get('exit_code')} at {_fmt_time(rec.get('end') or rec.get('start'))}"
     if not present:
         return "pending", "ready to run" if st.runnable else st.why_not
-    ref = rec.get("start") if rec else min((_mtime(p) for p in st.outputs if os.path.exists(p)), default=0)
+    ref = max(rec.get("start") or 0, rec.get("accepted") or 0) if rec else min((_mtime(p) for p in st.outputs if os.path.exists(p)), default=0)
     if rec and rec.get("hash") and rec["hash"] != st.hash:
         return "stale", "configuration changed since the last run"
     newer = [p for p in st.inputs if p and _mtime(p) > (ref or 0) + 1]
@@ -822,6 +824,12 @@ def check(exp: Exp) -> tuple:
         errs.append(f"the reference '{exp.ref.name}' has no indicator variants to inherit: choose them in Indicators "
                     "> Edit config (untick 'Same variants as the reference')" if inherit and exp.ref is not None
                     else "indicators stage on, but no indicator variant chosen (Indicators > Edit config)")
+    if exp.ref is not None:   # training and test must come from the same simulated machine
+        mine = {r.model for r in exp.runs if r.model}
+        theirs = {r.model for r in exp.ref.runs if r.model}
+        if mine and theirs and mine != theirs:
+            errs.append(f"simulated model {sorted(mine)} differs from the reference '{exp.ref.name}' "
+                        f"{sorted(theirs)}: the indicators would be tested on another machine")
     if exp.ref is not None and "label_build" not in stages(exp.ref):
         errs.append(f"the reference '{exp.ref.name}' has no labelled dataset (Label build is off there): turn on its "
                     "label stages in 'Experiment settings…' of that experiment (flow 'Labelled dataset'), or import "
@@ -1113,6 +1121,9 @@ def _stage_summary(exp: Exp, key: str) -> list:
                 continue
             out.append((f"{len(info['cases'])} cases, kappa {_krange(info['kappa'])}, n = "
                         f"{float(a.get('$spin_rate$', float('nan'))):.6g} rpm", "ok"))
+            out.append((f"simulated model: case {a.get('sim_case', '?')}, SLD model {a.get('sim_model', '?')}"
+                        + ("" if a.get("sim_model") else "  (unknown: Standardize an .h5… or the run's 'model')"),
+                        None if a.get("sim_model") else "warn"))
             out.append((f"signals {', '.join(info['signals']) or '-'}; {info['duration']:.2f} s per case" if
                         info["duration"] else f"signals {', '.join(info['signals']) or '-'}", None))
             disc = ", ".join(f"{k.strip('$')} {a[k]:g}" for k in DISCRETISATION if k in a)
@@ -1569,7 +1580,8 @@ def resolved_yaml(name: str) -> dict:
     if e.ref is not None:
         d["reference"] = e.ref.name
     d["stages"] = [k for k in e.enabled if k != "merge"]   # merge is automatic with several runs
-    d["runs"] = [({"simulation": explicit_simulation(r.cfg), **({"existing": True} if r.existing else {})}
+    d["runs"] = [({"simulation": explicit_simulation(r.cfg), **({"existing": True} if r.existing else {}),
+                   **({"model": r.entry["model"]} if r.entry.get("model") else {})}
                   if r.cfg else dict(r.entry)) for r in e.runs]
     if "indicators" in d or e.indicators["specs"]:
         ind = dict(d.get("indicators") or {})
@@ -1616,11 +1628,38 @@ def set_simulation(name: str, i: int, sim: dict) -> None:
     runs = list(d.get("runs") or [])
     if i >= len(runs):
         runs.append({"simulation": sim})
-    else:   # a run simulated outside the app keeps its flag (Simulate stays blocked)
-        runs[i] = {"simulation": sim, **({"existing": True} if runs[i].get("existing") else {})}
+    else:   # a run simulated outside the app keeps its flag (Simulate stays blocked) and its model
+        runs[i] = {"simulation": sim, **{k: runs[i][k] for k in ("existing", "model") if runs[i].get(k)}}
     d["runs"] = runs
     yaml_save(d, exp_path(name))
     reload()
+
+
+def set_run_model(name: str, h5: str, model) -> bool:
+    """Write 'model' (SLD preset of the simulated machine; None removes it) in the run(s) of the experiment whose
+    signals file is h5. True if something changed."""
+    e, d = load(name), own_yaml(name)
+    runs, changed = list(d.get("runs") or []), False
+    for i, r in enumerate(e.runs):
+        if i < len(runs) and _norm(r.h5) == _norm(h5) and runs[i].get("model") != model:
+            if model:
+                runs[i]["model"] = model
+            else:
+                runs[i].pop("model", None)
+            changed = True
+    if changed:
+        d["runs"] = runs
+        yaml_save(d, exp_path(name))
+        reload()
+    return changed
+
+
+def stamp_model(exp: Exp) -> None:
+    """After Extract: write each run's model (sim_model) into its doe_results.h5, so the model saved in the
+    experiment survives a new extraction (sim_case is written by doe_runner extract itself)."""
+    for r in exp.runs:
+        if os.path.isfile(r.h5) and r.model:
+            add_case_attrs(r.h5, {"sim_model": r.model})
 
 
 def validation_metrics(exp: Exp) -> dict:
@@ -1814,6 +1853,10 @@ def import_dir(name: str, doe_dir: str, reference: str | None = None, label_out:
         run = {"dir": doe_dir.replace("\\", "/"), "case": detect_case(doe_dir)}
         if h5 != "doe_results.h5":
             run["h5"] = h5
+        m = inspect_h5(os.path.join(doe_dir, h5))["values"].get("sim_model") or []
+        m = next((str(v) for v in m if v is not None), None) or (ap_ref_of_h5(os.path.join(doe_dir, h5)) or {}).get("model")
+        if m:
+            run["model"] = m   # the simulated machine, kept in the experiment file
     d = {"name": name, "description": description or "", "stages": ["simulate", "extract"]}
     if reference:
         d["reference"] = reference
@@ -1914,11 +1957,27 @@ def experiments_using(h5: str) -> list:
 
 def add_case_attrs(path: str, values: dict) -> list:
     """Write attributes to every case of an .h5: {attr: value or [value per case]}; signals are not touched.
-    With 'ap_ref' (an ap_ref section) also kappa = Ap / ap_ref of each case. Returns what was written."""
+    With 'ap_ref' (an ap_ref section) also kappa = Ap / ap_ref of each case. Returns what was written.
+    Only metadata (sim_case, sim_model): the file keeps its date, so the stages that read it do not turn stale."""
     import h5py
     values = dict(values)
     ap_ref = values.pop("ap_ref", None)
+    keep_date = not ap_ref and set(values) <= {"sim_case", "sim_model"}
+    st = os.stat(path)
     done = []
+    _write_case_attrs(path, values, ap_ref, done)
+    for k in ("sim_case", "sim_model"):   # also at the root, as doe_runner extract writes them
+        if values.get(k) and not isinstance(values[k], (list, tuple)):
+            with h5py.File(path, "a") as f:
+                f.attrs[k] = values[k]
+    if keep_date:
+        os.utime(path, (st.st_atime, st.st_mtime))
+    _h5_info.cache_clear()
+    return done
+
+
+def _write_case_attrs(path: str, values: dict, ap_ref, done: list) -> None:
+    import h5py
     with h5py.File(path, "a") as f:
         cases = sorted(k for k in f if k.startswith("case_"))
         for i, c in enumerate(cases):
@@ -1939,8 +1998,6 @@ def add_case_attrs(path: str, values: dict) -> list:
             f.attrs["ap_ref_mode"] = ap_ref.get("mode", "none")
             if ap_ref.get("model"):
                 f.attrs["ap_ref_model"] = ap_ref["model"]
-    _h5_info.cache_clear()
-    return done
 
 
 # ============================================================================== run (the wrapper)
@@ -2008,15 +2065,18 @@ def existing_outputs(exp: Exp, key: str) -> list:
 
 
 def accept(exp: Exp, keys=None) -> list:
-    """Mark stale stages as up to date: their record takes the current configuration fingerprint (for a change
-    that does not alter the result, e.g. the same folder written another way). Only stages whose output exists
-    and that are stale because of their configuration. Returns the stages accepted."""
+    """Mark stale stages as up to date: their record takes the current configuration fingerprint and an
+    'accepted' time later than its inputs (for a change that does not alter the result: the same folder written
+    another way, attributes added to an input...). Only stages stale because of their configuration or of a
+    newer input; 'upstream is stale' clears once the upstream is accepted. Returns the stages accepted."""
     done = []
     for k, (state, reason) in status(exp).items():
-        if (keys and k not in keys) or state != "stale" or "configuration changed" not in reason:
+        if (keys and k not in keys) or state != "stale" or not (
+                "configuration changed" in reason or "input changed after the run" in reason):
             continue
         rec = read_record(exp, k) or {"stage": k, "status": "imported", "start": time.time(), "exit_code": 0}
-        rec.update(hash=stages(exp)[k].hash, accepted=time.time())
+        st = stages(exp)[k]
+        rec.update(hash=st.hash, accepted=max([time.time()] + [_mtime(p) for p in st.inputs if p]))
         write_record(exp, k, rec)
         done.append(k)
     return done
@@ -2158,6 +2218,11 @@ def run_stage(name: str, key: str, yes: bool = False, cmds=None, notify_end: boo
     write_record(exp, key, rec)
     if code == 0:
         stamp_outputs(exp, st)
+        if key == "extract":
+            try:
+                stamp_model(exp)
+            except OSError as exc:
+                print(f"[experiment] could not write the model into doe_results.h5: {exc}")
         if key in ("label_build", "indicators"):   # the indicator results always carry the current true labels
             try:
                 link_truth(exp)
@@ -2590,6 +2655,11 @@ def _selftest():
         st = status(e)
         assert st["label_template"][0] == "stale" and st["label_build"][0] == "stale" and "upstream" in st["label_build"][1]
         assert accept(e) == ["label_template"] and status(e)["label_build"][0] == "done"   # "mark up to date"
+        t_old, t_new = os.path.getmtime(e.data_h5), time.time() + 30   # an input rewritten later (attributes added)
+        os.utime(e.data_h5, (t_new, t_new))
+        assert "input changed" in status(e)["label_template"][1]
+        assert set(accept(e)) == {"label_template", "label_build"} and status(e)["label_build"][0] == "done", status(e)
+        os.utime(e.data_h5, (t_old, t_old))
         # the fingerprint ignores how a path is written and what does not change a result
         assert _hash({"p": "D:/Data/Run", "nb_proc": 2, "workers": 6}) == _hash({"p": "d:\\data\\run"})
         write_record(e, "label_template", {"status": "failed", "start": time.time(), "end": time.time(), "exit_code": 2})
@@ -2686,6 +2756,21 @@ def _selftest():
         assert st["extract"][0] == "pending" and not run_blockers(rw, "extract"), (st, run_blockers(rw, "extract"))
         assert run_blockers(rw, "simulate") and "would delete" in run_blockers(rw, "simulate")[0]
         assert "existing" in resolved_yaml("raw")["runs"][0]
+        # model: kept in the experiment, a metadata-only attribute keeps the file date, mismatch with the reference
+        import h5py as _h5
+        with _h5.File(os.path.join(raw, "doe_results.h5"), "w") as f:
+            f.create_group("case_000").attrs["$Ap_start$"] = 0.004
+        mt = os.path.getmtime(os.path.join(raw, "doe_results.h5"))
+        add_case_attrs(os.path.join(raw, "doe_results.h5"), {"sim_model": "1DOF_150"})
+        assert os.path.getmtime(os.path.join(raw, "doe_results.h5")) == mt
+        assert set_run_model("raw", os.path.join(raw, "doe_results.h5"), "1DOF_150") and load("raw").runs[0].model == "1DOF_150"
+        assert resolved_yaml("raw")["runs"][0]["model"] == "1DOF_150"
+        os.remove(os.path.join(raw, "doe_results.h5"))
+        yaml_save(dict(own_yaml("val2"), runs=[{"dir": os.path.join(base, "DOE_V"), "model": "2DOF_150_250"}]),
+                  exp_path("val2"))
+        set_run_model("train", load("train").runs[0].h5, "1DOF_150")
+        assert any("simulated model" in x for x in check(load("val2"))[0])
+        set_run_model("train", load("train").runs[0].h5, None)
         # Extract running: progress from doe_runner's log, the panel does not try to read the half-written file
         log = os.path.join(rw.runs_dir(), "extract.log")
         with open(log, "w") as f:

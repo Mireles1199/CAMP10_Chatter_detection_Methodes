@@ -833,7 +833,8 @@ class App:
         self.card_line.set("  ·  ".join(bits))
         self.desc.set(e.cfg.get("description", ""))
         # where everything comes from and goes to (which config, which data, which outputs)
-        src = [f"run {i + 1}: {r.source}  →  data {r.doe_dir}" for i, r in enumerate(e.runs)]
+        src = [f"run {i + 1}: {r.source}  →  data {r.doe_dir}   ·  model: {r.model or '? (Standardize an .h5…)'}"
+               for i, r in enumerate(e.runs)]
         src.append(f"outputs of this experiment: {e.out_dir}" + ("" if e.cfg.get("out_dir") else "  (default)"))
         src.append(f"file: {e.path}")
         self.card_src.set("\n".join(src))
@@ -958,7 +959,8 @@ class App:
         self._enable(btn["goto"], self._blocking is not None)
         self._enable(btn["labels"], k in ("label_template", "label_build") and os.path.isfile(e.label["labels_yaml"]))
         self._enable(btn["folder"], any(os.path.exists(os.path.dirname(p)) for p in s.outputs))
-        self._enable(btn["accept"], state == "stale" and "configuration changed" in reason)
+        self._enable(btn["accept"], state == "stale" and ("configuration changed" in reason
+                                                           or "input changed after the run" in reason))
 
     @staticmethod
     def _channels(e, k) -> list:
@@ -1114,9 +1116,10 @@ class App:
         e, k = self.exp(), self.sel_stage
         if messagebox.askyesno(
                 "Mark up to date",
-                f"'{ex.TITLES[k]}' is stale because its configuration changed after it ran.\n\n"
+                f"'{ex.TITLES[k]}' is stale: {ex.status(e)[k][1]}.\n\n"
                 "Mark it up to date only if that change does not alter its result (e.g. the same folder written "
-                "another way, or the number of parallel processes). Otherwise run it again.\n\nMark it up to date?"):
+                "another way, the number of parallel processes, attributes added to an input). Otherwise run it "
+                "again.\n\nMark it up to date?"):
             ex.accept(e, [k])
             self.refresh(True)
 
@@ -2196,7 +2199,9 @@ class NewExperimentDialog(_Dialog):
         if not self.frame.preview():
             raise ValueError("fix the errors shown in red first")
         sim = self.frame.build()
-        ex.create_experiment(name, [{"simulation": sim}], stages_on=ex.FLOWS[flow], reference=ref,
+        model = self.frame.ap_model.get().strip()   # the SLD model chosen = the simulated machine
+        ex.create_experiment(name, [{"simulation": sim, **({"model": model} if model else {})}],
+                             stages_on=ex.FLOWS[flow], reference=ref,
                              description=self.descr.get(), simulate=self.frame.run_opts() or None)
         self.app.root.after(50, lambda: self.app.select(name))
 
@@ -2468,11 +2473,12 @@ class StandardizeDialog(_Dialog):
         t.configure(state="disabled")
         folder = os.path.dirname(p)
         self.section("Attributes to add (empty = leave as it is). Only these attributes are written to the file.")
-        self.sim_case = self.field("sim_case", tk.StringVar(value="" if not rep["missing"]["sim_case"] else
-                                                            ex.detect_case(folder)),
-                                   note="Nessy2m case (the model simulated)")
-        self.sim_model = self.field("sim_model", tk.StringVar(), values=[""] + ex.sld_models(), editable=True,
-                                    note="SLD preset of that model (DOE_plots/sld_model.py)")
+        cur = lambda a: next((str(v) for v in rep["values"][a] if v is not None), "")   # noqa: E731
+        self.sim_case = self.field("sim_case", tk.StringVar(value=cur("sim_case") or ex.detect_case(folder)),
+                                   note="Nessy2m case (the model simulated); shown: the value in the file")
+        self.sim_model = self.field("sim_model", tk.StringVar(value=cur("sim_model")), values=[""] + ex.sld_models(),
+                                    editable=True, note="SLD preset of that model; also saved in the experiment(s)")
+        self._orig = {"sim_case": self.sim_case.get(), "sim_model": self.sim_model.get()}
         self.spin = self.field("$spin_rate$ [rpm]", tk.StringVar(), state="normal" if rep["missing"]["$spin_rate$"] else "disabled",
                                note="only when missing" if rep["missing"]["$spin_rate$"] else "present")
         need_k = bool(rep["missing"]["kappa"]) and not rep["missing"]["$Ap_start$"]
@@ -2503,10 +2509,10 @@ class StandardizeDialog(_Dialog):
         if not self.ok:
             return True
         vals = {}
-        if self.sim_case.get().strip():
-            vals["sim_case"] = self.sim_case.get().strip()
-        if self.sim_model.get().strip():
-            vals["sim_model"] = self.sim_model.get().strip()
+        for k, var in (("sim_case", self.sim_case), ("sim_model", self.sim_model)):
+            v = var.get().strip()
+            if v and (v != self._orig[k] or self.rep["missing"][k]):   # only what changes
+                vals[k] = v
         if self.rep["missing"]["$spin_rate$"] and self.spin.get().strip():
             vals["$spin_rate$"] = float(self.spin.get())
         m = self.ap_mode.get()
@@ -2520,6 +2526,9 @@ class StandardizeDialog(_Dialog):
             return False
         if vals:
             ex.add_case_attrs(self.path, vals)
+        model = self.sim_model.get().strip()
+        for n in self.users:   # the model is also written in the experiment file (survives a new Extract)
+            ex.set_run_model(n, self.path, model or None)
         if not self.create.get():
             if self.users:
                 self.app.root.after(50, lambda: self.app.select(self.users[0]))
@@ -2527,6 +2536,7 @@ class StandardizeDialog(_Dialog):
         name = self.name.get().strip()
         ref = None if self.ref.get() in ("", "(none)") else self.ref.get()
         ex.import_dir(name, os.path.dirname(self.path), ref, h5=os.path.basename(self.path))
+        ex.set_run_model(name, self.path, model or None)
         self.app.root.after(50, lambda: self.app.select(name))
 
 
