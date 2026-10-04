@@ -1926,12 +1926,15 @@ class SldPicker:
         self.lst = tk.Listbox(side, width=44, height=24, font=("Consolas", 9), selectmode=tk.EXTENDED)
         self.lst.pack(fill=tk.Y, expand=True)
         self.proposed = []   # the Ap of the last proposal (replaced by the next one, removable from the list)
+        self.accepted = []   # proposals accepted: kept apart from yours, never replaced by a new proposal
         bt = ttk.Frame(side)
         bt.pack(anchor="w", pady=(4, 0))
         ttk.Button(bt, text="Remove selected", command=self.remove_selected).pack(side=tk.LEFT)
         ttk.Button(bt, text="Remove all proposed", command=self.remove_proposed).pack(side=tk.LEFT, padx=4)
-        ttk.Label(side, text="[proposed] = from Propose (blue, hollow circles on the plot)\n"
-                             "[yours] = added by you (green, crosses). Select several with Ctrl/Shift.",
+        ttk.Button(bt, text="Accept proposed", command=self.accept_proposed).pack(side=tk.LEFT)
+        ttk.Label(side, text="[proposed] = from Propose (blue, hollow circles)\n"
+                             "[accepted] = proposals you accepted (purple, diamonds)\n"
+                             "[yours] = added by you (green, crosses). Ctrl/Shift to select several.",
                   foreground="#666", wraplength=300, justify="left").pack(anchor="w")
         self.fig = Figure(figsize=(8.5, 5.5), constrained_layout=True)
         self.ax = self.fig.add_subplot(111)
@@ -2096,8 +2099,12 @@ class SldPicker:
         if kap:
             ax.axhline(1.0, color="#1565c0", lw=0.8, ls=":")
         if self.aps:
-            mine = [a for a in self.aps if a not in self.proposed]
+            acc = [a for a in self.aps if a in self.accepted]
+            mine = [a for a in self.aps if a not in self.proposed and a not in self.accepted]
             prop = [a for a in self.aps if a in self.proposed]
+            if acc:   # accepted: filled purple diamonds
+                ax.scatter([n] * len(acc), [a / div for a in acc], marker="D", s=40, color="#6a1b9a", zorder=4,
+                           label=f"accepted ({len(acc)})")
             if prop:   # proposed: hollow blue circles; yours: red crosses
                 ax.scatter([n] * len(prop), [a / div for a in prop], marker="o", s=60, facecolors="none",
                            edgecolors="#1565c0", linewidths=1.6, zorder=4, label=f"proposed ({len(prop)})")
@@ -2127,10 +2134,11 @@ class SldPicker:
         for idx, a in enumerate(self.aps):
             k = a / lim if lim and math.isfinite(lim) else None
             zone = "" if k is None else ("stable" if k < 1 else "UNSTABLE")
-            prop = a in self.proposed
-            self.lst.insert("end", ("[proposed] " if prop else "[yours]    ") + f"Ap {a:8.4f} mm"
+            prop, acc = a in self.proposed, a in self.accepted
+            tag = "[proposed]" if prop else ("[accepted]" if acc else "[yours]   ")
+            self.lst.insert("end", tag + f" Ap {a:8.4f} mm"
                             + (f"   kappa {k:6.3f}  {zone}" if k is not None else ""))
-            self.lst.itemconfig(idx, foreground="#1565c0" if prop else "#2e7d32")
+            self.lst.itemconfig(idx, foreground="#1565c0" if prop else ("#6a1b9a" if acc else "#2e7d32"))
 
     def on_click(self, ev):
         if ev.inaxes is not self.ax or ev.ydata is None or self.toolbar.mode:
@@ -2197,6 +2205,14 @@ class SldPicker:
         self._keep_view = False
         self.draw()
 
+    def accept_proposed(self):
+        """The current proposal becomes ordinary cases ([yours]): the next Propose keeps them and proposes others."""
+        n = len(self.proposed)
+        self.accepted = sorted(set(self.accepted + self.proposed))
+        self.proposed = []
+        self.draw()
+        self.app.status_msg.set(f"{n} proposed case(s) accepted (own group): the next Propose will not replace them")
+
     def remove_proposed(self):
         """Removes the whole last proposal, keeping the depths you added by hand."""
         self.aps = [a for a in self.aps if a not in self.proposed]
@@ -2211,6 +2227,7 @@ class SldPicker:
         gone = [self.aps[i] for i in sel if i < len(self.aps)]
         self.aps = [a for i, a in enumerate(self.aps) if i not in sel]
         self.proposed = [a for a in self.proposed if a not in gone]
+        self.accepted = [a for a in self.accepted if a not in gone]
         self.draw()
 
     def ref_h5(self):
