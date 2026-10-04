@@ -105,8 +105,6 @@ def apply_static_deflection(
         for case_name in case_names:
             grp = h5f[case_name]
             case_ap = _read_case_ap(grp)
-            force = compute_case_force_from_ap(case_ap, f_tooth_mm, k_cut)
-            deflex = compute_static_deflection(force, k_sys, alpha_deg, theta_deg)
 
             disp_data = _read_time_values(grp, "Axial_disp")
             vel_data = _read_time_values(grp, "Axial_vel")
@@ -118,10 +116,19 @@ def apply_static_deflection(
             if disp_time.shape != vel_time.shape or not np.allclose(disp_time, vel_time):
                 raise ValueError(f"[{case_name}] Axial_disp y Axial_vel no comparten el eje temporal")
 
-            disp_corrected = np.asarray(disp_values, dtype=float) - float(deflex)
+            ex = _experiment()
+            if ex.is_ramp(grp.attrs):   # rampa de Ap: Ap(t) muestra a muestra (lineal sobre la señal del caso)
+                case_ap = ex.ap_of_t(grp.attrs, disp_time, (disp_time[0], disp_time[-1]))
+            force = compute_case_force_from_ap(case_ap, f_tooth_mm, k_cut)
+            deflex = compute_static_deflection(force, k_sys, alpha_deg, theta_deg)
+            disp_corrected = np.asarray(disp_values, dtype=float) - deflex
 
             if dry_run:
-                print(f"{case_name}: a_p={case_ap:.4g}  fuerza={force:.4g} N  deflex={deflex:.4g} m")
+                f0, f1 = np.ravel(force)[[0, -1]]
+                d0, d1 = np.ravel(deflex)[[0, -1]]
+                print(f"{case_name}: a_p={np.ravel(case_ap)[0]:.4g}" + (f"->{np.ravel(case_ap)[-1]:.4g}" if np.ndim(case_ap) else "")
+                      + f"  fuerza={f0:.4g}" + (f"->{f1:.4g}" if np.ndim(force) else "") + f" N  deflex={d0:.4g}"
+                      + (f"->{d1:.4g}" if np.ndim(deflex) else "") + " m")
                 continue
 
             out_grp = grp.require_group("Out_Deflex")
@@ -138,8 +145,12 @@ def apply_static_deflection(
                     del target["values"]
                 target.create_dataset("values", data=values_arr)
 
-            grp.attrs["deflex_theoric_m"] = deflex
-            grp.attrs["force_theoric_N"] = force
+            # una rampa: los valores al inicio (y al final en *_end_*); constante: un valor
+            grp.attrs["deflex_theoric_m"] = float(np.ravel(deflex)[0])
+            grp.attrs["force_theoric_N"] = float(np.ravel(force)[0])
+            if np.ndim(deflex):
+                grp.attrs["deflex_theoric_end_m"] = float(np.ravel(deflex)[-1])
+                grp.attrs["force_theoric_end_N"] = float(np.ravel(force)[-1])
 
     if not dry_run:
         print(f"[OK] Out_Deflex escrito para {len(case_names)} casos en {h5_path}")
@@ -183,6 +194,24 @@ def _self_test() -> None:
 
         # re-correr no debe fallar (require_group + del antes de reescribir cada dataset)
         apply_static_deflection(h5_path)
+
+        # rampa 5 -> 15 mm: la deflexión sigue a Ap(t) muestra a muestra (lineal sobre la señal)
+        with h5py.File(h5_path, "a") as f:
+            grp = f.create_group("case_001")
+            grp.attrs.update({"$Ap_start$": 0.005, "$Ap_end$": 0.015})
+            for name, vals in (("Axial_disp", np.zeros_like(t)), ("Axial_vel", np.ones_like(t))):
+                sub = grp.create_group(name)
+                sub.create_dataset("time", data=t)
+                sub.create_dataset("values", data=vals)
+        apply_static_deflection(h5_path, dry_run=True)
+        apply_static_deflection(h5_path)
+        ap_t = 0.005 + 0.010 * t                       # t de 0 a 1 s
+        expected = compute_static_deflection(compute_case_force_from_ap(ap_t, F_TOOTH_MM, K_CUT), K_SYS, ALPHA_DEG, THETA_DEG)
+        with h5py.File(h5_path, "r") as f:
+            grp = f["case_001"]
+            assert np.allclose(grp["Out_Deflex/Axial_disp_out_deflex/values"][()], -expected)
+            assert abs(grp.attrs["deflex_theoric_end_m"] - 3 * grp.attrs["deflex_theoric_m"]) < 1e-15
+            assert "deflex_theoric_end_m" not in f["case_000"].attrs
 
     print("self-test OK")
 

@@ -2557,7 +2557,7 @@ class NewExperimentDialog(_Dialog):
         bf.grid(row=self.row, column=1, columnspan=2, sticky="w")
         self.row += 1
         ttk.Button(bf, text="Propose names", command=self._propose).pack(side="left")
-        ttk.Button(bf, text="Pick kappa with the validation planner…", command=self._planner).pack(side="left", padx=6)
+        ttk.Button(bf, text="Pick kappa with the validation planner (constant cases)…", command=self._planner).pack(side="left", padx=6)
         self.frame_row = self.row
         self.frame = SimulationFrame(self, {})
         self.buttons("Create")
