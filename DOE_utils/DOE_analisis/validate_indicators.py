@@ -89,7 +89,7 @@ def detection_outcome(t_det: float, t_onset: float, early_tol: float = EARLY_TOL
     return "TP_early" if t_det >= t_onset - early_tol else "FA"
 STR = h5py.string_dtype()
 SUMMARY_FLOATS = ("kappa", "ap_mm", "ap_end_mm", "kappa_start", "kappa_end", "spin_rpm", "first_detection_t",
-                  "delay_start_s", "t_onset_amp", "t_onset", "delay_onset_s", "alarm_fraction", "persistence",
+                  "delay_start_s", "t_onset_amp", "t_onset", "delay_onset_s", "delay_det_s", "alarm_fraction", "persistence",
                   "hit_in_unstable", "score_max", "score_min", "tpr", "tnr")
 RANK_BY = ("balanced_accuracy", "MCC", "AUC")
 
@@ -151,7 +151,9 @@ def score(t, pred, truth_w, t_start, t_onset=np.nan, early_tol: float = EARLY_TO
                 first_detection_t=t_det, n_fp_windows=fp, outcome=outcome, t_onset=float(onset),
                 hit_in_unstable=float(hit),   # 0 for a 'TP' whose detections all fall outside the unstable part
                 delay_start_s=float(t_hit[0] - t_start) if hit and np.isfinite(t_start) else np.nan,
-                delay_onset_s=float(t_det - onset) if outcome in ("TP", "TP_early") and np.isfinite(onset) else np.nan)
+                delay_onset_s=float(t_det - onset) if outcome in ("TP", "TP_early") and np.isfinite(onset) else np.nan,
+                # diagnostic: the same signed delay for ANY first detection (also an early alarm's)
+                delay_det_s=float(t_det - onset) if u.any() and np.isfinite(onset) else np.nan)
 
 
 def case_truth(intervals) -> tuple:
@@ -515,6 +517,7 @@ def _selftest():
     early = score(t, pred_windows(t, np.array([1.0, 6.0])), tw, 5.55)  # alarm at 1.0 s (> 0.5 s early) + detects at 6.0
     assert early["outcome"] == "FA" and early["FP"] == 1 and early["n_fp_windows"] == 1 and np.isnan(early["delay_onset_s"])
     assert early["t_onset"] == 5.55                                     # no amplitude onset: the unstable interval start
+    assert abs(early["delay_det_s"] - (1.0 - 5.55)) < 1e-9 and np.isnan(miss_d := score(t, pred_windows(t, np.array([])), tw, 5.55)["delay_det_s"])
     assert score(t, pred_windows(t, np.array([5.2])), tw, 5.55)["outcome"] == "TP_early"    # 0.35 s early: in tolerance
     assert score(t, pred_windows(t, np.array([5.2])), tw, 5.55, early_tol=0.1)["outcome"] == "FA"
     miss = score(t, pred_windows(t, np.array([])), tw, 5.55)
