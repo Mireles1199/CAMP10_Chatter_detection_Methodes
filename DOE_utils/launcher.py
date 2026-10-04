@@ -447,6 +447,9 @@ class App:
         self.btn_run_next.pack(side=tk.LEFT, padx=4)
         self.btn_chain = ttk.Button(top, text="▶▶ Run to goal", command=self.run_to_goal)
         self.btn_chain.pack(side=tk.LEFT)
+        self.review = tk.BooleanVar(value=load_settings().get("review_labels", True))
+        ttk.Checkbutton(top, text="stop after Label template (review)", variable=self.review,
+                        command=lambda: save_settings(review_labels=self.review.get())).pack(side=tk.LEFT, padx=4)
         ttk.Button(top, text="Tutorial", command=self.show_tutorial).pack(side=tk.RIGHT)
         ttk.Button(top, text="?  Help", command=self.show_help).pack(side=tk.RIGHT, padx=4)
         ttk.Button(top, text="Dry-run (check all)", command=self.dry_run).pack(side=tk.RIGHT, padx=4)
@@ -1012,14 +1015,14 @@ class App:
         if not todo:
             return
         names = [ex.TITLES[k] + ("" if n == e.name else f" ({n})") for n, k in todo]
+        review = self.review.get()
+        stop = ("\n\nIt STOPS after each Label template so you can review the labels (untick 'stop after Label "
+                "template' to run straight through)." if review else "\n\nIt does not stop for the label review "
+                "(tick 'stop after Label template' to stop).") if any(k == "label_template" for _, k in todo) else ""
         if not messagebox.askyesno("Run to goal", "Run in one console, one after the other:\n  "
-                                   + "\n  ".join(f"{i}. {s}" for i, s in enumerate(names, 1)) + f"\n\nGoal: {goal}.\n"
-                                   "Existing outputs of these stages are replaced. Continue?"):
+                                   + "\n  ".join(f"{i}. {s}" for i, s in enumerate(names, 1)) + f"\n\nGoal: {goal}."
+                                   + stop + "\nExisting outputs of these stages are replaced. Continue?"):
             return
-        review = any(k == "label_template" for _, k in todo) and messagebox.askyesno(
-            "Run to goal", "Stop after each Label template so you can review the labels YAML before the labelled "
-                           "dataset is built? (Then press 'Run to goal' again to continue.)\n\nNo = run straight "
-                           "to the goal with the proposed labels.")
         py, warn = stage_python()
         if warn:
             messagebox.showwarning("Python", warn)
