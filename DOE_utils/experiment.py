@@ -1125,7 +1125,8 @@ STAGE_INFO = {
     "merge": ("Joins the doe_results.h5 of several runs into a new folder (the cases of the next runs are renumbered).",
               "The merged file has the cases of every run."),
     "label_template": ("Pre-fills reference_labels.yaml: one stable / gray / unstable label per case (amplitude "
-                       "criterion: max|signal| against a % of the feed per tooth).",
+                       "criterion: max|signal| against a % of the feed per tooth); a RAMP of Ap gets the same rule "
+                       "window by window (several intervals: where its truth turns unstable).",
                        "Review the YAML before building: these labels are the ground truth."),
     "label_build": ("Cuts the labelled signals into reference_dataset*.h5: the ground truth of this experiment. "
                     "Without a reference experiment it is also what the indicators learn from.",
@@ -1134,8 +1135,9 @@ STAGE_INFO = {
                    "(and, MaxEnt, unstable) pieces of a labelled dataset: the reference experiment's, or this "
                    "experiment's own. That is why it needs Label build first. T_rev comes from the spin of each case.",
                    "Every case x variant done, no errors; how many stable / unstable cases each variant flags."),
-    "validate": ("Scores each variant against the validation labels: TP/FN/TN/FP per case, balanced accuracy, "
-                 "MCC, AUC and detection times.",
+    "validate": ("Scores each variant against the validation labels: TP/FN/TN/FP per case (an alarm earlier "
+                 "than early_tol_s before the onset of the truth is an early alarm, counted as FN), balanced "
+                 "accuracy, MCC, AUC and detection times; ramps that cross are scored apart (ramp_* metrics).",
                  "Ranking of the variants; the Compare tab puts two validations side by side."),
     "static_deflection": ("Adds the theoretical static deflection (group Out_Deflex) to doe_results.h5.",
                           "Its section of the experiment YAML sets f_tooth_mm, k_cut, k_sys, alpha_deg, theta_deg."),

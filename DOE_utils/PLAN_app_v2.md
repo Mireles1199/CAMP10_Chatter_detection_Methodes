@@ -238,3 +238,11 @@ documentación) y no por bloque.
 |---|---|
 | Importar una carpeta simulada pero sin extraer (sin `.h5`) y extraer desde la app | Import → *(not extracted yet)* + `ap_ref`: `simulation_from_folder` reconstruye la simulación desde los `var_val.py` (comprueba casos 0..N-1, mismas variables y la carpeta del caso junto al DOE); run `{simulation, existing: true}`: Simulate hecha y bloqueada (doe_runner borraría la carpeta), Extract lista. CLI `import --not-extracted --ap-ref manual:0.0086`. Probado con `doe_runner --dry-run` sobre dos carpetas reales (34 y 17 casos encontrados) sin escribir nada |
 | Nota | La prueba `check_app_dialogs.py` ya no usa carpetas reales (se movieron: el entrenamiento está ahora en `Data/1DOF_150_Training_Tube/` sin `.h5`); fabrica sus datos en la carpeta temporal |
+
+### Ronda "rampas" (2026-10-04/05) — plan y bitácora completa en `PLAN_ramps.md`
+
+| Pedido | Hecho |
+|---|---|
+| Validar indicadores con casos en rampa de Ap (entrenamiento constante) | Todo el flujo: crear (`depths end`, SLD en modo rampas), etiquetar (regla de amplitud ventana a ventana), indicadores (resumen con cruce y retraso), validar (regla de alarma temprana, métricas `ramp_*` aparte), visores, deflexión estática. Commits `3d0c314`..(F8) |
+| Regla nueva para todos los casos | Primera detección frente al inicio de la verdad; antes de `early_tol_s` (0.5 s) = alarma temprana = FN. Cambia las validaciones constantes: ver la tabla antes/después en `PLAN_ramps.md` (F5) |
+| Fallo encontrado | `validate_indicators` leía los parámetros de etiquetado del primer grupo de etiquetas; si estaba vacío (`gray`), `StopIteration` (el Validate del cono falló por eso). Arreglado |

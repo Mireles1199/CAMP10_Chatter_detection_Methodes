@@ -224,6 +224,12 @@ Standardize an .h5 (made outside the app: adds the attributes it needs and creat
 Experiment settings (description, stages, reference, output folder) · Delete (the file and its run records;
 data are never deleted) · Edit YAML (advanced: everything the forms do is in that file).
 
+RAMPS OF Ap: a case whose depth changes along the cut ('depths end' in the simulation form, or 'add: ramps' on the
+SLD picker). Its kappa is kappa_start -> kappa_end; its ground truth is the amplitude rule window by window (the
+window of the indicators, Edit config of the labelling) and t_onset is where it turns unstable. Validate scores
+the ramps that cross apart from the global metrics (ramp_* columns), with the same rule as every unstable case:
+first detection after t_onset = TP, up to early_tol_s before = anticipated, earlier = early alarm (counted as FN).
+
 COMPARE tab: metrics of two validations side by side. TOOLS tab: every script on its own.
 TUTORIAL tab: step-by-step guide (the same text as DOE_utils/TUTORIAL.md).
 Console: python experiment.py status | check EXP | dryrun EXP | accept EXP | run EXP STAGE | import.

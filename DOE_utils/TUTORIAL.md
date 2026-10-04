@@ -112,11 +112,13 @@ Corta las señales según el YAML. Los casos gray no cuentan en las métricas.
 
 ### Paso 7. Indicators
 
-Corre cada variante sobre cada caso, aprendiendo de la referencia. Al terminar **cada caso** la consola (y el log) muestra un resumen: `κ`, `Ap`, la etiqueta verdadera y, por variante, si detectó, en qué momento y si acertó (`OK` / `MAL`).
+Corre cada variante sobre cada caso, aprendiendo de la referencia. Al terminar **cada caso** la consola (y el log) muestra un resumen: `κ`, `Ap`, la etiqueta verdadera y, por variante, si detectó, en qué momento y si acertó (`OK` / `MAL`). En una rampa que cruza muestra además dónde la verdad pasa a inestable, el retraso con signo y `OK` / `ANTICIPATED` / `MAL: false alarm` / `MAL: missed` (la regla de Validate).
 
 ### Paso 8. Validate
 
 Por variante: TP, FN, TN, FP, exactitud balanceada, MCC, AUC, tiempos de detección. El panel muestra el ranking.
+
+Un caso inestable se puntúa con su **primera detección** frente al inicio de su verdad (`t_onset`: la primera muestra sobre el límite de amplitud en un caso constante): detección después del inicio → TP; hasta `early_tol_s` antes → TP **anticipado** (retraso negativo); antes de eso → **alarma temprana**, que cuenta como FN; sin detección → FN. `early_tol_s` (0.5 s por defecto) se cambia en **Edit config** de Validate. Cuidado: los indicadores que detectan el chatter mientras crece (antes de que la amplitud llegue al 40 % del avance) quedan como alarmas tempranas con una tolerancia corta (ver la bitácora de `PLAN_ramps.md`).
 
 ### Paso 9. Ver y comparar
 
@@ -163,6 +165,21 @@ Por variante: TP, FN, TN, FP, exactitud balanceada, MCC, AUC, tiempos de detecci
 ### Etapas opcionales
 
 Deflexión estática, ruido y SNR del modelo se activan en **Experiment settings** y se configuran en su sección del YAML (**Edit config** abre el archivo). Las claves son las constantes del script en minúscula (`snr_range`, `k_cut`, `control_idx`…).
+
+### Rampas de Ap
+
+Un caso en **rampa** cambia la profundidad durante el corte (con `n` fija): `Ap` va de `Ap_start` a `Ap_end`, en línea recta con el tiempo de la señal. Sirven para **validar**; el entrenamiento sigue siendo de casos constantes. Un experimento puede mezclar casos constantes y rampas.
+
+- **Crear.** En el formulario de la simulación, **depths end (ramps)** junto a **depths**: vacío = todo constante; un valor por profundidad (misma unidad, `Ap` o `κ`) = el `Ap` al final del corte de cada caso. Un fin distinto del inicio es una rampa; igual, un caso constante. La vista previa muestra `Ap end`, `κ end` y el tipo de cada caso.
+- **En el SLD.** **Pick the depths on the SLD…** → **add: ramps**. Dos clics = una rampa (inicio y luego fin); clic derecho quita la más cercana. **Fill** y **Propose** reparten los **inicios** en `[from, to]` y les suman el **ramp span** (en la unidad elegida; negativo = `Ap` decreciente). Aceptar, quitar y el zoom funcionan como con los puntos. **Use these Ap** rellena `depths` y `depths end`.
+
+![SLD en modo rampas](07_ramps_sld.png)
+
+- **Rampas decrecientes.** La pieza de la plantilla `1DOF_150Hz` solo sabe hacer crecer `Ap`; con ella una rampa decreciente saldría como un caso constante, y la app la rechaza. Usa un caso cuya `db_def` admita los dos sentidos (marca `# ramps: both directions`), p. ej. `Data/1DOF_150_Ramp_check/1DOF_150Hz`.
+- **κ.** Una rampa tiene `kappa_start` y `kappa_end`; su `kappa` suelto (si existe) se ignora en toda la app.
+- **La verdad.** La misma regla de amplitud (`max|y|` frente a `lim_inf` / `lim_sup`), pero **ventana a ventana**, con ventanas como las de un indicador (`window_mode`, `window_N`, `window_step` en **Edit config** del etiquetado; por defecto los de las variantes, hoy 7 vueltas con paso 1). Ventanas seguidas iguales forman un intervalo; si alternan cerca del umbral se dejan tal cual (revísalo en el YAML). `t_onset` = inicio de la primera ventana inestable. No se usa ningún tiempo teórico de cruce `κ = 1`. Los casos constantes se etiquetan igual que siempre.
+- **Validación.** Las rampas que cruzan (estable → inestable) se puntúan con la misma regla que los constantes, contra su `t_onset`, pero **fuera** de las métricas globales, del ranking y del ROC: tienen sus métricas `ramp_*` (tasa de detección, anticipadas, alarmas tempranas, fallos, retraso con signo, alarmas en el tramo estable, persistencia). Una rampa que no cruza se puntúa como un caso constante. El panel de Validate y la pestaña **Compare** las muestran.
+- **Visor.** Las tablas tienen `kappa_start`, `kappa_end` y `t_onset`; las rampas se ordenan por su `κ` de inicio. En señal e `I(t)`, una línea punteada marca dónde la verdad pasa a inestable y, con un solo caso, se sombrean sus intervalos estable / gray / inestable.
 
 ## 5. Cosas que conviene saber
 

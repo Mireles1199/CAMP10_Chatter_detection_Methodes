@@ -38,9 +38,9 @@ change) and get their own ramp_* metrics in /metrics/<run> (see ramp_metrics).
   TPR = TP/(TP+FN)   TNR = TN/(TN+FP)   accuracy = (TP+TN)/(TP+TN+FP+FN)   balanced accuracy = (TPR+TNR)/2
   F1 = 2TP/(2TP+FP+FN)   MCC = (TP*TN - FP*FN)/sqrt((TP+FP)(TP+FN)(TN+FP)(TN+FN))
   TPR, TNR and accuracy come with a 95% Wilson interval (_lo/_hi): with few cases a bare proportion is very coarse.
-Two detection times, over the TP cases (median):
-  delay_start_s = first detection - start of the labelled interval (time since the signal starts)
-  delay_onset_s = first detection - t_onset_amp, signed (negative: detected before the amplitude threshold was reached)
+Two detection times, over the hits (TP and anticipated TP_early; median):
+  delay_start_s = first flagged window inside the unstable part - its start (time since the signal starts)
+  delay_onset_s = first detection - t_onset, signed (negative: an anticipated hit, before the truth's onset)
   t_onset_amp = first time |labeling_signal| exceeds labeling_lim_sup_pct % of the base (labeling_base_attr *
   labeling_base_scale): the same threshold that makes the amplitude labelling call a case unstable. NaN if the signal
   or the base is not in the validation file.
