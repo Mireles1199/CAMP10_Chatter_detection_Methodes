@@ -192,7 +192,9 @@ try:
     print("new validation with kappa x SLD limit OK; Ap =", v.runs[0].cfg["sweep"]["$Ap_start$"])
     # ---- load values from an existing experiment (pre-fill) keeps every value
     nd = L.NewExperimentDialog(app)
+    assert nd.frame.n2m.get().endswith("nessy2m/n2m.bat"), nd.frame.n2m.get()   # from base.yaml, shown in full
     nd.src.set(f"experiment: {N9}")
+    assert nd.frame.n2m.get().endswith("nessy2m/n2m.bat"), nd.frame.n2m.get()   # kept when loading values
     assert nd.frame.spins.get() == "9000" and nd.frame.depths.get() == "8.056", (nd.frame.spins.get(), nd.frame.depths.get())
     shot(nd.win, "v2_new_load_values.png")
     nd.win.destroy()

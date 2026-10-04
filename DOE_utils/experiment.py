@@ -1500,6 +1500,12 @@ def explicit_simulation(cfg: dict) -> dict:
     return out
 
 
+def base_yaml() -> dict:
+    """configs/base.yaml as written (not validated: its base_dir may point to a folder that no longer exists)."""
+    p = os.path.join(CONFIGS_DIR, "base.yaml")
+    return yaml_load(p) if os.path.isfile(p) else {}
+
+
 def simulation_form(sim: dict) -> dict:
     """Form values (depths in mm, n, other variables, row by row) that rebuild exactly this simulation."""
     cfg = _doe_runner().load_config(_tmp_config(sim))
@@ -1507,7 +1513,7 @@ def simulation_form(sim: dict) -> dict:
     cols = {k: [r[i] for r in val] for i, k in enumerate(lst)}
     one = lambda v: v[:1] if len(set(v)) == 1 else v   # noqa: E731
     out = {"base_dir": cfg["base_dir"].replace("\\", "/"), "case": cfg.get("case", ""),
-           "doe_name": cfg["doe_name"], "nb_proc": cfg.get("nb_proc", 1), "n2m_bat": cfg.get("n2m_bat", ""),
+           "doe_name": cfg["doe_name"], "nb_proc": cfg.get("nb_proc", 1), "n2m_bat": cfg.get("n2m_bat") or base_yaml().get("n2m_bat", ""),
            "ap_ref": cfg.get("ap_ref") or {"mode": "none"},
            "extract_signals": cfg.get("extract_signals") or ["Axial_disp", "Axial_vel", "Axial_acc"],
            "force_signal": cfg.get("force_signal", "res_R_p"),

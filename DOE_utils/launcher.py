@@ -1700,14 +1700,13 @@ def _base_defaults() -> dict:
     out = {"base_dir": "", "case": "1DOF_150Hz", "doe_name": "", "nb_proc": 1, "n2m_bat": "", "depths": [],
            "spins": [], "ap_ref": {"mode": "none"}, "extract_signals": ["Axial_disp", "Axial_vel", "Axial_acc"],
            "force_signal": "res_R_p", "variables": {"$f_tooth$": [0.05], "$dxl_size$": [0.0002], "$nb_dt_rev$": [200]}}
-    try:
-        dr = ex._doe_runner()
-        b = dr.load_config(os.path.join(ex.CONFIGS_DIR, "base.yaml"), require=False)
-        out.update({k: b[k] for k in ("base_dir", "case", "nb_proc", "n2m_bat", "extract_signals", "force_signal")
-                    if k in b})
-        out["base_dir"] = out["base_dir"].replace("\\", "/")
-    except Exception:
-        pass
+    # read as written: the validated load fails when base.yaml's base_dir folder no longer exists, and then every
+    # default (n2m.bat included) silently disappeared
+    b = ex.base_yaml()
+    out.update({k: b[k] for k in ("base_dir", "case", "nb_proc", "n2m_bat", "extract_signals", "force_signal")
+                if k in b})
+    out["base_dir"] = str(out["base_dir"] or "").replace("\\", "/")
+    out["n2m_bat"] = str(out["n2m_bat"] or "").replace("\\", "/")
     return out
 
 
@@ -1762,6 +1761,8 @@ class SimulationFrame:
         self.signals = dlg.field("signals to extract", tk.StringVar(value=", ".join(v["extract_signals"])))
         self.force = dlg.field("force signal", tk.StringVar(value=v["force_signal"]))
         self.n2m = dlg.browse("n2m.bat", tk.StringVar(value=v.get("n2m_bat") or ""), kind="file")
+        for w in dlg.body.grid_slaves(row=dlg.row - 1, column=1):
+            w.configure(width=100)   # the whole path is visible (the Nessy2m folder is long)
         o = run_opts or {}
         self.timed, self.auto = tk.BooleanVar(value=bool(o.get("timed"))), tk.BooleanVar(value=bool(o.get("auto_extract")))
         rf = ttk.Frame(dlg.body)
