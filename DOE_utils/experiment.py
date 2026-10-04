@@ -1419,6 +1419,9 @@ def _stage_summary(exp: Exp, key: str) -> list:
                     fu = sum(truth.get(g) == "unstable" for g in flag)
                     ns, nu = sum(t == "stable" for t in truth.values()), sum(t == "unstable" for t in truth.values())
                     txt += f"; flags {fu}/{nu} unstable, {fs}/{ns} stable"
+                    nm = sum(t == "mixed" for t in truth.values())
+                    if nm:
+                        txt += f", {sum(truth.get(g) == 'mixed' for g in flag)}/{nm} ramps that cross"
                 else:
                     txt += f"; flags {len(flag)}"
                 out.append((txt, "bad" if errs else None))
@@ -2443,7 +2446,7 @@ def link_truth(exp: Exp) -> int:
     out, lab = exp.indicators["out"], exp.label["out"]
     if not (os.path.isfile(out) and os.path.isfile(lab)):
         return 0
-    truth = {c: lb for c, (lb, _) in _label_cases(lab).items()}
+    info = label_info(lab)
     mt = os.stat(out)
     n = 0
     with h5py.File(out, "a") as f:
@@ -2454,9 +2457,16 @@ def link_truth(exp: Exp) -> int:
             if not (isinstance(g, h5py.Group) and c.startswith("case_")):
                 continue
             if "$Ap_start$" in g.attrs:
-                g.attrs["Ap_mm"] = float(g.attrs["$Ap_start$"]) * 1e3
-            if c in truth:
-                g.attrs.update(true_label=truth[c], label_strategy=str(exp.label.get("strategy", "")))
+                g.attrs["Ap_mm"] = float(g.attrs["$Ap_start$"]) * 1e3   # a ramp: Ap at the start, Ap_end_mm too
+                if "$Ap_end$" in g.attrs:
+                    g.attrs["Ap_end_mm"] = float(g.attrs["$Ap_end$"]) * 1e3
+            if c in info:
+                d = info[c]
+                g.attrs.update(true_label=d["label"], label_strategy=str(exp.label.get("strategy", "")))
+                if d["ramp"] and d["t_onset"] is not None:   # where the ground truth of the ramp turns unstable
+                    g.attrs["t_onset"] = d["t_onset"]
+                elif "t_onset" in g.attrs:
+                    del g.attrs["t_onset"]
                 n += 1
     os.utime(out, (mt.st_atime, mt.st_mtime))
     _h5_info.cache_clear()

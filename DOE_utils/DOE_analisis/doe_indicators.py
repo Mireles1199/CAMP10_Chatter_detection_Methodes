@@ -39,6 +39,9 @@ from rms_cv import run_rms_cv, SignalData as _SignalDataRMS  # noqa: E402
 from ssq_chatter import run_sst_svd, SignalData as _SignalDataSSQ  # noqa: E402
 from green_integral import run_green_std, StdSignalData as _StdSignalDataGreen  # noqa: E402
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from validate_indicators import EARLY_TOL_S, OUTCOME_TEXT, detection_outcome  # noqa: E402  (rule of the ramps)
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s  %(levelname)-7s  %(message)s",
@@ -332,7 +335,7 @@ def main() -> None:
     # -- --experiment: todo lo de arriba sale del experimento (DOE_utils/experiments/<exp>.yaml) ----------------
     #    variantes de experiments/indicator_variants.yaml con T_rev/T_modal por caso, referencia = dataset de
     #    entrenamiento, casos/workers del experimento, corte = biblioteca (fin = fin de la señal de cada caso).
-    spin_fallback, truth, strategy, truth_h5 = None, {}, "", ""
+    spin_fallback, truth, strategy, truth_h5, onset, early_tol = None, {}, "", "", {}, EARLY_TOL_S
     if args.experiment:
         ex = _experiment_module()
         exp = ex.load(args.experiment)
@@ -349,7 +352,10 @@ def main() -> None:
         spin_fallback = info["first"].get("$spin_rate$") if info else None   # casos sin $spin_rate$ (ruido)
         # etiqueta verdadera de cada caso (dataset etiquetado del propio experimento, si ya existe)
         truth_h5 = exp.label["out"]
-        truth = {c: lab for c, (lab, _) in ex._label_cases(truth_h5).items()}
+        info = ex.label_info(truth_h5)
+        truth = {c: d["label"] for c, d in info.items()}
+        onset = {c: d["t_onset"] for c, d in info.items() if d["ramp"] and d["t_onset"] is not None}   # ramps
+        early_tol = float(exp.section("validate").get("early_tol_s", EARLY_TOL_S))
         strategy = str(exp.label.get("strategy", ""))
         log.info("Experimento: %s  (%s)", exp.name, exp.path)
         log.info("Etiquetas  : %s", f"{len(truth)} casos de {truth_h5}" if truth else "aún no hay dataset etiquetado")
@@ -415,7 +421,7 @@ def main() -> None:
             "label_key": label_key,
             "reference_h5": reference_h5,
             "spin_fallback": spin_fallback,
-            "truth": truth, "strategy": strategy, "truth_h5": truth_h5,
+            "truth": truth, "strategy": strategy, "truth_h5": truth_h5, "onset": onset, "early_tol": early_tol,
         },
         nb_workers=workers,
         dry_run=args.dry_run,
@@ -877,10 +883,14 @@ def write_results(out_path: str, res: Dict[str, Any], h5_src: str,
                 case_grp.attrs["signals_written"] = True
                 # lo que el visor necesita sin buscar otros archivos: kappa, Ap y la etiqueta verdadera
                 if "$Ap_start$" in case_grp.attrs:
-                    case_grp.attrs["Ap_mm"] = float(case_grp.attrs["$Ap_start$"]) * 1e3
+                    case_grp.attrs["Ap_mm"] = float(case_grp.attrs["$Ap_start$"]) * 1e3   # a ramp: Ap at the start
+                    if "$Ap_end$" in case_grp.attrs:
+                        case_grp.attrs["Ap_end_mm"] = float(case_grp.attrs["$Ap_end$"]) * 1e3
                 if res.get("true_label"):
                     case_grp.attrs["true_label"] = res["true_label"]
                     case_grp.attrs["label_strategy"] = res.get("strategy", "")
+                if res.get("t_onset") is not None:   # a ramp that crosses: where its ground truth turns unstable
+                    case_grp.attrs["t_onset"] = float(res["t_onset"])
                 if res.get("label_key"):
                     case_grp.attrs["label_key"] = res["label_key"]
                 if not np.isnan(res["label_val"]):
@@ -914,21 +924,29 @@ def write_results(out_path: str, res: Dict[str, Any], h5_src: str,
 # EJECUCIÓN PARALELA / SECUENCIAL
 # ==============================================================================
 
-def _case_summary(h5_path: str, case: str, results: list, true_label: str, strategy: str) -> None:
+def _case_summary(h5_path: str, case: str, results: list, true_label: str, strategy: str,
+                  t_onset: Optional[float] = None, early_tol: float = EARLY_TOL_S) -> None:
     """Resumen de un caso al terminar todas sus variantes: kappa, Ap, etiqueta verdadera y, por variante,
-    detección (con acierto si se conoce la verdad), error o avisos de varianza mínima."""
+    detección (con acierto si se conoce la verdad), error o avisos de varianza mínima. Rampa que cruza (verdad
+    'mixed'): el cruce de la verdad t_onset, la detección, el retraso con signo y la regla de Validate
+    (OK / ANTICIPATED dentro de early_tol / MAL: false alarm antes / MAL: missed)."""
     try:
         with h5py.File(h5_path, "r") as f:
-            a = f[case].attrs if case in f else {}
-            kappa, ap = a.get("kappa"), a.get("$Ap_start$")
+            a = dict(f[case].attrs) if case in f else {}
     except OSError:
-        kappa = ap = None
+        a = {}
+    ex = _experiment_module()
     head = f"-- {case}"
-    if kappa is not None:
-        head += f"  kappa {float(kappa):.3f}"
-    if ap is not None:
-        head += f"  Ap {float(ap) * 1e3:.3f} mm"
+    if ex.is_ramp(a):
+        head += f"  rampa Ap {ex.ap_text(a, '.3f')}  kappa {ex.kappa_text(a)}"
+    else:
+        if a.get("kappa") is not None:
+            head += f"  kappa {float(a['kappa']):.3f}"
+        if a.get("$Ap_start$") is not None:
+            head += f"  Ap {float(a['$Ap_start$']) * 1e3:.3f} mm"
     head += f"  verdad: {true_label} ({strategy})" if true_label else "  verdad: sin etiqueta"
+    if true_label == "mixed" and t_onset is not None:
+        head += f", cruza a inestable en {t_onset:.3f} s (tolerancia {early_tol:g} s)"
     lines = [head]
     for r in sorted(results, key=lambda r: r["run_name"]):
         m = r.get("meta", {})
@@ -940,7 +958,11 @@ def _case_summary(h5_path: str, case: str, results: list, true_label: str, strat
             txt = f"detección en {r['t_d'][0]:.3f} s"
         else:
             txt = "sin detección"
-        if true_label in ("stable", "unstable") and not m.get("error") and not m.get("skipped"):
+        if true_label == "mixed" and t_onset is not None and not m.get("error") and not m.get("skipped"):
+            t_det = float(r["t_d"][0]) if r["t_d"].size else float("nan")
+            o = detection_outcome(t_det, t_onset, early_tol)
+            txt += (f" (retraso {t_det - t_onset:+.3f} s)" if np.isfinite(t_det) else "") + f"   {OUTCOME_TEXT[o]}"
+        elif true_label in ("stable", "unstable") and not m.get("error") and not m.get("skipped"):
             flag = bool(r["t_d"].size)
             txt += "   OK" if flag == (true_label == "unstable") else ("   MAL: falsa alarma" if flag else "   MAL: no detecta")
         if m.get("variance_floor_count"):
@@ -975,6 +997,7 @@ def run_all(
         nonlocal n_done
         n_done += 1
         res["true_label"] = truth.get(res["case"], "")
+        res["t_onset"] = (settings.get("onset") or {}).get(res["case"])   # ramps: start of the first unstable window
         res.update(strategy=settings.get("strategy", ""), truth_h5=settings.get("truth_h5", ""),
                    reference_h5=settings.get("reference_h5") or "")
         log.info("[%d/%d] completado: %s / %s", n_done, total, res["case"], res["run_name"])
@@ -982,7 +1005,8 @@ def run_all(
             write_results(out_path, res, h5_path, save_meta_arrays)
         per_case.setdefault(res["case"], []).append(res)
         if len(per_case[res["case"]]) == len(runs) and not dry_run:
-            _case_summary(h5_path, res["case"], per_case.pop(res["case"]), res["true_label"], res["strategy"])
+            _case_summary(h5_path, res["case"], per_case.pop(res["case"]), res["true_label"], res["strategy"],
+                          res["t_onset"], settings.get("early_tol", EARLY_TOL_S))
 
     if nb_workers == 1 or dry_run:
         for grp, run in tasks:
@@ -1055,6 +1079,33 @@ def _selftest() -> None:
         assert abs(a["Ap_mm"] - 8.8) < 1e-9 and f.attrs["reference_dataset"] == "ref.h5"
         assert f["case_000/maxent_x"].attrs["meta_variance_floor_count"] == 3
     _case_summary(src, "case_000", [res], "unstable", "amplitude")
+    # a ramp that crosses: true label 'mixed', t_onset and Ap at both ends written; the summary applies the rule of
+    # Validate (detection >= onset OK, within the tolerance ANTICIPATED, earlier a false alarm, none missed)
+    with h5py.File(src, "a") as f:
+        g = f.create_group("case_001")
+        g.attrs.update({"$Ap_start$": 0.005, "$Ap_end$": 0.015, "kappa": 0.58, "kappa_start": 0.58, "kappa_end": 1.74})
+        g.create_dataset("Axial_disp/time", data=[0.0, 1.0])
+        g.create_dataset("Axial_disp/values", data=[0.0, 1.0])
+    mk = lambda name, td: dict(res, case="case_001", run_name=name, t_d=np.array(td), meta={}, true_label="mixed",  # noqa: E731
+                               t_onset=10.0)
+    write_results(dst, mk("late", [10.4]), src)
+    with h5py.File(dst, "r") as f:
+        a = f["case_001"].attrs
+        assert a["true_label"] == "mixed" and a["t_onset"] == 10.0 and a["Ap_end_mm"] == 15.0 and a["kappa_end"] == 1.74
+    seen = []
+    h = logging.Handler()
+    h.emit = lambda rec: seen.append(rec.getMessage())
+    log.addHandler(h)
+    try:
+        _case_summary(src, "case_001", [mk("late", [10.4]), mk("early", [9.8]), mk("fa", [2.0]), mk("none", [])],
+                      "mixed", "amplitude", 10.0, 0.5)
+    finally:
+        log.removeHandler(h)
+    txt = "\n".join(seen)
+    assert "rampa Ap 5.000 -> 15.000 mm  kappa 0.580 -> 1.740" in txt and "cruza a inestable en 10.000 s" in txt, txt
+    for name, end in (("late", "(retraso +0.400 s)   OK"), ("early", "(retraso -0.200 s)   ANTICIPATED"),
+                      ("fa", "(retraso -8.000 s)   MAL: false alarm"), ("none", "sin detección   MAL: missed")):
+        assert any(line.strip().startswith(name) and line.endswith(end) for line in txt.splitlines()), (name, txt)
     print("doe_indicators selftest OK")
 
 

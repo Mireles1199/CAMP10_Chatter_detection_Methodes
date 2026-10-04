@@ -64,6 +64,21 @@ import h5py
 import numpy as np
 
 CODE = {"stable": 0, "unstable": 1}   # anything else (gray) -> -1
+EARLY_TOL_S = 0.5   # a detection up to this before the onset of the truth is an ANTICIPATED hit; earlier = false alarm
+OUTCOME_TEXT = {"TP": "OK", "TP_early": "ANTICIPATED", "FA": "MAL: false alarm", "FN": "MAL: missed",
+                "TN": "OK", "FP": "MAL: false alarm"}
+
+
+def detection_outcome(t_det: float, t_onset: float, early_tol: float = EARLY_TOL_S) -> str:
+    """Outcome of an UNSTABLE case (or the unstable part of a ramp) from its FIRST detection t_det and the onset of
+    the truth t_onset: TP if t_det >= t_onset; TP_early (anticipated hit, signed delay < 0) if it is at most
+    early_tol before; FA (false alarm: too early) before that; FN without detection. Without an onset, any
+    detection is TP. In the 2x2 matrix FA counts as FN (the positive was not detected in time)."""
+    if not np.isfinite(t_det):
+        return "FN"
+    if not np.isfinite(t_onset) or t_det >= t_onset:
+        return "TP"
+    return "TP_early" if t_det >= t_onset - early_tol else "FA"
 STR = h5py.string_dtype()
 SUMMARY_FLOATS = ("kappa", "ap_mm", "spin_rpm", "first_detection_t", "delay_start_s", "t_onset_amp",
                   "delay_onset_s", "alarm_fraction", "persistence", "score_max", "score_min", "tpr", "tnr")
