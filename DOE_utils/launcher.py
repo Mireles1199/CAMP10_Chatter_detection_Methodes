@@ -394,7 +394,7 @@ class App:
         ttk.Label(left, text="Experiments", font=("Segoe UI", 10, "bold")).pack(anchor="w")
         self.tree = ttk.Treeview(left, columns=("kind", "n", "cases", "prog"), show="tree headings", height=14,
                                  selectmode="browse")
-        for c, h, w in (("#0", "name", 200), ("kind", "flow", 70), ("n", "n [rpm]", 64), ("cases", "cases", 44),
+        for c, h, w in (("#0", "name", 200), ("kind", "flow", 70), ("n", "n [rpm]", 64), ("cases", "cases", 58),
                         ("prog", "done", 44)):
             self.tree.heading(c, text=h)
             self.tree.column(c, width=w, minwidth=30, stretch=c == "#0")
@@ -645,7 +645,8 @@ class App:
                 sm = ex.summary(e)
                 flow = {"Simulation only": "simulation", "Labelled dataset (training)": "dataset",
                         "Indicators": "indicators", "Validation against a reference": "validation"}.get(e.flow, "custom")
-                rows[n] = (flow, f"{float(sm['spin']):.6g}" if sm["spin"] is not None else "?", sm["cases"],
+                rows[n] = (flow, f"{float(sm['spin']):.6g}" if sm["spin"] is not None else "?",
+                           f"{sm['cases']}" + (f" ({sm['ramps']}r)" if sm.get("ramps") else ""),
                            f"{sm['done']}/{sm['total']}")
                 rows[n + "\0val"] = "validate" in ex.stages(e)
             except Exception as exc:   # a broken YAML is listed, its error shown when selected
@@ -826,7 +827,8 @@ class App:
         bits = [f"flow: {e.flow}"]
         if sm["spin"] is not None:
             bits.append(f"n = {float(sm['spin']):.6g} rpm")
-        bits.append(f"{sm['cases']} case" + ("s" if sm["cases"] != 1 else ""))
+        bits.append(f"{sm['cases']} case" + ("s" if sm["cases"] != 1 else "")
+                    + (f" (ramps {sm['ramps']} of {sm['cases']})" if sm.get("ramps") else ""))
         if sm["kappa"]:
             bits.append(f"kappa {sm['kappa'][0]:g}" + (f"-{sm['kappa'][1]:g}" if sm["kappa"][1] != sm["kappa"][0] else ""))
         bits.append(f"{sm['done']}/{sm['total']} stages done")
@@ -2596,8 +2598,12 @@ class ImportDialog(_Dialog):
             try:
                 sim = ex.simulation_from_folder(d, self.ap_ref())
                 rows = ex.case_rows(ex._doe_runner().load_config(ex._tmp_config(sim)))
-                ks = [r["kappa"] for r in rows if r.get("kappa") is not None]
-                aps = [r["Ap_start"] * 1e3 for r in rows if "Ap_start" in r]
+                ks = [k for r in rows for k in (r.get("kappa"), r.get("kappa_start"), r.get("kappa_end")) if k is not None]
+                aps = [a * 1e3 for r in rows for a in (r.get("Ap_start"), r.get("Ap_end")) if a is not None]
+                nr = sum(bool(r.get("ramp")) for r in rows)
+                if nr:
+                    line(f"  {nr} ramp case(s): " + "; ".join(f"Ap {ex.ap_text(r, '.3g')}, kappa {ex.kappa_text(r)}"
+                                                             for r in rows if r.get("ramp"))[:300])
                 ns = sorted({r["spin_rate"] for r in rows if "spin_rate" in r})
                 line(f"not extracted yet: {len(rows)} cases rebuilt from their var_val.py → Extract will write "
                      f"doe_results.h5 here (Simulate stays blocked: it would delete this folder)", "ok")
@@ -2612,10 +2618,13 @@ class ImportDialog(_Dialog):
                 line(f"PROBLEM {h5}: {x}", "bad")
             if rep["ok"]:
                 info = ex.h5_info(os.path.join(d, h5))
-                kap = info["kappa"]
-                line(f"{h5}: {len(rep['cases'])} cases, signals {', '.join(rep['signals'])}", "ok")
+                kap = ex.kappa_span(info)
+                line(f"{h5}: {len(rep['cases'])} cases" + (f" ({info['ramps']} ramps)" if info["ramps"] else "")
+                     + f", signals {', '.join(rep['signals'])}", "ok")
                 line("  n = " + (f"{float(info['first']['$spin_rate$']):.10g} rpm" if "$spin_rate$" in info["first"] else "missing")
-                     + (f"   kappa {min(kap):g}-{max(kap):g}" if kap else "   kappa missing") + f"   duration {info['duration']} s")
+                     + (f"   kappa {kap[0]:g}-{kap[1]:g}" if kap else "   kappa missing") + f"   duration {info['duration']} s")
+                for txt in info["ramp_text"][:4]:
+                    line(f"  ramp {txt}")
                 miss = [a for a in ex.STD_ATTRS if rep["missing"][a]]
                 if miss:
                     line(f"  attributes missing in some cases: {', '.join(miss)} (Standardize an .h5… adds them)", "warn")
@@ -2693,6 +2702,9 @@ class StandardizeDialog(_Dialog):
             t.insert("end", f"  {a:<14s} " + ("present in every case" if not miss else
                                                f"missing in {len(miss)}/{len(rep['cases'])} cases") +
                      (f"  (e.g. {vals[0]})" if vals else "") + "\n", None if not miss else "bad")
+        if rep.get("ramps"):
+            t.insert("end", f"{len(rep['ramps'])} ramp case(s) (Ap_end != Ap_start): for them 'kappa' means "
+                            "kappa_start and kappa_end (a single kappa is ignored)\n")
         t.configure(state="disabled")
         folder = os.path.dirname(p)
         self.section("Attributes to add (empty = leave as it is). Only these attributes are written to the file.")
@@ -2708,7 +2720,8 @@ class StandardizeDialog(_Dialog):
         self.ap_mode = self.field("kappa from ap_ref", tk.StringVar(value="none"),
                                   values=["none", "manual", "model", "model_at_spin"],
                                   state="normal" if need_k else "disabled",
-                                  note="kappa = Ap / ap_ref" if need_k else "kappa present (or no Ap to compute it)")
+                                  note=("kappa = Ap / ap_ref (ramps: kappa_start and kappa_end)" if need_k else
+                                        "kappa present (or no Ap to compute it)"))
         self.ap_manual = self.field("  ap_ref manual [mm]", tk.StringVar(), state="normal" if need_k else "disabled")
         self.ap_model = self.field("  SLD model", tk.StringVar(), values=ex.sld_models(),
                                    state="normal" if need_k else "disabled")

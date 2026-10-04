@@ -180,14 +180,88 @@ def _mtime(p: str) -> float:
         return 0.0
 
 
+# ============================================================================== ramps of Ap (PLAN_ramps.md)
+RAMP_TOL = 1e-9   # [m] |Ap_end - Ap_start| above this = a ramp inside the case
+
+
+def _attr(a, *keys):
+    for k in keys:
+        if k in a and a[k] is not None:
+            try:
+                return float(a[k])
+            except (TypeError, ValueError):
+                pass
+    return None
+
+
+def is_ramp(a) -> bool:
+    """True when the case (attrs of an .h5, var_val or a case_rows row) has Ap_end != Ap_start."""
+    a0, a1 = _attr(a, "$Ap_start$", "Ap_start"), _attr(a, "$Ap_end$", "Ap_end")
+    return a0 is not None and a1 is not None and abs(a1 - a0) > RAMP_TOL
+
+
+def ap_of_t(a, t, t_range):
+    """Ap [m] at time t of a case: linear from Ap_start at t_range[0] to Ap_end at t_range[1] (the signal span;
+    checked in F0 of PLAN_ramps on the cone 5 -> 15 mm: the force grows as Ap, the signal lasts L / Vf)."""
+    import numpy as np
+    a0 = _attr(a, "$Ap_start$", "Ap_start")
+    a1 = _attr(a, "$Ap_end$", "Ap_end")
+    a1 = a0 if a1 is None else a1
+    t0, t1 = float(t_range[0]), float(t_range[1])
+    x = np.clip((np.asarray(t, float) - t0) / (t1 - t0), 0.0, 1.0) if t1 > t0 else np.zeros_like(np.asarray(t, float))
+    out = a0 + (a1 - a0) * x
+    return float(out) if np.ndim(out) == 0 else out
+
+
+def case_kappa(a) -> tuple:
+    """(kappa, kappa_start, kappa_end) of a case: a constant case has kappa only; a ramp has kappa_start /
+    kappa_end and its 'kappa' (if any, = the start) is ignored. None where missing."""
+    if is_ramp(a):
+        return None, _attr(a, "kappa_start"), _attr(a, "kappa_end")
+    return _attr(a, "kappa"), None, None
+
+
+def kappa_text(a, fmt: str = ".3f") -> str:
+    """'1.03' or '0.58 -> 1.74' (ramp; '?' where missing) or '-'."""
+    k, k0, k1 = case_kappa(a)
+    if is_ramp(a):
+        f = lambda v: "?" if v is None else format(v, fmt)   # noqa: E731
+        return f"{f(k0)} -> {f(k1)}"
+    return "-" if k is None else format(k, fmt)
+
+
+def ap_text(a, fmt: str = ".4f") -> str:
+    """'8.8000 mm' or '5.0000 -> 15.0000 mm' (Ap in m in the attrs)."""
+    a0, a1 = _attr(a, "$Ap_start$", "Ap_start"), _attr(a, "$Ap_end$", "Ap_end")
+    if a0 is None:
+        return "Ap ?"
+    if is_ramp(a):
+        return f"{format(a0 * 1e3, fmt)} -> {format(a1 * 1e3, fmt)} mm"
+    return f"{format(a0 * 1e3, fmt)} mm"
+
+
+def kappa_span(info) -> tuple | None:
+    """(min, max) kappa of a doe_results.h5 (h5_info) counting the ramps (their start and end), or None."""
+    ks = list(info["kappa"]) + [k for r in info.get("kappa_ramps", []) for k in r if k is not None]
+    return (min(ks), max(ks)) if ks else None
+
+
 @lru_cache(maxsize=256)
 def _h5_info(path: str, mtime: float) -> dict:
-    """Cases, first-case attrs and kappa list of a doe_results.h5 (cached by mtime)."""
+    """Cases, first-case attrs and kappa list of a doe_results.h5 (cached by mtime). kappa = the constant cases;
+    kappa_ramps = (kappa_start, kappa_end) of each ramp case; ramps = their number."""
     import h5py
     with h5py.File(path, "r") as f:
         cases = sorted(k for k in f if k.startswith("case_"))
         first = {k: (v.item() if hasattr(v, "item") else v) for k, v in f[cases[0]].attrs.items()} if cases else {}
-        kappa = [float(f[c].attrs["kappa"]) for c in cases if "kappa" in f[c].attrs]
+        kappa, kappa_ramps, ramp_text = [], [], []
+        for c in cases:
+            k, k0, k1 = case_kappa(f[c].attrs)
+            if is_ramp(f[c].attrs):
+                kappa_ramps.append((k0, k1))
+                ramp_text.append(f"{c}: Ap {ap_text(f[c].attrs, '.3g')}, kappa {kappa_text(f[c].attrs)}")
+            elif k is not None:
+                kappa.append(k)
         deflex = bool(cases) and "Out_Deflex" in f[cases[0]]
         signals, duration = [], None
         if cases:
@@ -197,7 +271,7 @@ def _h5_info(path: str, mtime: float) -> dict:
                 duration = float(g[signals[0]]["time"][-1])
         groups = sorted(k for k in f if not k.startswith("case_"))   # control / snr_* in noise files
     return dict(cases=cases, first=first, kappa=kappa, deflex=deflex, signals=signals, duration=duration,
-                groups=groups)
+                groups=groups, kappa_ramps=kappa_ramps, ramps=len(kappa_ramps), ramp_text=ramp_text)
 
 
 def h5_info(path: str):
@@ -877,10 +951,22 @@ def summary(exp: Exp) -> dict:
         spin = (exp.runs[0].cfg.get("sweep") or exp.runs[0].cfg.get("factorial") or {}).get("$spin_rate$", [None])[0]
     st = status(exp)
     main = [k for k in st if k not in OPTIONAL]
-    kap = info["kappa"] if info else []
+    if info:
+        span, ramps = kappa_span(info), info["ramps"]
+    else:   # not extracted yet: the ramps of the planned cases (no kappa: it needs the SLD)
+        span, ramps = None, sum(_planned_ramps(r) for r in exp.runs)
     return dict(spin=spin, cases=len(info["cases"]) if info else sum(r.n_cases or 0 for r in exp.runs),
-                kappa=(min(kap), max(kap)) if kap else None, done=sum(st[k][0] in ("done", "skipped") for k in main),
-                total=len(main))
+                kappa=span, ramps=ramps, done=sum(st[k][0] in ("done", "skipped") for k in main), total=len(main))
+
+
+def _planned_ramps(r: "Run") -> int:
+    if not r.cfg:
+        return 0
+    try:
+        lst, val = r.table()
+    except Exception:
+        return 0
+    return sum(is_ramp(dict(zip(lst, row))) for row in val)
 
 
 # ============================================================================== indicator variants
@@ -1021,8 +1107,8 @@ def _label_cases(path: str) -> dict:
             for lab in f:
                 for case, g in f[lab].items():
                     piece = next(iter(g.values()), None)
-                    k = float(piece.attrs["kappa"]) if piece is not None and "kappa" in piece.attrs else float("nan")
-                    out.setdefault(case, (lab, k))
+                    k = case_kappa(piece.attrs)[0] if piece is not None else None   # a ramp has no single kappa
+                    out.setdefault(case, (lab, float("nan") if k is None else k))
     return out
 
 
@@ -1120,7 +1206,12 @@ def _stage_summary(exp: Exp, key: str) -> list:
                     out.append((f"theoretical deflection (case 0): {float(a['deflex_theoric_m']):.3e} m", None))
                 continue
             out.append((f"{len(info['cases'])} cases, kappa {_krange(info['kappa'])}, n = "
-                        f"{float(a.get('$spin_rate$', float('nan'))):.6g} rpm", "ok"))
+                        f"{float(a.get('$spin_rate$', float('nan'))):.6g} rpm", "ok") if not info["ramps"] else
+                       (f"{len(info['cases'])} cases ({info['ramps']} ramps), kappa of the constant cases "
+                        f"{_krange(info['kappa'])}, n = {float(a.get('$spin_rate$', float('nan'))):.6g} rpm", "ok"))
+            out += [(f"  ramp {t}", None) for t in info["ramp_text"][:8]]
+            if info["ramps"] > 8:
+                out.append((f"  … {info['ramps'] - 8} more ramps", None))
             out.append((f"simulated model: case {a.get('sim_case', '?')}, SLD model {a.get('sim_model', '?')}"
                         + ("" if a.get("sim_model") else "  (unknown: Standardize an .h5… or the run's 'model')"),
                         None if a.get("sim_model") else "warn"))
@@ -1349,25 +1440,53 @@ def ap_ref_value(ap_ref, spin=None):
     return v
 
 
+ROW_EXTRA = ("case", "Ap_start", "Ap_end", "spin_rate", "kappa", "kappa_error", "kappa_start", "kappa_end", "ramp")
+
+
 def case_rows(cfg: dict) -> list:
     """One dict per case of a doe_runner config: index, Ap [m] (start/end), n, kappa (None if not computable) and
-    every other variable; 'kappa_error' says why kappa is missing."""
+    every other variable; 'kappa_error' says why kappa is missing. A ramp (Ap_end != Ap_start) has ramp True,
+    kappa_start / kappa_end and kappa None."""
     lst, val = cfg_table(cfg)
     rows = []
     for i, r in enumerate(val):
         d = {"case": i, **{k.strip("$"): v for k, v in zip(lst, r)}}
-        ap = d.get("Ap_start")
+        ap, ap1 = d.get("Ap_start"), d.get("Ap_end")
+        d["ramp"] = is_ramp(d)
         try:
             ref = ap_ref_value(cfg.get("ap_ref"), d.get("spin_rate"))
-            d["kappa"] = None if ref is None or ap is None else ap / ref
+            k = None if ref is None or ap is None else ap / ref
+            if d["ramp"]:
+                d["kappa"], d["kappa_start"], d["kappa_end"] = None, k, (None if ref is None else ap1 / ref)
+            else:
+                d["kappa"] = k
         except Exception as exc:
             d["kappa"], d["kappa_error"] = None, str(exc)
         rows.append(d)
     return rows
 
 
+RAMP_MARK = "# ramps: both directions"   # in the case's *db_def.py: its workpiece also makes Ap decrease
+
+
+def ramp_template_ok(base_dir: str, case: str):
+    """True / False when the case's workpiece (in/*db_def.py) can / cannot make Ap DECREASE along the cut (the
+    1DOF_150Hz template only grows a cone: a decreasing ramp there is simulated as a constant Ap_end); None when
+    the file cannot be read."""
+    import glob
+    files = glob.glob(os.path.join(base_dir or "", case or "", "in", "*db_def.py"))
+    if not files:
+        return None
+    try:
+        with open(files[0], encoding="utf-8", errors="replace") as f:
+            return RAMP_MARK in f.read()
+    except OSError:
+        return None
+
+
 def sim_problems(cfg: dict) -> tuple:
-    """(errors, warnings) of the cases of a loaded doe_runner config: Ap finite and > 0, units, duplicates."""
+    """(errors, warnings) of the cases of a loaded doe_runner config: Ap finite and > 0, units, duplicates,
+    ramps the case cannot simulate (decreasing Ap on a one-way workpiece) and ramps that do not cross kappa = 1."""
     import math
     errs, warns = [], []
     rows = case_rows(cfg)
@@ -1383,9 +1502,20 @@ def sim_problems(cfg: dict) -> tuple:
                 warns.append(f"case {d['case']}: {k} = {v:g} m (Ap is in metres: is it mm by mistake?)")
         if d.get("kappa_error") and (cfg.get("ap_ref") or {}).get("mode") not in (None, "none"):
             warns.append(f"case {d['case']}: no kappa ({d['kappa_error']})")
+        k0, k1 = d.get("kappa_start"), d.get("kappa_end")
+        if d.get("ramp") and k0 is not None and k1 is not None and (min(k0, k1) >= 1 or max(k0, k1) < 1):
+            warns.append(f"case {d['case']}: ramp kappa {k0:.3f} -> {k1:.3f} does not cross kappa = 1 (fine; it is "
+                         f"scored with the constant cases if its labels do not change along the cut)")
+    down = [d["case"] for d in rows if d.get("ramp") and d["Ap_end"] < d["Ap_start"]]
+    if down and ramp_template_ok(cfg.get("base_dir"), cfg.get("case")) is False:
+        errs.append(f"cases {down[:6]}: Ap decreases along the cut, but the workpiece of case '{cfg.get('case')}' "
+                    f"(in/*db_def.py) only makes Ap grow: it would be simulated as a constant Ap_end. Use a case "
+                    f"whose db_def supports both directions (marked '{RAMP_MARK}', e.g. "
+                    f"Data/1DOF_150_Ramp_check/1DOF_150Hz)")
     seen = {}
     for d in rows:
-        key = tuple(sorted((k, v) for k, v in d.items() if k not in ("case", "kappa", "kappa_error")))
+        key = tuple(sorted((k, v) for k, v in d.items() if k not in ("case", "kappa", "kappa_error", "kappa_start",
+                                                                       "kappa_end", "ramp")))
         if key in seen:
             warns.append(f"cases {seen[key]} and {d['case']} are identical")
         seen.setdefault(key, d["case"])
@@ -1411,14 +1541,21 @@ def _values(text) -> list:
 
 def build_simulation(base_dir: str, case: str, doe_name: str, depths, depth_unit: str = "mm", spins=(),
                      ap_ref=None, variables=None, combine: bool = False, nb_proc: int = 1, n2m_bat: str = "",
-                     extract_signals=None, force_signal: str = "res_R_p") -> dict:
+                     extract_signals=None, force_signal: str = "res_R_p", depths_end=None) -> dict:
     """Explicit doe_runner configuration (mode sweep: one row per case, nothing inherited).
     depths: Ap values in mm (depth_unit 'mm') or kappa values (depth_unit 'kappa': Ap = kappa x ap_ref at the n
-    of the case). spins: n [rpm]. variables: {'$f_tooth$': values, ...}. combine=True: every combination
-    (factorial), else row by row (lists of the same length; a single value repeats). Raises with every problem."""
+    of the case). depths_end: empty = every case at a constant Ap; else the Ap (or kappa) at the end of the cut,
+    one per depth (a single value repeats): a row whose end differs from its start is a ramp, an equal one stays
+    constant. spins: n [rpm]. variables: {'$f_tooth$': values, ...}. combine=True: every combination
+    (factorial; each depth keeps its own end), else row by row (lists of the same length; a single value
+    repeats). Raises with every problem."""
     import itertools
     errs = []
     depths, spins = _values(depths), _values(spins)
+    ends = _values(depths_end) if depths_end is not None else []
+    if ends and len(ends) not in (1, len(depths)):
+        errs.append(f"depths end: one value per depth ({len(depths)}) or a single one, got {len(ends)}")
+    pairs = list(zip(depths, ends if len(ends) > 1 else ends * len(depths))) if ends else [(d, d) for d in depths]
     var = {k if k.startswith("$") else f"${k}$": _values(v) for k, v in (variables or {}).items()}
     var = {k: v for k, v in var.items() if v}
     if not depths:
@@ -1433,7 +1570,7 @@ def build_simulation(base_dir: str, case: str, doe_name: str, depths, depth_unit
         errs.append(f"case: no sub-folder '{case}' in {base_dir}")
     if errs:
         raise ValueError("\n".join(errs))
-    cols = [depths, spins, *var.values()]
+    cols = [pairs, spins, *var.values()]
     if combine:
         rows = [list(r) for r in itertools.product(*cols)]
     else:
@@ -1442,16 +1579,18 @@ def build_simulation(base_dir: str, case: str, doe_name: str, depths, depth_unit
             raise ValueError(f"row by row: every list needs {n} values or a single one "
                              f"(lengths {[len(c) for c in cols]}); or tick 'every combination'")
         rows = [[c[i] if len(c) > 1 else c[0] for c in cols] for i in range(n)]
-    aps = []
+    aps, aps_end = [], []
     for r in rows:
         if depth_unit == "kappa":
             ref = ap_ref_value(ap_ref, r[1])
             if ref is None:
                 raise ValueError("kappa needs an ap_ref (manual, model or model_at_spin)")
-            aps.append(round(r[0] * ref, 9))
+            scale = ref
         else:
-            aps.append(round(r[0] * 1e-3, 9))
-    sweep = {"$Ap_start$": aps, "$Ap_end$": list(aps), "$spin_rate$": [r[1] for r in rows]}
+            scale = 1e-3
+        aps.append(round(r[0][0] * scale, 9))
+        aps_end.append(round(r[0][1] * scale, 9))
+    sweep = {"$Ap_start$": aps, "$Ap_end$": aps_end, "$spin_rate$": [r[1] for r in rows]}
     for j, k in enumerate(var):
         sweep[k] = [r[2 + j] for r in rows]
     sim = {"base_dir": os.path.normpath(base_dir).replace("\\", "/"), "case": case, "n2m_bat": n2m_bat or None,
@@ -1520,8 +1659,8 @@ def simulation_form(sim: dict) -> dict:
            "depths": [round(a * 1e3, 9) for a in cols.pop("$Ap_start$", [])],
            "spins": one(cols.pop("$spin_rate$", []))}
     ends = cols.pop("$Ap_end$", None)
-    if ends is not None and [round(a * 1e3, 9) for a in ends] != out["depths"]:
-        raise ValueError("Ap_end differs from Ap_start (a ramp inside the case): edit this one in the YAML")
+    ends = [round(a * 1e3, 9) for a in ends] if ends is not None else []
+    out["depths_end"] = ends if any(abs(a - b) > RAMP_TOL * 1e3 for a, b in zip(out["depths"], ends)) else []
     out["variables"] = {k: one(v) for k, v in cols.items()}
     return out
 
@@ -1823,7 +1962,8 @@ def planner_config(exp: Exp, i: int = 0) -> str:
 
 
 def case_points_of(exp) -> list:
-    """[(n rpm, Ap mm, label)] of the cases of an experiment's data, label from its labelled dataset ('' if none)."""
+    """[(n rpm, Ap mm, label, Ap end mm)] of the cases of an experiment's data, label from its labelled dataset
+    ('' if none); Ap end = Ap for a constant case (a ramp is the segment Ap -> Ap end)."""
     import h5py
     if exp is None or not exp.data_h5 or not os.path.isfile(exp.data_h5):
         return []
@@ -1834,7 +1974,9 @@ def case_points_of(exp) -> list:
             for c in f:
                 a = f[c].attrs if c.startswith("case_") else {}
                 if "$spin_rate$" in a and "$Ap_start$" in a:
-                    out.append((float(a["$spin_rate$"]), float(a["$Ap_start$"]) * 1e3, lab.get(c, "")))
+                    ap0 = float(a["$Ap_start$"]) * 1e3
+                    out.append((float(a["$spin_rate$"]), ap0, lab.get(c, ""),
+                                float(a["$Ap_end$"]) * 1e3 if is_ramp(a) else ap0))
     except OSError:
         return []
     return out
@@ -1905,10 +2047,11 @@ def import_dir(name: str, doe_dir: str, reference: str | None = None, label_out:
     if not d["description"]:
         info = h5_info(os.path.join(doe_dir, h5))
         spin = info["first"].get("$spin_rate$")
-        kap = info["kappa"]
+        kap = kappa_span(info)
         d["description"] = (f"imported from {os.path.basename(doe_dir)}: {len(info['cases'])} cases"
+                            + (f" ({info['ramps']} ramps)" if info["ramps"] else "")
                             + (f", n = {float(spin):.10g} rpm" if spin is not None else "")
-                            + (f", kappa {min(kap):.2f}-{max(kap):.2f}" if kap else ""))
+                            + (f", kappa {kap[0]:.2f}-{kap[1]:.2f}" if kap else ""))
     yaml_save(d, path)
     reload()
     exp = load(name)
@@ -1929,7 +2072,7 @@ def inspect_h5(path: str) -> dict:
     groups with <signal>/time + values and DOE attributes). {'ok', 'problems', 'cases', 'signals',
     'missing': {attr: [cases without it]}, 'values': {attr: [value per case]}}."""
     import h5py
-    out = {"ok": False, "problems": [], "cases": [], "signals": [], "missing": {}, "values": {}}
+    out = {"ok": False, "problems": [], "cases": [], "signals": [], "missing": {}, "values": {}, "ramps": []}
     with h5py.File(path, "r") as f:
         cases = sorted(k for k in f if k.startswith("case_") and isinstance(f[k], h5py.Group))
         out["cases"] = cases
@@ -1941,9 +2084,14 @@ def inspect_h5(path: str) -> dict:
         if not out["signals"]:
             out["problems"].append(f"{cases[0]} has no <signal>/time + values groups (found: {list(g)[:8]})")
         for a in STD_ATTRS:
-            vals = [f[c].attrs.get(a) for c in cases]
-            out["missing"][a] = [c for c, v in zip(cases, vals) if v is None]
+            if a == "kappa":   # a ramp needs kappa_start and kappa_end instead (its 'kappa' is ignored)
+                vals = [kappa_text(f[c].attrs, "g") if is_ramp(f[c].attrs) else f[c].attrs.get(a) for c in cases]
+                out["missing"][a] = [c for c, v in zip(cases, vals) if v is None or "?" in str(v)]
+            else:
+                vals = [f[c].attrs.get(a) for c in cases]
+                out["missing"][a] = [c for c, v in zip(cases, vals) if v is None]
             out["values"][a] = [v.item() if hasattr(v, "item") else v for v in vals]
+        out["ramps"] = [c for c in cases if is_ramp(f[c].attrs)]
     out["ok"] = not out["problems"]
     return out
 
@@ -1996,7 +2144,11 @@ def _write_case_attrs(path: str, values: dict, ap_ref, done: list) -> None:
                 done.append(f"{c}.{k} = {v}")
             if ap_ref and "$Ap_start$" in a:
                 ref = ap_ref_value(ap_ref, a.get("$spin_rate$"))
-                if ref:
+                if ref and is_ramp(a):   # a ramp: kappa at both ends (an old 'kappa' is left as it is, ignored)
+                    a["kappa_start"], a["kappa_end"] = float(a["$Ap_start$"]) / ref, float(a["$Ap_end$"]) / ref
+                    a["ap_ref_m"] = ref
+                    done.append(f"{c}.kappa_start = {a['kappa_start']:.4g}, kappa_end = {a['kappa_end']:.4g}")
+                elif ref:
                     a["kappa"] = float(a["$Ap_start$"]) / ref
                     a["ap_ref_m"] = ref
                     done.append(f"{c}.kappa = {a['kappa']:.4g}")
@@ -2101,11 +2253,9 @@ def dry_run(exp: Exp) -> list:
             out.append((f"  case {r.case}, nb_proc {r.cfg.get('nb_proc', 1)}, ap_ref {ap.get('mode')}"
                         + (f" {ap.get('model') or ap.get('manual')}" if ap.get("mode") != "none" else ""), None))
             for d in case_rows(r.cfg):
-                k = d.get("kappa")
-                extra = ", ".join(f"{a} {b:g}" for a, b in d.items() if a not in ("case", "Ap_start", "Ap_end",
-                                                                                  "spin_rate", "kappa", "kappa_error"))
-                out.append((f"  case {d['case']:3d}: Ap {d.get('Ap_start', float('nan')) * 1e3:.4f} mm"
-                            f"  kappa {'-' if k is None else f'{k:.3f}'}  n {d.get('spin_rate', float('nan')):g} rpm"
+                extra = ", ".join(f"{a} {b:g}" for a, b in d.items() if a not in ROW_EXTRA)
+                out.append((f"  case {d['case']:3d}: {'ramp ' if d['ramp'] else ''}Ap {ap_text(d)}"
+                            f"  kappa {kappa_text(d)}  n {d.get('spin_rate', float('nan')):g} rpm"
                             + (f"  {extra}" if extra else ""), None))
         else:
             info = h5_info(r.h5)
@@ -2279,6 +2429,44 @@ def _selftest_edit(root: str, train_cfg: str) -> None:
         again = build_simulation(form["base_dir"], form["case"], form["doe_name"], form["depths"], "mm",
                                  form["spins"], form["ap_ref"], form["variables"])
         assert again["sweep"] == sim["sweep"], (again["sweep"], sim["sweep"])
+        assert form["depths_end"] == []                                       # constant: no ends in the form
+        # ramps: an end per depth (equal = constant), in mm or kappa; the form rebuilds them
+        rmp = build_simulation(base, "1DOF_150Hz", "D_R", "4, 12, 6", "mm", "12000", man, depths_end="12, 4, 6")
+        assert rmp["sweep"]["$Ap_end$"] == [0.012, 0.004, 0.006] and rmp["sweep"]["$Ap_start$"] == [0.004, 0.012, 0.006]
+        rows = case_rows(_doe_runner().load_config(_tmp_config(rmp)))
+        assert [d["ramp"] for d in rows] == [True, True, False] and rows[0]["kappa"] is None
+        assert abs(rows[0]["kappa_start"] - 0.5) < 1e-12 and abs(rows[0]["kappa_end"] - 1.5) < 1e-12 and rows[2]["kappa"] == 0.75
+        assert kappa_text(rows[0]) == "0.500 -> 1.500" and ap_text(rows[1]) == "12.0000 -> 4.0000 mm"
+        fr2 = simulation_form(rmp)
+        assert fr2["depths_end"] == [12.0, 4.0, 6.0]
+        again = build_simulation(base, "1DOF_150Hz", "D_R", fr2["depths"], "mm", fr2["spins"], man, fr2["variables"],
+                                 depths_end=fr2["depths_end"])
+        assert again["sweep"] == rmp["sweep"]
+        k_r = build_simulation(base, "1DOF_150Hz", "D", "0.5", "kappa", "12000", man, depths_end="1.5")
+        assert k_r["sweep"]["$Ap_start$"] == [0.004] and k_r["sweep"]["$Ap_end$"] == [0.012]
+        fac = build_simulation(base, "1DOF_150Hz", "D", "4 8", "mm", "9000 12000", man, combine=True, depths_end="10 8")
+        assert list(zip(fac["sweep"]["$Ap_start$"], fac["sweep"]["$Ap_end$"])) == [(0.004, 0.01)] * 2 + [(0.008, 0.008)] * 2
+        try:
+            build_simulation(base, "1DOF_150Hz", "D", "4 8 9", "mm", "9000", man, depths_end="10 8")
+            raise AssertionError("ends of another length accepted")
+        except ValueError as exc:
+            assert "depths end" in str(exc)
+        assert any("does not cross kappa = 1" in w for w in sim_problems(_doe_runner().load_config(_tmp_config(
+            build_simulation(base, "1DOF_150Hz", "D", "2", "mm", "12000", man, depths_end="4"))))[1])
+        w = kappa_overlap(rows, load("train"))     # training kappa 0.5 / 1.5: the ramps are not compared
+        assert w == ["2 ramp case(s): no repeat check (a ramp covers a range of kappa)"], w
+        # a decreasing ramp needs a workpiece that can make Ap decrease (marker in the case's db_def)
+        dbd = os.path.join(base, "1DOF_150Hz", "in")
+        os.makedirs(dbd, exist_ok=True)
+        cfg_r = _doe_runner().load_config(_tmp_config(rmp))
+        assert ramp_template_ok(base, "1DOF_150Hz") is None and not sim_problems(cfg_r)[0]   # unknown: no error
+        with open(os.path.join(dbd, "1DOF_150Hz-db_def.py"), "w") as f:
+            f.write("def h_max_truncado(u, v): pass\n")
+        assert any("only makes Ap grow" in x for x in sim_problems(cfg_r)[0])
+        with open(os.path.join(dbd, "1DOF_150Hz-db_def.py"), "w") as f:
+            f.write(RAMP_MARK + "\n")
+        assert not sim_problems(cfg_r)[0]
+        shutil.rmtree(dbd)
         # kappa at an n where the SLD has no limit (pocket between lobes) -> clear error, never Ap = inf
         real_sld = _sld
 
@@ -2378,10 +2566,16 @@ def _selftest_edit(root: str, train_cfg: str) -> None:
 def kappa_overlap(rows, ref, tol: float = 0.01) -> list:
     """Warnings for the cases of a new DOE (rows: case_rows of the simulation) whose kappa repeats (or is closer
     than tol to) a kappa of the reference experiment: they test nothing new. kappa = Ap / limit at the case's n,
-    so it is only comparable at the SAME n: at another n the same kappa is another depth, and the check says so."""
+    so it is only comparable at the SAME n: at another n the same kappa is another depth, and the check says so.
+    Ramp cases cover a range of kappa: they are not compared point by point."""
     info = h5_info(ref.data_h5) if ref is not None and ref.data_h5 else None
     if not info or not info["kappa"]:
         return []
+    n_ramps = sum(bool(d.get("ramp")) for d in rows)
+    if n_ramps:
+        note = [f"{n_ramps} ramp case(s): no repeat check (a ramp covers a range of kappa)"]
+        rest = [d for d in rows if not d.get("ramp")]
+        return note + (kappa_overlap(rest, ref, tol) if rest else [])
     rn = info["first"].get("$spin_rate$")
     rk = sorted(info["kappa"])
     mine = [(float(d["kappa"]), float(d["spin_rate"])) for d in rows
@@ -2612,6 +2806,7 @@ def status_text(exp: Exp, goal: str | None = None) -> str:
     head = (f"{exp.name}  [{exp.flow}" + (f", reference {exp.ref.name}" if exp.ref else "") + "]  "
             + (f"n={float(sm['spin']):.10g} rpm  " if sm["spin"] is not None else "")
             + f"{sm['cases']} cases" + (f"  kappa {sm['kappa'][0]:.2f}-{sm['kappa'][1]:.2f}" if sm["kappa"] else "")
+            + (f"  ramps {sm['ramps']} of {sm['cases']}" if sm.get("ramps") else "")
             + f"  progress {sm['done']}/{sm['total']}")
     lines = [head]
     for key, (state, reason) in st.items():
@@ -2812,6 +3007,28 @@ def _selftest():
         r = subprocess.run([sys.executable, os.path.join(SIM, "doe_runner.py"), "--config", rw.runs[0].config,
                             "--command", "extract", "--dry-run"], capture_output=True, text=True)
         assert r.returncode == 0 and "Casos encontrados: 2" in r.stdout + r.stderr, r.stdout + r.stderr
+        # ramps in a doe_results.h5: their 'kappa' (= the start, written by older extracts) is ignored
+        rh5 = os.path.join(base, "ramps.h5")
+        with h5py.File(rh5, "w") as f:
+            f.create_group("case_000").attrs.update({"$Ap_start$": 0.005, "$Ap_end$": 0.015, "$spin_rate$": 12000.0,
+                                                     "kappa": 0.58, "kappa_start": 0.58, "kappa_end": 1.74})
+            f.create_group("case_001").attrs.update({"$Ap_start$": 0.008, "$Ap_end$": 0.008, "$spin_rate$": 12000.0,
+                                                     "kappa": 0.93})
+            f.create_group("case_002").attrs.update({"$Ap_start$": 0.012, "$Ap_end$": 0.006, "$spin_rate$": 12000.0})
+        info = h5_info(rh5)
+        assert info["kappa"] == [0.93] and info["ramps"] == 2 and kappa_span(info) == (0.58, 1.74), info
+        assert "case_000: Ap 5 -> 15 mm, kappa 0.580 -> 1.740" in info["ramp_text"][0], info["ramp_text"]
+        assert abs(ap_of_t(f_attrs := {"$Ap_start$": 0.005, "$Ap_end$": 0.015}, 7.5, (0.0, 15.0)) - 0.010) < 1e-12
+        assert ap_of_t(f_attrs, [-1.0, 15.0, 20.0], (0.0, 15.0)).tolist() == [0.005, 0.015, 0.015]
+        rep = inspect_h5(rh5)
+        assert rep["ramps"] == ["case_000", "case_002"] and rep["missing"]["kappa"] == ["case_002"], rep["missing"]
+        add_case_attrs(rh5, {"ap_ref": {"mode": "manual", "manual": 0.01}})
+        with h5py.File(rh5, "r") as f:
+            a2 = f["case_002"].attrs
+            assert abs(a2["kappa_start"] - 1.2) < 1e-12 and abs(a2["kappa_end"] - 0.6) < 1e-12 and "kappa" not in a2
+            assert abs(f["case_001"].attrs["kappa"] - 0.8) < 1e-12
+        assert not inspect_h5(rh5)["missing"]["kappa"]
+        os.remove(rh5)
         _selftest_run(load("train"))
         _selftest_edit(root, cfg)
         print("experiment selftest OK")

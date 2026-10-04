@@ -45,6 +45,8 @@ def read_training(path: str) -> dict:
                 if not pieces:
                     continue
                 a = pieces[0].attrs
+                if abs(float(a.get("$Ap_end$", a["$Ap_start$"])) - float(a["$Ap_start$"])) > 1e-9:
+                    continue   # a ramp has no single kappa (training is made of constant cases)
                 c = cases.setdefault(case, dict(kappa=float(a["kappa"]), ap=float(a["$Ap_start$"]), labels=set()))
                 c["labels"].add(lab)
                 for k in SCALARS:
@@ -52,7 +54,7 @@ def read_training(path: str) -> dict:
                     if scal.setdefault(k, v) != v:
                         raise ValueError(f"{k} is not the same in every case of the dataset ({scal[k]} vs {v})")
     if not cases:
-        raise ValueError("the .h5 has no cases")
+        raise ValueError("the .h5 has no constant-Ap cases")
     refs = sorted(c["ap"] / c["kappa"] for c in cases.values() if c["kappa"] > 0)
     return dict(cases=cases, scalars=scal, ap_ref=refs[len(refs) // 2],
                 base_dir=os.path.dirname(os.path.dirname(os.path.abspath(path))).replace("\\", "/"))
