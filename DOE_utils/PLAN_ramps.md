@@ -2,9 +2,12 @@
 
 ## §0. Para retomar (leer primero)
 
-- **Estado (2026-10-04):** plan aprobado en conversación, **nada implementado**. Rama `Aplication-Indicateur-Validacion-Training`,
-  último commit de la app: `ddfe63d` (SLD picker, Accept proposed). Siguiente paso: **F0**, y después F1 → F8, un commit por fase
-  (pie `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`), sin push.
+- **Estado (2026-10-05):** **F0–F8 implementados**, un commit por fase (`3d0c314`..; ver `git log ddfe63d..`), sin push,
+  selftests y `check_app_dialogs.py` en verde. E2E real con el experimento `ramp_check` (ver la bitácora al final).
+  Pendiente para el usuario: (1) decidir el valor de `early_tol_s` (0.5 s convierte en "alarma temprana" las
+  detecciones durante el crecimiento del chatter, ver F5 en la bitácora); (2) re-correr Label template/build del cono
+  y Validate de `DOE_Test_1DOF_150_n12000` (quedan en naranja a propósito); (3) copiar la `db_def` de dos sentidos a
+  otras carpetas de caso si quiere rampas decrecientes allí.
 - **Python:** `D:/Thesis/03-Code_Storage/02-Altintlas_Nessy2m_Storage/Env/entorno_CAMP10/Scripts/python.exe`.
 - **Restricciones:** no correr indicadores de verdad salvo el E2E corto acordado (F0 / Verificación 3); no tocar los
   experimentos del usuario ni sus borrados sin commitear; sin ramas ni worktrees nuevos; `check_app_dialogs.py` en
@@ -265,3 +268,21 @@ el límite a 11.9 s; en todos los casos inestables t_det ≈ 0.6 · t_onset_amp 
 0.94, MaxEnt queda penalizado (detecta hasta 7 s antes cerca de κ = 1) y RMS-CV sigue penalizado por el transitorio.
 El valor por defecto se dejó en 0.5 s (decisión del plan); se cambia por experimento en Validate > Edit config.
 Las validaciones ya hechas quedan en naranja (early_tol_s entra en la huella de Validate) y se rehacen en segundos.
+
+### E2E real (2026-10-05) — experimento `ramp_check` (`Data/1DOF_150_Ramp_check/ramp_check`)
+
+- **Simulate** (66 min por caso, 2 en paralelo) → **Extract** → **Label template/build** → **Indicators** (4 variantes,
+  6 min) → **Validate** contra el entrenamiento constante: todo en verde desde la app (`experiment.py run`).
+- **Física (cierra F0):** rampa decreciente 15 → 5 mm: F/Ap = 50.0 N/mm constante mientras Ap baja (la `db_def` de dos
+  sentidos funciona); el control 5 → 15 mm es **idéntico bit a bit** al cono simulado antes (misma plantilla).
+- **Verdad por ventanas (7 vueltas, paso 1):** 5 → 15: estable hasta 9.99 s, gray, **inestable desde 10.46 s**
+  (Ap ≈ 12 mm, κ ≈ 1.40). 15 → 5: estable 0.05–1.04 s (el chatter aún no creció aunque κ = 1.74), gray, **inestable
+  1.33–11.04 s**, gray, estable desde 12.15 s.
+- **Indicadores (primera detección / retraso al cruce):** 5 → 15: Green 9.27 s (−1.20), SST 9.22 s (−1.25),
+  MaxEnt 8.51 s (−1.95), RMS-CV 0.075 s (transitorio). 15 → 5: Green 0.71 s (−0.63), SST 0.69 s (−0.65), MaxEnt
+  0.43 s (−0.90), RMS-CV 0.075 s. Con `early_tol_s` = 0.5 s todas son alarma temprana (ramp_early_alarm_rate 1.00);
+  con 2 s, Green / SST / MaxEnt detectan 2/2 anticipadas (retraso mediano −0.91 / −0.95 / −1.43 s) y RMS-CV 1/2.
+- Errores encontrados en el E2E y arreglados: el visor elegía `t_onset` como variable de color (las rampas nuevas no
+  tienen `kappa` suelto); el panel de Validate imprimía un ranking vacío sin casos constantes.
+- Aviso previo, no causado por esto: `s/gen_tool.py` de la plantilla falla (`gent_straight_insert() ... id_node_dyn`)
+  en todas las simulaciones (también en `DOE_Test_1DOF150_n5189`); Nessy2m usa la herramienta ya generada en `tool/`.
