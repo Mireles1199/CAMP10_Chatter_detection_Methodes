@@ -1913,8 +1913,12 @@ class SldPicker:
         side = ttk.Frame(body, padding=6)
         side.pack(side=tk.RIGHT, fill=tk.Y)
         ttk.Label(side, text="chosen depths", font=("Segoe UI", 9, "bold")).pack(anchor="w")
-        self.lst = tk.Listbox(side, width=44, height=24, font=("Consolas", 9))
+        self.lst = tk.Listbox(side, width=44, height=24, font=("Consolas", 9), selectmode=tk.EXTENDED)
         self.lst.pack(fill=tk.Y, expand=True)
+        self.proposed = []   # the Ap of the last proposal (replaced by the next one, removable from the list)
+        ttk.Button(side, text="Remove selected", command=self.remove_selected).pack(anchor="w", pady=(4, 0))
+        ttk.Label(side, text="select several with Ctrl/Shift; the proposal can be removed line by line",
+                  foreground="#666", wraplength=300).pack(anchor="w")
         self.fig = Figure(figsize=(8.5, 5.5), constrained_layout=True)
         self.ax = self.fig.add_subplot(111)
         self.canvas = FigureCanvasTkAgg(self.fig, master=body)
@@ -2149,11 +2153,23 @@ class SldPicker:
         except ValueError as exc:
             self.app._msg("Propose", str(exc), "warn")
             return
-        self.aps = sorted(set(self.aps + [round(k * lim, 4) for _, k in picked]))
+        # a new proposal replaces the previous one; the cases you added by hand stay
+        self.aps = sorted(set(a for a in self.aps if a not in self.proposed) | {round(k * lim, 4) for _, k in picked})
+        self.proposed = [round(k * lim, 4) for _, k in picked]
         self.r_unit.set("kappa")
         self.draw()
         self.app.status_msg.set(f"{len(picked)} cases proposed in kappa {a:g}-{b:g}, away from the {len(used)} kappa of "
                                 f"the reference (gap 0.02)")
+
+    def remove_selected(self):
+        """Removes the depths selected in the list (the list shows self.aps in order)."""
+        sel = set(self.lst.curselection())
+        if not sel:
+            return
+        gone = [self.aps[i] for i in sel if i < len(self.aps)]
+        self.aps = [a for i, a in enumerate(self.aps) if i not in sel]
+        self.proposed = [a for a in self.proposed if a not in gone]
+        self.draw()
 
     def ref_h5(self):
         """The reference's extracted signals file (its kappa are the ones to stay away from), or None."""
