@@ -525,7 +525,10 @@ class App:
         self.cmp_tree = ttk.Treeview(f, columns=cols, show="headings")
         for c in cols:
             self.cmp_tree.heading(c, text=c.replace("balanced_accuracy", "bal.acc").replace("mean_", "")
-                                  .replace("median_delay_onset_s", "delay_onset").replace("_stable", ""))
+                                  .replace("median_delay_onset_s", "delay_onset").replace("_stable", "")
+                                  .replace("ramp_median_delay_s", "ramp delay").replace("_rate", "")
+                                  .replace("early_alarm", "early").replace("anticipated", "antic.")
+                                  .replace("detection", "det.").replace("ramp_", "ramp "))
             self.cmp_tree.column(c, width=230 if c == "variant" else 62, anchor="w" if c == "variant" else "center")
         xs = ttk.Scrollbar(f, orient=tk.HORIZONTAL, command=self.cmp_tree.xview)
         self.cmp_tree.configure(xscrollcommand=xs.set)
@@ -1204,7 +1207,8 @@ class App:
         for v in sorted(set(ma) | set(mb)):
             row = [v] + [fmt(src.get(v), m) for m in ex.METRIC_COLUMNS for src in (ma, mb)]
             self.cmp_tree.insert("", "end", values=row)
-        self.cmp_note.set(f"A = {a}   B = {b}   (empty = that variant was not run in that experiment)")
+        self.cmp_note.set(f"A = {a}   B = {b}   (empty = that variant was not run in that experiment; ramp columns: "
+                          "the ramps whose truth crosses, scored apart from the global metrics)")
 
 
 # ============================================================================== dialogs
@@ -1479,6 +1483,10 @@ class ValidateForm(_Dialog):
         self.ch = self.field("channel of the labels", self.tk.StringVar(value=e.section("validate").get("channel", "Axial_disp")),
                              values=["Axial_disp", "Axial_vel", "Axial_acc"],
                              note="the channel of the ground-truth dataset whose labels score the detections")
+        self.tol = self.field("early_tol_s [s]", self.tk.StringVar(
+            value=f"{float(e.section('validate').get('early_tol_s', ex.EARLY_TOL_S)):g}"),
+            note="a first detection up to this before the onset of the truth = anticipated hit; earlier = early "
+                 "alarm, counted as FN (constant cases and ramps)")
         self.note("Ground truth = this experiment's labelled dataset (" + os.path.basename(e.label["out"]) + "), labelled "
                   f"with the '{e.label.get('strategy')}' strategy on {e.label.get('amp_signal', 'Axial_disp')}. "
                   "The indicators were trained on " + os.path.basename(e.reference) +
@@ -1488,6 +1496,10 @@ class ValidateForm(_Dialog):
     def save(self):
         sec = ex.own_yaml(self.e.name).get("validate") or {}
         sec["channel"] = self.ch.get()
+        tol = float(self.tol.get())
+        if tol < 0:
+            raise ValueError("early_tol_s must be >= 0 seconds")
+        sec["early_tol_s"] = tol
         ex.save_section(self.e.name, "validate", sec)
 
 
@@ -2674,7 +2686,7 @@ class SettingsDialog(_Dialog):
         else:
             d.pop("out_dir", None)
         if "validate" in d["stages"] and "validate" not in d:
-            d["validate"] = {"channel": "Axial_disp"}
+            d["validate"] = {"channel": "Axial_disp", "early_tol_s": ex.EARLY_TOL_S}
         if "indicators" in d["stages"] and "indicators" not in d:
             d["indicators"] = ex.indicators_for(None if ref in ("", "(none)") else ref)
         if "label_template" in d["stages"] and "label" not in d and ref in ("", "(none)"):

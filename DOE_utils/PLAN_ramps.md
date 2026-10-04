@@ -247,3 +247,21 @@ Hanley-McNeil y MCC también. Lo que se corrige:
   La app (`sim_problems`) da ERROR a una rampa decreciente sobre un caso cuya db_def no tiene la marca.
 - **Simulación real `ramp_check`** (experimento nuevo, `Data/1DOF_150_Ramp_check/ramp_check`): caso 0 = 15 → 5 mm
   (decreciente), caso 1 = 5 → 15 mm (control, igual al cono existente: comprueba también la nueva db_def).
+
+### F5 — la regla de la alarma temprana en `DOE_Test_1DOF_150_n12000` (recalculado a un archivo temporal; el del usuario no se tocó)
+
+| variante | antes (cualquier alarma = TP): bal.acc / MCC | regla nueva, early_tol 0.5 s | early_tol 5 s |
+|---|---|---|---|
+| green_fixed_revo_dec7_1step | 0.94 / 0.90 (TP 11, FN 0) | 0.48 / -0.05 (TP 1, FN 10: 10 alarmas tempranas) | 0.94 / 0.90 |
+| ssq_revo_aux4_n_aux4_dec7_1step | 0.94 / 0.90 | 0.48 / -0.05 (10 alarmas tempranas) | 0.94 / 0.90 |
+| maxent_revo_dec7_1step | 0.88 / 0.80 | 0.38 / -0.40 (11 alarmas tempranas) | 0.69 / 0.38 |
+| rms_cv_revo_aux4_n_aux4_dec7_1step | 0.56 / 0.28 | 0.06 / -0.90 (11 alarmas tempranas) | 0.34 / -0.35 |
+
+**Lectura (importante, para decidir el valor por defecto de early_tol_s):** RMS-CV alarma a 0.075 s en todos los casos
+(el transitorio de entrada: alarma falsa de verdad). Pero Green, SST y MaxEnt detectan el chatter **mientras crece**,
+mucho antes de que la amplitud llegue al 40 % del avance: p. ej. κ = 1.08 → Green detecta a 7.2 s y la amplitud cruza
+el límite a 11.9 s; en todos los casos inestables t_det ≈ 0.6 · t_onset_amp (Green / SST) y ≈ 0.4 · t_onset_amp
+(MaxEnt). Con 0.5 s esas detecciones pasan a "alarma temprana" y cuentan como FN. Con 5 s Green y SST vuelven a
+0.94, MaxEnt queda penalizado (detecta hasta 7 s antes cerca de κ = 1) y RMS-CV sigue penalizado por el transitorio.
+El valor por defecto se dejó en 0.5 s (decisión del plan); se cambia por experimento en Validate > Edit config.
+Las validaciones ya hechas quedan en naranja (early_tol_s entra en la huella de Validate) y se rehacen en segundos.

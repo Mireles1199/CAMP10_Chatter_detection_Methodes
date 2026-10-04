@@ -565,7 +565,8 @@ try:
         d["validate"] = {"channel": "Axial_disp", "out": out.replace("\\", "/")}
         ex.yaml_save(d, ex.exp_path(n))
         with h5py.File(out, "w") as h:
-            h.create_group("metrics/maxent_revo_dec7_1step").attrs.update(balanced_accuracy=ba, MCC=ba - 0.1)
+            h.create_group("metrics/maxent_revo_dec7_1step").attrs.update(
+                balanced_accuracy=ba, MCC=ba - 0.1, **({"ramp_n": 2, "ramp_detection_rate": 0.5} if n == VA else {}))
     ex.reload()
     app.refresh(True)
     assert set(app.cmp_cb_a["values"]) >= {VA, "val_from_dialog"}, app.cmp_cb_a["values"]
@@ -574,7 +575,17 @@ try:
     app.compare()
     rows = [app.cmp_tree.item(i, "values") for i in app.cmp_tree.get_children()]
     assert rows[0][1] == "0.900" and rows[0][2] == "0.700", rows
-    print("compare OK")
+    j = 1 + 2 * ex.METRIC_COLUMNS.index("ramp_detection_rate")
+    assert rows[0][j] == "0.500" and rows[0][j + 1] == "", rows          # the ramp metrics: A has them, B not
+    print("compare OK (with the ramp columns)")
+    # validate form: the tolerance of the early-alarm rule (in the fingerprint: changing it makes Validate stale)
+    vf = L.ValidateForm(app, ex.load(VA))
+    assert vf.tol.get() == "0.5"
+    vf.tol.set("0.3")
+    shot(vf.win, "ramps_validate_form.png")
+    vf._ok()
+    va = ex.load(VA)
+    assert va.section("validate")["early_tol_s"] == 0.3 and ex.stages(va)["validate"].cmds[0][-1] == "0.3"
     app.notebook.select(app.tab_exp)
     app.select(VA, "validate")
     shot(root, "v2_main_validation.png")
