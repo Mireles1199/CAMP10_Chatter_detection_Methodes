@@ -1884,13 +1884,13 @@ class SldPicker:
         ttk.Label(top, text="n [rpm]").pack(side=tk.LEFT, padx=(10, 0))
         e = ttk.Entry(top, textvariable=self.n, width=10)
         e.pack(side=tk.LEFT, padx=4)
-        e.bind("<Return>", lambda _e: self.draw())
-        ttk.Button(top, text="Redraw", command=self.draw).pack(side=tk.LEFT)
+        e.bind("<Return>", lambda _e: self.new_view())
+        ttk.Button(top, text="Redraw", command=self.new_view).pack(side=tk.LEFT)
         self.scope = tk.StringVar(value=self.LOBE)
         self.scope_cb = ttk.Combobox(top, textvariable=self.scope, values=self.scopes(), state="readonly", width=34)
         self.scope_cb.pack(side=tk.LEFT, padx=(4, 0))
         ttk.Button(top, text="n at the minimum limit", command=self.set_min_n).pack(side=tk.LEFT, padx=4)
-        self.model.trace_add("write", lambda *_: self.draw())
+        self.model.trace_add("write", lambda *_: self.new_view())
         ttk.Label(top, text="   click = add a depth at the n line (in the units of the y axis) · right click = remove the nearest",
                   foreground="#555").pack(side=tk.LEFT)
         row = ttk.Frame(w, padding=(6, 0))
@@ -1904,10 +1904,20 @@ class SldPicker:
         ttk.Label(row, text="cases").pack(side=tk.LEFT)
         ttk.Entry(row, textvariable=self.r_n, width=5).pack(side=tk.LEFT, padx=2)
         for u in ("kappa", "Ap [mm]"):
-            ttk.Radiobutton(row, text=u, value=u, variable=self.r_unit, command=self.draw).pack(side=tk.LEFT)
+            ttk.Radiobutton(row, text=u, value=u, variable=self.r_unit, command=self.new_view).pack(side=tk.LEFT)
         ttk.Button(row, text="Fill", command=self.fill).pack(side=tk.LEFT, padx=4)
         ttk.Button(row, text="Propose (as the validation planner)", command=self.propose).pack(side=tk.LEFT, padx=2)
         ttk.Button(row, text="Clear", command=lambda: (self.aps.clear(), self.draw())).pack(side=tk.LEFT)
+        prow = ttk.Frame(w, padding=(6, 0))
+        prow.pack(fill=tk.X)
+        self.gap, self.jit, self.seed = tk.StringVar(value="0.02"), tk.StringVar(value="0.6"), tk.StringVar(value="1")
+        ttk.Label(prow, text="proposal: min gap to the training kappa").pack(side=tk.LEFT)
+        ttk.Entry(prow, textvariable=self.gap, width=6).pack(side=tk.LEFT, padx=2)
+        ttk.Label(prow, text="jitter (0-1)").pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Entry(prow, textvariable=self.jit, width=5).pack(side=tk.LEFT, padx=2)
+        ttk.Label(prow, text="seed").pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Entry(prow, textvariable=self.seed, width=5).pack(side=tk.LEFT, padx=2)
+        ttk.Label(prow, text="(the validation planner uses 0.02, 0.6, 1)", foreground="#666").pack(side=tk.LEFT, padx=8)
         body = ttk.Frame(w)
         body.pack(fill=tk.BOTH, expand=True)
         side = ttk.Frame(body, padding=6)
@@ -1916,9 +1926,13 @@ class SldPicker:
         self.lst = tk.Listbox(side, width=44, height=24, font=("Consolas", 9), selectmode=tk.EXTENDED)
         self.lst.pack(fill=tk.Y, expand=True)
         self.proposed = []   # the Ap of the last proposal (replaced by the next one, removable from the list)
-        ttk.Button(side, text="Remove selected", command=self.remove_selected).pack(anchor="w", pady=(4, 0))
-        ttk.Label(side, text="select several with Ctrl/Shift; the proposal can be removed line by line",
-                  foreground="#666", wraplength=300).pack(anchor="w")
+        bt = ttk.Frame(side)
+        bt.pack(anchor="w", pady=(4, 0))
+        ttk.Button(bt, text="Remove selected", command=self.remove_selected).pack(side=tk.LEFT)
+        ttk.Button(bt, text="Remove all proposed", command=self.remove_proposed).pack(side=tk.LEFT, padx=4)
+        ttk.Label(side, text="[proposed] = from Propose (blue, hollow circles on the plot)\n"
+                             "[yours] = added by you (green, crosses). Select several with Ctrl/Shift.",
+                  foreground="#666", wraplength=300, justify="left").pack(anchor="w")
         self.fig = Figure(figsize=(8.5, 5.5), constrained_layout=True)
         self.ax = self.fig.add_subplot(111)
         self.canvas = FigureCanvasTkAgg(self.fig, master=body)
@@ -2024,7 +2038,7 @@ class SldPicker:
             self.app._msg("SLD", f"cannot find the minimum: {exc}", "warn")
             return
         self.n.set(f"{rpm:.1f}")
-        self.draw()
+        self.new_view()
 
     def limit(self):
         try:
@@ -2040,6 +2054,9 @@ class SldPicker:
             self.scope_cb["values"] = vals
             if self.scope.get() not in vals:
                 self.scope.set(self.LOBE)
+        keep = getattr(self, "_keep_view", False)   # zoom/pan survive adding or removing points
+        if keep:
+            view = (ax.get_xlim(), ax.get_ylim())
         ax.cla()
         try:
             lb, _ = sm.lobes(self.model.get())
@@ -2079,8 +2096,14 @@ class SldPicker:
         if kap:
             ax.axhline(1.0, color="#1565c0", lw=0.8, ls=":")
         if self.aps:
-            ax.scatter([n] * len(self.aps), [a / div for a in self.aps], marker="x", s=50, color="#c62828", zorder=4,
-                       label=f"chosen ({len(self.aps)})")
+            mine = [a for a in self.aps if a not in self.proposed]
+            prop = [a for a in self.aps if a in self.proposed]
+            if prop:   # proposed: hollow blue circles; yours: red crosses
+                ax.scatter([n] * len(prop), [a / div for a in prop], marker="o", s=60, facecolors="none",
+                           edgecolors="#1565c0", linewidths=1.6, zorder=4, label=f"proposed ({len(prop)})")
+            if mine:
+                ax.scatter([n] * len(mine), [a / div for a in mine], marker="x", s=50, color="#2e7d32", zorder=4,
+                           label=f"yours ({len(mine)})")
         cap = sm.ap_crit(self.model.get())
         top = max([cap * 4] + [a * 1.15 for a in self.aps] + [p[1] * 1.1 for p in pts]) / div
         ax.set_ylim(0, min(top, 4.0) if kap else top)
@@ -2095,12 +2118,19 @@ class SldPicker:
             fontsize=10)
         if ax.get_legend_handles_labels()[0]:
             ax.legend(fontsize=8, loc="upper right")
+        if keep:
+            ax.set_xlim(view[0])
+            ax.set_ylim(view[1])
+        self._keep_view = True
         self.canvas.draw()
         self.lst.delete(0, "end")
-        for a in self.aps:
+        for idx, a in enumerate(self.aps):
             k = a / lim if lim and math.isfinite(lim) else None
             zone = "" if k is None else ("stable" if k < 1 else "UNSTABLE")
-            self.lst.insert("end", f"Ap {a:8.4f} mm" + (f"   kappa {k:6.3f}  {zone}" if k is not None else ""))
+            prop = a in self.proposed
+            self.lst.insert("end", ("[proposed] " if prop else "[yours]    ") + f"Ap {a:8.4f} mm"
+                            + (f"   kappa {k:6.3f}  {zone}" if k is not None else ""))
+            self.lst.itemconfig(idx, foreground="#1565c0" if prop else "#2e7d32")
 
     def on_click(self, ev):
         if ev.inaxes is not self.ax or ev.ydata is None or self.toolbar.mode:
@@ -2149,9 +2179,10 @@ class SldPicker:
             self.app._msg("Propose", "kappa needs a finite stability limit at this n (pocket or outside the lobes)", "warn")
             return
         try:
-            picked = vp.sample_zones([("propose", a, b, n)], used, 0.02, 0.6, 1)
+            gap, jit, seed = float(self.gap.get()), float(self.jit.get()), int(self.seed.get())
+            picked = vp.sample_zones([("propose", a, b, n)], used, gap, jit, seed)
         except ValueError as exc:
-            self.app._msg("Propose", str(exc), "warn")
+            self.app._msg("Propose", f"{exc} (gap, jitter and seed: numbers; seed an integer)", "warn")
             return
         # a new proposal replaces the previous one; the cases you added by hand stay
         self.aps = sorted(set(a for a in self.aps if a not in self.proposed) | {round(k * lim, 4) for _, k in picked})
@@ -2159,7 +2190,18 @@ class SldPicker:
         self.r_unit.set("kappa")
         self.draw()
         self.app.status_msg.set(f"{len(picked)} cases proposed in kappa {a:g}-{b:g}, away from the {len(used)} kappa of "
-                                f"the reference (gap 0.02)")
+                                f"the reference (gap {gap:g}, jitter {jit:g}, seed {seed})")
+
+    def new_view(self):
+        """Model, n or units changed: the plot is drawn again with its own limits (not the zoom kept)."""
+        self._keep_view = False
+        self.draw()
+
+    def remove_proposed(self):
+        """Removes the whole last proposal, keeping the depths you added by hand."""
+        self.aps = [a for a in self.aps if a not in self.proposed]
+        self.proposed = []
+        self.draw()
 
     def remove_selected(self):
         """Removes the depths selected in the list (the list shows self.aps in order)."""
