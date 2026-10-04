@@ -1738,6 +1738,10 @@ class SimulationFrame:
         for u in ("Ap [mm]", "kappa"):
             ttk.Radiobutton(f, text=u, value=u, variable=self.unit).pack(side="left")
         ttk.Label(f, text="  list or start:stop:step; one value = a single case", foreground="#666").pack(side="left")
+        ends = v.get("depths_end") or []
+        self.depths_end = dlg.field("depths end (ramps)", tk.StringVar(value=_fmt_list(ends) if ends else ""),
+                                    note="empty = constant Ap · else Ap at the END of the cut, one per depth (same "
+                                         "unit): different = a ramp, equal = constant")
         a = v["ap_ref"] or {"mode": "none"}
         self.ap_mode = dlg.field("ap_ref (kappa = Ap / ap_ref)", tk.StringVar(value=a.get("mode", "none")),
                                  values=["none", "manual", "model", "model_at_spin"],
@@ -1820,7 +1824,7 @@ class SimulationFrame:
                                    self.depths.get(), "kappa" if self.unit.get() == "kappa" else "mm", self.spins.get(),
                                    self.ap_ref(), self.variables(), self.combine.get(), _num(self.nb_proc.get(), int) or 1,
                                    self.n2m.get().strip(), [x.strip() for x in self.signals.get().split(",") if x.strip()],
-                                   self.force.get().strip())
+                                   self.force.get().strip(), depths_end=self.depths_end.get().strip() or None)
 
     def run_opts(self) -> dict:
         return {k: True for k, v in (("timed", self.timed), ("auto_extract", self.auto)) if v.get()}
@@ -1846,13 +1850,19 @@ class SimulationFrame:
         est = ex.estimate_time(sim)
         if est:
             t.insert("end", est + "\n")
-        extra = [k for k in (rows[0] if rows else {}) if k not in ("case", "Ap_start", "Ap_end", "spin_rate", "kappa",
-                                                                    "kappa_error")]
-        t.insert("end", f"{'case':>5} {'Ap [mm]':>10} {'kappa':>8} {'n [rpm]':>10}  " + "  ".join(extra) + "\n")
+        extra = [k for k in (rows[0] if rows else {}) if k not in ex.ROW_EXTRA]
+        ramps = any(d.get("ramp") for d in rows)
+        f3 = lambda x: "-" if x is None else f"{x:.3f}"   # noqa: E731
+        t.insert("end", f"{'case':>5} {'type':>5} {'Ap [mm]':>10} " + (f"{'Ap end':>10} " if ramps else "")
+                 + f"{'kappa':>8} " + (f"{'kappa end':>9} " if ramps else "") + f"{'n [rpm]':>10}  "
+                 + "  ".join(extra) + "\n")
         for d in rows:
-            k = d.get("kappa")
-            t.insert("end", f"{d['case']:>5} {d['Ap_start'] * 1e3:>10.4f} {'-' if k is None else f'{k:.3f}':>8} "
-                            f"{d.get('spin_rate', float('nan')):>10g}  " + "  ".join(f"{d[x]:g}" for x in extra) + "\n")
+            r = bool(d.get("ramp"))
+            k0, k1 = (d.get("kappa_start"), d.get("kappa_end")) if r else (d.get("kappa"), d.get("kappa"))
+            t.insert("end", f"{d['case']:>5} {'ramp' if r else 'const':>5} {d['Ap_start'] * 1e3:>10.4f} "
+                            + (f"{d['Ap_end'] * 1e3:>10.4f} " if ramps else "") + f"{f3(k0):>8} "
+                            + (f"{f3(k1):>9} " if ramps else "")
+                            + f"{d.get('spin_rate', float('nan')):>10g}  " + "  ".join(f"{d[x]:g}" for x in extra) + "\n")
         return not errs
 
 
@@ -1893,23 +1903,32 @@ class SldPicker:
         self.scope_cb.pack(side=tk.LEFT, padx=(4, 0))
         ttk.Button(top, text="n at the minimum limit", command=self.set_min_n).pack(side=tk.LEFT, padx=4)
         self.model.trace_add("write", lambda *_: self.new_view())
-        ttk.Label(top, text="   click = add a depth at the n line (in the units of the y axis) · right click = remove the nearest",
-                  foreground="#555").pack(side=tk.LEFT)
+        self.hint = tk.StringVar()
+        ttk.Label(top, textvariable=self.hint, foreground="#555").pack(side=tk.LEFT, padx=6)
         row = ttk.Frame(w, padding=(6, 0))
         row.pack(fill=tk.X)
         self.r_from, self.r_to, self.r_n = tk.StringVar(), tk.StringVar(), tk.StringVar(value="5")
         self.r_unit = tk.StringVar(value="kappa")
-        ttk.Label(row, text="fill a range: from").pack(side=tk.LEFT)
+        self.mode = tk.StringVar(value="points")   # points = constant Ap; ramps = Ap from a start to an end
+        self.span = tk.StringVar(value="0.6")
+        ttk.Label(row, text="add").pack(side=tk.LEFT)
+        for m in ("points", "ramps"):
+            ttk.Radiobutton(row, text=m, value=m, variable=self.mode, command=self._mode_changed).pack(side=tk.LEFT)
+        ttk.Label(row, text="│ fill a range: from").pack(side=tk.LEFT, padx=(6, 0))
         ttk.Entry(row, textvariable=self.r_from, width=8).pack(side=tk.LEFT, padx=2)
         ttk.Label(row, text="to").pack(side=tk.LEFT)
         ttk.Entry(row, textvariable=self.r_to, width=8).pack(side=tk.LEFT, padx=2)
         ttk.Label(row, text="cases").pack(side=tk.LEFT)
         ttk.Entry(row, textvariable=self.r_n, width=5).pack(side=tk.LEFT, padx=2)
+        self.span_lbl = ttk.Label(row, text="ramp span")
+        self.span_lbl.pack(side=tk.LEFT)
+        self.span_ent = ttk.Entry(row, textvariable=self.span, width=6)
+        self.span_ent.pack(side=tk.LEFT, padx=2)
         for u in ("kappa", "Ap [mm]"):
             ttk.Radiobutton(row, text=u, value=u, variable=self.r_unit, command=self.new_view).pack(side=tk.LEFT)
         ttk.Button(row, text="Fill", command=self.fill).pack(side=tk.LEFT, padx=4)
         ttk.Button(row, text="Propose (as the validation planner)", command=self.propose).pack(side=tk.LEFT, padx=2)
-        ttk.Button(row, text="Clear", command=lambda: (self.aps.clear(), self.draw())).pack(side=tk.LEFT)
+        ttk.Button(row, text="Clear", command=self.clear).pack(side=tk.LEFT)
         prow = ttk.Frame(w, padding=(6, 0))
         prow.pack(fill=tk.X)
         self.gap, self.jit, self.seed = tk.StringVar(value="0.02"), tk.StringVar(value="0.6"), tk.StringVar(value="1")
@@ -1919,25 +1938,31 @@ class SldPicker:
         ttk.Entry(prow, textvariable=self.jit, width=5).pack(side=tk.LEFT, padx=2)
         ttk.Label(prow, text="seed").pack(side=tk.LEFT, padx=(8, 0))
         ttk.Entry(prow, textvariable=self.seed, width=5).pack(side=tk.LEFT, padx=2)
-        ttk.Label(prow, text="(the validation planner uses 0.02, 0.6, 1)", foreground="#666").pack(side=tk.LEFT, padx=8)
+        ttk.Label(prow, text="(the validation planner uses 0.02, 0.6, 1; ramps: no gap, a ramp covers a range; "
+                             "span < 0 = Ap decreasing)", foreground="#666").pack(side=tk.LEFT, padx=8)
         body = ttk.Frame(w)
         body.pack(fill=tk.BOTH, expand=True)
         side = ttk.Frame(body, padding=6)
         side.pack(side=tk.RIGHT, fill=tk.Y)
-        ttk.Label(side, text="chosen depths", font=("Segoe UI", 9, "bold")).pack(anchor="w")
-        self.lst = tk.Listbox(side, width=44, height=24, font=("Consolas", 9), selectmode=tk.EXTENDED)
+        ttk.Label(side, text="chosen depths (points) and ramps", font=("Segoe UI", 9, "bold")).pack(anchor="w")
+        self.lst = tk.Listbox(side, width=76, height=24, font=("Consolas", 9), selectmode=tk.EXTENDED)
         self.lst.pack(fill=tk.Y, expand=True)
         self.proposed = []   # the Ap of the last proposal (replaced by the next one, removable from the list)
         self.accepted = []   # proposals accepted: kept apart from yours, never replaced by a new proposal
+        self.ramps, self.r_proposed, self.r_accepted = [], [], []   # the same for ramps: (Ap start, Ap end) mm
+        self._pending = None   # ramps mode: the start of a ramp clicked, waiting for its end
+        self._items = []       # what each line of the list is: ("pt", Ap) or ("rp", (start, end))
         bt = ttk.Frame(side)
         bt.pack(anchor="w", pady=(4, 0))
         ttk.Button(bt, text="Remove selected", command=self.remove_selected).pack(side=tk.LEFT)
         ttk.Button(bt, text="Remove all proposed", command=self.remove_proposed).pack(side=tk.LEFT, padx=4)
         ttk.Button(bt, text="Accept proposed", command=self.accept_proposed).pack(side=tk.LEFT)
-        ttk.Label(side, text="[proposed] = from Propose (blue, hollow circles)\n"
-                             "[accepted] = proposals you accepted (purple, diamonds)\n"
-                             "[yours] = added by you (green, crosses). Ctrl/Shift to select several.",
-                  foreground="#666", wraplength=300, justify="left").pack(anchor="w")
+        ttk.Label(side, text="[proposed] = from Propose (blue, hollow circles / arrows)\n"
+                             "[accepted] = proposals you accepted (purple, diamonds / arrows)\n"
+                             "[yours] = added by you (green, crosses / arrows). Ctrl/Shift to select several.\n"
+                             "A ramp is an arrow from its start to its end Ap (drawn side by side next to the n "
+                             "line so they do not overlap; all are at that n).",
+                  foreground="#666", wraplength=420, justify="left").pack(anchor="w")
         self.fig = Figure(figsize=(8.5, 5.5), constrained_layout=True)
         self.ax = self.fig.add_subplot(111)
         self.canvas = FigureCanvasTkAgg(self.fig, master=body)
@@ -1953,8 +1978,39 @@ class SldPicker:
         ttk.Button(bot, text="Use these Ap", command=self.use).pack(side=tk.RIGHT)
         ttk.Button(bot, text="Cancel", command=w.destroy).pack(side=tk.RIGHT, padx=6)
         self.ref = getattr(frame.dlg, "ref_exp", lambda: None)()
-        self.aps = [round(a, 6) for a in ex._values(frame.depths.get())] if (
-            frame.unit.get() == "Ap [mm]" and frame.depths.get().strip()) else []
+        self.aps = []
+        if frame.unit.get() == "Ap [mm]" and frame.depths.get().strip():   # the form's cases: points and ramps
+            starts = [round(a, 6) for a in ex._values(frame.depths.get())]
+            ends = [round(a, 6) for a in ex._values(frame.depths_end.get())] if frame.depths_end.get().strip() else []
+            ends = ends * len(starts) if len(ends) == 1 else ends
+            for i, a in enumerate(starts):
+                b = ends[i] if i < len(ends) else a
+                if abs(b - a) > 1e-9:
+                    self.ramps.append((a, b))
+                else:
+                    self.aps.append(a)
+            self.aps = sorted(set(self.aps))
+            self.ramps = sorted(set(self.ramps))
+        if self.ramps:
+            self.mode.set("ramps")
+        self._mode_changed(draw=False)
+        self.draw()
+
+    def _mode_changed(self, draw=True):
+        ramps = self.mode.get() == "ramps"
+        self.hint.set("two clicks = a ramp (start, then end Ap; y axis units) · right click = remove the nearest ramp"
+                      if ramps else "click = add a depth at the n line (in the units of the y axis) · right click = "
+                                    "remove the nearest")
+        for wdg in (self.span_lbl, self.span_ent):
+            wdg.state(["!disabled"] if ramps else ["disabled"])
+        self._pending = None
+        if draw:
+            self.draw()
+
+    def clear(self):
+        self.aps, self.proposed, self.accepted = [], [], []
+        self.ramps, self.r_proposed, self.r_accepted = [], [], []
+        self._pending = None
         self.draw()
 
     def _n(self) -> float:
@@ -2091,9 +2147,15 @@ class SldPicker:
                     ax.plot([], [], color=col, lw=2.8, label=f"{fp[j]:g} Hz mode, lobe that sets the limit at n")
         pts = ex.case_points_of(self.ref)
         for lab in sorted({p[2] for p in pts}):
-            sel = [p for p in pts if p[2] == lab]
-            ax.scatter([p[0] for p in sel], [p[1] / div for p in sel], s=18, color=self.LAB_COL.get(lab, "#555"),
-                       label=f"reference {lab or 'case'} ({len(sel)})", zorder=3)
+            sel = [p for p in pts if p[2] == lab and p[3] == p[1]]
+            seg = [p for p in pts if p[2] == lab and p[3] != p[1]]   # a reference ramp: a vertical segment
+            col = self.LAB_COL.get(lab, "#555")
+            if sel:
+                ax.scatter([p[0] for p in sel], [p[1] / div for p in sel], s=18, color=col,
+                           label=f"reference {lab or 'case'} ({len(sel)})", zorder=3)
+            if seg:
+                ax.vlines([p[0] for p in seg], [p[1] / div for p in seg], [p[3] / div for p in seg], colors=col,
+                          lw=2, label=f"reference ramps {lab or ''} ({len(seg)})", zorder=3)
         ax.axvline(n, color="#1565c0", ls="--", lw=1)
         if lim is not None and math.isfinite(lim):
             ax.plot([n], [lim / div], marker="_", markersize=22, color="#1565c0", mew=2,
@@ -2113,8 +2175,26 @@ class SldPicker:
             if mine:
                 ax.scatter([n] * len(mine), [a / div for a in mine], marker="x", s=50, color="#2e7d32", zorder=4,
                            label=f"yours ({len(mine)})")
+        xs_all = [v for v in lb[..., 0].ravel() if math.isfinite(v)]
+        dx = 0.006 * ((max(xs_all + [n]) - min(xs_all + [n])) if xs_all else n)   # ramps side by side
+        counts = {}
+        for i, r in enumerate(self.ramps):
+            grp = "proposed" if r in self.r_proposed else ("accepted" if r in self.r_accepted else "yours")
+            col = {"proposed": "#1565c0", "accepted": "#6a1b9a", "yours": "#2e7d32"}[grp]
+            x = n + (i + 1) * dx
+            ax.annotate("", xy=(x, r[1] / div), xytext=(x, r[0] / div), zorder=4,
+                        arrowprops=dict(arrowstyle="-|>", color=col, lw=1.8, shrinkA=0, shrinkB=0))
+            ax.plot([x], [r[0] / div], marker="o", ms=4, color=col, zorder=4)
+            counts[grp] = counts.get(grp, 0) + 1
+        for grp, c in counts.items():
+            ax.plot([], [], color={"proposed": "#1565c0", "accepted": "#6a1b9a", "yours": "#2e7d32"}[grp], lw=1.8,
+                    marker="o", ms=4, label=f"ramps {grp} ({c}): dot = start, arrow = end")
+        if self._pending is not None:
+            ax.plot([n], [self._pending / div], marker="^", ms=10, color="#2e7d32", zorder=5,
+                    label="ramp start: click its end")
         cap = sm.ap_crit(self.model.get())
-        top = max([cap * 4] + [a * 1.15 for a in self.aps] + [p[1] * 1.1 for p in pts]) / div
+        top = max([cap * 4] + [a * 1.15 for a in self.aps] + [max(r) * 1.15 for r in self.ramps]
+                  + [max(p[1], p[3]) * 1.1 for p in pts]) / div
         ax.set_ylim(0, min(top, 4.0) if kap else top)
         xs = [v for v in lb[..., 0].ravel() if math.isfinite(v)]
         if xs:
@@ -2133,41 +2213,103 @@ class SldPicker:
         self._keep_view = True
         self.canvas.draw()
         self.lst.delete(0, "end")
-        for idx, a in enumerate(self.aps):
-            k = a / lim if lim and math.isfinite(lim) else None
-            zone = "" if k is None else ("stable" if k < 1 else "UNSTABLE")
-            prop, acc = a in self.proposed, a in self.accepted
+        self._items = [("pt", a) for a in self.aps] + [("rp", r) for r in self.ramps]
+        ok_lim = lim and math.isfinite(lim)
+        for idx, (kind, a) in enumerate(self._items):
+            if kind == "pt":
+                k = a / lim if ok_lim else None
+                zone = "" if k is None else ("stable" if k < 1 else "UNSTABLE")
+                prop, acc = a in self.proposed, a in self.accepted
+                txt = f" Ap {a:8.4f} mm" + (f"   kappa {k:6.3f}  {zone}" if k is not None else "")
+            else:
+                k0, k1 = (a[0] / lim, a[1] / lim) if ok_lim else (None, None)
+                zone = "" if k0 is None else ("crosses 1" if min(k0, k1) < 1 <= max(k0, k1) else
+                                              ("stable" if max(k0, k1) < 1 else "UNSTABLE"))
+                prop, acc = a in self.r_proposed, a in self.r_accepted
+                txt = (f" ramp Ap {a[0]:.4f} -> {a[1]:.4f} mm"
+                       + (f"  kappa {k0:.3f} -> {k1:.3f}  {zone}" if k0 is not None else ""))
             tag = "[proposed]" if prop else ("[accepted]" if acc else "[yours]   ")
-            self.lst.insert("end", tag + f" Ap {a:8.4f} mm"
-                            + (f"   kappa {k:6.3f}  {zone}" if k is not None else ""))
+            self.lst.insert("end", tag + txt)
             self.lst.itemconfig(idx, foreground="#1565c0" if prop else ("#6a1b9a" if acc else "#2e7d32"))
 
     def on_click(self, ev):
         if ev.inaxes is not self.ax or ev.ydata is None or self.toolbar.mode:
             return
         div = getattr(self, "div", 1.0)   # kappa axis: the click is a kappa, stored as Ap = kappa x limit
+        if self.mode.get() == "ramps":   # two clicks = one ramp (start, end); right click = remove the nearest
+            if ev.button == 1 and ev.ydata > 0:
+                v = round(float(ev.ydata) * div, 4 if div != 1.0 else 3)
+                if self._pending is None:
+                    self._pending = v
+                else:
+                    if abs(v - self._pending) > 1e-6:
+                        self.ramps = sorted(set(self.ramps + [(self._pending, v)]))
+                    self._pending = None
+            elif ev.button == 3:
+                if self._pending is not None:
+                    self._pending = None
+                elif self.ramps:
+                    y = float(ev.ydata) * div
+                    gone = min(self.ramps, key=lambda r: (max(min(r) - y, 0, y - max(r)), abs((r[0] + r[1]) / 2 - y)))
+                    self._drop_ramps([gone])
+            self.draw()
+            return
         if ev.button == 1 and ev.ydata > 0:
             self.aps = sorted(set(self.aps + [round(float(ev.ydata) * div, 4 if div != 1.0 else 3)]))
         elif ev.button == 3 and self.aps:
             self.aps.remove(min(self.aps, key=lambda a: abs(a / div - ev.ydata)))
         self.draw()
 
-    def fill(self):
+    def _drop_ramps(self, gone):
+        self.ramps = [r for r in self.ramps if r not in gone]
+        self.r_proposed = [r for r in self.r_proposed if r not in gone]
+        self.r_accepted = [r for r in self.r_accepted if r not in gone]
+
+    def _scale(self, what: str):
+        """Factor from the range units to Ap [mm] (the limit at n for kappa), or None after telling why."""
         import math
+        if self.r_unit.get() != "kappa":
+            return 1.0
+        lim = self.limit()
+        if lim is None or not math.isfinite(lim):
+            self.app._msg(what, "kappa needs a finite stability limit at this n (it is a pocket between lobes or "
+                                "outside the lobes): choose another n or use Ap [mm]", "warn")
+            return None
+        return lim
+
+    def _ramp_ends(self, starts, scale, what):
+        """[(start, end)] Ap mm of ramps that start at `starts` (range units) with the span of the form."""
+        try:
+            span = float(self.span.get())
+        except ValueError:
+            self.app._msg(what, "give the ramp span (a number in the units of the range; < 0 = Ap decreasing)", "warn")
+            return None
+        if span == 0:
+            self.app._msg(what, "a ramp span of 0 is a constant case: use the points mode", "warn")
+            return None
+        out = [(round(s * scale, 4), round((s + span) * scale, 4)) for s in starts]
+        if any(min(r) <= 0 for r in out):
+            self.app._msg(what, "a ramp would end at Ap <= 0: change the range or the span", "warn")
+            return None
+        return out
+
+    def fill(self):
         try:
             a, b, n = float(self.r_from.get()), float(self.r_to.get()), int(self.r_n.get())
         except ValueError:
             self.app._msg("Fill", "give from, to (numbers) and the number of cases", "warn")
             return
         vals = [a + (b - a) * i / (n - 1) for i in range(n)] if n > 1 else [a]
-        if self.r_unit.get() == "kappa":
-            lim = self.limit()
-            if lim is None or not math.isfinite(lim):
-                self.app._msg("Fill", "kappa needs a finite stability limit at this n (it is a pocket between lobes "
-                                      "or outside the lobes): choose another n or fill in Ap [mm]", "warn")
+        scale = self._scale("Fill")
+        if scale is None:
+            return
+        if self.mode.get() == "ramps":   # ramps that START regularly in [from, to], each with the span
+            new = self._ramp_ends(vals, scale, "Fill")
+            if new is None:
                 return
-            vals = [k * lim for k in vals]
-        self.aps = sorted(set(self.aps + [round(v, 4) for v in vals if v > 0]))
+            self.ramps = sorted(set(self.ramps + new))
+        else:
+            self.aps = sorted(set(self.aps + [round(v * scale, 4) for v in vals if v > 0]))
         self.draw()
 
     def propose(self):
@@ -2181,6 +2323,9 @@ class SldPicker:
             a, b, n = float(self.r_from.get()), float(self.r_to.get()), int(self.r_n.get())
         except ValueError:
             self.app._msg("Propose", "give from, to (kappa) and the number of cases", "warn")
+            return
+        if self.mode.get() == "ramps":
+            self.propose_ramps(vp, a, b, n)
             return
         info = ex.h5_info(self.ref_h5()) if self.ref_h5() else None
         used = list(info["kappa"]) if info and info["kappa"] else []
@@ -2202,6 +2347,27 @@ class SldPicker:
         self.app.status_msg.set(f"{len(picked)} cases proposed in kappa {a:g}-{b:g}, away from the {len(used)} kappa of "
                                 f"the reference (gap {gap:g}, jitter {jit:g}, seed {seed})")
 
+    def propose_ramps(self, vp, a, b, n):
+        """N ramps whose START is stratified in [from, to] (one per stratum, jitter and seed as for the points; no
+        gap to the training: a ramp covers a range), each with the span of the form (in the range units)."""
+        scale = self._scale("Propose")
+        if scale is None:
+            return
+        try:
+            jit, seed = float(self.jit.get()), int(self.seed.get())
+            picked = vp.sample_zones([("propose", a, b, n)], [], 0.0, jit, seed)
+        except ValueError as exc:
+            self.app._msg("Propose", f"{exc} (jitter and seed: numbers; seed an integer)", "warn")
+            return
+        new = self._ramp_ends([k for _, k in picked], scale, "Propose")
+        if new is None:
+            return
+        self.ramps = sorted(set(r for r in self.ramps if r not in self.r_proposed) | set(new))
+        self.r_proposed = new
+        self.draw()
+        self.app.status_msg.set(f"{len(new)} ramps proposed, starts in {a:g}-{b:g} {self.r_unit.get()}, span "
+                                f"{self.span.get()} (jitter {jit:g}, seed {seed})")
+
     def new_view(self):
         """Model, n or units changed: the plot is drawn again with its own limits (not the zoom kept)."""
         self._keep_view = False
@@ -2209,27 +2375,31 @@ class SldPicker:
 
     def accept_proposed(self):
         """The current proposal becomes ordinary cases ([yours]): the next Propose keeps them and proposes others."""
-        n = len(self.proposed)
+        n = len(self.proposed) + len(self.r_proposed)
         self.accepted = sorted(set(self.accepted + self.proposed))
-        self.proposed = []
+        self.r_accepted = sorted(set(self.r_accepted + self.r_proposed))
+        self.proposed, self.r_proposed = [], []
         self.draw()
         self.app.status_msg.set(f"{n} proposed case(s) accepted (own group): the next Propose will not replace them")
 
     def remove_proposed(self):
-        """Removes the whole last proposal, keeping the depths you added by hand."""
+        """Removes the whole last proposal (points and ramps), keeping what you added by hand."""
         self.aps = [a for a in self.aps if a not in self.proposed]
-        self.proposed = []
+        self.ramps = [r for r in self.ramps if r not in self.r_proposed]
+        self.proposed, self.r_proposed = [], []
         self.draw()
 
     def remove_selected(self):
-        """Removes the depths selected in the list (the list shows self.aps in order)."""
+        """Removes the depths and ramps selected in the list (the list shows self._items in order)."""
         sel = set(self.lst.curselection())
         if not sel:
             return
-        gone = [self.aps[i] for i in sel if i < len(self.aps)]
-        self.aps = [a for i, a in enumerate(self.aps) if i not in sel]
-        self.proposed = [a for a in self.proposed if a not in gone]
-        self.accepted = [a for a in self.accepted if a not in gone]
+        gone = [self._items[i] for i in sel if i < len(self._items)]
+        pts = [a for k, a in gone if k == "pt"]
+        self.aps = [a for a in self.aps if a not in pts]
+        self.proposed = [a for a in self.proposed if a not in pts]
+        self.accepted = [a for a in self.accepted if a not in pts]
+        self._drop_ramps([a for k, a in gone if k == "rp"])
         self.draw()
 
     def ref_h5(self):
@@ -2238,12 +2408,13 @@ class SldPicker:
         return ref.data_h5 if ref is not None and ref.data_h5 and os.path.isfile(ref.data_h5) else None
 
     def use(self):
-        if not self.aps:
-            self.app._msg("SLD", "choose at least one depth (click on the plot or Fill)", "warn")
+        if not self.aps and not self.ramps:
+            self.app._msg("SLD", "choose at least one depth or ramp (click on the plot or Fill)", "warn")
             return
         f = self.frame
-        f.unit.set("Ap [mm]")
-        f.depths.set(", ".join(f"{a:.6g}" for a in self.aps))
+        f.unit.set("Ap [mm]")   # points first (end = start: constant), then the ramps
+        f.depths.set(", ".join(f"{a:.6g}" for a in self.aps + [r[0] for r in self.ramps]))
+        f.depths_end.set(", ".join(f"{a:.6g}" for a in self.aps + [r[1] for r in self.ramps]) if self.ramps else "")
         f.spins.set(self.n.get())
         if self.set_ref.get():
             f.ap_mode.set("model_at_spin")
@@ -2394,13 +2565,15 @@ class NewExperimentDialog(_Dialog):
     def _propose(self):
         try:
             spins = ex._values(self.frame.spins.get())
-            ks = ex._values(self.frame.depths.get()) if self.frame.unit.get() == "kappa" else None
+            ks = (ex._values(self.frame.depths.get()) + ex._values(self.frame.depths_end.get())
+                  if self.frame.unit.get() == "kappa" else None)
             name = ex.propose_name(self.flow.get(), self.frame.case.get(), spins[0] if len(set(spins)) == 1 else None, ks)
             self.name.set(name)
             self.frame.doe_name.set(name)
             if not self.descr.get():
                 self.descr.set(f"{self.flow.get().lower()}, {self.frame.case.get()}, n = {self.frame.spins.get()} rpm, "
-                               f"{self.frame.unit.get()} {self.frame.depths.get()}")
+                               f"{self.frame.unit.get()} {self.frame.depths.get()}"
+                               + (f" -> {self.frame.depths_end.get()} (ramps)" if self.frame.depths_end.get().strip() else ""))
         except Exception as exc:
             self.app._msg("Propose names", f"fill n and the depths first ({exc})", "warn")
 

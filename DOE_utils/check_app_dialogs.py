@@ -92,6 +92,176 @@ def shot(win, name):
     ImageGrab.grab(bbox=tuple(int(v * F) for v in (x, y, x + w, y + h))).save(os.path.join(SHOTS, name))
 
 
+def check_ramps():
+    """Ramps of Ap (PLAN_ramps.md): create (mm, kappa, mixed with constant cases), SLD picker in ramps mode, edit,
+    copy, dry-run, a decreasing ramp on a one-way workpiece, import / standardize of an .h5 with ramps."""
+    # new experiment: Ap in mm, a ramp + a constant case in the same run
+    nd = L.NewExperimentDialog(app)
+    fr = nd.frame
+    nd.flow.set("Validation against a reference")
+    nd.ref.set(TR)
+    fr.base_dir.set(base)
+    fr.case.set("1DOF_150Hz")
+    fr.spins.set("12098.28")
+    fr.depths.set("5, 9")
+    fr.depths_end.set("15, 9")
+    fr.ap_mode.set("model_at_spin")
+    fr.ap_model.set("1DOF_150")
+    nd.name.set("ramps_mm")
+    fr.doe_name.set("ramps_mm")
+    assert fr.preview(), fr.out.get("1.0", "end")
+    txt = fr.out.get("1.0", "end")
+    assert "Ap end" in txt and " ramp " in txt and "const" in txt and "1 ramp case(s): no repeat check" in txt, txt
+    shot(nd.win, "ramps_new_mm.png")
+    nd._ok()
+    e = ex.load("ramps_mm")
+    sw = e.runs[0].cfg["sweep"]
+    assert sw["$Ap_start$"] == [0.005, 0.009] and sw["$Ap_end$"] == [0.015, 0.009], sw
+    assert any("ramp Ap 5.0000 -> 15.0000 mm" in t for t, _ in ex.dry_run(e)), ex.dry_run(e)
+    assert ex.summary(e)["ramps"] == 1
+    # new experiment in kappa: one ramp kappa 0.6 -> 1.6 (Ap = kappa x limit at n)
+    nd = L.NewExperimentDialog(app)
+    fr = nd.frame
+    fr.base_dir.set(base)
+    fr.case.set("1DOF_150Hz")
+    fr.spins.set("12098.28")
+    fr.unit.set("kappa")
+    fr.depths.set("0.6")
+    fr.depths_end.set("1.6")
+    fr.ap_mode.set("model_at_spin")
+    fr.ap_model.set("1DOF_150")
+    nd.flow.set("Simulation only")
+    nd._propose()
+    assert nd.name.get().startswith("sim_1DOF150_n12098_k0.6-1.6"), nd.name.get()
+    assert fr.preview(), fr.out.get("1.0", "end")
+    nd._ok()
+    k = ex.load(nd.name.get())
+    lim = ex._sld().ap_lim("1DOF_150", 12098.28) * 1e-3
+    s2 = k.runs[0].cfg["sweep"]
+    assert abs(s2["$Ap_start$"][0] - 0.6 * lim) < 1e-8 and abs(s2["$Ap_end$"][0] - 1.6 * lim) < 1e-8, s2
+    rows = ex.case_rows(k.runs[0].cfg)
+    assert rows[0]["ramp"] and abs(rows[0]["kappa_start"] - 0.6) < 1e-6 and abs(rows[0]["kappa_end"] - 1.6) < 1e-6
+    # the simulation form loads the ramp back (Ap mm + ends), and 'load values from' too
+    sf = L.SimulationForm(app, e)
+    assert sf.frame.depths.get() == "5, 9" and sf.frame.depths_end.get() == "15, 9", (sf.frame.depths.get(),
+                                                                                     sf.frame.depths_end.get())
+    shot(sf.win, "ramps_simulation_form.png")
+    sf.win.destroy()
+    nd = L.NewExperimentDialog(app)
+    nd.src.set("experiment: ramps_mm")
+    assert nd.frame.depths_end.get() == "15, 9"
+    # SLD picker, ramps mode: two clicks = a ramp, right click removes it, Fill / Propose / Accept, Use
+    nd.frame.base_dir.set(base)
+    pk = L.SldPicker(app, nd.frame)
+    assert pk.mode.get() == "ramps" and pk.ramps == [(5.0, 15.0)] and pk.aps == [9.0], (pk.ramps, pk.aps)
+    pk.model.set("1DOF_150")
+    pk.r_unit.set("Ap [mm]")
+    pk.new_view()
+
+    class Ev:
+        def __init__(self, y, b=1):
+            self.inaxes, self.ydata, self.button = pk.ax, y, b
+    pk.ax.set_xlim(11000, 13000)                      # a zoom: kept while ramps are added or removed
+    pk.on_click(Ev(12.0))
+    assert pk._pending == 12.0 and pk.ax.get_xlim() == (11000, 13000)
+    pk.on_click(Ev(6.0))
+    assert (12.0, 6.0) in pk.ramps and pk._pending is None and pk.ax.get_xlim() == (11000, 13000), pk.ramps
+    pk.on_click(Ev(7.0, 3))                           # right click: the ramp 12 -> 6 contains 7
+    assert (12.0, 6.0) not in pk.ramps and (5.0, 15.0) in pk.ramps
+    pk.new_view()
+    pk.r_unit.set("kappa")
+    pk.new_view()
+    pk.r_from.set("0.6"), pk.r_to.set("0.9"), pk.r_n.set("2"), pk.span.set("0.8")
+    pk.fill()
+    lim_mm = pk.limit()
+    new = [r for r in pk.ramps if r != (5.0, 15.0)]
+    assert len(new) == 2 and abs(new[0][0] - round(0.6 * lim_mm, 4)) < 1e-9 and abs(new[0][1] - round(1.4 * lim_mm, 4)) < 1e-9, new
+    pk.span.set("-0.5")
+    pk.r_from.set("1.2"), pk.r_to.set("1.6"), pk.r_n.set("3")
+    pk.propose()
+    assert len(pk.r_proposed) == 3 and all(r[1] < r[0] for r in pk.r_proposed), pk.r_proposed
+    first = list(pk.r_proposed)
+    pk.seed.set("2")
+    pk.propose()                                      # a new proposal replaces the previous one
+    assert len(pk.r_proposed) == 3 and not set(first) & set(pk.ramps) - set(pk.r_proposed)
+    pk.accept_proposed()
+    assert len(pk.r_accepted) == 3 and not pk.r_proposed
+    lines = pk.lst.get(0, "end")
+    assert any("[accepted] ramp Ap" in x and "kappa" in x for x in lines), lines
+    assert any("crosses 1" in x for x in lines), lines
+    shot(pk.win, "ramps_sld_picker.png")
+    pk.lst.selection_clear(0, "end")
+    pk.lst.selection_set(len(pk.aps))                 # the first ramp of the list
+    gone = pk._items[len(pk.aps)]
+    pk.remove_selected()
+    assert gone[1] not in pk.ramps
+    n_ramps = len(pk.ramps)
+    pk.use()
+    st, en = ex._values(nd.frame.depths.get()), ex._values(nd.frame.depths_end.get())
+    assert len(st) == len(en) == 1 + n_ramps and st[0] == en[0] == 9.0, (st, en)
+    nd.win.destroy()
+    # copy of a ramp experiment keeps the ramps; the copy's dry-run shows them
+    ex.copy_experiment("ramps_mm", "ramps_copy", doe_suffix="_c")
+    assert ex.load("ramps_copy").runs[0].cfg["sweep"]["$Ap_end$"] == [0.015, 0.009]
+    # a decreasing ramp on a case whose workpiece only makes Ap grow: refused with the reason
+    os.makedirs(os.path.join(base, "1DOF_150Hz", "in"), exist_ok=True)
+    with open(os.path.join(base, "1DOF_150Hz", "in", "1DOF_150Hz-db_def.py"), "w") as fh:
+        fh.write("def h_max_truncado(u, v): pass\n")
+    nd = L.NewExperimentDialog(app)
+    fr = nd.frame
+    fr.base_dir.set(base)
+    fr.case.set("1DOF_150Hz")
+    fr.doe_name.set("down")
+    fr.spins.set("12098.28")
+    fr.depths.set("12")
+    fr.depths_end.set("5")
+    assert not fr.preview() and "only makes Ap grow" in fr.out.get("1.0", "end"), fr.out.get("1.0", "end")
+    shot(nd.win, "ramps_decreasing_refused.png")
+    with open(os.path.join(base, "1DOF_150Hz", "in", "1DOF_150Hz-db_def.py"), "w") as fh:
+        fh.write(ex.RAMP_MARK + "\n")
+    assert fr.preview(), fr.out.get("1.0", "end")
+    nd.win.destroy()
+    os.remove(os.path.join(base, "1DOF_150Hz", "in", "1DOF_150Hz-db_def.py"))
+    # import of an extracted folder with a ramp (its 'kappa' = start is ignored) and standardize of an .h5 with one
+    rd = os.path.join(base, "RAMPS")
+    fake_doe(rd, [0.7], False)
+    with h5py.File(os.path.join(rd, "doe_results.h5"), "a") as h:
+        g = h.create_group("case_001")
+        g.attrs.update({"$Ap_start$": 0.005, "$Ap_end$": 0.015, "$spin_rate$": 12098.28, "$dxl_size$": 2e-4,
+                        "$nb_dt_rev$": 200.0, "$f_tooth$": 0.05, "kappa": 0.58, "kappa_start": 0.58, "kappa_end": 1.74})
+        for s_ in ("Axial_disp", "Axial_vel"):
+            g.create_dataset(f"{s_}/time", data=np.linspace(0, 1, 50))
+            g.create_dataset(f"{s_}/values", data=np.zeros(50))
+    os.makedirs(os.path.join(rd, "1", "1DOF_150Hz"))
+    open(os.path.join(rd, "1", "1DOF_150Hz", "sens_out.hdf5"), "w").close()
+    from tkinter import filedialog
+    filedialog.askdirectory = lambda **k_: rd
+    im = L.ImportDialog(app)
+    txt = im.prev.get("1.0", "end")
+    assert "2 cases (1 ramps)" in txt and "kappa 0.58-1.74" in txt and "ramp case_001: Ap 5 -> 15 mm" in txt, txt
+    shot(im.win, "ramps_import.png")
+    im.name.set("ramps_imported")
+    im._ok()
+    ri = ex.load("ramps_imported")
+    assert ex.summary(ri)["ramps"] == 1 and "(1 ramps)" in ri.cfg["description"]
+    assert any("ramp case_001" in t for t, _ in ex.stage_summary(ri, "extract")), ex.stage_summary(ri, "extract")
+    with h5py.File(os.path.join(rd, "doe_results.h5"), "a") as h:
+        for k_ in ("kappa", "kappa_start", "kappa_end"):
+            del h["case_001"].attrs[k_]
+    filedialog.askopenfilename = lambda **k_: os.path.join(rd, "doe_results.h5")
+    sd = L.StandardizeDialog(app)
+    assert sd.rep["missing"]["kappa"] == ["case_001"] and sd.rep["ramps"] == ["case_001"], sd.rep
+    sd.ap_mode.set("manual")
+    sd.ap_manual.set("8.6")
+    sd.create.set(False)
+    shot(sd.win, "ramps_standardize.png")
+    sd._ok()
+    with h5py.File(os.path.join(rd, "doe_results.h5"), "r") as h:
+        a = h["case_001"].attrs
+        assert abs(a["kappa_start"] - 5 / 8.6) < 1e-9 and abs(a["kappa_end"] - 15 / 8.6) < 1e-9 and "kappa" not in a
+    print("ramps OK: new (mm, kappa, mixed), SLD picker ramps mode, form, copy, decreasing refused, import, standardize")
+
+
 root = tk.Tk()
 root.geometry("1300x860+10+10")
 app = L.App(root, auto_refresh=False)
@@ -387,6 +557,7 @@ try:
     sd._ok()
     assert os.path.getmtime(os.path.join(ext, "old_results.h5")) == mt
     print("standardize of a file that has its experiment: only attributes, no new experiment OK")
+    check_ramps()
     # ---- compare: two validations with fabricated metrics
     for n, ba in ((VA, 0.9), ("val_from_dialog", 0.7)):
         out = os.path.join(tmp, f"{n}_val.h5")
