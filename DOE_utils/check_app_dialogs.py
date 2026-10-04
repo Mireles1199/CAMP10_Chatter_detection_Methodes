@@ -300,6 +300,14 @@ try:
     st = ex.load("ext_std")
     assert st.data_h5.endswith("old_results.h5") and abs(ex.summary(st)["kappa"][0] - 0.006 / 0.00860396) < 1e-9
     print("standardize OK: kappa", ex.summary(st)["kappa"])
+    n_before = len(ex.list_experiments())               # the same file again: it already has its experiment
+    sd = L.StandardizeDialog(app)
+    assert sd.users == ["ext_std"] and not sd.create.get()
+    sd.sim_model.set("2DOF_150_250")
+    sd._ok()
+    assert len(ex.list_experiments()) == n_before
+    assert ex.inspect_h5(os.path.join(ext, "old_results.h5"))["values"]["sim_model"][0] == "2DOF_150_250"
+    print("standardize of a file that has its experiment: only attributes, no new experiment OK")
     # ---- compare: two validations with fabricated metrics
     for n, ba in ((VA, 0.9), ("val_from_dialog", 0.7)):
         out = os.path.join(tmp, f"{n}_val.h5")

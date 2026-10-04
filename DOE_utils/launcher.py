@@ -946,7 +946,7 @@ class App:
             parts += [(f"  ERROR {x}\n", "bad") for x in errs] + [(f"  warning {x}\n", "warn") for x in warns]
         self._set_info(parts)
         self._blocking = next(((de, dk) for de, dk in s.deps if de is not e
-                               and ex.status(de)[dk][0] != "done"), None)
+                               and ex.status(de).get(dk, ("missing",))[0] != "done"), None)
         btn = self.stage_btns
         self._enable(btn["run"], not blockers and bool(s.cmds))
         self._enable(btn["copy"], bool(s.cmds))
@@ -2072,7 +2072,7 @@ class SettingsDialog(_Dialog):
         if "validate" in d["stages"] and "validate" not in d:
             d["validate"] = {"channel": "Axial_disp"}
         if "indicators" in d["stages"] and "indicators" not in d:
-            d["indicators"] = {"variants": "inherit"} if ref not in ("", "(none)") else ex.default_indicators()
+            d["indicators"] = ex.indicators_for(None if ref in ("", "(none)") else ref)
         if "label_template" in d["stages"] and "label" not in d and ref in ("", "(none)"):
             d["label"] = dict(ex.LABEL_DEFAULTS)
         order = ["name", "description", "stages", "reference", "out_dir"]
@@ -2290,9 +2290,19 @@ class StandardizeDialog(_Dialog):
         self.ap_model = self.field("  SLD model", tk.StringVar(), values=ex.sld_models(),
                                    state="normal" if need_k else "disabled")
         self.section("Experiment")
+        self.users = ex.experiments_using(p)
+        if self.users:
+            self.note(f"This file is already the data of: {', '.join(self.users)}. Usually you only want to add the "
+                      "attributes (the box below is off).", "#1565c0")
+        self.create = tk.BooleanVar(value=not self.users)
+        ttk = app.ttk
+        ttk.Checkbutton(self.body, text="also create an experiment for it (as 'Import folder…' would)",
+                        variable=self.create).grid(row=self.row, column=0, columnspan=3, sticky="w")
+        self.row += 1
         self.ref = self.field("reference experiment", tk.StringVar(value="(none)"), values=["(none)"] + _experiment_names())
-        self.name = self.field("experiment name", tk.StringVar(value=os.path.splitext(os.path.basename(folder))[0]), width=50)
-        self.buttons("Write attributes and create the experiment")
+        self.name = self.field("experiment name", tk.StringVar(value=os.path.basename(folder)), width=50,
+                               note="by default the name of the folder")
+        self.buttons("Apply")
 
     def save(self):
         from tkinter import messagebox
@@ -2316,6 +2326,10 @@ class StandardizeDialog(_Dialog):
             return False
         if vals:
             ex.add_case_attrs(self.path, vals)
+        if not self.create.get():
+            if self.users:
+                self.app.root.after(50, lambda: self.app.select(self.users[0]))
+            return True
         name = self.name.get().strip()
         ref = None if self.ref.get() in ("", "(none)") else self.ref.get()
         ex.import_dir(name, os.path.dirname(self.path), ref, h5=os.path.basename(self.path))

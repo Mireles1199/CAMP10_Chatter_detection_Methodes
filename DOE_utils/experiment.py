@@ -809,8 +809,15 @@ def check(exp: Exp) -> tuple:
     names = [r.doe_dir.lower() for r in exp.runs]
     if len(set(names)) < len(names):
         errs.append("two runs write the same DOE folder (change doe_name)")
+    inherit = (exp.cfg.get("indicators") or {}).get("variants", "inherit" if exp.ref else []) == "inherit"
     if "indicators" in exp.enabled and not exp.indicators["specs"]:
-        errs.append("indicators stage on, but no indicator variant chosen")
+        errs.append(f"the reference '{exp.ref.name}' has no indicator variants to inherit: choose them in Indicators "
+                    "> Edit config (untick 'Same variants as the reference')" if inherit and exp.ref is not None
+                    else "indicators stage on, but no indicator variant chosen (Indicators > Edit config)")
+    if exp.ref is not None and "label_build" not in stages(exp.ref):
+        errs.append(f"the reference '{exp.ref.name}' has no labelled dataset (Label build is off there): turn on its "
+                    "label stages in 'Experiment settings…' of that experiment (flow 'Labelled dataset'), or import "
+                    "it with its reference_dataset*.h5")
     if "validate" in exp.enabled and exp.ref is None:
         warns.append("validate without a reference: the indicators are scored on the same cases they learned from")
     if exp.ref is not None and exp.ref.name == exp.name:
@@ -1509,6 +1516,15 @@ def default_indicators() -> dict:
             "variants": {n: lib[n] for n in INDICATOR_PRESETS_DEFAULT if n in lib}}
 
 
+def indicators_for(reference: str | None) -> dict:
+    """indicators section of a new experiment: the reference's variants when it has some, else the defaults."""
+    try:
+        has = bool(load(reference).indicators["specs"]) if reference else False
+    except Exception:
+        has = False
+    return {"variants": "inherit"} if has else default_indicators()
+
+
 def create_experiment(name: str, runs: list, stages_on=None, reference: str | None = None, description: str = "",
                       out_dir: str | None = None, **sections) -> str:
     """Write experiments/<name>.yaml (sections written explicitly; label/indicators defaults when their stages
@@ -1529,7 +1545,7 @@ def create_experiment(name: str, runs: list, stages_on=None, reference: str | No
     if "label_template" in st and not reference and "label" not in sections:
         sections["label"] = dict(LABEL_DEFAULTS)
     if "indicators" in st and "indicators" not in sections:
-        sections["indicators"] = {"variants": "inherit"} if reference else default_indicators()
+        sections["indicators"] = indicators_for(reference)
     if "validate" in st and "validate" not in sections:
         sections["validate"] = {"channel": "Axial_disp"}
     d.update({k: v for k, v in sections.items() if v})
@@ -1751,7 +1767,7 @@ def import_dir(name: str, doe_dir: str, reference: str | None = None, label_out:
         d["stages"].append("indicators")
     if reference:
         d["stages"] += ["label_template", "label_build", "indicators", "validate"]
-        d["indicators"] = {"variants": "inherit"}
+        d["indicators"] = indicators_for(reference)
         d["validate"] = {"channel": "Axial_disp"}
     if not d["description"] and not h5:
         sw = run["simulation"]["sweep"]
@@ -1801,6 +1817,19 @@ def inspect_h5(path: str) -> dict:
             out["missing"][a] = [c for c, v in zip(cases, vals) if v is None]
             out["values"][a] = [v.item() if hasattr(v, "item") else v for v in vals]
     out["ok"] = not out["problems"]
+    return out
+
+
+def experiments_using(h5: str) -> list:
+    """Experiments whose data (a run's signals file or the merged data) is this .h5."""
+    target, out = _norm(h5), []
+    for n in list_experiments():
+        try:
+            e = load(n)
+        except Exception:
+            continue
+        if any(_norm(p) == target for p in [e.data_h5] + [r.h5 for r in e.runs] if p):
+            out.append(n)
     return out
 
 
@@ -2148,6 +2177,14 @@ def _selftest_edit(root: str, train_cfg: str) -> None:
         # only the stages turned on (plus what they need)
         create_experiment("simonly", [{"simulation": one}], stages_on=["extract"])
         assert list(stages(load("simonly"))) == ["simulate", "extract"]
+        # a validation whose reference is simulation-only: clear error, defaults instead of an empty inheritance
+        create_experiment("val_on_sim", [{"simulation": dict(one, doe_name="D2")}],
+                          stages_on=FLOWS["Validation against a reference"], reference="simonly")
+        vs = load("val_on_sim")
+        assert own_yaml("val_on_sim")["indicators"]["variants"] != "inherit"
+        assert any("has no labelled dataset" in x for x in check(vs)[0]), check(vs)
+        assert status(vs)["indicators"][0] == "blocked"
+        delete("val_on_sim")
         # copy: explicit, its own outputs, another DOE folder
         copy_experiment("fresh", "fresh_copy", doe_suffix="_b")
         cp = load("fresh_copy")
