@@ -1958,6 +1958,30 @@ class SldPicker:
             return [(j, i) for i in range(lb.shape[1])]
         return None
 
+    @staticmethod
+    def _crossings(lb, n: float) -> list:
+        """[(limit at n, mode j, lobe i)] for every place where a lobe crosses the line of spin n. A lobe is not
+        always sorted by spin (it can turn back on itself), so the crossings are looked for between consecutive
+        points, as ap_lim does."""
+        import math
+        out = []
+        for j in range(lb.shape[0]):
+            for i in range(lb.shape[1]):
+                x, y = lb[j, i, :, 0], lb[j, i, :, 1]
+                for p in range(len(x) - 1):
+                    a, b = x[p] - n, x[p + 1] - n
+                    if not (all(math.isfinite(v) for v in (x[p], x[p + 1], y[p], y[p + 1])) and a * b <= 0 and a != b):
+                        continue
+                    t = a / (a - b)
+                    out.append((float(y[p] + t * (y[p + 1] - y[p])), j, i))
+        return out
+
+    def _active_segment(self, n: float):
+        """(limit at n, mode j, lobe i) of the lobe that sets the limit at n (the lowest crossing), or None."""
+        lb, _ = ex._sld().lobes(self.model.get())
+        cr = self._crossings(lb, n)
+        return min(cr) if cr else None
+
     def min_limit_rpm(self, scope: str | None = None) -> float:
         """Spin [rpm] of the lowest point for the scope. 'this lobe': among the lobes whose spin range contains n,
         the one that sets the limit at n, and its lowest point (outside a lobe: the lowest of the whole SLD).
@@ -1966,22 +1990,10 @@ class SldPicker:
         scope = scope or self.scope.get()
         lb, _ = ex._sld().lobes(self.model.get())
         if scope == self.LOBE:
-            n = self._n()
-            best, rpm = math.inf, None      # (limit at n, lobe bottom)
-            for j in range(lb.shape[0]):
-                for i in range(lb.shape[1]):
-                    x, y = lb[j, i, :, 0], lb[j, i, :, 1]
-                    ok = [math.isfinite(a) and math.isfinite(b) for a, b in zip(x, y)]
-                    xs, ys = x[ok], y[ok]
-                    if len(xs) < 2 or not (xs[0] <= n <= xs[-1]):
-                        continue
-                    k = int(xs.searchsorted(n))            # first point with spin >= n
-                    t = (n - xs[k - 1]) / (xs[k] - xs[k - 1])
-                    at_n = float(ys[k - 1] + t * (ys[k] - ys[k - 1]))
-                    if at_n < best:
-                        best, rpm = at_n, float(xs[ys.argmin()])
-            if rpm is not None:
-                return rpm
+            act = self._active_segment(self._n())
+            if act is not None:
+                _, j, i = act
+                return self._lowest_point(lb, [(j, i)])
             scope = self.ALL   # n is not inside a lobe (pocket or outside the calculated range)
         segs = self._segments(scope)
         if not segs:
@@ -2035,11 +2047,21 @@ class SldPicker:
         # y axis: Ap [mm], or kappa = Ap / (limit at this n) when 'kappa' is chosen and that limit is finite
         self.div = div = lim if (self.r_unit.get() == "kappa" and lim is not None and math.isfinite(lim)) else 1.0
         kap = div != 1.0
+        # one colour per MODE (all its lobes share it); the lobe the current n is in is drawn thicker and named
+        import matplotlib.pyplot as _plt
+        _, fp = sm.lobes(self.model.get())
+        cmap = _plt.get_cmap("tab10")
+        active = self._active_segment(n)
         for j in range(lb.shape[0]):
+            col = cmap(j % 10)
             for i in range(lb.shape[1]):
                 x, y = lb[j, i, :, 0], lb[j, i, :, 1]
                 ok = [math.isfinite(a) and math.isfinite(b) for a, b in zip(x, y)]
-                ax.plot(x[ok], y[ok] / div, color="black", lw=0.9)
+                is_active = active is not None and (j, i) == active[1:]
+                ax.plot(x[ok], y[ok] / div, color=col, lw=2.8 if is_active else 1.1,
+                        label=(f"{fp[j]:g} Hz mode" if i == 0 else None))
+                if is_active:
+                    ax.plot([], [], color=col, lw=2.8, label=f"{fp[j]:g} Hz mode, lobe that sets the limit at n")
         pts = ex.case_points_of(self.ref)
         for lab in sorted({p[2] for p in pts}):
             sel = [p for p in pts if p[2] == lab]
