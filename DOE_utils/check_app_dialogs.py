@@ -227,6 +227,26 @@ try:
     assert 5000 < pk.min_limit_rpm() < 5400, pk.min_limit_rpm()
     pk.n.set("12098.28")
     pk.draw()
+    # two modes (2DOF_150_250): the scopes are the lobe of n, the whole SLD and the lowest point of each mode
+    pk.model.set("2DOF_150_250")
+    pk.draw()
+    sc = pk.scopes()
+    assert sc[0] == pk.LOBE and sc[1] == pk.ALL and len(sc) == 4, sc
+    lb2, fp2 = ex._sld().lobes("2DOF_150_250")
+    whole = pk.min_limit_rpm(pk.ALL)
+    assert abs(whole - ex._sld().ap_crit("2DOF_150_250")) < 1e-6 or abs(
+        pk._lowest_point(lb2, pk._segments(pk.ALL)) - whole) < 1e-9
+    per = [pk.min_limit_rpm(s) for s in sc[2:]]
+    assert len(set(round(v) for v in per)) == 2 and whole in per, (per, whole)   # the global minimum is one mode's
+    pk.scope.set(sc[2])
+    pk.set_min_n()
+    assert pk.n.get() == f"{per[0]:.1f}", (pk.n.get(), per)
+    pk.scope.set(sc[3])                                       # the 250 Hz mode: not a mode of the 1-mode model
+    pk.model.set("1DOF_150")
+    pk.draw()
+    assert pk.scope.get() == pk.LOBE, pk.scope.get()          # the scope is reset when it does not exist in the model
+    pk.n.set("12098.28")
+    pk.draw()
     lim = pk.limit()
     assert "kappa" in pk.ax.get_ylabel() and abs(pk.div - lim) < 1e-12      # kappa chosen -> the y axis is kappa
 

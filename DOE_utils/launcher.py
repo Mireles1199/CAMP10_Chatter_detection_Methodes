@@ -1886,6 +1886,9 @@ class SldPicker:
         e.pack(side=tk.LEFT, padx=4)
         e.bind("<Return>", lambda _e: self.draw())
         ttk.Button(top, text="Redraw", command=self.draw).pack(side=tk.LEFT)
+        self.scope = tk.StringVar(value=self.LOBE)
+        self.scope_cb = ttk.Combobox(top, textvariable=self.scope, values=self.scopes(), state="readonly", width=34)
+        self.scope_cb.pack(side=tk.LEFT, padx=(4, 0))
         ttk.Button(top, text="n at the minimum limit", command=self.set_min_n).pack(side=tk.LEFT, padx=4)
         self.model.trace_add("write", lambda *_: self.draw())
         ttk.Label(top, text="   click = add a depth at the n line (in the units of the y axis) · right click = remove the nearest",
@@ -1933,41 +1936,68 @@ class SldPicker:
     def _n(self) -> float:
         return float(self.n.get())
 
-    def min_limit_rpm(self) -> float:
-        """Spin [rpm] of the lowest point of the lobe that the current n is in: among the lobes whose range of
-        spins contains n, the one that sets the limit at n (lowest), and its minimum. Each lobe is one segment of
-        the SLD, with spin increasing along it. If n is in a pocket between lobes, the lowest point of the SLD."""
+    LOBE = "this lobe (where n is)"
+    ALL = "whole SLD (all modes)"
+
+    def scopes(self) -> list:
+        """What 'n at the minimum limit' can look for: the lobe of the current n, the whole SLD, and the lowest
+        point of each mode (one per natural frequency of the model)."""
+        try:
+            _, fp = ex._sld().lobes(self.model.get())
+        except Exception:
+            fp = []
+        return [self.LOBE, self.ALL] + [f"lowest of the {f:g} Hz mode" for f in fp]
+
+    def _segments(self, scope: str):
+        """(mode index, lobe index) of the segments the scope covers."""
+        lb, fp = ex._sld().lobes(self.model.get())
+        if scope == self.ALL:
+            return [(j, i) for j in range(lb.shape[0]) for i in range(lb.shape[1])]
+        if scope in self.scopes()[2:]:
+            j = self.scopes()[2:].index(scope)
+            return [(j, i) for i in range(lb.shape[1])]
+        return None
+
+    def min_limit_rpm(self, scope: str | None = None) -> float:
+        """Spin [rpm] of the lowest point for the scope. 'this lobe': among the lobes whose spin range contains n,
+        the one that sets the limit at n, and its lowest point (outside a lobe: the lowest of the whole SLD).
+        'whole SLD' or one mode: the lowest point of those segments (each lobe is one segment, spin increasing)."""
         import math
+        scope = scope or self.scope.get()
         lb, _ = ex._sld().lobes(self.model.get())
-        n = self._n()
-        best, rpm = math.inf, None      # (limit at n, lobe bottom)
-        for j in range(lb.shape[0]):
-            for i in range(lb.shape[1]):
-                x, y = lb[j, i, :, 0], lb[j, i, :, 1]
-                ok = [math.isfinite(a) and math.isfinite(b) for a, b in zip(x, y)]
-                xs, ys = x[ok], y[ok]
-                if len(xs) < 2 or not (xs[0] <= n <= xs[-1]):
-                    continue
-                k = int(xs.searchsorted(n))            # first point with spin >= n
-                t = (n - xs[k - 1]) / (xs[k] - xs[k - 1])
-                at_n = float(ys[k - 1] + t * (ys[k] - ys[k - 1]))
-                if at_n < best:
-                    best, rpm = at_n, float(xs[ys.argmin()])
-        if rpm is None:   # n is not inside a lobe (pocket or outside the calculated range): the lowest point
-            rpm = self._lowest_point(lb)
-        return rpm
+        if scope == self.LOBE:
+            n = self._n()
+            best, rpm = math.inf, None      # (limit at n, lobe bottom)
+            for j in range(lb.shape[0]):
+                for i in range(lb.shape[1]):
+                    x, y = lb[j, i, :, 0], lb[j, i, :, 1]
+                    ok = [math.isfinite(a) and math.isfinite(b) for a, b in zip(x, y)]
+                    xs, ys = x[ok], y[ok]
+                    if len(xs) < 2 or not (xs[0] <= n <= xs[-1]):
+                        continue
+                    k = int(xs.searchsorted(n))            # first point with spin >= n
+                    t = (n - xs[k - 1]) / (xs[k] - xs[k - 1])
+                    at_n = float(ys[k - 1] + t * (ys[k] - ys[k - 1]))
+                    if at_n < best:
+                        best, rpm = at_n, float(xs[ys.argmin()])
+            if rpm is not None:
+                return rpm
+            scope = self.ALL   # n is not inside a lobe (pocket or outside the calculated range)
+        segs = self._segments(scope)
+        if not segs:
+            raise ValueError(f"no lobes for '{scope}'")
+        return self._lowest_point(lb, segs)
 
     @staticmethod
-    def _lowest_point(lb) -> float:
+    def _lowest_point(lb, segs) -> float:
         import math
         best, rpm = math.inf, None
-        for j in range(lb.shape[0]):
-            for i in range(lb.shape[1]):
-                for x, y in zip(lb[j, i, :, 0], lb[j, i, :, 1]):
-                    if math.isfinite(x) and math.isfinite(y) and y < best:
-                        best, rpm = y, x
+        for j, i in segs:
+            for x, y in zip(lb[j, i, :, 0], lb[j, i, :, 1]):
+                if math.isfinite(x) and math.isfinite(y) and y < best:
+                    best, rpm = y, x
         if rpm is None:
-            raise ValueError("the SLD has no lobes")
+            raise ValueError("the SLD has no finite lobe there")
         return float(rpm)
 
     def set_min_n(self):
@@ -1988,6 +2018,11 @@ class SldPicker:
     def draw(self):
         import math
         sm, ax = ex._sld(), self.ax
+        if hasattr(self, "scope_cb"):   # the modes (and so the scopes) depend on the model
+            vals = self.scopes()
+            self.scope_cb["values"] = vals
+            if self.scope.get() not in vals:
+                self.scope.set(self.LOBE)
         ax.cla()
         try:
             lb, _ = sm.lobes(self.model.get())
