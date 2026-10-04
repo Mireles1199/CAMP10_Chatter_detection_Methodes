@@ -2323,7 +2323,7 @@ def _selftest_edit(root: str, train_cfg: str) -> None:
         w = kappa_overlap([{"kappa": k, "spin_rate": 12000.0} for k in (0.5, 0.505, 1.0)], load("train"))
         assert "1 kappa already in the reference" in w[0] and "within" in w[1], w   # training: kappa 0.5 and 1.5, 12000
         w = kappa_overlap([{"kappa": 0.5, "spin_rate": 9000.0}], load("train"))     # another n: no comparison
-        assert len(w) == 1 and "not the reference's" in w[0] and "already" not in w[0], w
+        assert len(w) == 1 and "different n" in w[0] and "already" not in w[0], w
         assert [k for _, k in chain_stages(fr)] == ["simulate", "extract", "label_template", "label_build", "indicators"]
         # a test linked to a training that has not run yet: the training's stages come first, then the test's
         create_experiment("te_new", [{"simulation": dict(sim, doe_name="D_TE")}],
@@ -2392,8 +2392,8 @@ def kappa_overlap(rows, ref, tol: float = 0.01) -> list:
         other = sorted({round(n, 1) for _, n in mine if abs(n - float(rn)) > 1.0})
         if other:
             same_n = [(k, n) for k, n in mine if abs(n - float(rn)) <= 1.0]
-            note = (f"n {', '.join(f'{n:g}' for n in other)} rpm is not the reference's {float(rn):g} rpm: kappa is "
-                    "relative to the limit at each n, so kappa is not compared with the reference's")
+            note = (f"the new cases are at n {', '.join(f'{n:g}' for n in other)} rpm, the reference at "
+                    f"{float(rn):g} rpm (different n): no repeat check against the reference")
             if not same_n:
                 return [note]
             mine = same_n
