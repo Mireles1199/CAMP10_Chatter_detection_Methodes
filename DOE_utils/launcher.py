@@ -720,8 +720,8 @@ class App:
         self._next = nxt
         self._enable(self.btn_run_next, bool(nxt and nxt[2] in ("pending", "stale", "failed")
                                              and not ex.run_blockers(nxt[0], nxt[1])))
-        self._enable(self.btn_chain, bool(nxt and nxt[0] is e and nxt[2] in ("pending", "stale", "failed")
-                                          and not ex.run_blockers(e, nxt[1])))
+        self._enable(self.btn_chain, bool(nxt and nxt[2] in ("pending", "stale", "failed")
+                                          and not ex.run_blockers(nxt[0], nxt[1])))
         self._draw_diagram(e, st, chain, nxt)
         if self.sel_stage not in st:
             self.sel_stage = nxt[1] if nxt and nxt[0] is e else next(iter(st), None)
@@ -1003,24 +1003,29 @@ class App:
         self.root.after(1500, lambda: self.refresh(True))
 
     def run_to_goal(self):
-        """One console runs the next steps of the goal one after the other; it stops on an error, at a stage of
-        another experiment and after Label template (to review the labels)."""
+        """One console runs everything the goal needs, one stage after the other: first the stages of the
+        reference experiment (e.g. the training's simulation and labelled dataset), then this experiment's.
+        It stops on an error and, if wanted, after each Label template (to review the labels)."""
         from tkinter import messagebox
         e, goal = self.exp(), self.goal.get()
         todo = ex.chain_stages(e, goal)
         if not todo:
             return
-        stop = " (it stops after Label template so you can review the labels)" if "label_template" in todo else ""
-        if not messagebox.askyesno("Run to goal", f"Run in one console, one after the other:\n  "
-                                   + " → ".join(ex.TITLES[k] for k in todo) + f"\n\nGoal: {goal}{stop}.\n"
+        names = [ex.TITLES[k] + ("" if n == e.name else f" ({n})") for n, k in todo]
+        if not messagebox.askyesno("Run to goal", "Run in one console, one after the other:\n  "
+                                   + "\n  ".join(f"{i}. {s}" for i, s in enumerate(names, 1)) + f"\n\nGoal: {goal}.\n"
                                    "Existing outputs of these stages are replaced. Continue?"):
             return
+        review = any(k == "label_template" for _, k in todo) and messagebox.askyesno(
+            "Run to goal", "Stop after each Label template so you can review the labels YAML before the labelled "
+                           "dataset is built? (Then press 'Run to goal' again to continue.)\n\nNo = run straight "
+                           "to the goal with the proposed labels.")
         py, warn = stage_python()
         if warn:
             messagebox.showwarning("Python", warn)
-        open_console(ex.chain_command(e.name, goal, py) + (["--pause-on-error"] if self.close_console.get() else []),
-                     close=self.close_console.get())
-        self.status_msg.set(f"running to '{goal}' in a new console: " + " → ".join(ex.TITLES[k] for k in todo))
+        open_console(ex.chain_command(e.name, goal, py) + ([] if review else ["--no-review"])
+                     + (["--pause-on-error"] if self.close_console.get() else []), close=self.close_console.get())
+        self.status_msg.set(f"running to '{goal}' in a new console: " + " → ".join(names))
         self.root.after(1500, lambda: self.refresh(True))
 
     def run_next(self):

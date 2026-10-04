@@ -769,6 +769,13 @@ def default_goal(exp: Exp) -> str:
 
 def next_step(exp: Exp, goal: str | None = None):
     """(Exp, key, state, reason) of the first stage of the goal that is not done; None when the goal is reached."""
+    todo = todo_stages(exp, goal)
+    return todo[0] if todo else None
+
+
+def todo_stages(exp: Exp, goal: str | None = None) -> list:
+    """[(Exp, key, state, reason)] still to do for the goal, in run order: this experiment's stages and those of
+    the experiments it needs (its reference: simulation, labelled dataset)."""
     goal = goal if goal in GOALS else default_goal(exp)
     memo: dict = {}
     S = stages(exp)
@@ -789,7 +796,8 @@ def next_step(exp: Exp, goal: str | None = None):
         t = exp.data_stage if t == "@data" else t
         if t in S:
             need(exp, t)
-    return todo[0] if todo else None
+    # the reference's stages first (the training before the test): they never depend on this experiment
+    return [x for x in todo if x[0] is not exp] + [x for x in todo if x[0] is exp]
 
 
 # ============================================================================== checks
@@ -2243,7 +2251,24 @@ def _selftest_edit(root: str, train_cfg: str) -> None:
         assert any("case   1: Ap 12.0000 mm" in t for t, _ in dry_run(fr)), dry_run(fr)
         w = kappa_overlap([0.5, 0.505, 1.0], load("train"))     # the training data have kappa 0.5 and 1.5
         assert "1 kappa already in the reference" in w[0] and "within" in w[1], w
-        assert chain_stages(fr) == ["simulate", "extract", "label_template", "label_build", "indicators"]
+        assert [k for _, k in chain_stages(fr)] == ["simulate", "extract", "label_template", "label_build", "indicators"]
+        # a test linked to a training that has not run yet: the training's stages come first, then the test's
+        create_experiment("te_new", [{"simulation": dict(sim, doe_name="D_TE")}],
+                          stages_on=FLOWS["Validation against a reference"], reference="fresh")
+        ch = chain_stages(load("te_new"))
+        assert ch[:4] == [("fresh", "simulate"), ("fresh", "extract"), ("fresh", "label_template"),
+                          ("fresh", "label_build")], ch
+        assert ch[-1] == ("te_new", "validate") and ("te_new", "simulate") in ch[4:], ch
+        global run_stage, notify   # run_chain from the test runs the training's stage (fake run that fails at once)
+        real = (run_stage, notify)
+        calls = []
+        run_stage = lambda n, k, **kw: calls.append((n, k)) or 1   # noqa: E731
+        notify = lambda *a: None   # noqa: E731
+        try:
+            assert run_chain("te_new") == 1 and calls == [("fresh", "simulate")], calls
+        finally:
+            run_stage, notify = real
+        delete("te_new")
         assert estimate_time(sim).startswith("time:")
         # only the stages turned on (plus what they need)
         create_experiment("simonly", [{"simulation": one}], stages_on=["extract"])
@@ -2380,42 +2405,41 @@ def notify(title: str, msg: str) -> None:
 
 
 def chain_stages(exp: Exp, goal: str | None = None) -> list:
-    """Stages of this experiment still to do for the goal, in order (what 'Run to goal' would run)."""
-    memo: dict = {}
-    g = goal if goal in GOALS else default_goal(exp)
-    return [k for e, k in goal_chain(exp, g)
-            if e is exp and status(e, memo)[k][0] not in ("done", "skipped")]
+    """[(experiment name, stage)] that 'Run to goal' would run, in order: also the stages of the reference
+    experiment the goal needs (e.g. a test runs the simulation and labelled dataset of its training first)."""
+    return [(e.name, k) for e, k, _s, _r in todo_stages(exp, goal)]
 
 
 def run_chain(name: str, goal: str | None = None, review: bool = True) -> int:
-    """Run the next steps of the goal one after the other in this console. Stops on an error, when the next step
-    belongs to another experiment, and (review=True) after Label template so the labels can be checked."""
+    """Run the next steps of the goal one after the other in this console, in this experiment and in the ones
+    it needs (its reference). Stops on an error, on a stage that is running or blocked, and (review=True) after
+    a Label template so the labels can be checked."""
     ran = []
     while True:
         reload()
         exp = load(name)
         g = goal if goal in GOALS else default_goal(exp)
         nxt = next_step(exp, g)
+        done = ", ".join(f"{TITLES[k]}" + ("" if n == name else f" ({n})") for n, k in ran) or "nothing to run"
         if nxt is None:
-            print(f"[experiment] goal '{g}' reached: {', '.join(ran) or 'nothing to run'}")
-            notify(f"{name}: goal reached", f"{g} ({', '.join(TITLES[k] for k in ran) or 'nothing to run'})")
+            print(f"[experiment] goal '{g}' reached: {done}")
+            notify(f"{name}: goal reached", f"{g}: {done}")
             return 0
         e, k, state, reason = nxt
-        if e is not exp:
-            print(f"[experiment] next step is '{k}' of experiment '{e.name}' ({state}: {reason}): finish it there")
+        where = "" if e is exp else f" of experiment '{e.name}'"
+        if (e.name, k) in ran or state in ("blocked", "running"):
+            print(f"[experiment] stop at '{k}'{where} ({state}: {reason})")
             return 2
-        if k in ran or state in ("blocked", "running"):
-            print(f"[experiment] stop at '{k}' ({state}: {reason})")
-            return 2
-        code = run_stage(name, k, yes=True, notify_end=False)
+        print(f"[experiment] ===== {TITLES[k]}{where} =====")
+        code = run_stage(e.name, k, yes=True, notify_end=False)
         if code:
-            notify(f"{name}: {TITLES[k]} FAILED", f"exit code {code}; the chain stopped (see Log)")
+            notify(f"{name}: {TITLES[k]}{where} FAILED", f"exit code {code}; the chain stopped (see Log)")
             return code
-        ran.append(k)
+        ran.append((e.name, k))
         if review and k == "label_template":
-            print("[experiment] labels proposed: review the labels YAML ('Labels YAML' in the app), then "
+            print(f"[experiment] labels proposed{where}: review the labels YAML ('Labels YAML' in the app), then "
                   "'Run to goal' again: it continues from Label build.")
-            notify(f"{name}: review the labels", "Label template done; check the labels YAML, then Run to goal again")
+            notify(f"{e.name}: review the labels", "Label template done; check the labels YAML, then Run to goal again")
             return 0
 
 
