@@ -196,6 +196,38 @@ try:
     assert nd.frame.spins.get() == "9000" and nd.frame.depths.get() == "8.056", (nd.frame.spins.get(), nd.frame.depths.get())
     shot(nd.win, "v2_new_load_values.png")
     nd.win.destroy()
+    # ---- load values from an IMPORTED experiment (no config: rebuilt from its .h5) + pick the Ap on the SLD
+    nd = L.NewExperimentDialog(app)
+    nd.ref.set(TR)
+    assert f"experiment: {TR}" in L._value_sources()
+    nd.src.set(f"experiment: {TR}")
+    assert nd.frame.spins.get() == "12098.28" and len(nd.frame.depths.get().split(",")) == 5, nd.frame.depths.get()
+    nd.name.set("val_picked")
+    nd.frame.doe_name.set("val_picked")
+    nd.frame.base_dir.set(base)
+    pk = L.SldPicker(app, nd.frame)
+    assert len(pk.aps) == 5 and pk.lst.size() == 5          # the loaded depths are on the plot
+    pk.aps.clear()
+    pk.model.set("1DOF_150")
+    pk.r_from.set("0.9"), pk.r_to.set("1.1"), pk.r_n.set("3"), pk.r_unit.set("kappa")
+    pk.fill()
+    assert len(pk.aps) == 3 and "kappa  1.000" in pk.lst.get(1), pk.lst.get(0, "end")
+
+    class _Ev:   # a left click at Ap = 5 mm
+        inaxes, ydata, button = pk.ax, 5.0, 1
+    pk.on_click(_Ev)
+    assert 5.0 in pk.aps and len(pk.aps) == 4
+    shot(pk.win, "v2_sld_picker.png")
+    pk.use()
+    assert nd.frame.ap_mode.get() == "model_at_spin" and nd.frame.depths.get().startswith("5")
+    assert nd.frame.preview(), nd.frame.out.get("1.0", "end")
+    nd._ok()
+    vp = ex.load("val_picked")
+    assert len(vp.runs[0].cfg["sweep"]["$Ap_start$"]) == 4 and vp.ref.name == TR
+    print("load values from an imported experiment + SLD picker OK:", [round(a * 1e3, 3) for a in vp.runs[0].cfg["sweep"]["$Ap_start$"]])
+    # ---- an imported folder can be opened in the planner (its simulation is rebuilt)
+    p = ex.planner_config(ex.load(TR))
+    assert os.path.isfile(p) and dr.load_config(p)["doe_name"] == os.path.basename(TR_DIR)
     # ---- simulation form on an experiment that reads configs/: saving writes it in full in the experiment
     sf = L.SimulationForm(app, ex.load(N9))
     sf.frame.timed.set(True)

@@ -1764,6 +1764,7 @@ class SimulationFrame:
         pf.grid(row=dlg.row, column=0, columnspan=3, sticky="w", pady=(6, 0))
         dlg.row += 1
         ttk.Button(pf, text="Check / preview cases", command=self.preview).pack(side="left")
+        ttk.Button(pf, text="Pick the depths on the SLD…", command=lambda: SldPicker(dlg.app, self)).pack(side="left", padx=6)
         ttk.Label(pf, text="  (also done when saving: nothing is saved while there is an error)", foreground="#666"
                   ).pack(side="left")
         self.out = tk.Text(dlg.body, width=120, height=11, font=("Consolas", 9))
@@ -1841,6 +1842,180 @@ class SimulationFrame:
         return not errs
 
 
+class SldPicker:
+    """Choose the depths of a simulation on the SLD of a model: the lobes, the line of n, its stability limit and
+    the cases of the reference (coloured by label). Click = add an Ap at the n line (only the height counts),
+    right click = remove the nearest; or fill a range in Ap [mm] or kappa (x the limit at n). 'Use these Ap'
+    writes them, the n (and, if ticked, ap_ref = model_at_spin of that model) into the simulation form."""
+    LAB_COL = {"stable": "#0072B2", "unstable": "#D55E00", "gray": "#999999", "": "#555555"}
+
+    def __init__(self, app, frame):
+        import matplotlib
+        matplotlib.use("TkAgg")
+        from matplotlib.figure import Figure
+        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+        tk, ttk = app.tk, app.ttk
+        self.app, self.frame, self.tk = app, frame, tk
+        models = ex.sld_models()
+        if not models:
+            app._msg("SLD", "sld_model / sld_tools cannot be loaded: no SLD to draw.", "error")
+            return
+        w = self.win = tk.Toplevel(app.root)
+        w.title("Pick the depths on the SLD")
+        top = ttk.Frame(w, padding=6)
+        top.pack(fill=tk.X)
+        self.model = tk.StringVar(value=frame.ap_model.get() if frame.ap_model.get() in models else models[0])
+        spins = ex._values(frame.spins.get()) if frame.spins.get().strip() else []
+        self.n = tk.StringVar(value=f"{spins[0]:g}" if spins else "12000")
+        ttk.Label(top, text="SLD model").pack(side=tk.LEFT)
+        ttk.Combobox(top, textvariable=self.model, values=models, state="readonly", width=16).pack(side=tk.LEFT, padx=4)
+        ttk.Label(top, text="n [rpm]").pack(side=tk.LEFT, padx=(10, 0))
+        e = ttk.Entry(top, textvariable=self.n, width=10)
+        e.pack(side=tk.LEFT, padx=4)
+        e.bind("<Return>", lambda _e: self.draw())
+        ttk.Button(top, text="Redraw", command=self.draw).pack(side=tk.LEFT)
+        self.model.trace_add("write", lambda *_: self.draw())
+        ttk.Label(top, text="   click = add an Ap at the n line · right click = remove the nearest",
+                  foreground="#555").pack(side=tk.LEFT)
+        row = ttk.Frame(w, padding=(6, 0))
+        row.pack(fill=tk.X)
+        self.r_from, self.r_to, self.r_n = tk.StringVar(), tk.StringVar(), tk.StringVar(value="5")
+        self.r_unit = tk.StringVar(value="kappa")
+        ttk.Label(row, text="fill a range: from").pack(side=tk.LEFT)
+        ttk.Entry(row, textvariable=self.r_from, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row, text="to").pack(side=tk.LEFT)
+        ttk.Entry(row, textvariable=self.r_to, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row, text="cases").pack(side=tk.LEFT)
+        ttk.Entry(row, textvariable=self.r_n, width=5).pack(side=tk.LEFT, padx=2)
+        for u in ("kappa", "Ap [mm]"):
+            ttk.Radiobutton(row, text=u, value=u, variable=self.r_unit).pack(side=tk.LEFT)
+        ttk.Button(row, text="Fill", command=self.fill).pack(side=tk.LEFT, padx=4)
+        ttk.Button(row, text="Clear", command=lambda: (self.aps.clear(), self.draw())).pack(side=tk.LEFT)
+        body = ttk.Frame(w)
+        body.pack(fill=tk.BOTH, expand=True)
+        side = ttk.Frame(body, padding=6)
+        side.pack(side=tk.RIGHT, fill=tk.Y)
+        ttk.Label(side, text="chosen depths", font=("Segoe UI", 9, "bold")).pack(anchor="w")
+        self.lst = tk.Listbox(side, width=44, height=24, font=("Consolas", 9))
+        self.lst.pack(fill=tk.Y, expand=True)
+        self.fig = Figure(figsize=(8.5, 5.5), constrained_layout=True)
+        self.ax = self.fig.add_subplot(111)
+        self.canvas = FigureCanvasTkAgg(self.fig, master=body)
+        self.toolbar = NavigationToolbar2Tk(self.canvas, body, pack_toolbar=False)
+        self.toolbar.pack(side=tk.BOTTOM, fill=tk.X)
+        self.canvas.get_tk_widget().pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.canvas.mpl_connect("button_press_event", self.on_click)
+        bot = ttk.Frame(w, padding=6)
+        bot.pack(fill=tk.X)
+        self.set_ref = tk.BooleanVar(value=True)
+        ttk.Checkbutton(bot, text="also set ap_ref = model_at_spin of this model (kappa = Ap / limit at n)",
+                        variable=self.set_ref).pack(side=tk.LEFT)
+        ttk.Button(bot, text="Use these Ap", command=self.use).pack(side=tk.RIGHT)
+        ttk.Button(bot, text="Cancel", command=w.destroy).pack(side=tk.RIGHT, padx=6)
+        self.ref = getattr(frame.dlg, "ref_exp", lambda: None)()
+        self.aps = [round(a, 6) for a in ex._values(frame.depths.get())] if (
+            frame.unit.get() == "Ap [mm]" and frame.depths.get().strip()) else []
+        self.draw()
+
+    def _n(self) -> float:
+        return float(self.n.get())
+
+    def limit(self):
+        try:
+            return ex._sld().ap_lim(self.model.get(), self._n())
+        except Exception:
+            return None
+
+    def draw(self):
+        import math
+        sm, ax = ex._sld(), self.ax
+        ax.cla()
+        try:
+            lb, _ = sm.lobes(self.model.get())
+            n = self._n()
+        except Exception as exc:
+            ax.text(0.5, 0.5, f"cannot draw: {exc}", ha="center", va="center", transform=ax.transAxes)
+            self.canvas.draw()
+            return
+        for j in range(lb.shape[0]):
+            for i in range(lb.shape[1]):
+                x, y = lb[j, i, :, 0], lb[j, i, :, 1]
+                ok = [math.isfinite(a) and math.isfinite(b) for a, b in zip(x, y)]
+                ax.plot(x[ok], y[ok], color="black", lw=0.9)
+        pts = ex.case_points_of(self.ref)
+        for lab in sorted({p[2] for p in pts}):
+            sel = [p for p in pts if p[2] == lab]
+            ax.scatter([p[0] for p in sel], [p[1] for p in sel], s=18, color=self.LAB_COL.get(lab, "#555"),
+                       label=f"reference {lab or 'case'} ({len(sel)})", zorder=3)
+        lim = self.limit()
+        ax.axvline(n, color="#1565c0", ls="--", lw=1)
+        if lim is not None and math.isfinite(lim):
+            ax.plot([n], [lim], marker="_", markersize=22, color="#1565c0", mew=2, label=f"limit at n: {lim:.3f} mm")
+        if self.aps:
+            ax.scatter([n] * len(self.aps), self.aps, marker="x", s=50, color="#c62828", zorder=4,
+                       label=f"chosen ({len(self.aps)})")
+        cap = sm.ap_crit(self.model.get())
+        top = max([cap * 4] + [a * 1.15 for a in self.aps] + [p[1] * 1.1 for p in pts])
+        ax.set_ylim(0, top)
+        xs = [v for v in lb[..., 0].ravel() if math.isfinite(v)]
+        if xs:
+            ax.set_xlim(min(xs + [n]) * 0.95, max(xs + [n]) * 1.02)
+        ax.set_xlabel("n [rpm]")
+        ax.set_ylabel("Ap [mm]")
+        ax.set_title(f"{self.model.get()} · n = {n:g} rpm · " + (
+            "pocket between lobes (no finite limit)" if lim is not None and not math.isfinite(lim) else
+            f"limit {lim:.3f} mm" if lim is not None else "outside the lobes computed"), fontsize=10)
+        if ax.get_legend_handles_labels()[0]:
+            ax.legend(fontsize=8, loc="upper right")
+        self.canvas.draw()
+        self.lst.delete(0, "end")
+        for a in self.aps:
+            k = a / lim if lim and math.isfinite(lim) else None
+            zone = "" if k is None else ("stable" if k < 1 else "UNSTABLE")
+            self.lst.insert("end", f"Ap {a:8.4f} mm" + (f"   kappa {k:6.3f}  {zone}" if k is not None else ""))
+
+    def on_click(self, ev):
+        if ev.inaxes is not self.ax or ev.ydata is None or self.toolbar.mode:
+            return
+        if ev.button == 1 and ev.ydata > 0:
+            self.aps = sorted(set(self.aps + [round(float(ev.ydata), 3)]))
+        elif ev.button == 3 and self.aps:
+            self.aps.remove(min(self.aps, key=lambda a: abs(a - ev.ydata)))
+        self.draw()
+
+    def fill(self):
+        import math
+        try:
+            a, b, n = float(self.r_from.get()), float(self.r_to.get()), int(self.r_n.get())
+        except ValueError:
+            self.app._msg("Fill", "give from, to (numbers) and the number of cases", "warn")
+            return
+        vals = [a + (b - a) * i / (n - 1) for i in range(n)] if n > 1 else [a]
+        if self.r_unit.get() == "kappa":
+            lim = self.limit()
+            if lim is None or not math.isfinite(lim):
+                self.app._msg("Fill", "kappa needs a finite stability limit at this n (it is a pocket between lobes "
+                                      "or outside the lobes): choose another n or fill in Ap [mm]", "warn")
+                return
+            vals = [k * lim for k in vals]
+        self.aps = sorted(set(self.aps + [round(v, 4) for v in vals if v > 0]))
+        self.draw()
+
+    def use(self):
+        if not self.aps:
+            self.app._msg("SLD", "choose at least one depth (click on the plot or Fill)", "warn")
+            return
+        f = self.frame
+        f.unit.set("Ap [mm]")
+        f.depths.set(", ".join(f"{a:.6g}" for a in self.aps))
+        f.spins.set(self.n.get())
+        if self.set_ref.get():
+            f.ap_mode.set("model_at_spin")
+            f.ap_model.set(self.model.get())
+        self.win.destroy()
+        f.preview()
+
+
 class SimulationForm(_Dialog):
     """Edit config of Simulate / Extract: the simulation of one run of the experiment."""
 
@@ -1852,16 +2027,25 @@ class SimulationForm(_Dialog):
         r = e.runs[i] if e.runs else None
         if r is not None and r.imported:
             self.note(f"Imported folder (already simulated, read-only): {r.doe_dir}\n"
-                      "The app cannot re-run it. To simulate again with other values use 'Copy…' + Edit config of the "
-                      "copy, or 'New experiment…' with 'Load values from' this one when it has a doe_config.yaml.",
+                      "The app cannot re-run it. To plan new cases from it: 'New experiment…' with 'Load values from' "
+                      "this experiment (its simulation is rebuilt from the folder), or open it in the planner below.",
                       "#b26a00")
-            fc = r.folder_config()
-            if fc:
-                self.section("doe_config.yaml left by doe_runner in the folder")
-                t = self.tk.Text(self.body, width=100, height=18, font=("Consolas", 9))
-                import yaml
-                t.insert("1.0", yaml.safe_dump(ex.explicit_simulation(fc), sort_keys=False))
-                t.grid(row=self.row, column=0, columnspan=3)
+            import yaml
+            try:
+                sim, src = ex.simulation_of_run(r), ("doe_config.yaml left by doe_runner" if r.folder_config()
+                                                     else "rebuilt from the folder (var_val.py or the .h5)")
+                txt = yaml.safe_dump(sim, sort_keys=False)
+            except Exception as exc:
+                sim, src, txt = None, "cannot be rebuilt", str(exc)
+            self.section(f"Its simulation ({src})")
+            t = self.tk.Text(self.body, width=100, height=18, font=("Consolas", 9))
+            t.insert("1.0", txt)
+            t.grid(row=self.row, column=0, columnspan=3)
+            self.row += 1
+            if sim is not None:
+                self.ttk.Button(self.body, text="Open in the planner (cases on the SLD)", command=lambda: launch(
+                    "gui", "DOE_simulacion/doe_planner.py", [ex.planner_config(e, i)])).grid(row=self.row, column=0,
+                                                                                             sticky="w")
                 self.row += 1
             self.frame = None
             self.buttons("Close")
@@ -1902,11 +2086,12 @@ def _experiment_names() -> list:
 
 
 def _value_sources() -> list:
-    """'Load values from' choices: experiments with a simulation config, and configs/*.yaml."""
+    """'Load values from' choices: every experiment with a run (also imported folders: their simulation is
+    rebuilt from the folder or its .h5), and configs/*.yaml."""
     out = ["(defaults: base.yaml)"]
     for n in ex.list_experiments():
         try:
-            if any(r.cfg for r in ex.load(n).runs):
+            if ex.load(n).runs:
                 out.append(f"experiment: {n}")
         except Exception:
             pass
@@ -1915,8 +2100,9 @@ def _value_sources() -> list:
 
 def _source_values(src: str) -> dict:
     if src.startswith("experiment: "):
-        r = next(r for r in ex.load(src[12:]).runs if r.cfg)
-        return ex.simulation_form(ex.explicit_simulation(r.cfg))
+        e = ex.load(src[12:])
+        r = next((r for r in e.runs if r.cfg), e.runs[0])
+        return ex.simulation_form(ex.simulation_of_run(r))
     if src.startswith("config: "):
         dr = ex._doe_runner()
         return ex.simulation_form(ex.explicit_simulation(dr.load_config(dr.find_config(src[8:]))))

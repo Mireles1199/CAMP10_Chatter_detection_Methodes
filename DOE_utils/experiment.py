@@ -1716,6 +1716,77 @@ def simulation_from_folder(doe_dir: str, ap_ref=None) -> dict:
     return sim
 
 
+def ap_ref_of_h5(path: str):
+    """ap_ref section written by doe_runner extract in a doe_results.h5 (root attrs), or None."""
+    import h5py
+    try:
+        with h5py.File(path, "r") as f:
+            a = {k: (v.decode() if isinstance(v, bytes) else v) for k, v in f.attrs.items()}
+    except OSError:
+        return None
+    mode = str(a.get("ap_ref_mode", "none"))
+    if mode in ("model", "model_at_spin") and a.get("ap_ref_model"):
+        return {"mode": mode, "model": str(a["ap_ref_model"])}
+    if mode == "manual" and a.get("ap_ref_m"):
+        return {"mode": "manual", "manual": float(a["ap_ref_m"])}
+    return {"mode": "none"}
+
+
+def simulation_of_run(r: Run) -> dict:
+    """Explicit simulation of any run, also of an imported folder (for 'load values from' and the planner):
+    its config, else the doe_config.yaml doe_runner left in the folder, else rebuilt from the var_val.py of the
+    cases, else from the case attributes of its .h5 (ap_ref from the .h5 root attributes)."""
+    import h5py
+    if r.cfg:
+        return explicit_simulation(r.cfg)
+    fc = r.folder_config()
+    if fc:
+        return explicit_simulation(fc)
+    ap = ap_ref_of_h5(r.h5) if os.path.isfile(r.h5) else None
+    try:
+        return simulation_from_folder(r.doe_dir, ap)
+    except ValueError:
+        pass
+    with h5py.File(r.h5, "r") as f:
+        cases = sorted(c for c in f if c.startswith("case_"))
+        keys = [k for k in f[cases[0]].attrs if str(k).startswith("$")] if cases else []
+        sweep = {k: [float(f[c].attrs[k]) for c in cases] for k in keys if all(k in f[c].attrs for c in cases)}
+    if not sweep:
+        raise ValueError(f"{r.h5}: no $variable$ attributes to rebuild the simulation from")
+    sim = {"base_dir": os.path.normpath(r.base_dir).replace("\\", "/"), "case": r.case, "doe_name": r.doe_name,
+           "nb_proc": 1, "mode": "sweep", "sweep": sweep, "ap_ref": ap or {"mode": "none"},
+           "extract_signals": ["Axial_disp", "Axial_vel", "Axial_acc"], "force_signal": "res_R_p"}
+    _doe_runner().load_config(_tmp_config(sim))
+    return sim
+
+
+def planner_config(exp: Exp, i: int = 0) -> str:
+    """A doe_runner YAML of run i that doe_planner can open (also for an imported folder)."""
+    import yaml
+    p = os.path.join(exp.runs_dir(), f"planner_{exp.runs[i].doe_name}.yaml")
+    _write_if_changed(p, "# For doe_planner only (written by the experiments app)\n"
+                      + yaml.safe_dump(simulation_of_run(exp.runs[i]), sort_keys=False))
+    return p
+
+
+def case_points_of(exp) -> list:
+    """[(n rpm, Ap mm, label)] of the cases of an experiment's data, label from its labelled dataset ('' if none)."""
+    import h5py
+    if exp is None or not exp.data_h5 or not os.path.isfile(exp.data_h5):
+        return []
+    lab = {c: lb for c, (lb, _) in _label_cases(exp.label["out"]).items()}
+    out = []
+    try:
+        with h5py.File(exp.data_h5, "r") as f:
+            for c in f:
+                a = f[c].attrs if c.startswith("case_") else {}
+                if "$spin_rate$" in a and "$Ap_start$" in a:
+                    out.append((float(a["$spin_rate$"]), float(a["$Ap_start$"]) * 1e3, lab.get(c, "")))
+    except OSError:
+        return []
+    return out
+
+
 def import_dir(name: str, doe_dir: str, reference: str | None = None, label_out: str | None = None,
                description: str | None = None, h5: str = "doe_results.h5", ap_ref=None) -> str:
     """Create experiments/<name>.yaml from an already simulated DOE folder (h5 = its signals file); the stages
