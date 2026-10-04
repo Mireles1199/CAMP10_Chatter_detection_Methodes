@@ -1933,10 +1933,32 @@ class SldPicker:
         return float(self.n.get())
 
     def min_limit_rpm(self) -> float:
-        """Spin [rpm] where the stability limit of the model is smallest (the lowest point of the SLD, the
-        minimum ap_crit reports): the n of the global minimum of the lobes."""
+        """Spin [rpm] of the lowest point of the lobe that the current n is in: among the lobes whose range of
+        spins contains n, the one that sets the limit at n (lowest), and its minimum. Each lobe is one segment of
+        the SLD, with spin increasing along it. If n is in a pocket between lobes, the lowest point of the SLD."""
         import math
         lb, _ = ex._sld().lobes(self.model.get())
+        n = self._n()
+        best, rpm = math.inf, None      # (limit at n, lobe bottom)
+        for j in range(lb.shape[0]):
+            for i in range(lb.shape[1]):
+                x, y = lb[j, i, :, 0], lb[j, i, :, 1]
+                ok = [math.isfinite(a) and math.isfinite(b) for a, b in zip(x, y)]
+                xs, ys = x[ok], y[ok]
+                if len(xs) < 2 or not (xs[0] <= n <= xs[-1]):
+                    continue
+                k = int(xs.searchsorted(n))            # first point with spin >= n
+                t = (n - xs[k - 1]) / (xs[k] - xs[k - 1])
+                at_n = float(ys[k - 1] + t * (ys[k] - ys[k - 1]))
+                if at_n < best:
+                    best, rpm = at_n, float(xs[ys.argmin()])
+        if rpm is None:   # n is not inside a lobe (pocket or outside the calculated range): the lowest point
+            rpm = self._lowest_point(lb)
+        return rpm
+
+    @staticmethod
+    def _lowest_point(lb) -> float:
+        import math
         best, rpm = math.inf, None
         for j in range(lb.shape[0]):
             for i in range(lb.shape[1]):
@@ -1944,7 +1966,7 @@ class SldPicker:
                     if math.isfinite(x) and math.isfinite(y) and y < best:
                         best, rpm = y, x
         if rpm is None:
-            raise ValueError(f"SLD '{self.model.get()}' has no lobes")
+            raise ValueError("the SLD has no lobes")
         return float(rpm)
 
     def set_min_n(self):

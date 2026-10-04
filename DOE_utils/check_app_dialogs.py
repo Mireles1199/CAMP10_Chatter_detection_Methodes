@@ -213,9 +213,18 @@ try:
     pk.fill()
     assert len(pk.aps) == 3 and "kappa  1.000" in pk.lst.get(1), pk.lst.get(0, "end")
 
-    pk.set_min_n()   # the button: n goes to the lowest point of the SLD, and that point's limit is ap_crit
-    assert abs(pk.limit() - ex._sld().ap_crit("1DOF_150")) < 1e-6, (pk.limit(), ex._sld().ap_crit("1DOF_150"))
-    assert abs(pk._n() - pk.min_limit_rpm()) < 0.1 and pk.n.get() == f"{pk.min_limit_rpm():.1f}"
+    # the button: n goes to the bottom of the lobe that the current n is in (not to another lobe)
+    pk.n.set("13000")
+    pk.draw()
+    r13 = pk.min_limit_rpm()
+    assert 12000 < r13 < 12200, r13                          # the lobe of 12098 rpm: its bottom at ~12091 rpm
+    pk.set_min_n()
+    assert pk.n.get() == f"{r13:.1f}" and abs(pk.limit() - ex._sld().ap_crit("1DOF_150")) < 1e-6
+    pk.n.set("5200")                                          # another lobe: its own bottom, not the global one
+    pk.draw()
+    assert 5000 < pk.min_limit_rpm() < 5400, pk.min_limit_rpm()
+    pk.n.set("12098.28")
+    pk.draw()
     lim = pk.limit()
     assert "kappa" in pk.ax.get_ylabel() and abs(pk.div - lim) < 1e-12      # kappa chosen -> the y axis is kappa
 
