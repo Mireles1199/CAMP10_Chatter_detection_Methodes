@@ -9,7 +9,10 @@ API (what doe_unified_selector.py / launcher.py consume):
     FIGURES                          {name: fig_<name>}, every one  fig_<name>(h5_path, out_dir=None) -> Figure
     fig_compare(h5_a, h5_b, out_dir=None)   A/B of two validation files (not in FIGURES: it needs two files)
     make_all(h5_path, out_dir=None)  every figure of FIGURES; out_dir default = figs_dir(h5_path)
-    figs_dir(h5_path)                <folder of the h5>/figs_validation, + _gray-<mode> when the file was made with --gray stable|unstable
+    figs_dir(h5_path)                <folder of the h5>/figs_validation, + _gray-<mode> when the file was made with --gray stable|unstable;
+                                     figs_noise_validation[_gray-<mode>] for a noise validation file
+    NOISE_FIGURES                    same API, for doe_noise_validation_results*.h5 (validate_noise.py); make_all picks the
+                                     registry from the schema of the file
 Gray cases (--gray of validate_indicators.py): mode 'ignore' leaves them out of the metrics; 'stable' / 'unstable' score them
 as such. Either way they are drawn as hollow gray points, and a note on the figure says the mode when it is not 'ignore'.
 A figure is saved as <out_dir>/<name>.png (300 dpi) only when out_dir is given; fig._keep_size holds its size.
@@ -33,6 +36,10 @@ name (-> h5 data it reads)
   gray_bounds        bal. accuracy / MCC if gray = stable / unstable    /metrics/<run> gray_as_*
   alarm_quality      alarm fraction in stable cases, persistence        /metrics/<run>
   training_coverage  training cases vs validated cases (kappa, rpm)     /training, /summary/<run>
+NOISE_FIGURES (doe_noise_validation_results.h5; PLAN_noise_validation.md §6)
+  noise_metrics      bal. accuracy, TPR, TNR, alarm fraction vs SNR      /by_snr/<run> (mean, min, max), /clean/<run>
+  noise_case_matrix  fraction of realizations right, case x SNR          /summary/<run>
+  noise_anticipation median t_det / t_onset vs SNR                       /by_snr/<run> median_t_ratio_*, /clean/<run>
 """
 import argparse
 import functools
@@ -53,6 +60,7 @@ LANGUAGE = "EN"   # "EN" | "FR" | "both"
 FIGSCALE = 1.5    # multiplier of the plot_style presets (same criterion as sld_model.py)
 RUN_COLOR = ["#0072B2", "#D55E00", "#009E73", "#CC79A7", "#E69F00", "#56B4E9"]   # Okabe-Ito, one per indicator
 FIGURES = {}
+NOISE_FIGURES = {}
 
 
 def T(en, fr=None, sep="\n"):
@@ -102,21 +110,25 @@ def _done(fig, out_dir, name):
     return fig
 
 
-def _figure(fn):
-    """Registers fig_<name>(D) as FIGURES[name](h5_path, out_dir=None) -> Figure, drawn with ARTICLE_RCPARAMS."""
+def _figure(fn=None, *, registry=None, loader=None):
+    """Registers fig_<name>(D) as registry[name](h5_path, out_dir=None) -> Figure (FIGURES and load by default),
+    drawn with ARTICLE_RCPARAMS."""
+    if fn is None:
+        return functools.partial(_figure, registry=registry, loader=loader)
+    registry, loader = (FIGURES if registry is None else registry), (loader or load)
     name = fn.__name__[len("fig_"):]
 
     @functools.wraps(fn)
     def run(h5_path, out_dir=None):
         with plt.rc_context(ps.ARTICLE_RCPARAMS):
-            D = load(h5_path)
+            D = loader(h5_path)
             fig = fn(D)
             mode = str(D.attrs.get("gray_mode", "ignore"))
             if mode != "ignore":   # a figure of a non-default mode must say so
                 fig.supxlabel(T(f"gray cases counted as {mode}", f"cas gris comptés comme {'stable' if mode == 'stable' else 'instable'}"),
                               x=0.99, ha="right", fontsize=7, color="grey")   # supxlabel: constrained_layout leaves room for it
         return _done(fig, out_dir, name)
-    FIGURES[name] = run
+    registry[name] = run
     return run
 
 
@@ -450,17 +462,118 @@ def fig_compare(h5_a, h5_b, out_dir=None):
     return _done(fig, out_dir, f"compare_{name(A)}_vs_{name(B)}")
 
 
+# ============================================================================== noise validation figures
+def load_noise(path):
+    """A doe_noise_validation_results.h5: /by_snr and /summary per run, /clean attrs, runs ordered by clean balanced accuracy."""
+    with h5py.File(path, "r") as f:
+        if not str(f.attrs.get("schema", "")).startswith("doe_noise_validation"):
+            raise ValueError("not a noise validation file (validate_noise.py)")
+        col = lambda g: {c: (g[c].asstr()[()] if g[c].dtype.kind == "O" else g[c][()]) for c in g}   # noqa: E731
+        by = {r: dict(col(g), snr_breakdown_db=float(g.attrs.get("snr_breakdown_db", np.nan))) for r, g in f["by_snr"].items()}
+        clean = {r: dict(g.attrs) for r, g in f["clean"].items()}
+        summ = {r: col(g) for r, g in f["summary"].items()}
+        order = sorted(by, key=lambda r: -np.nan_to_num(float(clean.get(r, {}).get("balanced_accuracy", np.nan)), nan=-1e9))
+        return SimpleNamespace(path=path, attrs=dict(f.attrs), by=by, clean=clean, summ=summ, order=order)
+
+
+def _snr_axis(ax, levels):
+    """SNR on x, from clean (left) to noisy (right), with a 'clean' tick before the highest level. Returns its x."""
+    levels = sorted(levels, reverse=True)
+    x_clean = levels[0] + max(10.0, 0.15 * (levels[0] - levels[-1]))
+    ax.set_xticks([x_clean, *levels], [T("clean", "propre"), *[f"{v:g}" for v in levels]])
+    ax.set_xlim(x_clean + 5, levels[-1] - 5)   # inverted: clean on the left
+    ax.set_xlabel(T("SNR [dB] (absolute)", "SNR [dB] (absolu)"))
+    return x_clean
+
+
+@_figure(registry=NOISE_FIGURES, loader=load_noise)
+def fig_noise_metrics(D):
+    """Balanced accuracy, TPR, TNR and alarm fraction in stable cases vs SNR: line = mean, band = min-max over the
+    realizations, marker on the left = clean, dashed vertical = breakdown SNR (balanced accuracy panel)."""
+    fig, axs = _grid(4)
+    panels = (("balanced_accuracy", T("balanced accuracy", "exactitude équilibrée")), ("TPR", "TPR"), ("TNR", "TNR"),
+              ("mean_alarm_fraction_stable", T("alarm fraction, stable cases", "fraction d'alarme, cas stables")))
+    for ax, (k, lab) in zip(axs, panels):
+        for i, r in enumerate(D.order):
+            b, c = D.by[r], RUN_COLOR[i % len(RUN_COLOR)]
+            x_clean = _snr_axis(ax, b["snr_db"])
+            ax.plot(b["snr_db"], b[k + "_mean"], "o-", ms=4, color=c, label=short(r))
+            ax.fill_between(b["snr_db"], b[k + "_min"], b[k + "_max"], color=c, alpha=0.15, lw=0)
+            ax.plot([x_clean], [float(D.clean.get(r, {}).get(k, np.nan))], "D", ms=6, mfc="none", mew=1.5, color=c)
+            if k == "balanced_accuracy" and np.isfinite(b["snr_breakdown_db"]):
+                ax.axvline(b["snr_breakdown_db"], color=c, ls="--", lw=0.8)
+        ax.set(ylabel=lab, ylim=(-0.05, 1.05))
+    fig.legend(*axs[0].get_legend_handles_labels(), loc="outside upper center", ncol=4, fontsize=8)
+    return fig
+
+
+@_figure(registry=NOISE_FIGURES, loader=load_noise)
+def fig_noise_case_matrix(D):
+    """Per indicator: cases (rows, by kappa) x SNR levels (columns); color = fraction of the realizations whose outcome
+    is right (TP or TN); gray cell = not scored (gray case in mode 'ignore')."""
+    fig, axs = _grid(len(D.order))
+    cmap = plt.get_cmap("viridis").copy()
+    cmap.set_bad("#d9d9d9")
+    im = None
+    for ax, r in zip(axs, D.order):
+        s = D.summ[r]
+        levels = sorted(set(s["snr_db"]), reverse=True)
+        cases = sorted(set(s["case"]), key=lambda c: (float(np.nanmax(np.where(s["case"] == c, s["kappa"], np.nan))), c))
+        grid = np.full((len(cases), len(levels)), np.nan)
+        for i, c in enumerate(cases):
+            for j, lv in enumerate(levels):
+                o = s["outcome"][(s["case"] == c) & (s["snr_db"] == lv)]
+                scored = o[np.isin(o, ("TP", "TN", "FP", "FN"))]
+                grid[i, j] = np.isin(scored, ("TP", "TN")).mean() if scored.size else np.nan
+        im = ax.imshow(np.ma.masked_invalid(grid), cmap=cmap, vmin=0, vmax=1, aspect="auto")
+        tag = {}
+        for c in cases:
+            m = s["case"] == c
+            tag[c] = "g" if np.any(s["is_gray"][m] == 1) else {"stable": "S", "unstable": "U"}.get(s["truth"][m][0], "?")
+        kap = {c: float(np.nanmax(np.where(s["case"] == c, s["kappa"], np.nan))) for c in cases}
+        ax.set_yticks(range(len(cases)), [f"{kap[c]:.2f} {tag[c]}" for c in cases], fontsize=8)
+        ax.set_xticks(range(len(levels)), [f"{v:g}" for v in levels])
+        ax.set(title=short(r), xlabel=T("SNR [dB]", "SNR [dB]"))
+        ax.tick_params(length=0)
+    axs[0].set_ylabel(T(r"case: $\kappa$ and truth", r"cas : $\kappa$ et vérité"))
+    fig.colorbar(im, ax=axs, shrink=0.8, label=T("fraction of realizations right", "fraction de réalisations justes"))
+    return fig
+
+
+@_figure(registry=NOISE_FIGURES, loader=load_noise)
+def fig_noise_anticipation(D):
+    """Median t_det / t_onset of the hits vs SNR (band = min-max over the realizations); 1 = alarm when the amplitude
+    reaches the limit. Does the noise cost anticipation?"""
+    fig, ax = _fig()
+    for i, r in enumerate(D.order):
+        b, c = D.by[r], RUN_COLOR[i % len(RUN_COLOR)]
+        x_clean = _snr_axis(ax, b["snr_db"])
+        ax.plot(b["snr_db"], b["median_t_ratio_mean"], "o-", ms=4, color=c, label=short(r))
+        ax.fill_between(b["snr_db"], b["median_t_ratio_min"], b["median_t_ratio_max"], color=c, alpha=0.15, lw=0)
+        ax.plot([x_clean], [float(D.clean.get(r, {}).get("median_t_ratio", np.nan))], "D", ms=6, mfc="none", mew=1.5, color=c)
+    ax.axhline(1, color="k", ls="--", lw=0.8)
+    ax.set(ylabel=T("median $t_{det}\\,/\\,t_{onset}$", "médiane $t_{det}\\,/\\,t_{onset}$"), ylim=(0, 1.1))
+    fig.legend(*ax.get_legend_handles_labels(), loc="outside upper center", ncol=4, fontsize=8)
+    return fig
+
+
 # ============================================================================== run
-def figs_dir(h5_path):
-    """Where the figures of a validation file go: next to it, in figs_validation (+ _gray-<mode> for --gray stable|unstable)."""
+def _is_noise(h5_path):
     with h5py.File(h5_path, "r") as f:
-        mode = str(f.attrs.get("gray_mode", "ignore"))
-    return os.path.join(os.path.dirname(os.path.abspath(h5_path)), "figs_validation" + ("" if mode == "ignore" else f"_gray-{mode}"))
+        return str(f.attrs.get("schema", "")).startswith("doe_noise_validation"), str(f.attrs.get("gray_mode", "ignore"))
+
+
+def figs_dir(h5_path):
+    """Where the figures of a validation file go: next to it, in figs_validation (+ _gray-<mode> for --gray
+    stable|unstable); figs_noise_validation[...] for a noise validation file."""
+    noise, mode = _is_noise(h5_path)
+    return os.path.join(os.path.dirname(os.path.abspath(h5_path)),
+                        ("figs_noise_validation" if noise else "figs_validation") + ("" if mode == "ignore" else f"_gray-{mode}"))
 
 
 def make_all(h5_path, out_dir=None):
     out_dir = out_dir or figs_dir(h5_path)
-    for name, fn in FIGURES.items():
+    for name, fn in (NOISE_FIGURES if _is_noise(h5_path)[0] else FIGURES).items():
         try:
             plt.close(fn(h5_path, out_dir))
             print("  ", name)
@@ -508,6 +621,34 @@ def _selftest():
     assert fig._keep_size == tuple(fig.get_size_inches()) and np.allclose(fig._keep_size, ps.figsize_from_scale(ps.FIGSIZE_SIMPLE, FIGSCALE))
     fc = fig_compare(out, out, figs)
     assert fc._keep_size and any(n.startswith("compare_") for n in os.listdir(figs))
+    # noise validation figures: noisy copies of the clean cases at 2 levels x 2 realizations
+    import validate_noise as vn
+    nind = os.path.join(d, "noise_ind.h5")
+    with h5py.File(ind, "r") as src, h5py.File(nind, "w") as f:
+        f.attrs.update(noise_layout="multi", snr_ref_case="case_004")
+        for snr in (40.0, 10.0):
+            for k in (0, 1):
+                for c in src:
+                    g = f.create_group(f"snr_{snr:06.2f}__{c}__r{k:02d}")
+                    g.attrs.update(snr_db=snr, case_source=c, realization=k)
+                    for run in ("ind_a", "ind_b"):
+                        r = g.create_group(run)
+                        r["t"], r["I_t"] = t, src[c][run]["I_t"][()]
+                        td = src[c][run]["t_d"][()] if "t_d" in src[c][run] else ([1.0] if snr == 10.0 and k == 0 else [])
+                        if len(td):
+                            r["t_d"] = td
+    nv = os.path.join(d, "noise_val.h5")
+    vn.validate_noise(nind, out, nv)
+    assert figs_dir(nv) == os.path.join(d, "figs_noise_validation") and len(NOISE_FIGURES) == 3
+    make_all(nv, os.path.join(d, "fn"))
+    assert sorted(os.listdir(os.path.join(d, "fn"))) == sorted(n + ".png" for n in NOISE_FIGURES)
+    fig = NOISE_FIGURES["noise_metrics"](nv)
+    assert fig._keep_size and len(fig.axes) >= 4
+    try:
+        NOISE_FIGURES["noise_metrics"](out)
+        raise SystemExit("a clean validation file is not a noise one")
+    except ValueError:
+        pass
     print("validation_figures selftest OK")
 
 
