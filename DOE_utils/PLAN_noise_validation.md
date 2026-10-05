@@ -48,7 +48,7 @@ doe_results.h5 (limpio) ──label_build──> reference_dataset_amp.h5 ──
         │                                                            │
         ├──indicators──> doe_indicator_results.h5 ──validate──> doe_validation_results.h5 (limpio; verdad + t_onset + gray_mode)
         │                                                                                     │
-        └──noise──> doe_noise_results.h5 ──noise_indicators──> doe_noise_indicator_results.h5 ┴──noise_validate──> doe_noise_validation_results.h5
+        └──noise──> doe_noise_multi_results.h5 ──noise_indicators──> doe_noise_indicator_results.h5 ┴──noise_validate──> doe_noise_validation_results.h5
              (copias ruidosas)          (umbrales del entrenamiento limpio, sin señales)        (métricas por SNR × realización)
 ```
 
@@ -58,7 +58,8 @@ doe_results.h5 (limpio) ──label_build──> reference_dataset_amp.h5 ──
 
 Todo es **aditivo**: el modo antiguo de un solo caso de control sigue funcionando igual.
 
-### 4.1 `doe_noise_results.h5` (modo multi-caso)
+### 4.1 `doe_noise_multi_results.h5` (modo multi-caso)
+- **Nombre propio:** en modo multi el archivo por defecto es `doe_noise_multi_results.h5` (no `doe_noise_results.h5`), así no pisa el del modo de un solo caso y los dos coexisten en la carpeta de datos (`shared=True`).
 - **Grupos de primer nivel:** uno por copia ruidosa, nombre `snr_{SNR:06.2f}__{case}__r{K:02d}` (ej. `snr_040.00__case_011__r02`). Empieza por `snr_` a propósito: el visor y `doe_indicators.py` lo reconocen como archivo de ruido (no hay grupos `case_*` en la raíz).
 - **Dentro:** `Axial_disp/{time,values}`, `Axial_vel/{time,values}` (ruidosas).
 - **Attrs del grupo:** los del caso original (`kappa`, `$Ap_start$`, `$spin_rate$`, ...) + `snr_db`, `case_source`, `realization`, `seed`, `sigma_Axial_disp`, `sigma_Axial_vel`.
@@ -80,7 +81,7 @@ Igual que hoy (`<grupo>/<run>/{t, I_t, t_d}` + attrs `pp_*`, `meta_*`), con los 
 ## 5. Cambios en los scripts — rama `wt-validacion` (yo)
 
 ### 5.1 `DOE_simulacion/doe_noise.py`
-- Modo **multi-caso** cuando la sección `noise` trae `cases` (lista o `all`); sin `cases` = modo antiguo de un caso de control, intacto.
+- Modo **multi-caso** cuando la sección `noise` trae `cases` (lista o `all`); sin `cases` = modo antiguo de un caso de control, intacto (mismo comando, misma huella). Sin `--out`, el nombre por defecto en modo multi es `doe_noise_multi_results.h5`.
 - Claves nuevas de la sección `noise` (y CLI equivalente): `cases`, `snr_list` (default `[80, 60, 40, 30, 20, 10]`), `realizations` (default 3), `snr_ref_case` (`auto` por defecto), `seed`, `signals`. `snr_range` se acepta e ignora con un aviso.
 - `snr_ref_case: auto` → el caso etiquetado `unstable` con menor kappa, leído de las etiquetas del experimento (`ex.label_info`, como hace `doe_indicators.py`); sin etiquetas → error claro pidiendo `snr_ref_case`.
 - Ruido: `rng = np.random.default_rng([seed, K, idx_caso, idx_señal])` → `z` unitario por (caso, realización, señal), reescalado por el sigma de cada nivel. Se **reusa** `add_gaussian_noise` cambiando solo de dónde sale sigma (absoluto, de `P_ref`).
@@ -127,23 +128,23 @@ Todas con `lang_text` (EN/FR/both), `constrained_layout`, leyendas fuera de los 
 
 ### 7.1 Creación y configuración (YAML + `experiment.py`)
 - **Sección `noise`**: claves nuevas `cases`, `snr_list`, `realizations`, `snr_ref_case`, `seed`, `signals` (defaults de §5.1). Quitar `snr_range` del formulario (el script lo acepta e ignora). Mantener el modo antiguo si no hay `cases`.
-- **Stage `noise`**: comando igual (`doe_noise.py --doe_results ... --out ... --experiment ...`). Con `snr_ref_case: auto` el script necesita las etiquetas del experimento: añadir la dependencia `(exp, "label_build")` (y su salida como entrada) cuando `noise.cases` esté definido. `out` por defecto sigue en la carpeta de datos (`shared=True`): avisar en el formulario que configuraciones distintas sobre los mismos datos necesitan `out` distinto.
-- **Stage `noise_indicators`**: añadir `--no-signals` cuando `noise.cases` esté definido.
-- **Stage nueva `noise_validate`**: dependencias `(exp, "noise_indicators")` y `(exp, "validate")`; entradas `[ni_out, val_out]`; salida `doe_noise_validation_results{gray_suffix(gray)}.h5` en `out_dir`; comando `validate_noise.py --noise_ind <ni_out> --clean <val_out> --out <nv_out>`; sección `noise_validate` (por ahora solo `out`). Añadir a `STAGES`, `OPTIONAL`, títulos, descripción y al grupo "Noise robustness".
+- **Stage `noise`**: comando igual (`doe_noise.py --doe_results ... --out ... --experiment ...`). Con `snr_ref_case: auto` el script necesita las etiquetas del experimento: añadir la dependencia `(exp, "label_build")` (y su salida como entrada) cuando `noise.cases` esté definido. `out` por defecto sigue en la carpeta de datos (`shared=True`); **en modo multi el nombre por defecto es `doe_noise_multi_results.h5`** (el de un solo caso sigue siendo `doe_noise_results.h5`), así coexisten. Configuraciones multi distintas sobre los mismos datos siguen necesitando `out` distinto (avisarlo en el formulario).
+- **Stage `noise_indicators`**: añadir `--no-signals` cuando `noise.cases` esté definido (su huella cambia en ese caso, re-ejecución legítima). Sin `cases`, comando idéntico al actual.
+- **Stage nueva `noise_validate`**: dependencias `(exp, "noise_indicators")` y `(exp, "validate")`; entradas `[ni_out, val_out]`; salida `doe_noise_validation_results{gray_suffix(gray)}.h5` en `out_dir`; comando `validate_noise.py --noise_ind <ni_out> --clean <val_out> --out <nv_out>`, con `val_out` = **`validation_path(exp)`** (la misma función que usa la etapa `validate`, con el sufijo del modo de grises) y `nv_out` con el mismo sufijo; el script lee `gray_mode` del archivo limpio; sección `noise_validate` (por ahora solo `out`). Añadir a `STAGES`, `OPTIONAL`, títulos, descripción y al grupo "Noise robustness".
 - **Huellas**: comprobar que añadir estas etapas a un experimento existente **no** marca como desactualizadas las etapas limpias.
 - **Formularios** (`launcher.py`): `NoiseForm` con las claves nuevas (lista de casos con selector, niveles, realizaciones, caso de referencia auto/manual); `noise_validate` sin campos salvo `out`.
 - **Tarjeta de la etapa `noise_validate`**: por indicador, balanced accuracy limpia → al nivel más ruidoso, y `snr_breakdown_db`.
 
 ### 7.2 Visor y exportación
 - `doe_unified_selector.py`: si el archivo tiene `schema` `doe_noise_validation_results/*` → nuevo tipo; entradas del combo de resumen desde `vf.NOISE_FIGURES` (igual que hoy con `vf.FIGURES`); "Save PNG" → `vf.figs_dir(h5)`.
-- Archivos `doe_noise_results.h5` / `doe_noise_indicator_results.h5` en modo multi (`noise_layout = "multi"`): mostrar columnas `case_source`, `snr_db`, `realization` en la tabla, y **ocultar** las figuras antiguas de un solo caso (`doe_noise_plotter`, que leen el SNR del nombre del grupo y suponen un control).
+- Archivos `doe_noise_multi_results.h5` / `doe_noise_indicator_results.h5` en modo multi (`noise_layout = "multi"`): mostrar columnas `case_source`, `snr_db`, `realization` en la tabla, y **ocultar** las figuras antiguas de un solo caso (`doe_noise_plotter`, que leen el SNR del nombre del grupo y suponen un control).
 - Botón "Viewer" de la etapa `noise_validate` → abre `doe_noise_validation_results*.h5`.
 - Exportación: las figuras van a `figs_noise_validation[_gray-<modo>]/` junto al `.h5`; el CSV `<out>_by_snr.csv` ya lo escribe el script.
 
 ## 8. Tamaño y coste (medido en n12000)
 
 - Una señal ≈ 4.5 MB (float64, 562 570 muestras). Cada copia ruidosa lleva 2 señales ≈ 9 MB; el ruido gaussiano casi no se comprime.
-- Primera pasada con 12 casos × 6 niveles × 3 realizaciones = **216 copias ≈ 2 GB** de `doe_noise_results.h5`.
+- Primera pasada con 12 casos × 6 niveles × 3 realizaciones = **216 copias ≈ 2 GB** de `doe_noise_multi_results.h5`. **Se pide confirmación al usuario antes de generarlo (N5).**
 - `doe_noise_indicator_results.h5` sin señales: solo `t`, `I_t`, `t_d` por indicador (del orden de MB por copia, a medir en la fase E2E).
 - `doe_noise_validation_results.h5`: solo tablas (pocos MB).
 - Tiempo: 216 copias × 4 indicadores; se mide en la fase E2E antes de pasar a `all`.
@@ -157,7 +158,7 @@ Todas con `lang_text` (EN/FR/both), `constrained_layout`, leyendas fuera de los 
 | N2 | wt-validacion | `doe_indicators.py --no-signals` + selftest | `feat(noise): --no-signals for noisy indicator results` |
 | N3 | wt-validacion | `effective_truth` compartida + `validate_noise.py` + selftest | `feat(validation): validate_noise.py (metrics per SNR x realization)` |
 | N4 | wt-validacion | `NOISE_FIGURES` + `figs_dir` + selftest | `feat(validation): noise validation figures` |
-| N5 | wt-validacion | E2E por CLI en n12000 con 12 casos: tamaños y tiempos reales, revisión a ojo de las figuras | ajustes + `docs(validation)` GUIA/INFORME |
+| N5 | wt-validacion | E2E por CLI en n12000 con 12 casos (~2 GB en disco: **confirmar con el usuario antes**): tamaños y tiempos reales, revisión a ojo de las figuras | ajustes + `docs(validation)` GUIA/INFORME |
 | N6 | wt-validacion → manager + wt-interfaz | Mensaje de entrega: hash, contrato (§4), comandos (§5), resultados E2E | — |
 | I1 | wt-interfaz | YAML + `experiment.py` (stages `noise` ampliado, `noise_indicators --no-signals`, `noise_validate`) | su rama |
 | I2 | wt-interfaz | Formularios y tarjetas | su rama |
@@ -168,10 +169,11 @@ Todas con `lang_text` (EN/FR/both), `constrained_layout`, leyendas fuera de los 
 ## 10. Protocolo de coordinación entre sesiones
 
 - **Una sola fuente de verdad:** este archivo (§4 = contrato). Cualquier cambio de formato o de CLI se escribe **aquí primero** y se avisa por mensaje.
-- **Propiedad de archivos:** wt-validacion = `doe_noise.py`, `doe_indicators.py`, `validate_indicators.py`, `validate_noise.py`, `validation_figures.py`, `GUIA`, `INFORME`, este plan. wt-interfaz = `experiment.py`, `launcher.py`, `doe_unified_selector.py`, `sld_model.py`, `check_app_dialogs.py`, YAML, `doe_noise_plotter.py`. Nadie edita archivos del otro: se pide por mensaje.
+- **Propiedad de archivos:** wt-validacion = `doe_noise.py`, `doe_indicators.py`, `validate_indicators.py`, `validate_noise.py`, `validation_figures.py`, `GUIA`, `INFORME`, este plan. wt-interfaz = `DOE_utils/experiment.py`, `DOE_utils/launcher.py`, `DOE_utils/DOE_plots/doe_unified_selector.py`, `DOE_utils/DOE_plots/sld_model.py`, `DOE_utils/check_app_dialogs.py`, YAML, `DOE_utils/DOE_plots/doe_noise_plotter.py`. (Rutas de §5 relativas a `DOE_utils/`.) Nadie edita archivos del otro: se pide por mensaje.
 - **Mensajes** (siempre con copia al manager): al terminar N4 y N5 (hash + qué probar), al terminar I1–I3 (hash + qué cambió), y cuando algo del contrato no encaje (antes de improvisar).
 - **Reglas comunes:** cambios aditivos (si una clave o flag desaparece, se acepta e ignora); finales de línea LF verificados por bytes; un selftest por lógica nueva; commits locales pequeños; sin push ni ramas nuevas sin el usuario.
-- **Integración:** wt-interfaz hace `git merge wt-validacion` al recibir el mensaje de N6.
+- **Integración:** wt-interfaz hace `git merge wt-validacion` al recibir el mensaje de N6. Si el usuario lo autoriza, wt-interfaz puede empezar I1 antes, contra el contrato de §4.
+- **Revisión del manager (2026-10-05):** huellas por etapa (añadir `noise_validate` no toca las limpias), nombre `noise_validate` confirmado, `doe_noise_plotter.py` del lado de wt-interfaz, out multi propio, `--clean` vía `validation_path(exp)`.
 
 ## 11. Verificación de punta a punta
 
