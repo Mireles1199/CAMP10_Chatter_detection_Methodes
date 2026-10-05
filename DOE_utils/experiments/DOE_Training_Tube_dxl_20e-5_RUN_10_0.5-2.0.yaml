@@ -1,0 +1,20 @@
+name: DOE_Training_Tube_dxl_20e-5_RUN_10_0.5-2.0
+description: 'imported from DOE_Training_Tube_dxl_20e-5_RUN_10_0.5-2.0: 34 cases,
+  n = 12098.28 rpm, kappa 0.50-2.00'
+stages:
+- simulate
+- extract
+- label_template
+- label_build
+runs:
+- dir: D:/Thesis/03-Code_Storage/02-Altintlas_Nessy2m_Storage/Data/1DOF_150_Training_Tube/DOE_Training_Tube_dxl_20e-5_RUN_10_0.5-2.0
+  case: 1DOF_150Hz
+  model: 1DOF_150
+label:
+  strategy: amplitude
+  amp_signal: Axial_disp
+  base_attr: $f_tooth$
+  base_scale: 0.001
+  lim_inf_pct: 10.0
+  lim_sup_pct: 40.0
+  warmup: 0.0

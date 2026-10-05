@@ -1,0 +1,256 @@
+name: DOE_Test_1DOF_150_n12000
+description: 'imported from Ap_Cons_test_ind (simulated, not extracted): 22 cases,
+  n = 12098.28 rpm'
+stages:
+- simulate
+- extract
+- label_template
+- label_build
+- indicators
+- validate
+reference: DOE_Training_Tube_dxl_20e-5_RUN_10_0.5-2.0
+runs:
+- simulation:
+    base_dir: D:/Thesis/03-Code_Storage/02-Altintlas_Nessy2m_Storage/Data/1DOF_150_Ap_Cont_test_ind
+    case: 1DOF_150Hz
+    doe_name: Ap_Cons_test_ind
+    nb_proc: 1
+    mode: sweep
+    sweep:
+      $Ap_start$:
+      - 0.0044176
+      - 0.0058915
+      - 0.0066799
+      - 0.0071026
+      - 0.0079567
+      - 0.0083671
+      - 0.0088843
+      - 0.0090745
+      - 0.0090988
+      - 0.0091081
+      - 0.0091794
+      - 0.0093166
+      - 0.0093483
+      - 0.0094082
+      - 0.0094766
+      - 0.0102541
+      - 0.0105109
+      - 0.0110829
+      - 0.0118558
+      - 0.0137773
+      - 0.014541
+      - 0.0171255
+      $Ap_end$:
+      - 0.0044176
+      - 0.0058915
+      - 0.0066799
+      - 0.0071026
+      - 0.0079567
+      - 0.0083671
+      - 0.0088843
+      - 0.0090745
+      - 0.0090988
+      - 0.0091081
+      - 0.0091794
+      - 0.0093166
+      - 0.0093483
+      - 0.0094082
+      - 0.0094766
+      - 0.0102541
+      - 0.0105109
+      - 0.0110829
+      - 0.0118558
+      - 0.0137773
+      - 0.014541
+      - 0.0171255
+      $spin_rate$:
+      - 12098.28
+      - 12098.28
+      - 12098.28
+      - 12098.28
+      - 12098.28
+      - 12098.28
+      - 12098.28
+      - 12098.28
+      - 12098.28
+      - 12098.28
+      - 12098.28
+      - 12098.28
+      - 12098.28
+      - 12098.28
+      - 12098.28
+      - 12098.28
+      - 12098.28
+      - 12098.28
+      - 12098.28
+      - 12098.28
+      - 12098.28
+      - 12098.28
+      $f_tooth$:
+      - 0.05
+      - 0.05
+      - 0.05
+      - 0.05
+      - 0.05
+      - 0.05
+      - 0.05
+      - 0.05
+      - 0.05
+      - 0.05
+      - 0.05
+      - 0.05
+      - 0.05
+      - 0.05
+      - 0.05
+      - 0.05
+      - 0.05
+      - 0.05
+      - 0.05
+      - 0.05
+      - 0.05
+      - 0.05
+      $dxl_size$:
+      - 0.0002
+      - 0.0002
+      - 0.0002
+      - 0.0002
+      - 0.0002
+      - 0.0002
+      - 0.0002
+      - 0.0002
+      - 0.0002
+      - 0.0002
+      - 0.0002
+      - 0.0002
+      - 0.0002
+      - 0.0002
+      - 0.0002
+      - 0.0002
+      - 0.0002
+      - 0.0002
+      - 0.0002
+      - 0.0002
+      - 0.0002
+      - 0.0002
+      $nb_dt_rev$:
+      - 200.0
+      - 200.0
+      - 200.0
+      - 200.0
+      - 200.0
+      - 200.0
+      - 200.0
+      - 200.0
+      - 200.0
+      - 200.0
+      - 200.0
+      - 200.0
+      - 200.0
+      - 200.0
+      - 200.0
+      - 200.0
+      - 200.0
+      - 200.0
+      - 200.0
+      - 200.0
+      - 200.0
+      - 200.0
+    ap_ref:
+      mode: model_at_spin
+      model: 1DOF_150
+    extract_signals:
+    - Axial_disp
+    - Axial_vel
+    - Axial_acc
+    force_signal: res_R_p
+  existing: true
+  model: 1DOF_150
+indicators:
+  f_modal: 150.0
+  cases: all
+  workers: 1
+  variants:
+    maxent_revo_dec7_1step:
+      indicator: MaxEnt_SPRT
+      func: Default
+      mode: by_revolution
+      signal: Axial_vel
+      params_physical:
+        T_rev: T_rev
+        N_rev_window: 7
+        step_rev: 1
+        segmentation: opr
+        training_intervals: null
+        alpha: 0.00135
+        beta: 0.00135
+        reset_on_H0: true
+        cut_start_time: 0.05
+    rms_cv_revo_aux4_n_aux4_dec7_1step:
+      indicator: RMS_CV
+      func: Default
+      mode: by_revolution
+      signal: Axial_vel
+      params_physical:
+        T_rev: T_rev
+        N_rev_window: 4
+        step_rev: 1
+        n_max_mode: frames
+        n_max_rev: 4
+        cv_threshold: null
+        rms_threshold: null
+        n_min_cv: 2
+        warmup_ignore_alerts: false
+        use_unbiased_std: true
+        eps: 1.0e-12
+        detrend: false
+        pad_mode: none
+        stable_time: null
+        z: 3.0
+        alpha: 0.05
+        fallback_mad: true
+    ssq_revo_aux4_n_aux4_dec7_1step:
+      indicator: SST_SVD
+      func: Default
+      mode: by_revolution
+      signal: Axial_vel
+      params_physical:
+        T_rev: T_rev
+        N_rev_window: 4
+        step_rev: 1
+        Ai_length_mode: frames
+        Ai_length_rev: 4
+        n_fft_power: 3
+        mode: causal_inclusive
+        sigma: 6.0
+        frac_stable: 0.3610633440512648
+        training_intervals: null
+        alpha: 0.05
+        z: 3.0
+        fallback_mad: false
+    green_fixed_revo_dec7_1step:
+      indicator: Green_Integral
+      func: Lyapunov
+      mode: by_revolution
+      signal: Axial_disp
+      params_physical:
+        T_rev: T_rev
+        N_rev_window: 7
+        step_rev: 1.0
+        use_area_threshold: true
+        training_intervals: null
+        z_sigma: 3.0
+        debug_level: 0
+        data_filtrated: true
+        lambda_ewma: null
+        accumulate: false
+        G_memory: 10*T_rev
+        sigma_method: ratio
+        sigma_local_n: 10
+        area_noise_eps: 1.0e-30
+        use_zero_crossing_cycles: true
+        use_beta_from_cycles: false
+        zc_detrend: true
+        v_cycle_mode: zero
+        cycle_area_norm: none
+validate:
+  channel: Axial_disp

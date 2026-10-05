@@ -1,0 +1,103 @@
+name: Cono_dexel_20e-5_dt_200_5mm_15mm
+description: 'imported from Cono_dexel_20e-5_dt_200: 1 cases, n = 12098.28 rpm'
+stages:
+- simulate
+- extract
+- label_template
+- label_build
+- indicators
+- validate
+reference: DOE_Training_Tube_dxl_20e-5_RUN_10_0.5-2.0
+runs:
+- dir: D:/Thesis/03-Code_Storage/02-Altintlas_Nessy2m_Storage/Data/1DOF_150_Cone_New/Cono_dexel_20e-5_dt_200
+  case: 1DOF_150Hz
+  model: 1DOF_150
+indicators:
+  f_modal: 150.0
+  cases: all
+  workers: 6
+  variants:
+    maxent_revo_dec7_1step:
+      indicator: MaxEnt_SPRT
+      func: Default
+      mode: by_revolution
+      signal: Axial_vel
+      params_physical:
+        T_rev: T_rev
+        N_rev_window: 7
+        step_rev: 1
+        segmentation: opr
+        training_intervals: null
+        alpha: 0.00135
+        beta: 0.00135
+        reset_on_H0: true
+        cut_start_time: 0.05
+    rms_cv_revo_aux4_n_aux4_dec7_1step:
+      indicator: RMS_CV
+      func: Default
+      mode: by_revolution
+      signal: Axial_vel
+      params_physical:
+        T_rev: T_rev
+        N_rev_window: 4
+        step_rev: 1
+        n_max_mode: frames
+        n_max_rev: 4
+        cv_threshold: null
+        rms_threshold: null
+        n_min_cv: 2
+        warmup_ignore_alerts: false
+        use_unbiased_std: true
+        eps: 1.0e-12
+        detrend: false
+        pad_mode: none
+        stable_time: null
+        z: 3.0
+        alpha: 0.05
+        fallback_mad: true
+    ssq_revo_aux4_n_aux4_dec7_1step:
+      indicator: SST_SVD
+      func: Default
+      mode: by_revolution
+      signal: Axial_vel
+      params_physical:
+        T_rev: T_rev
+        N_rev_window: 4
+        step_rev: 1
+        Ai_length_mode: frames
+        Ai_length_rev: 4
+        n_fft_power: 3
+        mode: causal_inclusive
+        sigma: 6.0
+        frac_stable: 0.3610633440512648
+        training_intervals: null
+        alpha: 0.05
+        z: 3.0
+        fallback_mad: false
+    green_fixed_revo_dec7_1step:
+      indicator: Green_Integral
+      func: Lyapunov
+      mode: by_revolution
+      signal: Axial_disp
+      params_physical:
+        T_rev: T_rev
+        N_rev_window: 7
+        step_rev: 1.0
+        use_area_threshold: true
+        training_intervals: null
+        z_sigma: 3.0
+        debug_level: 0
+        data_filtrated: true
+        lambda_ewma: null
+        accumulate: false
+        G_memory: 10*T_rev
+        sigma_method: ratio
+        sigma_local_n: 10
+        area_noise_eps: 1.0e-30
+        use_zero_crossing_cycles: true
+        use_beta_from_cycles: false
+        zc_detrend: true
+        v_cycle_mode: zero
+        cycle_area_norm: none
+validate:
+  channel: Axial_disp
