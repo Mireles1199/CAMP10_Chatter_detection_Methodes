@@ -1,5 +1,11 @@
 # PLAN — rampas de Ap en la app de experimentos
 
+> **2026-10-05 (nota posterior): `early_tol_s` ELIMINADO.** El usuario decidió quitar la tolerancia por completo
+> (wt-validacion, `validate_indicators.py`): caso constante inestable = TP con cualquier alarma, FN si nunca; rampa que
+> cruza = alarma antes del inicio inestable → FA, después → TP, ninguna → FN. Los retrasos quedan como dato. La app ya no
+> pasa `--early-tol`, ni tiene el campo en Validate, ni las métricas `early_alarm_rate` / `ramp_anticipated_rate`
+> (ver `CONTRATO_interfaz.md`). Lo que sigue sobre la tolerancia es el historial de cómo se llegó aquí.
+
 ## §0. Para retomar (leer primero)
 
 - **Estado (2026-10-05):** **F0–F8 implementados**, un commit por fase (`3d0c314`..; ver `git log ddfe63d..`), sin push,

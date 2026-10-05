@@ -214,7 +214,7 @@ def load_indicator_results(h5_path: str) -> List[Dict[str, Any]]:
     runs: {run_name: {t, I_t, t_d, attrs}},
     signals: {Axial_disp, Axial_vel: {t, y}}}
     """
-    _SIGNAL_NAMES = {"Axial_disp", "Axial_vel"}
+    _SIGNAL_NAMES = {"Axial_disp", "Axial_vel", "Axial_acc"}
     cases = []
 
     with h5py.File(h5_path, "r") as f:
@@ -256,7 +256,7 @@ def load_indicator_results(h5_path: str) -> List[Dict[str, Any]]:
                         signals[signal_key] = {"t": t, "y": y}
                     continue
                 rgrp = grp[rname]
-                if not isinstance(rgrp, h5py.Group):
+                if not isinstance(rgrp, h5py.Group) or "I_t" not in rgrp:   # not an indicator run (e.g. a channel)
                     continue
                 runs[rname] = {
                     "t":          rgrp["t"][()]          if "t"          in rgrp else np.array([]),

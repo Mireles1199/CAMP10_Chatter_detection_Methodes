@@ -228,7 +228,7 @@ RAMPS OF Ap: a case whose depth changes along the cut ('depths end' in the simul
 SLD picker). Its kappa is kappa_start -> kappa_end; its ground truth is the amplitude rule window by window (the
 window of the indicators, Edit config of the labelling) and t_onset is where it turns unstable. Validate scores
 the ramps that cross apart from the global metrics (ramp_* columns), with the same rule as every unstable case:
-first detection after t_onset = TP, up to early_tol_s before = anticipated, earlier = early alarm (counted as FN).
+any alarm on an unstable constant case = TP; on a ramp that crosses, an alarm before t_onset = false alarm, after = TP.
 
 COMPARE tab: metrics of two validations side by side. TOOLS tab: every script on its own.
 TUTORIAL tab: step-by-step guide (the same text as DOE_utils/TUTORIAL.md).
@@ -496,6 +496,7 @@ class App:
         for key, txt, fn in (("run", "▶ Run in console", self.run_stage), ("copy", "Copy command", self.copy_cmd),
                              ("log", "Log", self.open_log), ("view", "Viewer", self.open_output),
                              ("edit", "Edit config", self.edit_stage), ("labels", "Labels YAML", self.open_labels),
+                             ("grid", "Label grid", self.open_grid),
                              ("folder", "Folder", self.open_folder),
                              ("goto", "Go to blocker", self.goto_blocker),
                              ("accept", "Mark up to date", self.mark_uptodate)):
@@ -525,7 +526,7 @@ class App:
         self.cmp_cb_b = ttk.Combobox(row, textvariable=self.cmp_b, state="readonly", width=34)
         self.cmp_cb_b.pack(side=tk.LEFT, padx=4)
         ttk.Button(row, text="Compare", command=self.compare).pack(side=tk.LEFT, padx=6)
-        self.cmp_note = tk.StringVar(value="Validation experiments with doe_validation_results.h5")
+        self.cmp_note = tk.StringVar(value="Validation experiments with doe_validation_results.h5   (ramp* columns: provisional criterion)")
         ttk.Label(f, textvariable=self.cmp_note, foreground="#555").pack(anchor="w", pady=4)
         cols = ("variant",) + tuple(f"{s}:{m}" for m in ex.METRIC_COLUMNS for s in ("A", "B"))
         self.cmp_tree = ttk.Treeview(f, columns=cols, show="headings")
@@ -533,8 +534,8 @@ class App:
             self.cmp_tree.heading(c, text=c.replace("balanced_accuracy", "bal.acc").replace("mean_", "")
                                   .replace("median_delay_onset_s", "delay_onset").replace("_stable", "")
                                   .replace("ramp_median_delay_s", "ramp delay").replace("_rate", "")
-                                  .replace("early_alarm", "early").replace("anticipated", "antic.")
-                                  .replace("detection", "det.").replace("ramp_", "ramp "))
+                                  .replace("early_alarm", "early")
+                                  .replace("detection", "det.").replace("ramp_", "ramp* "))
             self.cmp_tree.column(c, width=230 if c == "variant" else 62, anchor="w" if c == "variant" else "center")
         xs = ttk.Scrollbar(f, orient=tk.HORIZONTAL, command=self.cmp_tree.xview)
         self.cmp_tree.configure(xscrollcommand=xs.set)
@@ -969,6 +970,7 @@ class App:
         self._enable(btn["view"], state != "running" and any(p.endswith(".h5") and os.path.isfile(p) for p in s.outputs))
         self._enable(btn["goto"], self._blocking is not None)
         self._enable(btn["labels"], k in ("label_template", "label_build") and os.path.isfile(e.label["labels_yaml"]))
+        self._enable(btn["grid"], k == "label_build" and os.path.isfile(e.label["out"]))
         self._enable(btn["folder"], any(os.path.exists(os.path.dirname(p)) for p in s.outputs))
         self._enable(btn["accept"], state == "stale" and ("configuration changed" in reason
                                                            or "input changed after the run" in reason))
@@ -1095,6 +1097,17 @@ class App:
             return
         self.status_msg.set(f"Opening the viewer on {os.path.basename(h5)}… (loading the file takes a few seconds)")
         self._watch(p, log, "doe_unified_selector.py")
+
+    def open_grid(self):
+        """The labelled dataset of the selected experiment as a grid of cases (label_grid.py, read-only)."""
+        h5 = self.exp().label["out"]
+        try:
+            p, log = launch("gui", "label_grid.py", ["--h5", h5])
+        except OSError as exc:
+            self._msg("Label grid", str(exc), "error")
+            return
+        self.status_msg.set(f"Opening the label grid on {os.path.basename(h5)}…")
+        self._watch(p, log, "label_grid.py")
 
     def _watch(self, p, log, script, tries=0):
         """Error of a tool started with launch(): shown if it exits with an error within ~15 s."""
@@ -1489,10 +1502,6 @@ class ValidateForm(_Dialog):
         self.ch = self.field("channel of the labels", self.tk.StringVar(value=e.section("validate").get("channel", "Axial_disp")),
                              values=["Axial_disp", "Axial_vel", "Axial_acc"],
                              note="the channel of the ground-truth dataset whose labels score the detections")
-        self.tol = self.field("early_tol_s [s]", self.tk.StringVar(
-            value=f"{float(e.section('validate').get('early_tol_s', ex.EARLY_TOL_S)):g}"),
-            note="a first detection up to this before the onset of the truth = anticipated hit; earlier = early "
-                 "alarm, counted as FN (constant cases and ramps)")
         self.note("Ground truth = this experiment's labelled dataset (" + os.path.basename(e.label["out"]) + "), labelled "
                   f"with the '{e.label.get('strategy')}' strategy on {e.label.get('amp_signal', 'Axial_disp')}. "
                   "The indicators were trained on " + os.path.basename(e.reference) +
@@ -1502,10 +1511,7 @@ class ValidateForm(_Dialog):
     def save(self):
         sec = ex.own_yaml(self.e.name).get("validate") or {}
         sec["channel"] = self.ch.get()
-        tol = float(self.tol.get())
-        if tol < 0:
-            raise ValueError("early_tol_s must be >= 0 seconds")
-        sec["early_tol_s"] = tol
+        sec.pop("early_tol_s", None)   # the rule has no tolerance any more
         ex.save_section(self.e.name, "validate", sec)
 
 
@@ -2692,7 +2698,7 @@ class SettingsDialog(_Dialog):
         else:
             d.pop("out_dir", None)
         if "validate" in d["stages"] and "validate" not in d:
-            d["validate"] = {"channel": "Axial_disp", "early_tol_s": ex.EARLY_TOL_S}
+            d["validate"] = {"channel": "Axial_disp"}
         if "indicators" in d["stages"] and "indicators" not in d:
             d["indicators"] = ex.indicators_for(None if ref in ("", "(none)") else ref)
         if "label_template" in d["stages"] and "label" not in d and ref in ("", "(none)"):

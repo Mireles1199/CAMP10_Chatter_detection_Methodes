@@ -994,7 +994,7 @@ def _it_plot_yscale(runs_to_show: List[str]) -> str:
     if not runs_to_show:
         return "linear"
     prefixes = {_run_indicator_prefix(rn) for rn in runs_to_show}
-    log_prefixes = {"green", "sst_svd"}
+    log_prefixes = {"green", "sst_svd", "ssq"}
     return "log" if prefixes and prefixes.issubset(log_prefixes) else "linear"
 
 
@@ -1570,7 +1570,9 @@ class DoeSelectorUnifiedApp:
         # Arma columnas: "case" + claves visibles de var_val + t_d por run (indicadores)
         cols = ["case"] + self._visible_keys
         if self.h5_type in (TYPE_DOE_INDICATOR, TYPE_NOISE_IND) and self._all_runs:
-            for rn in self._all_runs[:4]:
+            with_td = [rn for rn in self._all_runs
+                       if any(c.get("runs", {}).get(rn, {}).get("t_d", np.array([])).size for c in self.cases)]
+            for rn in (with_td or self._all_runs)[:4]:   # runs that detected something first
                 cols += [f"td_{rn}"]
         if self.h5_type == TYPE_MODEL_SNR and self.cases:
             snr_keys = sorted({k for c in self.cases for k in c.get("snr", {})})

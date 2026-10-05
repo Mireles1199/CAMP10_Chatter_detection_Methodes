@@ -578,19 +578,28 @@ try:
     j = 1 + 2 * ex.METRIC_COLUMNS.index("ramp_detection_rate")
     assert rows[0][j] == "0.500" and rows[0][j + 1] == "", rows          # the ramp metrics: A has them, B not
     print("compare OK (with the ramp columns)")
-    # validate form: the tolerance of the early-alarm rule (in the fingerprint: changing it makes Validate stale)
+    # validate form: only the channel (the rule has no tolerance any more); an old early_tol_s in the YAML is
+    # ignored by the stage command and dropped when the form is saved
+    ex.save_section(VA, "validate", {"channel": "Axial_disp", "early_tol_s": 0.3})
+    assert "--early-tol" not in ex.stages(ex.load(VA))["validate"].cmds[0]
     vf = L.ValidateForm(app, ex.load(VA))
-    assert vf.tol.get() == "0.5"
-    vf.tol.set("0.3")
+    assert not hasattr(vf, "tol")
     shot(vf.win, "ramps_validate_form.png")
     vf._ok()
     va = ex.load(VA)
-    assert va.section("validate")["early_tol_s"] == 0.3 and ex.stages(va)["validate"].cmds[0][-1] == "0.3"
+    assert "early_tol_s" not in va.section("validate") and "--early-tol" not in ex.stages(va)["validate"].cmds[0]
     app.notebook.select(app.tab_exp)
     app.select(VA, "validate")
     shot(root, "v2_main_validation.png")
     app.select(TR, "label_template")
     shot(root, "v2_main_training.png")
+    # Label grid button: only on Label build with its dataset present; it launches label_grid.py on that .h5
+    assert app.stage_btns["grid"].instate(["disabled"])
+    app.select(TR, "label_build")
+    assert app.stage_btns["grid"].instate(["!disabled"])
+    app.open_grid()
+    assert launched[-1][0] == "label_grid.py" and launched[-1][1][1] == ex.load(TR).label["out"], launched[-1]
+    print("label grid button OK")
     assert not [x for x in errors if x[2] == "error"], errors
 finally:
     root.destroy()
