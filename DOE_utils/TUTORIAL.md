@@ -66,6 +66,7 @@ Borde oscuro = etapas necesarias para la meta, borde azul = siguiente paso, mora
 | Viewer | Abre su `.h5` de salida en el visor; abajo aparece "Opening the viewer…" mientras carga |
 | Edit config | Los ajustes **de esa etapa** (en Simulate y Extract: la simulación) |
 | Labels YAML | Abre el YAML de etiquetas para revisarlo |
+| Label grid | (en Label build) Abre el dataset etiquetado como una **rejilla de casos**, ordenados por `κ` y paginados: cada panel es la señal de un caso coloreada por su etiqueta (verde estable, gris gray, rojo inestable), con las líneas `±lim_inf` / `±lim_sup` del criterio de amplitud. Se pueden **quitar las líneas** (casilla *criterion lines*) cuando la señal es muy pequeña frente a los límites y no se ve; la barra de matplotlib hace zoom por panel. Elige canal, etiqueta y filas × columnas. Solo lee el `.h5`; sirve para juzgar de un vistazo si el etiquetado tiene sentido |
 | Folder | Abre la carpeta de sus salidas |
 | Go to blocker | Va a la etapa (de otro experimento) que la bloquea |
 | Mark up to date | En una etapa naranja por un cambio de configuración que no altera su resultado: la marca al día |
@@ -108,7 +109,7 @@ Genera la propuesta de etiquetas con los parámetros **de la referencia** (aquí
 
 ### Paso 6. Label build
 
-Corta las señales según el YAML. Los casos gray no cuentan en las métricas.
+Corta las señales según el YAML. Los casos gray no cuentan en las métricas. Pulsa **Label grid** para ver todos los casos etiquetados de un vistazo y juzgar si el corte de amplitud tiene sentido.
 
 ### Paso 7. Indicators
 

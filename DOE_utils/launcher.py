@@ -496,6 +496,7 @@ class App:
         for key, txt, fn in (("run", "▶ Run in console", self.run_stage), ("copy", "Copy command", self.copy_cmd),
                              ("log", "Log", self.open_log), ("view", "Viewer", self.open_output),
                              ("edit", "Edit config", self.edit_stage), ("labels", "Labels YAML", self.open_labels),
+                             ("grid", "Label grid", self.open_grid),
                              ("folder", "Folder", self.open_folder),
                              ("goto", "Go to blocker", self.goto_blocker),
                              ("accept", "Mark up to date", self.mark_uptodate)):
@@ -525,7 +526,7 @@ class App:
         self.cmp_cb_b = ttk.Combobox(row, textvariable=self.cmp_b, state="readonly", width=34)
         self.cmp_cb_b.pack(side=tk.LEFT, padx=4)
         ttk.Button(row, text="Compare", command=self.compare).pack(side=tk.LEFT, padx=6)
-        self.cmp_note = tk.StringVar(value="Validation experiments with doe_validation_results.h5")
+        self.cmp_note = tk.StringVar(value="Validation experiments with doe_validation_results.h5   (ramp* columns: provisional criterion)")
         ttk.Label(f, textvariable=self.cmp_note, foreground="#555").pack(anchor="w", pady=4)
         cols = ("variant",) + tuple(f"{s}:{m}" for m in ex.METRIC_COLUMNS for s in ("A", "B"))
         self.cmp_tree = ttk.Treeview(f, columns=cols, show="headings")
@@ -534,7 +535,7 @@ class App:
                                   .replace("median_delay_onset_s", "delay_onset").replace("_stable", "")
                                   .replace("ramp_median_delay_s", "ramp delay").replace("_rate", "")
                                   .replace("early_alarm", "early")
-                                  .replace("detection", "det.").replace("ramp_", "ramp "))
+                                  .replace("detection", "det.").replace("ramp_", "ramp* "))
             self.cmp_tree.column(c, width=230 if c == "variant" else 62, anchor="w" if c == "variant" else "center")
         xs = ttk.Scrollbar(f, orient=tk.HORIZONTAL, command=self.cmp_tree.xview)
         self.cmp_tree.configure(xscrollcommand=xs.set)
@@ -969,6 +970,7 @@ class App:
         self._enable(btn["view"], state != "running" and any(p.endswith(".h5") and os.path.isfile(p) for p in s.outputs))
         self._enable(btn["goto"], self._blocking is not None)
         self._enable(btn["labels"], k in ("label_template", "label_build") and os.path.isfile(e.label["labels_yaml"]))
+        self._enable(btn["grid"], k == "label_build" and os.path.isfile(e.label["out"]))
         self._enable(btn["folder"], any(os.path.exists(os.path.dirname(p)) for p in s.outputs))
         self._enable(btn["accept"], state == "stale" and ("configuration changed" in reason
                                                            or "input changed after the run" in reason))
@@ -1095,6 +1097,17 @@ class App:
             return
         self.status_msg.set(f"Opening the viewer on {os.path.basename(h5)}… (loading the file takes a few seconds)")
         self._watch(p, log, "doe_unified_selector.py")
+
+    def open_grid(self):
+        """The labelled dataset of the selected experiment as a grid of cases (label_grid.py, read-only)."""
+        h5 = self.exp().label["out"]
+        try:
+            p, log = launch("gui", "label_grid.py", ["--h5", h5])
+        except OSError as exc:
+            self._msg("Label grid", str(exc), "error")
+            return
+        self.status_msg.set(f"Opening the label grid on {os.path.basename(h5)}…")
+        self._watch(p, log, "label_grid.py")
 
     def _watch(self, p, log, script, tries=0):
         """Error of a tool started with launch(): shown if it exits with an error within ~15 s."""

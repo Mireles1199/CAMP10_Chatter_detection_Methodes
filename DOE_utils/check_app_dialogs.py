@@ -593,6 +593,13 @@ try:
     shot(root, "v2_main_validation.png")
     app.select(TR, "label_template")
     shot(root, "v2_main_training.png")
+    # Label grid button: only on Label build with its dataset present; it launches label_grid.py on that .h5
+    assert app.stage_btns["grid"].instate(["disabled"])
+    app.select(TR, "label_build")
+    assert app.stage_btns["grid"].instate(["!disabled"])
+    app.open_grid()
+    assert launched[-1][0] == "label_grid.py" and launched[-1][1][1] == ex.load(TR).label["out"], launched[-1]
+    print("label grid button OK")
     assert not [x for x in errors if x[2] == "error"], errors
 finally:
     root.destroy()

@@ -30,3 +30,20 @@ así que los cambios son tolerantes a ambos lados.
 Efecto esperado: la huella de Validate cambia, así que las validaciones ya hechas quedan en naranja (*stale*); es lo
 correcto, hay que re-correrlas con la regla nueva. No se tocó `doe_indicators.py` (su texto de tolerancia lo cambia wt-validacion).
 Docs actualizados: `TUTORIAL.md`, `PLAN_ramps.md` (nota al inicio), ayuda del launcher.
+
+## 3. Label grid (rejilla de datos etiquetados) — commit `feat(experiments)`
+Archivo nuevo `DOE_utils/label_grid.py` + botón **Label grid** en la etapa Label build del launcher. Solo **lee** el
+`reference_dataset*.h5` de Label build (`stable|gray|unstable/<case>/<canal>__NNN/{t,y}` y sus attrs `kappa`,
+`labeling_*`); no cambia ningún argumento ni script de etapa, ni escribe nada. Lanzado como el visor
+(`launch("gui", "label_grid.py", ["--h5", <label.out>])`). Los límites ±lim_inf/±lim_sup salen de los mismos attrs
+`labeling_*` que usa `doe_unified_selector._amp_limits` (misma regla; se reimplementa en 5 líneas, no se importa).
+Merge: archivo nuevo, no choca con wt-validacion.
+
+## 4. Rampas
+Por indicación del usuario no se trabaja en rampas por ahora. Las columnas `ramp_*` (Compare, panel de Validate)
+llevan la marca *provisional* (el criterio de rampa es consecuencia de quitar `early_tol`). La rejilla solo muestra
+las rampas (título `ramp Ap0 -> Ap1 mm`), sin lógica propia.
+
+## 5. Nota de edición
+Los scripts de parche con Python en Windows reescriben a CRLF; el repo está en LF. Hay un commit `chore` que lo
+revierte; el diff neto contra a868948 es solo contenido.

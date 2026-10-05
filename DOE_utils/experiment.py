@@ -1448,7 +1448,7 @@ def _stage_summary(exp: Exp, key: str) -> list:
         ramps = [r for r in rank if m[r].get("ramp_n")]
         if ramps:
             out.append((f"ramps that cross ({m[ramps[0]]['ramp_n']}, apart from the ranking): detected / "
-                        f"false alarm before the onset / missed, median delay to the crossing of the truth", None))
+                        f"false alarm before the onset / missed, median delay to the crossing of the truth [PROVISIONAL criterion]", None))
             for r in ramps:
                 d = m[r]
                 out.append((f"  {r}: {f2(d.get('ramp_detection_rate'))} / "
@@ -1456,7 +1456,7 @@ def _stage_summary(exp: Exp, key: str) -> list:
                             + ("-" if d.get("ramp_median_delay_s") is None or d["ramp_median_delay_s"] != d["ramp_median_delay_s"]
                                else f"{d['ramp_median_delay_s']:+.3f} s"), None))
         out.append(("rule: an unstable constant case is a hit with any alarm and a miss with none; a ramp that crosses "
-                    "is a false alarm if the first alarm comes before the onset of the truth, a hit after it", None))
+                    "is a false alarm if the first alarm comes before the onset of the truth, a hit after it (ramp rule provisional)", None))
         return out
     if key == "noise":
         info = h5_info(S[key].outputs[0])
