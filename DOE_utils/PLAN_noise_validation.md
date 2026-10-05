@@ -1,6 +1,6 @@
 # PLAN — Validación con ruido blanco (Ap constante)
 
-**Estado (2026-10-05):** N1–N4 ✅ hechos en `wt-validacion` (a57c847 doe_noise, 4cabb64 + 5036ca0 doe_indicators, b80745c refactor, cbb3296 validate_noise, 86df0a2 figuras; selftests OK). N5 en curso (n12000 por CLI). wt-interfaz: I1–I2 en paralelo, I3 desbloqueado tras N4. Rama de la interfaz: `wt-interfaz`. Coordina: sesión `DOE_utils/PLAN_app_v2.md` (manager).
+**Estado (2026-10-05):** N1–N4 ✅ hechos en `wt-validacion` (a57c847 doe_noise, 4cabb64 + 5036ca0 doe_indicators, b80745c refactor, cbb3296 validate_noise, 86df0a2 figuras; selftests OK). N5 en curso (n12000 por CLI). wt-interfaz: I1–I3 ✅ (merge de wt-validacion 8788d2e en wt-interfaz → 6e7f0bb; e6b374b etapas, 1aa3bd0 formularios, ee0b09a visor). Rama de la interfaz: `wt-interfaz`. Coordina: sesión `DOE_utils/PLAN_app_v2.md` (manager).
 **Cómo retomar:** leer §0 y la tabla de fases (§9); la última fase marcada ✅ es donde se quedó.
 
 Estilo de trabajo: **ponytail** (reusar lo que ya existe, el cambio más corto que funcione, un selftest por lógica nueva) y figuras con **article-plot-style** (`DOE_plots/plot_style.py`: `FIGSIZE_SIMPLE`/`FIGSIZE_WIDE` × `FIGSCALE`, `figsize_grid`, `lang_text`, paleta Okabe-Ito, `fig._keep_size`).
@@ -72,10 +72,10 @@ Igual que hoy (`<grupo>/<run>/{t, I_t, t_d}` + attrs `pp_*`, `meta_*`), con los 
 
 ### 4.3 `doe_noise_validation_results.h5` (nuevo)
 - **Attrs raíz:** `schema = "doe_noise_validation_results/1"`, `gray_mode`, `clean_results` (nombre del archivo limpio), los attrs de §4.1 relevantes (`snr_mode`, `snr_ref_case`, `snr_levels`, `realizations`).
-- **`/summary/<run>`:** una fila por copia ruidosa: `group`, `case_source`, `snr_db`, `realization`, `truth`, `is_gray`, `outcome`, `first_detection_t`, `t_ratio`, `delay_det_s`, `score_max`, `kappa` (mismas columnas que la validación limpia + `case_source`, `snr_db`, `realization`).
+- **`/summary/<run>`:** una fila por copia ruidosa: `copy` (nombre del grupo ruidoso), `case` (el caso limpio, = attr `case_source`), `snr_db`, `realization`, `truth`, `is_gray`, `outcome`, `kappa`, `first_detection_t`, `t_ratio`, `delay_det_s`, `score_max`, `alarm_fraction` (nombres como los escribe `validate_noise.py`).
 - **`/metrics/<run>`:** grupo de **datasets 1-D alineados** (no attrs: en la validación limpia `/metrics/<run>` son attrs; aquí, mismo nombre y otro formato) con una fila por (`snr_db`, `realization`): `TP FN TN FP TPR TNR balanced_accuracy MCC AUC mean_alarm_fraction_stable median_t_ratio n_gray`.
-- **`/by_snr/<run>`:** grupo de datasets 1-D alineados, una fila por nivel: `snr_db` y, para cada métrica de arriba, `<m>_mean`, `<m>_min`, `<m>_max` entre realizaciones. Attr `snr_breakdown_db` = mayor SNR al que la balanced accuracy media cae más de 0.05 bajo la limpia (NaN si no cae).
-- **`/clean/<run>`:** attrs con las métricas limpias (copiadas de `/metrics/<run>` del archivo limpio): son el punto de referencia "sin ruido". Si un indicador no está en la validación limpia (variantes editadas después), `/clean/<run>` existe con NaN y nada falla.
+- **`/by_snr/<run>`:** grupo de datasets 1-D alineados, una fila por nivel: `snr_db` y, para cada métrica de arriba, `<m>_mean`, `<m>_min`, `<m>_max` entre realizaciones. Attr `snr_breakdown_db` = mayor SNR al que la balanced accuracy media cae más de 0.05 bajo la limpia **de los mismos casos** (`/clean/<run>` balanced_accuracy; NaN si no cae).
+- **`/clean/<run>`:** attrs con las métricas limpias **sobre los mismos casos que tienen copias ruidosas** (las corridas limpias de esos casos, leídas del archivo limpio y puntuadas con las mismas reglas y el mismo modo de grises): es la referencia "sin ruido" comparable. Además, `<m>_all` = la métrica limpia sobre **todos** los casos del archivo limpio (copiada de su `/metrics/<run>`). Si un indicador no está en la validación limpia, `/clean/<run>` existe con NaN y nada falla. *(Cambio de semántica, mismo nombre, tras J1 de wt-interfaz: antes era la métrica de todos los casos y producía quiebres falsos, p. ej. rms_cv 0.56 con 22 casos frente a 0.50 con los 3 casos con ruido.)*
 - **CSV:** `<out>_by_snr.csv` (una fila por indicador y nivel).
 - **Sin** grupos por caso con señales ni ROC por nivel (ponytail; añadir si se pide).
 
@@ -154,6 +154,7 @@ Todas con `lang_text` (EN/FR/both), `constrained_layout`, leyendas fuera de los 
 - Con `time` en enlaces duros solo cuentan los `values` (≈ 9 MB por copia → ≈ 2 GB); sin ellos serían ≈ 3.9 GB.
 - Tiempo: 216 copias × 4 indicadores; se mide en la fase E2E antes de pasar a `all`, **con más `workers`** (n12000 tiene `indicators.workers: 1`; `workers` no entra en la huella).
 - No abrir el archivo multi en el visor hasta que I3 haga la carga perezosa.
+- **Memoria (medido en N5):** cada worker de `noise_indicators` llega a ~3 GB de pico (un grupo, 4 indicadores, 1 proceso: 87 s, 2.9 GB). Con 6 workers Windows se quedó sin memoria virtual (log System 18:27:02, "Mémoire virtuelle minimale insuffisante") y el pool se cayó tras 399/864 tareas. **Usar `workers` <= 3.** Como los resultados se escriben incrementalmente, se retoma pasando `--cases` con los grupos incompletos.
 - **Alternativa anotada** (no se hace ahora): no guardar las señales ruidosas y regenerarlas desde la semilla dentro de `noise_indicators`.
 
 ## 9. Fases
@@ -166,9 +167,9 @@ Todas con `lang_text` (EN/FR/both), `constrained_layout`, leyendas fuera de los 
 | N4 ✅ | wt-validacion | `NOISE_FIGURES` + `figs_dir` + selftest | `feat(validation): noise validation figures` |
 | N5 | wt-validacion | E2E por CLI en n12000 con 12 casos (~2 GB en disco: **confirmar con el usuario antes**): tamaños y tiempos reales, revisión a ojo de las figuras | ajustes + `docs(validation)` GUIA/INFORME |
 | N6 | wt-validacion → manager + wt-interfaz | Mensaje de entrega: hash, contrato (§4), comandos (§5), resultados E2E | — |
-| I1 | wt-interfaz | YAML + `experiment.py` (stages `noise` ampliado, `noise_indicators --no-signals`, `noise_validate`) | su rama |
-| I2 | wt-interfaz | Formularios y tarjetas | su rama |
-| I3 | wt-interfaz | Visor: tipo nuevo, `NOISE_FIGURES`, columnas multi, ocultar figuras antiguas, `figs_dir` | su rama |
+| I1 ✅ | wt-interfaz | YAML + `experiment.py` (stages `noise` ampliado, `noise_indicators --no-signals`, `noise_validate`) | su rama |
+| I2 ✅ | wt-interfaz | Formularios y tarjetas | su rama |
+| I3 ✅ | wt-interfaz | Visor: tipo nuevo, `NOISE_FIGURES`, columnas multi, ocultar figuras antiguas, `figs_dir` | su rama |
 | J1 | ambos | E2E desde la app sobre n12000 (12 casos): crear etapas, configurar, correr, ver y exportar | lista de problemas por mensaje |
 | J2 | quien corresponda | Correcciones; luego `cases: all` y, si sirve, más realizaciones | — |
 

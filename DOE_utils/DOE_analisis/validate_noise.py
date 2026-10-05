@@ -18,11 +18,13 @@ Output  doe_noise_validation_results[_gray-<mode>].h5 (+ <out>_by_snr.csv)
                   names as attrs: same names, another format)
   /by_snr/<run>   1-D datasets aligned, one row per level (clean to noisy): snr_db and <m>_mean, <m>_min, <m>_max
                   over the realizations; attr snr_breakdown_db
-  /clean/<run>    attrs: the clean metrics of that indicator (NaN when it is not in the clean file)
+  /clean/<run>    attrs: the clean metrics of that indicator over the SAME cases as the noisy copies (their clean
+                  runs rescored with the same rules and gray mode: the comparable "no noise" baseline), and <m>_all =
+                  the clean metric over every case of the clean file (NaN when the indicator is not in it)
 The truth is the clean case's (the noise does not change it), with the gray mode of the clean validation. Ramps are
 left out (deferred). Each realization is a full validation of the cases at one level: the realizations are summarised
 (mean / min / max), never pooled as cases. snr_breakdown_db = highest SNR whose mean balanced accuracy falls more than
-BREAKDOWN_DROP below the clean one (NaN if it never does or there is no clean value).
+BREAKDOWN_DROP below the clean one of the same cases (NaN if it never does or there is no clean value).
 
 Usage (entorno_CAMP10 Python):
     python validate_noise.py --noise_ind X/doe_noise_indicator_results.h5 --clean X/doe_validation_results.h5
@@ -64,6 +66,30 @@ def load_clean(path: str) -> tuple:
         return str(f.attrs.get("gray_mode", "ignore")), cases, metrics
 
 
+def _score(rg, c: dict, gray: str) -> dict:
+    """Row of one indicator run (t, I_t, t_d) of a case scored against its clean truth c (same rules for the noisy
+    copies and the clean baseline); None if the group is not a run."""
+    if not isinstance(rg, h5py.Group) or "t" not in rg or "I_t" not in rg:
+        return None
+    truth, t_start, is_gray = vi.effective_truth(c["intervals"], gray)
+    t_d = rg["t_d"][()] if "t_d" in rg else np.array([])
+    m, _, _, roc_sums = vi.score_run(rg["t"][()], rg["I_t"][()], t_d, c["intervals"], t_start, c["t_onset_amp"], False,
+                                     gray if is_gray and gray != "ignore" else None)
+    return dict(truth=truth, is_gray=float(is_gray), group="global", kappa=c["kappa"], **m, **roc_sums)
+
+
+def clean_on(clean: str, gray: str, cases: dict, subset) -> dict:
+    """{run: clean metrics over `subset`}: the clean runs of those cases, rescored like the noisy copies."""
+    rows = {}
+    with h5py.File(clean, "r") as f:
+        for case in sorted(subset):
+            for run, rg in f[case].items():
+                row = _score(rg, cases[case], gray)
+                if row is not None:
+                    rows.setdefault(run, []).append(dict(row, case=case))
+    return {run: vi.run_metrics(rr)[0] for run, rr in rows.items()}
+
+
 def score_noise(noise_ind: str, gray: str, cases: dict) -> tuple:
     """({root noise attrs}, {run: [row per noisy copy]}): every copy scored against its clean case's truth."""
     rows, skipped = {}, set()
@@ -76,17 +102,11 @@ def score_noise(noise_ind: str, gray: str, cases: dict) -> tuple:
             if c is None or c["ramp"] or "snr_db" not in g.attrs:
                 skipped.add(case or name)
                 continue
-            truth, t_start, is_gray = vi.effective_truth(c["intervals"], gray)
             for run, rg in g.items():
-                if not isinstance(rg, h5py.Group) or "t" not in rg or "I_t" not in rg:
-                    continue
-                t, i_t = rg["t"][()], rg["I_t"][()]
-                t_d = rg["t_d"][()] if "t_d" in rg else np.array([])
-                m, _, _, roc_sums = vi.score_run(t, i_t, t_d, c["intervals"], t_start, c["t_onset_amp"], False,
-                                                 gray if is_gray and gray != "ignore" else None)
-                rows.setdefault(run, []).append(dict(copy=name, case=case, snr_db=float(g.attrs["snr_db"]),
-                                                     realization=float(g.attrs.get("realization", 0)), truth=truth,
-                                                     is_gray=float(is_gray), group="global", kappa=c["kappa"], **m, **roc_sums))
+                row = _score(rg, c, gray)
+                if row is not None:
+                    rows.setdefault(run, []).append(dict(row, copy=name, case=case, snr_db=float(g.attrs["snr_db"]),
+                                                         realization=float(g.attrs.get("realization", 0))))
     if skipped:
         print(f"  [skip] not a constant case of the clean validation: {sorted(skipped)}")
     return nattrs, rows
@@ -118,11 +138,12 @@ def by_snr(table: list, clean_bal: float) -> tuple:
 
 
 def validate_noise(noise_ind: str, clean: str, out_h5: str = None) -> dict:
-    """Write out_h5 (+ _by_snr.csv) and return {run: (level table, by_snr dict, snr_breakdown_db)}."""
+    """Write out_h5 (+ _by_snr.csv) and return {run: (level table, by_snr dict, snr_breakdown_db, clean bal. acc.)}."""
     gray, cases, clean_m = load_clean(clean)
     nattrs, rows = score_noise(noise_ind, gray, cases)
     if not rows:
         raise ValueError(f"no noisy copy of a constant case of {clean} in {noise_ind}")
+    clean_sub = clean_on(clean, gray, cases, {r["case"] for rr in rows.values() for r in rr})
     out_h5 = out_h5 or os.path.join(os.path.dirname(os.path.abspath(noise_ind)),
                                     f"doe_noise_validation_results{vi.gray_suffix(gray)}.h5")
     os.makedirs(os.path.dirname(os.path.abspath(out_h5)), exist_ok=True)
@@ -143,28 +164,27 @@ def validate_noise(noise_ind: str, clean: str, out_h5: str = None) -> dict:
             mg.create_dataset("realization", data=np.array([k for _, k, _ in table], float))
             for name in METRICS:
                 mg.create_dataset(name, data=np.array([d[name] for _, _, d in table], float))
-            cm = clean_m.get(run, {})
+            cm = {k: v for k, v in clean_sub.get(run, {}).items() if np.isscalar(v)} or {name: NAN for name in METRICS}
+            cm.update({f"{name}_all": float(clean_m.get(run, {}).get(name, NAN)) for name in METRICS})
             bs, brk = by_snr(table, float(cm.get("balanced_accuracy", NAN)))
             bg = out.create_group(f"by_snr/{run}")
             for k, v in bs.items():
                 bg.create_dataset(k, data=np.array(v, float))
             bg.attrs["snr_breakdown_db"] = brk
-            out.create_group(f"clean/{run}").attrs.update(cm if cm else {name: NAN for name in METRICS})
-            result[run] = (table, bs, brk)
+            out.create_group(f"clean/{run}").attrs.update(cm)
+            result[run] = (table, bs, brk, float(cm.get("balanced_accuracy", NAN)))
     with open(os.path.splitext(out_h5)[0] + "_by_snr.csv", "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         cols = [k for k in next(iter(result.values()))[1] if k != "snr_db"]
         w.writerow(["run", "snr_db", *cols, "snr_breakdown_db"])
-        for run, (_, bs, brk) in result.items():
+        for run, (_, bs, brk, _) in result.items():
             for i, lv in enumerate(bs["snr_db"]):
                 w.writerow([run, lv, *[bs[c][i] for c in cols], brk])
     return result
 
 
-def print_summary(result: dict, clean: str) -> None:
-    _, _, clean_m = load_clean(clean)
-    for run, (_, bs, brk) in result.items():
-        b0 = float(clean_m.get(run, {}).get("balanced_accuracy", NAN))
+def print_summary(result: dict) -> None:
+    for run, (_, bs, brk, b0) in result.items():
         levels = " | ".join(f"{lv:g} dB {m:.2f} [{lo:.2f}-{hi:.2f}]" for lv, m, lo, hi in
                             zip(bs["snr_db"], bs["balanced_accuracy_mean"], bs["balanced_accuracy_min"], bs["balanced_accuracy_max"]))
         print(f"{run}\n  balanced accuracy: clean {b0:.2f} | {levels}\n  breakdown SNR: {brk:g} dB")
@@ -176,9 +196,11 @@ def _selftest():
     d = tempfile.mkdtemp()
     t = np.arange(0.0, 10.0, 0.1)
     ind, lab, ref = (os.path.join(d, n) for n in ("ind.h5", "lab.h5", "ref.h5"))
-    # clean: case_000 stable (no alarm), case_001 unstable (alarm 6.0 s), case_002 gray (alarm 7.0 s)
+    # clean: case_000 stable (FALSE alarm 3.0 s), case_001 unstable (alarm 6.0 s), case_002 gray (alarm 7.0 s),
+    # case_003 stable (no alarm, and NO noisy copy): over every case bal. acc. 0.75, over the noisy cases 0.5
     with h5py.File(ind, "w") as f, h5py.File(lab, "w") as fl:
-        for i, (label, kap, td) in enumerate((("stable", 0.6, []), ("unstable", 1.5, [6.0]), ("gray", 1.05, [7.0]))):
+        for i, (label, kap, td) in enumerate((("stable", 0.6, [3.0]), ("unstable", 1.5, [6.0]), ("gray", 1.05, [7.0]),
+                                               ("stable", 0.7, []))):
             g = f.create_group(f"case_{i:03d}")
             g.attrs.update({"$spin_rate$": 12000.0, "$Ap_start$": 0.005 * kap, "kappa": kap, "$f_tooth$": 0.05})
             g["Axial_disp/time"], g["Axial_disp/values"] = t, 1e-5 * t * kap
@@ -208,14 +230,15 @@ def _selftest():
                         r["t_d"] = tds[c]
     out = os.path.join(d, "nv.h5")
     res = validate_noise(nind, clean, out)
-    table, bs, brk = res["ind_a"]
+    table, bs, brk, b0 = res["ind_a"]
     assert [(s, k) for s, k, _ in table] == [(40.0, 0), (40.0, 1), (10.0, 0), (10.0, 1)]
     m = {(s, k): dd for s, k, dd in table}
     assert (m[40.0, 0]["TP"], m[40.0, 0]["TN"], m[40.0, 0]["FP"], m[40.0, 0]["FN"]) == (1, 1, 0, 0) and m[40.0, 0]["n_gray"] == 1
     assert (m[10.0, 0]["TP"], m[10.0, 0]["FP"]) == (1, 1) and (m[10.0, 1]["FN"], m[10.0, 1]["TN"]) == (1, 1)
     assert bs["snr_db"] == [40.0, 10.0] and bs["balanced_accuracy_mean"] == [1.0, 0.5]
     assert (bs["TPR_mean"][1], bs["TPR_min"][1], bs["TPR_max"][1]) == (0.5, 0.0, 1.0)   # realizations summarised, not pooled
-    assert brk == 10.0                                  # clean 1.0, falls more than 0.05 at 10 dB only
+    # baseline on the SAME cases: clean 0.5 there (0.75 over every case) -> no false breakdown at 10 dB (0.5)
+    assert b0 == 0.5 and np.isnan(brk)
     assert np.isnan(res["ind_b"][2])                    # no clean value -> no breakdown
     with h5py.File(out, "r") as f:
         assert f.attrs["schema"] == "doe_noise_validation_results/1" and f.attrs["gray_mode"] == "ignore"
@@ -225,8 +248,10 @@ def _selftest():
         gray_rows = s["is_gray"][()] == 1
         assert set(s["outcome"].asstr()[()][gray_rows]) == {"n/a"} and set(s["truth"].asstr()[()][gray_rows]) == {"unlabelled"}
         assert list(f["metrics/ind_a/snr_db"][()]) == [40.0, 40.0, 10.0, 10.0] and f["metrics/ind_a/TP"].ndim == 1
-        assert f["by_snr/ind_a"].attrs["snr_breakdown_db"] == 10.0 and f["clean/ind_a"].attrs["balanced_accuracy"] == 1.0
-        assert np.isnan(f["clean/ind_b"].attrs["balanced_accuracy"])
+        ca = f["clean/ind_a"].attrs
+        assert np.isnan(f["by_snr/ind_a"].attrs["snr_breakdown_db"]) and ca["balanced_accuracy"] == 0.5
+        assert ca["balanced_accuracy_all"] == 0.75 and (ca["TP"], ca["FP"], ca["FP_all"]) == (1, 1, 1) and ca["TN_all"] == 1
+        assert np.isnan(f["clean/ind_b"].attrs["balanced_accuracy"]) and np.isnan(f["clean/ind_b"].attrs["balanced_accuracy_all"])
     rows_csv = open(os.path.splitext(out)[0] + "_by_snr.csv", encoding="utf-8").read().splitlines()
     assert rows_csv[0].startswith("run,snr_db,") and len(rows_csv) == 1 + 2 * 2
     # the gray mode comes from the clean file: gray = stable -> the gray case's alarms are false alarms
@@ -251,7 +276,7 @@ def main():
         return _selftest()
     if not (a.noise_ind and a.clean):
         p.error("--noise_ind and --clean are required")
-    print_summary(validate_noise(a.noise_ind, a.clean, a.out), a.clean)
+    print_summary(validate_noise(a.noise_ind, a.clean, a.out))
 
 
 if __name__ == "__main__":
