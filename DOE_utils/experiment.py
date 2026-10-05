@@ -646,6 +646,28 @@ def _py(script: str, *args) -> list:
     return [script, *[str(a) for a in args]]
 
 
+# validate: how the gray cases (a case whose whole label is gray) are scored (validate_indicators --gray). Each mode
+# writes its own file, so the three can live side by side (run Validate once per mode). Same rule as
+# validate_indicators.gray_suffix (the script is not imported: it loads numpy / scipy).
+GRAY_MODES = ("ignore", "stable", "unstable")
+GRAY_LABELS = {"ignore": "ignore (not scored)", "stable": "stable (pessimistic)", "unstable": "unstable (optimistic)"}
+
+
+def gray_mode(exp: "Exp") -> str:
+    """Gray mode of the experiment: its validate.gray (absent or unknown = ignore)."""
+    m = str(exp.section("validate").get("gray") or "ignore")
+    return m if m in GRAY_MODES else "ignore"
+
+
+def gray_suffix(mode: str) -> str:
+    return "" if mode == "ignore" else f"_gray-{mode}"
+
+
+def validation_path(exp: "Exp") -> str:
+    """doe_validation_results[_gray-<mode>].h5 of the experiment's outputs (an explicit validate.out is respected)."""
+    return exp.out("validate", "out", "doe_validation_results" + gray_suffix(gray_mode(exp)) + ".h5")
+
+
 def stages(exp: Exp) -> dict:
     """{key: Stage} for the stages the experiment turned on (plus the ones they need), in topological order."""
     S = _all_stages(exp)
@@ -725,10 +747,14 @@ def _all_stages(exp: Exp) -> dict:
                                    ["indicator results: I(t) and detections per case and variant"]))
     # early_tol_s no longer exists (the rule has no tolerance): an old YAML that still carries it is ignored, and
     # dropping it from the fingerprint turns the validations scored with the tolerance stale (re-run takes seconds)
-    val = {k: v for k, v in exp.section("validate").items() if k != "early_tol_s"}
-    val_out = exp.out("validate", "out", "doe_validation_results.h5")
+    val = {k: v for k, v in exp.section("validate").items() if k not in ("early_tol_s", "gray")}
+    gray = gray_mode(exp)
+    if gray != "ignore":   # the mode is part of the fingerprint only when it is not the default: validations scored
+        val["gray"] = gray   # before the modes existed stay up to date; changing the mode turns Validate stale
+    val_out = validation_path(exp)
     cmd = _py(os.path.join(ANA, "validate_indicators.py"), "--ind_results", ind["out"], "--labels", label["out"],
-              "--reference", exp.reference, "--out", val_out, "--channel", val.get("channel", "Axial_disp"))
+              "--reference", exp.reference, "--out", val_out, "--channel", val.get("channel", "Axial_disp"),
+              "--gray", gray)
     S["validate"] = Stage(exp, "validate", [(exp, "label_build"), (exp, "indicators")],
                           [ind["out"], label["out"]], [val_out], [cmd], {**val, "out": val_out},
                           roles=(["indicator results", "ground truth (this experiment's labelled dataset)"],
@@ -982,6 +1008,8 @@ def check(exp: Exp) -> tuple:
                     "it with its reference_dataset*.h5")
     if "validate" in exp.enabled and exp.ref is None:
         warns.append("validate without a reference: the indicators are scored on the same cases they learned from")
+    if str(exp.section("validate").get("gray") or "ignore") not in GRAY_MODES:
+        errs.append(f"validate.gray = {exp.section('validate').get('gray')!r}: it must be one of {', '.join(GRAY_MODES)}")
     if exp.ref is not None and exp.ref.name == exp.name:
         errs.append("an experiment cannot be its own reference")
     if exp.ref is not None:
@@ -1436,15 +1464,30 @@ def _stage_summary(exp: Exp, key: str) -> list:
         if not m:
             return [("no validation results yet", None)]
         f2 = lambda x: "-" if x is None or x != x else f"{x:.2f}"
+        # 95 % interval of a metric, " [lo-hi]" (files written before the intervals existed: nothing)
+        ci = lambda d, k: ("" if d.get(k + "_lo") is None or d.get(k + "_lo") != d.get(k + "_lo")
+                           else f" [{f2(d.get(k + '_lo'))}-{f2(d.get(k + '_hi'))}]")
         rank = sorted(m, key=lambda r: -(m[r].get("balanced_accuracy") or -1))
+        gm = gray_mode(exp)
+        out.append((f"gray cases: {GRAY_LABELS[gm]}" + ("" if gm == "ignore" else "  (file " + os.path.basename(validation_path(exp))
+                                                         + "; this ranking counts them)"), None if gm == "ignore" else "warn"))
         empty = all(sum(m[r].get(k) or 0 for k in ("TP", "FN", "TN", "FP")) == 0 and "TP" in m[r] for r in rank)
         if empty:   # only ramps that cross: nothing in the global metrics nor the ranking
             out.append(("no constant case (or ramp that does not cross) scored: global metrics and ranking empty", None))
         for i, r in enumerate([] if empty else rank, 1):
             d = m[r]
-            out.append((f"{i}. {r}: bal.acc {f2(d.get('balanced_accuracy'))}  MCC {f2(d.get('MCC'))}  "
-                        f"AUC {f2(d.get('AUC'))}  TP {d.get('TP')} FN {d.get('FN')} TN {d.get('TN')} FP {d.get('FP')}",
+            tr = d.get("median_t_ratio")   # median t_det / t_onset of the hits: < 1 = the alarm came before the amplitude limit
+            out.append((f"{i}. {r}: bal.acc {f2(d.get('balanced_accuracy'))}{ci(d, 'balanced_accuracy')}  "
+                        f"MCC {f2(d.get('MCC'))}{ci(d, 'MCC')}  AUC {f2(d.get('AUC'))}  "
+                        f"TP {d.get('TP')} FN {d.get('FN')} TN {d.get('TN')} FP {d.get('FP')}"
+                        + ("" if tr is None or tr != tr else f"  t_det/t_onset {tr:.2f}"),
                         "ok" if i == 1 else None))
+            if d.get("n_gray"):   # gray cases: how many, how many alarm, and the bounds (not a verdict)
+                out.append((f"     gray cases ({'not scored' if gm == 'ignore' else 'scored as ' + gm}): {d['n_gray']}, "
+                            f"{d.get('n_gray_alarm')} alarm | if all stable: "
+                            f"TNR {f2(d.get('gray_as_stable_TNR'))}, bal.acc {f2(d.get('gray_as_stable_balanced_accuracy'))}"
+                            f" | if all unstable: TPR {f2(d.get('gray_as_unstable_TPR'))}, bal.acc "
+                            f"{f2(d.get('gray_as_unstable_balanced_accuracy'))}", None))
         ramps = [r for r in rank if m[r].get("ramp_n")]
         if ramps:
             out.append((f"ramps that cross ({m[ramps[0]]['ramp_n']}, apart from the ranking): detected / "
@@ -1840,8 +1883,11 @@ LABEL_DEFAULTS = {"strategy": "amplitude", "amp_signal": "Axial_disp", "base_att
                   "lim_inf_pct": 10.0, "lim_sup_pct": 40.0, "warmup": 0.0}
 INDICATOR_PRESETS_DEFAULT = ("maxent_revo_dec7_1step", "rms_cv_revo_aux4_n_aux4_dec7_1step",
                              "ssq_revo_aux4_n_aux4_dec7_1step", "green_fixed_revo_dec7_1step")
-METRIC_COLUMNS = ("balanced_accuracy", "MCC", "AUC", "TPR", "TNR", "F1", "accuracy", "median_delay_onset_s",
-                  "mean_alarm_fraction_stable", "mean_persistence", "ramp_n", "ramp_detection_rate",
+METRIC_COLUMNS = ("balanced_accuracy", "MCC", "AUC", "TPR", "TNR", "F1", "accuracy", "balanced_accuracy_lo",
+                  "balanced_accuracy_hi", "MCC_lo", "MCC_hi", "median_delay_onset_s", "delay_onset_p25_s",
+                  "delay_onset_p75_s", "median_t_ratio",
+                  "mean_alarm_fraction_stable", "mean_persistence", "n_gray", "gray_alarm_rate", "gray_as_stable_TNR",
+                  "gray_as_unstable_TPR", "ramp_n", "ramp_detection_rate",
                   "ramp_early_alarm_rate", "ramp_miss_rate", "ramp_median_delay_s")
 
 
@@ -1990,7 +2036,7 @@ def stamp_model(exp: Exp) -> None:
 def validation_metrics(exp: Exp) -> dict:
     """{variant: {metric: value}} from the /metrics group of the experiment's doe_validation_results.h5."""
     import h5py
-    path = exp.out("validate", "out", "doe_validation_results.h5")
+    path = validation_path(exp)
     if not os.path.isfile(path):
         return {}
     with h5py.File(path, "r") as f:

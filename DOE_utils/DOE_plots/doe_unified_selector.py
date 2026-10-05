@@ -608,21 +608,33 @@ def _case_legend(c: dict, lk: str, lv: float) -> str:
             return f"kappa {float(vv['kappa_start']):.3g}->{float(vv['kappa_end']):.3g}"
         except (KeyError, TypeError, ValueError):
             return f"{c.get('group', '?')} (ramp)"
-    return f"{_col_header(lk)}={lv:.3g}" if np.isfinite(lv) else c.get("group", "?")
+    base = f"{_col_header(lk)}={lv:.3g}" if np.isfinite(lv) else c.get("group", "?")
+    # a validation made with --gray stable|unstable scores the gray cases as such: their legend keeps saying they were gray
+    return base + (" (gray)" if str(vv.get("gray")) in ("1", "1.0", "True") else "")
+
+
+def _case_onset(c: dict):
+    """t_onset [s] of a case: where its ground truth turns unstable (a ramp: the first unstable window; a constant case of a
+    validation file: the first sample over the amplitude limit of the labelling), or None."""
+    v = c.get("t_onset") if c.get("ramp") else c.get("var_val", {}).get("t_onset")
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return None
+    return v if np.isfinite(v) else None
 
 
 def _draw_truth_marks(axes, c: dict, color, shade: bool) -> None:
-    """A ramp case: vertical line where its ground truth turns unstable (t_onset) and, when one case is shown,
-    the stable / gray / unstable intervals of the truth shaded. Nothing for a constant case."""
-    if not c.get("ramp"):
-        return
+    """Vertical line where the ground truth of a case turns unstable (t_onset) and, for a ramp with one case shown, the
+    stable / gray / unstable intervals of the truth shaded. Nothing for a case with no t_onset (a stable one)."""
+    t_on = _case_onset(c)
     for ax in axes:
-        if shade:
+        if shade and c.get("ramp"):
             for t0, t1, lab in c.get("truth_iv", []):
                 ax.axvspan(t0, t1, color=TRUTH_SHADE.get(lab, "#999999"), alpha=0.08, lw=0, zorder=0)
-        if c.get("t_onset") is not None:
-            ax.axvline(c["t_onset"], color=color, ls=":", lw=1.8, zorder=8,
-                       label=f"truth turns unstable ({c['t_onset']:.2f} s)" if shade else None)
+        if t_on is not None:
+            ax.axvline(t_on, color=color, ls=":", lw=1.8, zorder=8,
+                       label=f"truth turns unstable ({t_on:.2f} s)" if shade else None)
 
 
 def _assign_case_colors(cases: List[Dict], qualitative: bool = False) -> None:
@@ -905,7 +917,10 @@ def _make_summary_entries(h5_type: str, cases: list, h5_path: str):
 
     # SLD: casos del DOE (spin_rate, Ap) sobre los lóbulos de cada preset de sld_model.MODELS
     if sld_model and h5_type in (TYPE_DOE_RESULTS, TYPE_DOE_INDICATOR):
-        for p, m in sld_model.MODELS.items():
+        used = _sim_models(h5_path)   # only the SLD of the model the cases were simulated with (all if the file does not say)
+        presets = [p for p in sld_model.MODELS if p in used] or list(sld_model.MODELS)
+        for p in presets:
+            m = sld_model.MODELS[p]
             entries.append((f"SLD — {p} [todos los modos]", sld_model.plot_sld, {"cases": cases, "preset": p}))
             if len(m["modes"]) > 1:
                 for j, f in enumerate(sorted(x[0] for x in m["modes"])):
@@ -913,11 +928,50 @@ def _make_summary_entries(h5_type: str, cases: list, h5_path: str):
                                     {"cases": cases, "preset": p, "seg": j}))
         # doe_validation_results.h5: casos coloreados por TP/TN/FN/FP de cada indicador ($outcome_<run>$)
         for rn in sorted({k[len("outcome_"):] for c in cases for k in c.get("var_val", {}) if k.startswith("outcome_")}):
-            for p in sld_model.MODELS:
+            for p in presets:
                 entries.append((f"SLD — {p} [outcome {rn}]", sld_model.plot_sld,
                                 {"cases": cases, "preset": p, "outcome_run": rn}))
 
+    # doe_validation_results.h5 (has /ranking): the validation figures of validation_figures.py, FIRST in the list (same API
+    # as the SLD: fn(h5_path=..., out_dir=None) -> Figure with _keep_size; a figure without data raises, shown as a viewer error)
+    if _is_validation_h5(h5_path):
+        import validation_figures as vf
+        entries = [(f"Validation — {n}", fn, {"h5_path": h5_path}) for n, fn in vf.FIGURES.items()] + entries
+
     return entries
+
+
+def _fig_style() -> tuple:
+    """(language, scale) the figure modules are using now (the defaults of the Figures window)."""
+    m = sys.modules.get("validation_figures") or sys.modules.get("sld_model")
+    return getattr(m, "LANGUAGE", "EN"), float(getattr(m, "FIGSCALE", 1.5))
+
+
+def _apply_fig_style(language: str, scale: float) -> None:
+    """Set the language (EN | FR | both) and the scale (multiplier of the plot_style presets) of the figure modules."""
+    for name in ("validation_figures", "sld_model"):
+        m = sys.modules.get(name)
+        if m is not None:
+            m.LANGUAGE, m.FIGSCALE = language, scale
+
+
+def _sim_models(path: str) -> set:
+    """SLD models (attr sim_model) of the cases of an .h5; empty if the file does not say."""
+    try:
+        with h5py.File(path, "r") as f:
+            vals = [f[g].attrs.get("sim_model") for g in list(f.keys())[:50] if isinstance(f[g], h5py.Group)]
+    except OSError:
+        return set()
+    return {v.decode() if isinstance(v, bytes) else str(v) for v in vals if v is not None}
+
+
+def _is_validation_h5(path: str) -> bool:
+    """True for a doe_validation_results.h5 (it has the /ranking group)."""
+    try:
+        with h5py.File(path, "r") as f:
+            return "ranking" in f
+    except OSError:
+        return False
 
 
 def _build_noise_overlay_fig(cases: list, signal: str) -> Optional[Figure]:
@@ -989,6 +1043,48 @@ def _variable_keys_with_variation(cases: List[Dict]) -> List[str]:
     return varying
 
 
+def _indicator_limits(rn: str, attrs: dict) -> list:
+    """Decision limits of an indicator on its I(t), from the attributes of its run (checked against the first detections:
+    I(t) crosses them at t_d). SST: lim_sup (and lim_inf); RMS-CV: the CV threshold; MaxEnt-SPRT: the two bounds
+    ln((1-beta)/alpha) and ln(beta/(1-alpha)). [] when the indicator stores none (Green)."""
+    def num(*keys):
+        for k in keys:
+            try:
+                v = float(attrs[k])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if np.isfinite(v):
+                return v
+        return None
+    p = _run_indicator_prefix(rn)
+    if p == "ssq":
+        return [v for v in (num("meta_lim_sup"), num("meta_lim_inf")) if v is not None]
+    if p == "rms_cv":
+        v = num("meta_cv_threshold_used")
+        return [] if v is None else [v]
+    if p == "maxent":
+        a, b = num("pp_alpha", "meta_alpha"), num("pp_beta", "meta_beta")
+        if a and b and 0 < a < 1 and 0 < b < 1:
+            return [float(np.log((1 - b) / a)), float(np.log(b / (1 - a)))]
+    if p == "green" and str(attrs.get("meta_I_t_meaning")) == "areas_Ak":
+        # Green detects when the area exceeds 10**upper_log (mu + z sigma of log10(area) on the training windows). Its
+        # runner returns upper_log inside meta["raw_result"], which doe_indicators does not save: until it is stored as
+        # meta_upper_log there is nothing to draw.
+        v = num("meta_upper_log")
+        return [] if v is None else [float(10.0 ** v)]
+    return []
+
+
+def _run_delay(run_data: dict):
+    """delay_onset_s = first detection - t_onset [s] (negative: the alarm came before the amplitude of the truth), if the
+    file (validation) has it for this run, else None."""
+    try:
+        v = float(run_data.get("attrs", {}).get("delay_onset_s"))
+    except (TypeError, ValueError):
+        return None
+    return v if np.isfinite(v) else None
+
+
 def _it_plot_yscale(runs_to_show: List[str]) -> str:
     """Escala Y para I_t: log solo para green* y sst_svd*; resto lineal."""
     if not runs_to_show:
@@ -1023,6 +1119,7 @@ class DoeSelectorUnifiedApp:
         self._cbar       = None
         self._force_cbar = None
         self._deflex_cbar = None
+        self._It_cbar     = None
         self._sort_col: Optional[str] = None
         self._sort_rev: bool           = False
         self._iid_to_case: dict = {}
@@ -1095,6 +1192,8 @@ class DoeSelectorUnifiedApp:
         )
         self._type_label.pack(side=tk.LEFT, padx=8)
         ttk.Button(bar, text="🔍  Inspect", command=self._open_inspector).pack(side=tk.LEFT, padx=4)
+        ttk.Button(bar, text="💾  Export…", command=lambda: self._open_export(self._active_panel_name())).pack(
+            side=tk.LEFT, padx=4)
         role = file_role(self.h5_path)
         if role:
             tk.Label(self.container, text=role, bg="#fff8e1", fg="#5d4037", anchor="w", padx=8,
@@ -1381,7 +1480,17 @@ class DoeSelectorUnifiedApp:
         btns = ttk.Frame(top)
         btns.pack(fill=tk.X, pady=(4, 0))
         ttk.Button(btns, text="▶ Preview", command=self._refresh_summary).pack(side=tk.LEFT)
-        ttk.Button(btns, text="Save PNG", command=self._save_summary).pack(side=tk.LEFT, padx=4)
+        ttk.Button(btns, text="Save…", command=lambda: self._open_export(self._sum_combo.get())).pack(side=tk.LEFT, padx=4)
+        ttk.Button(btns, text="Figures…", command=lambda: self._open_export(
+            next((e[0] for e in self._summary_entries if not e[0].startswith("SLD")), None))).pack(side=tk.LEFT)
+        if sld_model:   # vertical axis of the SLD: Ap [mm] or kappa = Ap / SLD limit at that speed (also for its export)
+            self._kappa_axis = tk.BooleanVar(value=sld_model.Y_AXIS == "kappa")
+
+            def flip_axis():
+                sld_model.Y_AXIS = "kappa" if self._kappa_axis.get() else "Ap"
+                if self._sum_combo.get().startswith("SLD"):
+                    self._refresh_summary()
+            ttk.Checkbutton(btns, text="κ axis", variable=self._kappa_axis, command=flip_axis).pack(side=tk.LEFT, padx=6)
         self._sum_toolbar_frame = ttk.Frame(rf)
         self._sum_toolbar_frame.pack(fill=tk.X)
         self._sum_canvas_frame = ttk.Frame(rf)
@@ -1543,6 +1652,35 @@ class DoeSelectorUnifiedApp:
         """Sincroniza el checkbox 'todos' según el estado individual."""
         all_on = all(v.get() for v in self._ind_check_vars.values())
         self._ind_all_var.set(all_on)
+
+    def _indicator_attrs(self, rn: str) -> dict:
+        """Attributes of the run `rn` with the law and thresholds of the indicator (meta_* / pp_*): the same in every case.
+        A validation file keeps only a few of them: then they are read, attributes only, from the indicator results file
+        next to it (root attr indicator_results_file)."""
+        cache = self.__dict__.setdefault("_ind_attrs", {})
+        if rn in cache:
+            return cache[rn]
+        attrs: dict = {}
+        for c in self.cases:
+            a = c.get("runs", {}).get(rn, {}).get("attrs", {})
+            if any(str(k).startswith("meta_") for k in a):
+                attrs = dict(a)
+                break
+        if not attrs:
+            try:
+                with h5py.File(self.h5_path, "r") as f:
+                    name = str(f.attrs.get("indicator_results_file", ""))
+                path = os.path.join(os.path.dirname(self.h5_path), name)
+                if name and os.path.isfile(path):
+                    with h5py.File(path, "r") as f:
+                        for g in f:
+                            if isinstance(f[g], h5py.Group) and rn in f[g]:
+                                attrs = dict(f[g][rn].attrs)
+                                break
+            except OSError:
+                pass
+        cache[rn] = attrs
+        return attrs
 
     def _selected_run_filter(self) -> Optional[str]:
         """Retorna None (compatibilidad; la lógica real está en _get_runs_to_show)."""
@@ -2127,7 +2265,7 @@ class DoeSelectorUnifiedApp:
             ax.ticklabel_format(style="sci", axis="y", scilimits=(0, 0))
             if last:
                 ax.set_xlabel("Time (s)", fontsize=14)
-                ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:.3g}"))
+                ax.xaxis.set_major_formatter(mticker.FormatStrFormatter("%.3g"))
 
         n = len(selected)
         lk_disp = _col_header(selected[0]["label_key"]) if selected else ""
@@ -2158,7 +2296,7 @@ class DoeSelectorUnifiedApp:
                 label=lk_disp, shrink=0.85,
                 orientation="horizontal", pad=0.08,
             )
-            self._cbar.formatter = mticker.FuncFormatter(lambda x, _: f"{x:.3g}")
+            self._cbar.formatter = mticker.FormatStrFormatter("%.3g")
             self._cbar.update_ticks()
             self._mark_values_on_colorbar(self._cbar, _cbar_marks)
 
@@ -2263,7 +2401,7 @@ class DoeSelectorUnifiedApp:
             self._force_cbar = self.force_fig.colorbar(
                 sm_f, ax=[self.ax_force_1, self.ax_force_2, self.ax_force_3],
                 label=lk_f, shrink=0.85, orientation="horizontal", pad=0.08)
-            self._force_cbar.formatter = mticker.FuncFormatter(lambda x, _: f"{x:.3g}")
+            self._force_cbar.formatter = mticker.FormatStrFormatter("%.3g")
             self._force_cbar.update_ticks()
             self._mark_values_on_colorbar(self._force_cbar, _cbar_marks_f)
 
@@ -2375,7 +2513,7 @@ class DoeSelectorUnifiedApp:
             self._deflex_cbar = self.deflex_fig.colorbar(
                 sm_d, ax=[self.ax_deflex_d, self.ax_deflex_v],
                 label=lk_disp, shrink=0.85, orientation="horizontal", pad=0.08)
-            self._deflex_cbar.formatter = mticker.FuncFormatter(lambda x, _: f"{x:.3g}")
+            self._deflex_cbar.formatter = mticker.FormatStrFormatter("%.3g")
             self._deflex_cbar.update_ticks()
             self._mark_values_on_colorbar(self._deflex_cbar, _cbar_marks_d)
 
@@ -2424,10 +2562,17 @@ class DoeSelectorUnifiedApp:
 
         vals = [c.get("label_val", float("nan")) for c in selected]
 
+        if self._It_cbar is not None:
+            try:
+                self._It_cbar.remove()
+            except Exception:
+                pass
+            self._It_cbar = None
         self.ax_It.cla()
 
         lk_disp = _col_header(selected[0]["label_key"]) if selected else ""
-        plotted = False
+        plotted = td_drawn = False
+        cbar_marks, deltas = [], []
 
         # Decide coloring strategy:
         #   · varios indicadores  → color por indicador (tab10)
@@ -2486,17 +2631,24 @@ class DoeSelectorUnifiedApp:
                     color = self._ind_color_map.get(ind_prefix, (0.5, 0.5, 0.5)) if hasattr(self, "_ind_color_map") else c.get("_color", (0.5, 0.5, 0.5))
                 lv_str = "control" if is_ctrl else (f"{pv:.3g}" if np.isfinite(pv) else "?")
                 lw = 2.2 if is_ctrl else _it_lw_nc
+                delay = _run_delay(run_data)   # validation files: first detection - t_onset
+                if delay is not None:
+                    deltas.append(delay)
+                if color_by_case and not is_ctrl:
+                    cbar_marks.append((pv, color))
                 self.ax_It.plot(t[::_IND_DECIMATE], I_t[::_IND_DECIMATE],
                                 color=color, lw=lw,
                                 alpha=_it_ctrl_alp if is_ctrl else case_alpha,
                                 label=(f"{_case_legend(c, c.get('label_key', ''), pv)} | {rn}" if c.get("ramp")
-                                       else f"{lk_disp}={lv_str} | {rn}"),
+                                       else f"{lk_disp}={lv_str} | {rn}")
+                                      + ("" if delay is None else f"   Δ = {delay:+.2f} s"),
                                 zorder=_it_ctrl_zo if is_ctrl else (3 + ci),
                                 rasterized=True)
                 # t_d vline
                 for key, style in (("t_d", "--"),):
                     td = run_data.get(key, np.array([]))
                     if td.size > 0:
+                        td_drawn = True
                         self.ax_It.axvline(td[0], color=color, lw=2.2,
                                            linestyle=style,
                                            alpha=_it_ctrl_alp if is_ctrl else case_alpha,
@@ -2514,15 +2666,60 @@ class DoeSelectorUnifiedApp:
         self.ax_It.grid(False)
         self.ax_It.set_yscale(_it_plot_yscale(runs_to_show))
 
+        # decision limits of each indicator (the same for every case: it learns once), dash-dot, in its colour
+        lim_drawn = False
+        for rn in runs_to_show:
+            if not any(rn in c.get("runs", {}) for c in selected):
+                continue
+            lcol = "k" if color_by_case else self._ind_color_map.get(_run_indicator_prefix(rn), "k")
+            for v in _indicator_limits(rn, self._indicator_attrs(rn)):
+                if self.ax_It.get_yscale() == "log" and v <= 0:
+                    continue
+                self.ax_It.axhline(v, color=lcol, ls="-.", lw=1.4, alpha=0.9, zorder=2)
+                lim_drawn = True
+
         run_txt = run_filter or "(all)"
         self.ax_It.set_title(f"I_t(t)  —  run: {run_txt}", fontsize=13)
+        self.It_fig.suptitle(f"{lk_disp}  —  {len(selected)} case(s)")   # as the signals panels (replaces the start-up text)
 
+        # what the vertical lines are (same colour as the curve they belong to): dashed + dot = first detection t_d of
+        # that indicator; dotted = t_onset, where the ground truth of a ramp turns unstable (only when several cases are
+        # shown: with one case that line already carries its own label)
+        from matplotlib.lines import Line2D
+        proxies = []
+        if td_drawn:
+            proxies.append(Line2D([0], [0], color="0.35", ls="--", lw=2.2, marker="o", ms=4,
+                                  label=r"$t_d$: first detection of the indicator"))
+        if len(selected) > 1 and any(_case_onset(c) is not None for c in selected):
+            proxies.append(Line2D([0], [0], color="0.35", ls=":", lw=2.2,
+                                  label=r"$t_{onset}$: truth turns unstable (labelling amplitude reached)"))
+        if lim_drawn:
+            proxies.append(Line2D([0], [0], color="0.35", ls="-.", lw=1.4, label="detection limit of the indicator"))
+        if deltas:
+            proxies.append(Line2D([0], [0], color="none", label=r"$\Delta = t_d - t_{onset}$ (< 0: detected before the amplitude)"))
         n = len(selected) * len(runs_to_show)
         if n <= 10 and plotted:
-            self.ax_It.legend(fontsize=14, loc="upper left")
+            handles, labels = self.ax_It.get_legend_handles_labels()
+            self.ax_It.legend(handles=handles + proxies, fontsize=14, loc="upper left")
+        elif proxies:   # too many curves for a legend: still say what the vertical lines mean
+            self.ax_It.legend(handles=proxies, fontsize=11, loc="upper left")
+
+        # colour bar of the cases (as the signals panels): only when the curves are coloured by case (one indicator)
+        if color_by_case and plotted:
+            cbar_cases = self.cases if use_fixed else selected
+            finite = [v for v in (c.get("label_val", float("nan")) for c in cbar_cases if not self._is_control(c))
+                      if np.isfinite(v)]
+            if len(finite) >= 2:
+                sm = cm.ScalarMappable(cmap=matplotlib.colormaps["viridis"],
+                                       norm=mcolors.Normalize(vmin=min(finite), vmax=max(finite)))
+                sm.set_array([])
+                self._It_cbar = self.It_fig.colorbar(sm, ax=self.ax_It, label=lk_disp, shrink=0.85,
+                                                     orientation="horizontal", pad=0.08)
+                self._It_cbar.formatter = mticker.FormatStrFormatter("%.3g")
+                self._It_cbar.update_ticks()
+                self._mark_values_on_colorbar(self._It_cbar, cbar_marks)
 
         self._draw_reference_lines({"I_t": self.ax_It})
-        self.It_fig.tight_layout()
         self.It_canvas.draw()
         self.It_toolbar.update()
         self._plotted_iids = set(self.tree.selection())
@@ -2678,6 +2875,65 @@ class DoeSelectorUnifiedApp:
         if self.cases:
             _dp.LABEL_KEY = self.cases[0].get("label_key", _dp.LABEL_KEY)
 
+    def _make_summary_figure(self, entry) -> Optional[Figure]:
+        """Figure of a summary entry (label, func, extra); None if there is none, raises if it cannot be made."""
+        _label, func, extra = entry
+        if isinstance(extra, tuple):
+            # plot_convergence*(cases, *args) — returns a Figure
+            return _capture_new_figure(func, self.cases, *extra)
+        if isinstance(extra, dict):
+            if func == "_noise_overlay":
+                return _build_noise_overlay_fig(self.cases, extra["signal"])
+            kw = dict(extra)
+            kw["out_dir"] = None   # solo previsualizar
+            return _capture_new_figure(func, **kw)
+        return None
+
+    # (tab attribute, figure attribute, name in the export window) of the panels of the centre
+    _PANELS = (("_sig_tab", "sig_fig", "Panel — Signals"), ("_force_tab", "force_fig", "Panel — Forces"),
+               ("_It_tab", "It_fig", "Panel — I(t)"), ("_deflex_tab", "deflex_fig", "Panel — Out Deflex"))
+
+    def _export_items(self) -> list:
+        """Every figure of this viewer for the export window: the panels as they are on screen (exported as a copy)
+        and every summary figure (SLD and validation draw their own language; the others are translated)."""
+        from figures_window import Item
+        items = [Item(name, (lambda a=attr: getattr(self, a)), live=True)
+                 for _tab, attr, name in self._PANELS if hasattr(self, attr)]
+        items.append(Item("Panel — right (current)", lambda: self._fig_holder.get("summary"), live=True))
+
+        def gen(entry):
+            self._sync_globals()
+            return self._make_summary_figure(entry)
+        items += [Item(e[0], (lambda e=e: gen(e)), native=e[0].startswith(("SLD", "Validation")))
+                  for e in self._summary_entries]
+        return items
+
+    def _active_panel_name(self) -> Optional[str]:
+        current = self._nb.select() if hasattr(self, "_nb") else None
+        for tab, _attr, name in self._PANELS:
+            if hasattr(self, tab) and current == str(getattr(self, tab)):
+                return name
+        return "Panel — Signals" if hasattr(self, "sig_fig") else None
+
+    def _open_export(self, select: Optional[str] = None) -> None:
+        """The one export window of this viewer (figures_window.py): every panel and every summary figure, with size,
+        scale, language, dpi, format, folder and name. Opened on `select`."""
+        win = getattr(self, "_export_win", None)
+        if win is not None and win.win.winfo_exists():
+            win.select(select)
+            return
+        from figures_window import FiguresWindow
+        lang, scale = _fig_style()
+        if _is_validation_h5(self.h5_path):   # one folder per gray mode (validation_figures.figs_dir)
+            import validation_figures as vf
+            folder = os.path.basename(vf.figs_dir(self.h5_path))
+        else:
+            folder = "figs_indicators"
+        self._export_win = FiguresWindow(
+            self.root, f"Export — {os.path.basename(os.path.dirname(self.h5_path))} / {os.path.basename(self.h5_path)}",
+            self._export_items(), style=_apply_fig_style, out_dir=os.path.join(os.path.dirname(self.h5_path), folder),
+            language=lang, scale=scale, select=select)
+
     def _refresh_summary(self) -> None:
         self._sync_globals()
         if not self._summary_entries:
@@ -2687,20 +2943,11 @@ class DoeSelectorUnifiedApp:
         if entry is None:
             return
 
-        label, func, extra = entry
+        label = entry[0]
         fig = None
 
         try:
-            if isinstance(extra, tuple):
-                # plot_convergence*(cases, *args) — returns a Figure
-                fig = _capture_new_figure(func, self.cases, *extra)
-            elif isinstance(extra, dict):
-                if func == "_noise_overlay":
-                    fig = _build_noise_overlay_fig(self.cases, extra["signal"])
-                else:
-                    kw = dict(extra)
-                    kw["out_dir"] = None   # solo previsualizar
-                    fig = _capture_new_figure(func, **kw)
+            fig = self._make_summary_figure(entry)
 
             if fig is None:
                 messagebox.showwarning("No figure",
@@ -2716,29 +2963,6 @@ class DoeSelectorUnifiedApp:
         except Exception as exc:
             messagebox.showerror("Error generating figure",
                                  f"{type(exc).__name__}: {exc}", parent=self.root)
-
-    def _save_summary(self) -> None:
-        fig = self._fig_holder.get("summary")
-        if fig is None:
-            messagebox.showinfo("No figure",
-                                "Press ▶ Preview first to generate a figure.",
-                                parent=self.root)
-            return
-        out_dir = os.path.join(os.path.dirname(self.h5_path), "figs_indicators")
-        os.makedirs(out_dir, exist_ok=True)
-        label   = self._sum_combo.get()
-        fname   = _sanitize(label) + ".png"
-        path    = os.path.join(out_dir, fname)
-        try:
-            # el lienzo Tk ajusta la figura al widget: las SLD vuelven a su FIGSIZE x FIGSCALE al guardar
-            shown = fig.get_size_inches().copy()
-            if getattr(fig, "_keep_size", None):
-                fig.set_size_inches(*fig._keep_size, forward=False)
-            fig.savefig(path, dpi=300, bbox_inches="tight")
-            fig.set_size_inches(*shown, forward=False)
-            messagebox.showinfo("Saved", f"Figure saved to:\n{path}", parent=self.root)
-        except Exception as exc:
-            messagebox.showerror("Error saving", str(exc), parent=self.root)
 
     # ── ABRIR ARCHIVO ─────────────────────────────────────────────────────────────
     def _open_file(self) -> None:
@@ -3028,26 +3252,26 @@ class ReferenceViewerApp:
             messagebox.showerror("Error loading", str(exc), parent=self.root)
 
     # ── EXPORTAR FIGURA (comun a las dos vistas) ──────────────────────────────
-    def _save_figure_to_reference_dir(self, fig: Figure, name_hint: str) -> str:
-        """Guarda `fig` (ya construida en estilo article-plot-style) y devuelve la
-        ruta -- sin messagebox, para poder llamarla varias veces en lote (una por
-        página) y avisar una sola vez al final. Mismo criterio de guardado que ya
-        usa DoeSelectorUnifiedApp (_save_summary): carpeta fija junto al .h5,
-        nombre auto-generado, dpi=300, bbox_inches='tight'."""
-        out_dir = os.path.join(os.path.dirname(self.h5_path), "figs_reference")
-        os.makedirs(out_dir, exist_ok=True)
-        path = os.path.join(out_dir, _sanitize(name_hint) + ".png")
-        fig.savefig(path, dpi=300, bbox_inches="tight")
-        return path
-
-    def _export_figure(self, fig: Figure, name_hint: str) -> None:
-        """Guarda una sola figura y avisa por messagebox (ver _save_figure_to_reference_dir
-        para guardado silencioso en lote, ej. exportar varias páginas)."""
-        try:
-            path = self._save_figure_to_reference_dir(fig, name_hint)
-            messagebox.showinfo("Saved", f"Figure saved to:\n{path}", parent=self.root)
-        except Exception as exc:
-            messagebox.showerror("Error saving figure", f"{type(exc).__name__}: {exc}", parent=self.root)
+    def _open_export(self) -> None:
+        """The one export window (figures_window.py) with the figures of this view: the article-style version of the
+        selection (built like before: article-plot-style) and the view as it is on screen; saved in figs_reference/."""
+        win = getattr(self, "_export_win", None)
+        if win is not None and win.win.winfo_exists():
+            win.select(None)
+            return
+        from figures_window import Item, FiguresWindow
+        if self.h5_type == TYPE_REFERENCE_DATASET:
+            items = [Item("Segments — article (selection)", self._tramos_article_figure),
+                     Item("Segments — screen", lambda: self._fig_tramos, live=True)]
+        else:
+            n = self._combinado_pages()
+            items = [Item("Combined — article" + (f" (page {p + 1}/{n})" if n > 1 else ""),
+                          (lambda p=p: self._combinado_article_figure(p))) for p in range(n)]
+            items.append(Item("Combined — screen", lambda: self._fig_comb, live=True))
+        lang, scale = _fig_style()
+        self._export_win = FiguresWindow(
+            self.root, f"Export — {os.path.basename(self.h5_path)}", items, style=_apply_fig_style,
+            out_dir=os.path.join(os.path.dirname(self.h5_path), "figs_reference"), language=lang, scale=scale)
 
     @staticmethod
     def _apply_sci_y(ax) -> None:
@@ -3056,14 +3280,13 @@ class ReferenceViewerApp:
         fmt.set_powerlimits((-2, 2))
         ax.yaxis.set_major_formatter(fmt)
 
-    def _export_tramos_figure(self) -> None:
+    def _tramos_article_figure(self) -> Figure:
         """Reconstruye la selección actual (overlay, mismo layout que la vista interactiva)
-        como figura nueva en estilo article-plot-style (skill: plot_style.py) -- no guarda
-        la figura interactiva tal cual, esa está pensada para pantalla."""
+        como figura nueva en estilo article-plot-style (skill: plot_style.py) -- la figura
+        interactiva tal cual se exporta aparte ("Segments — screen")."""
         sel = self._tree.selection()
         if not sel:
-            messagebox.showinfo("No figure", "Select at least one segment first.", parent=self.root)
-            return
+            raise ValueError("select at least one segment first")
         pieces = [self._index[int(iid)] for iid in sel]
 
         show_signal = self._tramos_show_signal_var.get()
@@ -3123,73 +3346,66 @@ class ReferenceViewerApp:
                 if detailed:
                     ax.legend()
 
-            self._export_figure(fig, f"segments_{channel_txt}_{'-'.join(row_kinds)}")
+            return fig
 
-    def _export_combinado_grid_figure(self, channel: str, show_dist: bool) -> None:
+    def _combinado_pages(self) -> int:
+        """Pages of the article version of the combined view: one per grid page with 'Grid by case', else 1."""
+        if not self._combinado_grid_var.get():
+            return 1
+        _pieces, cases = self._combinado_pieces_by_case()
+        return max(1, -(-len(cases) // self._combinado_grid_page_size()))
+
+    def _combinado_grid_figure(self, channel: str, show_dist: bool, page: int) -> Figure:
         """Version article-plot-style del grid por case (ver _plot_combinado_grid) --
-        un PNG por pagina (mismo page_size que la vista interactiva), en vez de una
+        una figura por pagina (mismo page_size que la vista interactiva), en vez de una
         sola imagen gigante con todos los cases."""
         pieces_by_label, cases = self._combinado_pieces_by_case()
         if not cases:
-            messagebox.showinfo("No figure", "No data for this channel.", parent=self.root)
-            return
+            raise ValueError("no data for this channel")
         ylabel = _channel_ylabel(channel)
-        mode = "distribution" if show_dist else "signal"
         page_size = self._combinado_grid_page_size()
-        n_pages = -(-len(cases) // page_size)
+        page_cases = cases[page * page_size:(page + 1) * page_size]
+        with matplotlib.rc_context(plot_style.ARTICLE_RCPARAMS):
+            fig = Figure(figsize=plot_style.figsize_grid(len(page_cases), 2), constrained_layout=True)
+            axes_grid = fig.subplots(2, len(page_cases), squeeze=False)
+            for col, case in enumerate(page_cases):
+                for row, (label, color, hatch) in enumerate((
+                    ("stable", plot_style.COLOR_STABLE, None),
+                    ("unstable", plot_style.COLOR_UNSTABLE, plot_style.HATCH_UNSTABLE),
+                )):
+                    ax = axes_grid[row][col]
+                    piece = pieces_by_label[label].get(case)
+                    if piece is None:
+                        ax.axis("off")
+                        continue
+                    t_piece, y_piece = piece
+                    if show_dist:
+                        ax.hist(np.asarray(y_piece).ravel(), bins=30, density=True,
+                                color=color, alpha=0.5, hatch=hatch, edgecolor=color)
+                        ax.set_xlabel(ylabel, labelpad=14)
+                        if col == 0:
+                            ax.set_ylabel("Density")
+                    else:
+                        t_dec, y_dec = _decimate_for_plot(t_piece, y_piece)
+                        ax.plot(t_dec, y_dec, color=color, lw=1.0)
+                        ax.set_xlabel("t [s]")
+                        if col == 0:
+                            ax.set_ylabel(ylabel)
+                        self._apply_sci_y(ax)
+                axes_grid[0][col].set_title(case)
+        return fig
 
-        try:
-            paths = []
-            for page in range(n_pages):
-                page_cases = cases[page * page_size:(page + 1) * page_size]
-                with matplotlib.rc_context(plot_style.ARTICLE_RCPARAMS):
-                    fig = Figure(figsize=plot_style.figsize_grid(len(page_cases), 2), constrained_layout=True)
-                    axes_grid = fig.subplots(2, len(page_cases), squeeze=False)
-                    for col, case in enumerate(page_cases):
-                        for row, (label, color, hatch) in enumerate((
-                            ("stable", plot_style.COLOR_STABLE, None),
-                            ("unstable", plot_style.COLOR_UNSTABLE, plot_style.HATCH_UNSTABLE),
-                        )):
-                            ax = axes_grid[row][col]
-                            piece = pieces_by_label[label].get(case)
-                            if piece is None:
-                                ax.axis("off")
-                                continue
-                            t_piece, y_piece = piece
-                            if show_dist:
-                                ax.hist(np.asarray(y_piece).ravel(), bins=30, density=True,
-                                        color=color, alpha=0.5, hatch=hatch, edgecolor=color)
-                                ax.set_xlabel(ylabel, labelpad=14)
-                                if col == 0:
-                                    ax.set_ylabel("Density")
-                            else:
-                                t_dec, y_dec = _decimate_for_plot(t_piece, y_piece)
-                                ax.plot(t_dec, y_dec, color=color, lw=1.0)
-                                ax.set_xlabel("t [s]")
-                                if col == 0:
-                                    ax.set_ylabel(ylabel)
-                                self._apply_sci_y(ax)
-                        axes_grid[0][col].set_title(case)
-                    name_hint = f"combined_grid_{channel}_{mode}_page{page + 1}of{n_pages}"
-                    paths.append(self._save_figure_to_reference_dir(fig, name_hint))
-            messagebox.showinfo("Saved", f"{len(paths)} figure(s) saved to:\n" + "\n".join(paths), parent=self.root)
-        except Exception as exc:
-            messagebox.showerror("Error saving figure", f"{type(exc).__name__}: {exc}", parent=self.root)
-
-    def _export_combinado_figure(self) -> None:
+    def _combinado_article_figure(self, page: int = 0) -> Figure:
         """Reconstruye stable/unstable como figura nueva en estilo article-plot-style
         (skill: plot_style.py), lado a lado (FIGSIZE_WIDE = 2 paneles), no la figura
-        interactiva tal cual. Si el toggle "Grid by case" esta activo, exporta esa
-        vista en su lugar (ver _export_combinado_grid_figure)."""
+        interactiva tal cual. Si el toggle "Grid by case" esta activo, la pagina `page`
+        de esa vista en su lugar (ver _combinado_grid_figure)."""
         channel = self._channel_var.get()
         if not channel or not any(self._combined_data.get(l) for l in ("stable", "unstable")):
-            messagebox.showinfo("No figure", "Pick a channel first.", parent=self.root)
-            return
+            raise ValueError("pick a channel first")
         show_dist = self._show_distribution_var.get()
-
         if self._combinado_grid_var.get():
-            self._export_combinado_grid_figure(channel, show_dist)
-            return
+            return self._combinado_grid_figure(channel, show_dist, page)
 
         with matplotlib.rc_context(plot_style.ARTICLE_RCPARAMS):
             fig = Figure(figsize=plot_style.FIGSIZE_WIDE, constrained_layout=True)
@@ -3218,9 +3434,7 @@ class ReferenceViewerApp:
                     ax.set_xlabel("t [s]")
                     ax.set_ylabel(_channel_ylabel(channel))
                     self._apply_sci_y(ax)
-
-            mode = "distribution" if show_dist else "signal"
-            self._export_figure(fig, f"combined_{channel}_{mode}")
+        return fig
 
     # ══════════════════════════════ PESTAÑA "TRAMOS" ═══════════════════════════════
     def _build_tramos_ui(self) -> None:
@@ -3273,7 +3487,7 @@ class ReferenceViewerApp:
 
         self._add_normal_toggle(bar, self._plot_selected_tramos)
         ttk.Separator(bar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6, pady=2)
-        ttk.Button(bar, text="💾 Export figure", command=self._export_tramos_figure).pack(side=tk.LEFT, padx=4)
+        ttk.Button(bar, text="💾 Export figure", command=self._open_export).pack(side=tk.LEFT, padx=4)
 
         body = ttk.Panedwindow(self.container, orient=tk.HORIZONTAL)
         body.pack(fill=tk.BOTH, expand=True)
@@ -3516,7 +3730,7 @@ class ReferenceViewerApp:
         ).pack(side=tk.LEFT, padx=4)
 
         ttk.Separator(bar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6, pady=2)
-        ttk.Button(bar, text="💾 Export figure", command=self._export_combinado_figure).pack(side=tk.LEFT, padx=4)
+        ttk.Button(bar, text="💾 Export figure", command=self._open_export).pack(side=tk.LEFT, padx=4)
 
         body = ttk.Panedwindow(self.container, orient=tk.HORIZONTAL)
         body.pack(fill=tk.BOTH, expand=True)
@@ -3932,6 +4146,23 @@ class TabbedViewer:
         self._on_tab_changed()
         return app
 
+    def open_or_refresh(self, path: str):
+        """A file sent by the launcher (Viewer button): a new tab; if that file is already open in a tab, that tab is
+        replaced by a fresh load (the stage may have been run again), and the window is brought to the front."""
+        path = os.path.abspath(path)
+        for tid, app in list(self.apps.items()):
+            if os.path.normcase(os.path.abspath(app.h5_path)) == os.path.normcase(path):
+                self.close_tab(tid)
+        app = self.add(path)
+        try:
+            self.root.deiconify()   # it may be minimised
+            self.root.lift()
+            self.root.attributes("-topmost", True)   # a plain lift() does not take the focus on Windows
+            self.root.after(300, lambda: self.root.attributes("-topmost", False))
+        except tk.TclError:
+            pass
+        return app
+
     def open_dialog(self) -> None:
         paths = filedialog.askopenfilenames(
             parent=self.root, title="Open .h5 (one tab per file)",
@@ -4044,8 +4275,21 @@ def main() -> None:
 
     root = tk.Tk()
     root.update()  # pinta la ventana ya, antes de la carga pesada del .h5
-    _launch_app_for(root, h5_paths)
-    root.mainloop()
+    viewer = _launch_app_for(root, h5_paths)
+    # one window for all the files: while it is open, the launcher's Viewer button sends the files here (new tabs)
+    import viewer_ipc
+    server = viewer_ipc.Server()
+
+    def take():
+        for p in server.poll():
+            if os.path.isfile(p):
+                viewer.open_or_refresh(p)
+        root.after(300, take)
+    root.after(300, take)
+    try:
+        root.mainloop()
+    finally:
+        server.close()
 
 
 def _selftest() -> None:
@@ -4104,8 +4348,22 @@ def _selftest() -> None:
     ax = fig.add_subplot(111)
     _draw_truth_marks([ax], by["case_001"], "C0", shade=True)
     assert len(ax.lines) == 1 and ax.lines[0].get_xdata()[0] == 6.0 and len(ax.patches) == 2
-    _draw_truth_marks([ax], by["case_000"], "C0", shade=True)          # a constant case: nothing drawn
+    _draw_truth_marks([ax], by["case_000"], "C0", shade=True)          # a constant case without t_onset: nothing drawn
     assert len(ax.lines) == 1
+    _draw_truth_marks([ax], {"var_val": {"t_onset": 0.9}}, "C0", shade=False)   # a constant case of a validation: t_onset
+    assert len(ax.lines) == 2 and ax.lines[1].get_xdata()[0] == 0.9
+    assert _case_onset({"var_val": {"t_onset": float("nan")}}) is None and _case_onset({"var_val": {}}) is None
+    assert _case_onset({"ramp": True, "t_onset": 2.0, "var_val": {}}) == 2.0
+    # decision limits of the indicators (checked on real files: I(t) crosses them at t_d) and the delay of a run
+    assert _indicator_limits("ssq_revo_x", {"meta_lim_sup": 11.2, "meta_lim_inf": -4.3}) == [11.2, -4.3]
+    assert _indicator_limits("rms_cv_x", {"meta_cv_threshold_used": 0.0011}) == [0.0011]
+    lm = _indicator_limits("maxent_revo_x", {"pp_alpha": 0.00135, "pp_beta": 0.00135})
+    assert abs(lm[0] - 6.6063) < 1e-3 and abs(lm[1] + 6.6063) < 1e-3, lm
+    assert _indicator_limits("green_fixed_x", {"pp_z_sigma": 3.0}) == [] and _indicator_limits("ssq_x", {}) == []
+    g = _indicator_limits("green_fixed_x", {"meta_I_t_meaning": "areas_Ak", "meta_upper_log": -8.5})   # once it is stored
+    assert len(g) == 1 and abs(g[0] - 10 ** -8.5) < 1e-20
+    assert _indicator_limits("green_fixed_x", {"meta_I_t_meaning": "sigma_ewma", "meta_upper_log": -8.5}) == []
+    assert _run_delay({"attrs": {"delay_onset_s": -0.45}}) == -0.45 and _run_delay({"attrs": {}}) is None
     assert "3 RAMP" not in file_role(doe) and "2 RAMP case(s)" in file_role(doe) and "2 RAMP case(s)" in file_role(lab)
     rows = {(x["case"], x["t0"]): x for x in _index_reference_dataset(lab)}
     assert rows[("case_001", 6.0)]["kappa_txt"] == "1.276->1.740" and rows[("case_001", 6.0)]["ap_txt"] == "11.00->15.00"

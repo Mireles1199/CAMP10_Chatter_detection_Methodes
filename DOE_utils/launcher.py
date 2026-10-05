@@ -260,6 +260,14 @@ def build_cmd(kind: str, script: str, args) -> list:
     return [python_exe(), path] + a
 
 
+def send_to_viewer(paths) -> bool:
+    """True if a viewer window is open and took the files as new tabs (DOE_plots/viewer_ipc.py); else the caller opens one."""
+    if ex.PLOTS not in sys.path:
+        sys.path.insert(0, ex.PLOTS)
+    import viewer_ipc
+    return viewer_ipc.send(paths)
+
+
 def launch(kind: str, script: str, args):
     """Start a tool (args: list of arguments, or text). Returns (Popen, stderr_log_path or None)."""
     cwd = os.path.dirname(os.path.join(HERE, script))
@@ -526,6 +534,7 @@ class App:
         self.cmp_cb_b = ttk.Combobox(row, textvariable=self.cmp_b, state="readonly", width=34)
         self.cmp_cb_b.pack(side=tk.LEFT, padx=4)
         ttk.Button(row, text="Compare", command=self.compare).pack(side=tk.LEFT, padx=6)
+        ttk.Button(row, text="Plot", command=self.plot_compare).pack(side=tk.LEFT)
         self.cmp_note = tk.StringVar(value="Validation experiments with doe_validation_results.h5   (ramp* columns: provisional criterion)")
         ttk.Label(f, textvariable=self.cmp_note, foreground="#555").pack(anchor="w", pady=4)
         cols = ("variant",) + tuple(f"{s}:{m}" for m in ex.METRIC_COLUMNS for s in ("A", "B"))
@@ -534,7 +543,9 @@ class App:
             self.cmp_tree.heading(c, text=c.replace("balanced_accuracy", "bal.acc").replace("mean_", "")
                                   .replace("median_delay_onset_s", "delay_onset").replace("_stable", "")
                                   .replace("ramp_median_delay_s", "ramp delay").replace("_rate", "")
-                                  .replace("early_alarm", "early")
+                                  .replace("median_t_ratio", "t_det/t_onset").replace("delay_onset_p", "delay p")
+                                  .replace("early_alarm", "early").replace("gray_as_stable_", "gray=st ")
+                                  .replace("gray_as_unstable_", "gray=unst ")
                                   .replace("detection", "det.").replace("ramp_", "ramp* "))
             self.cmp_tree.column(c, width=230 if c == "variant" else 62, anchor="w" if c == "variant" else "center")
         xs = ttk.Scrollbar(f, orient=tk.HORIZONTAL, command=self.cmp_tree.xview)
@@ -1088,8 +1099,13 @@ class App:
         self.view_h5(h5)
 
     def view_h5(self, h5: str):
-        """Open the viewer on an .h5; says that it is opening (loading takes a few seconds) and shows its error
-        if it fails to start."""
+        """Show an .h5 in the viewer: as a new tab of the viewer window that is already open (one window for all the
+        files), else a new viewer; says that it is opening (loading takes a few seconds) and shows its error if it
+        fails to start."""
+        if send_to_viewer([h5]):
+            self.status_msg.set(f"Sent {os.path.basename(h5)} to the open viewer window (a new tab, or refreshed if it "
+                                "was already open)…")
+            return
         try:
             p, log = launch("gui", "DOE_plots/doe_unified_selector.py", ["--h5", h5])
         except OSError as exc:
@@ -1228,6 +1244,33 @@ class App:
             self.cmp_tree.insert("", "end", values=row)
         self.cmp_note.set(f"A = {a}   B = {b}   (empty = that variant was not run in that experiment; ramp columns: "
                           "the ramps whose truth crosses, scored apart from the global metrics)")
+
+    def plot_compare(self):
+        """A/B figure of the two validations (validation_figures.fig_compare) in the export window
+        (figures_window.py): language, size, dpi, format; saved in the figures folder of A's results
+        (validation_figures.figs_dir: figs_validation, or figs_validation_gray-<mode>)."""
+        a, b = self.cmp_a.get(), self.cmp_b.get()
+        if not a or not b:
+            return
+        pa, pb = (ex.validation_path(ex.load(n)) for n in (a, b))
+        missing = [p for p in (pa, pb) if not os.path.isfile(p)]
+        if missing:
+            self._msg("Compare", "No validation results yet:\n" + "\n".join(missing), "warn")
+            return
+        import matplotlib
+        matplotlib.use("TkAgg")
+        if ex.PLOTS not in sys.path:
+            sys.path.insert(0, ex.PLOTS)
+        import validation_figures as vf
+        from figures_window import FiguresWindow, Item
+
+        def style(language, scale):
+            vf.LANGUAGE, vf.FIGSCALE = language, scale
+        self._cmp_win = FiguresWindow(
+            self.root, f"Validation compare — A = {a}   B = {b}",
+            [Item(f"compare_{a}_vs_{b}", lambda: vf.fig_compare(pa, pb), native=True)], style=style,
+            out_dir=vf.figs_dir(pa), language=vf.LANGUAGE, scale=vf.FIGSCALE)
+        self.cmp_note.set(f"A/B figure: Save in its window ({vf.figs_dir(pa)})")
 
 
 # ============================================================================== dialogs
@@ -1502,6 +1545,12 @@ class ValidateForm(_Dialog):
         self.ch = self.field("channel of the labels", self.tk.StringVar(value=e.section("validate").get("channel", "Axial_disp")),
                              values=["Axial_disp", "Axial_vel", "Axial_acc"],
                              note="the channel of the ground-truth dataset whose labels score the detections")
+        self.gray = self.field("gray cases", self.tk.StringVar(value=ex.GRAY_LABELS[ex.gray_mode(e)]),
+                               values=[ex.GRAY_LABELS[m] for m in ex.GRAY_MODES], state="readonly",
+                               note="a case whose whole label is gray (constant Ap): ignore = not scored (default) · stable = "
+                                    "alarm counts as a false alarm, none as correct (pessimistic) · unstable = alarm counts as a "
+                                    "hit, none as a miss (optimistic). Each mode has its own results file and figures folder, "
+                                    "so run Validate once per mode to keep the three")
         self.note("Ground truth = this experiment's labelled dataset (" + os.path.basename(e.label["out"]) + "), labelled "
                   f"with the '{e.label.get('strategy')}' strategy on {e.label.get('amp_signal', 'Axial_disp')}. "
                   "The indicators were trained on " + os.path.basename(e.reference) +
@@ -1512,6 +1561,11 @@ class ValidateForm(_Dialog):
         sec = ex.own_yaml(self.e.name).get("validate") or {}
         sec["channel"] = self.ch.get()
         sec.pop("early_tol_s", None)   # the rule has no tolerance any more
+        mode = next(m for m in ex.GRAY_MODES if ex.GRAY_LABELS[m] == self.gray.get())
+        if mode == "ignore":
+            sec.pop("gray", None)   # absent = ignore: the YAML (and the fingerprint) stay as they were
+        else:
+            sec["gray"] = mode
         ex.save_section(self.e.name, "validate", sec)
 
 
@@ -1933,6 +1987,8 @@ class SldPicker:
         self.scope_cb = ttk.Combobox(top, textvariable=self.scope, values=self.scopes(), state="readonly", width=34)
         self.scope_cb.pack(side=tk.LEFT, padx=(4, 0))
         ttk.Button(top, text="n at the minimum limit", command=self.set_min_n).pack(side=tk.LEFT, padx=4)
+        self.btn_x = ttk.Button(top, text="n at the intersection", command=self.set_intersection_n)
+        self.btn_x.pack(side=tk.LEFT, padx=(0, 4))   # only for a model with two or more modes (their lobes cross)
         self.model.trace_add("write", lambda *_: self.new_view())
         self.hint = tk.StringVar()
         ttk.Label(top, textvariable=self.hint, foreground="#555").pack(side=tk.LEFT, padx=6)
@@ -2132,6 +2188,35 @@ class SldPicker:
         self.n.set(f"{rpm:.1f}")
         self.new_view()
 
+    def _intersections(self) -> list:
+        """[(rpm, Ap mm)] where the lobes of two modes cross (sld_model.intersections: the ones the viewer marks);
+        [] for a model with one mode."""
+        try:
+            return list(ex._sld().intersections(self.model.get()))
+        except Exception:
+            return []
+
+    def intersection_rpm(self) -> tuple:
+        """(rpm, Ap mm) of the intersection nearest to the n now in the box: a model with several modes has several
+        crossings, and the one you are working near is the one meant."""
+        pts = self._intersections()
+        if not pts:
+            raise ValueError("this model has one mode: its lobes do not cross")
+        n = self._n()
+        return min(pts, key=lambda p: abs(p[0] - n))
+
+    def set_intersection_n(self):
+        """n goes to the intersection of two modes (nearest to the current n): the corrected spin where both lobes
+        give the same limit (the same crossing the viewer draws; only the calculation, nothing is added to the plot)."""
+        try:
+            rpm, ap = self.intersection_rpm()
+        except Exception as exc:
+            self.app._msg("SLD", f"cannot find the intersection: {exc}", "warn")
+            return
+        self.n.set(f"{rpm:.1f}")
+        self.new_view()
+        self.hint.set(f"intersection of the modes: {rpm:.1f} rpm, limit {ap:.3f} mm")
+
     def limit(self):
         try:
             return ex._sld().ap_lim(self.model.get(), self._n())
@@ -2146,6 +2231,8 @@ class SldPicker:
             self.scope_cb["values"] = vals
             if self.scope.get() not in vals:
                 self.scope.set(self.LOBE)
+        if hasattr(self, "btn_x"):   # the intersection button only makes sense when the modes' lobes cross
+            self.btn_x.state(["!disabled"] if self._intersections() else ["disabled"])
         keep = getattr(self, "_keep_view", False)   # zoom/pan survive adding or removing points
         if keep:
             view = (ax.get_xlim(), ax.get_ylim())

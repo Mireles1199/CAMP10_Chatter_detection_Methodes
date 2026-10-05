@@ -255,6 +255,7 @@ class PlannerApp:
         cb.pack(side=tk.LEFT, padx=(2, 12))
         cb.bind("<<ComboboxSelected>>", lambda _e: self.refresh(keep_preset=True))
         ttk.Button(bar, text="✎  Editar YAML", command=self.edit).pack(side=tk.LEFT, padx=4)
+        ttk.Button(bar, text="💾  Export…", command=self.export).pack(side=tk.LEFT, padx=4)
 
         self.command = tk.StringVar(value="n2m_sch")
         self.timed, self.dry, self.auto = tk.BooleanVar(), tk.BooleanVar(), tk.BooleanVar()
@@ -397,6 +398,12 @@ class PlannerApp:
         self._canvas.draw()
 
     # ------------------------------------------------------------------ acciones
+    def export(self):
+        """Export… (DOE_plots/figures_window.py): the figure on screen, as a copy, with size, language, dpi, format."""
+        from figures_window import FiguresWindow, Item   # DOE_plots is on sys.path (doe_runner._sld_model)
+        FiguresWindow(self.root, "Export — doe_planner",
+                      [Item(f"SLD_plan_{self.preset.get()}", lambda: getattr(self, "fig", None), live=True)])
+
     def edit(self):
         paths = self.selected_paths()
         if not paths:

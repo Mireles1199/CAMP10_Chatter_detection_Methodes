@@ -74,6 +74,7 @@ fake_doe(VA_DIR, [0.7, 0.9, 1.1], False)
 
 import tkinter as tk  # noqa: E402
 from tkinter import messagebox  # noqa: E402
+os.environ["DOE_VIEWER_LOCK"] = os.path.join(tmp, "viewer_lock.json")   # never talk to a viewer the user has open
 from PIL import ImageGrab  # noqa: E402
 import ctypes  # noqa: E402
 F = ctypes.windll.shcore.GetScaleFactorForDevice(0) / 100.0
@@ -271,6 +272,16 @@ try:
     app.view_h5("D:/x y/doe_results.h5")
     assert launched[-1] == ("DOE_plots/doe_unified_selector.py", ["--h5", "D:/x y/doe_results.h5"]), launched[-1]
     print("viewer arguments OK")
+    # one viewer window: with one open the file is sent to it (no new process); without, a new viewer is started
+    sent = []
+    L.send_to_viewer = lambda paths: sent.append(list(paths)) or True
+    n_launched = len(launched)
+    app.view_h5("D:/x y/doe_results.h5")
+    assert sent == [["D:/x y/doe_results.h5"]] and len(launched) == n_launched and "viewer window" in app.status_msg.get()
+    L.send_to_viewer = lambda paths: False
+    app.view_h5("D:/x y/doe_results.h5")
+    assert len(launched) == n_launched + 1
+    print("viewer reuse OK")
     # ---- import: preview of the folder before OK, name = folder, choice of the labelled dataset
     from tkinter import filedialog
     filedialog.askdirectory = lambda **k: TR_DIR
@@ -411,10 +422,28 @@ try:
     pk.scope.set(sc[2])
     pk.set_min_n()
     assert pk.n.get() == f"{per[0]:.1f}", (pk.n.get(), per)
+    # the intersection of the two modes: enabled for a model with 2 modes, n goes to the one nearest to the current n
+    assert pk.btn_x.instate(["!disabled"]) and len(pk._intersections()) >= 2
+    pk.win.update()
+    right = pk.btn_x.winfo_rootx() + pk.btn_x.winfo_width()
+    assert right <= pk.win.winfo_rootx() + pk.win.winfo_width(), ("the button does not fit in the picker window", right,
+                                                                  pk.win.winfo_rootx() + pk.win.winfo_width())
+    pk.n.set("12098.28")
+    pk.set_intersection_n()
+    assert pk.n.get() == "9989.1" and abs(pk.limit() - 15.557) < 0.02, (pk.n.get(), pk.limit())   # the usual crossing
+    pk.n.set("3500")
+    assert abs(pk.intersection_rpm()[0] - 3666.3) < 0.2          # 3666 is nearer to 3500 than 3324
+    pk.set_intersection_n()
+    assert pk.n.get() == "3666.3"
     pk.scope.set(sc[3])                                       # the 250 Hz mode: not a mode of the 1-mode model
     pk.model.set("1DOF_150")
     pk.draw()
     assert pk.scope.get() == pk.LOBE, pk.scope.get()          # the scope is reset when it does not exist in the model
+    assert pk.btn_x.instate(["disabled"]) and pk._intersections() == []   # one mode: its lobes do not cross
+    n_err = len(errors)
+    pk.set_intersection_n()
+    assert errors[n_err][2] == "warn" and "one mode" in errors[n_err][1], errors[n_err:]
+    del errors[n_err:]
     pk.n.set("12098.28")
     pk.draw()
     lim = pk.limit()
@@ -566,7 +595,11 @@ try:
         ex.yaml_save(d, ex.exp_path(n))
         with h5py.File(out, "w") as h:
             h.create_group("metrics/maxent_revo_dec7_1step").attrs.update(
-                balanced_accuracy=ba, MCC=ba - 0.1, **({"ramp_n": 2, "ramp_detection_rate": 0.5} if n == VA else {}))
+                balanced_accuracy=ba, MCC=ba - 0.1, **({"ramp_n": 2, "ramp_detection_rate": 0.5, "n_gray": 2,
+                                                         "n_gray_alarm": 1, "gray_alarm_rate": 0.5,
+                                                         "gray_as_stable_TNR": 0.6, "gray_as_unstable_TPR": 0.8,
+                                                         "balanced_accuracy_lo": 0.8, "median_t_ratio": 0.5}
+                                                        if n == VA else {}))
     ex.reload()
     app.refresh(True)
     assert set(app.cmp_cb_a["values"]) >= {VA, "val_from_dialog"}, app.cmp_cb_a["values"]
@@ -577,7 +610,34 @@ try:
     assert rows[0][1] == "0.900" and rows[0][2] == "0.700", rows
     j = 1 + 2 * ex.METRIC_COLUMNS.index("ramp_detection_rate")
     assert rows[0][j] == "0.500" and rows[0][j + 1] == "", rows          # the ramp metrics: A has them, B not
+    for k, v in (("balanced_accuracy_lo", "0.800"), ("median_t_ratio", "0.500")):   # intervals / ratio (new files) vs old files
+        j = 1 + 2 * ex.METRIC_COLUMNS.index(k)
+        assert rows[0][j] == v and rows[0][j + 1] == "", (k, rows[0][j], rows[0][j + 1])
+    for k, v in (("n_gray", "2"), ("gray_alarm_rate", "0.500"), ("gray_as_stable_TNR", "0.600"),
+                 ("gray_as_unstable_TPR", "0.800")):                     # gray cases: A (new files) has them, B not
+        j = 1 + 2 * ex.METRIC_COLUMNS.index(k)
+        assert rows[0][j] == v and rows[0][j + 1] == "", (k, rows[0][j], rows[0][j + 1])
+    card = [t for t, _ in ex.stage_summary(ex.load(VA), "validate")]
+    assert any("gray cases (not scored): 2, 1 alarm" in t and "TNR 0.60" in t and "TPR 0.80" in t for t in card), card
+    assert not any("gray cases (" in t for t, _ in ex.stage_summary(ex.load("val_from_dialog"), "validate"))   # no n_gray
+    assert ex.stage_summary(ex.load("val_from_dialog"), "validate")[0][0] == "gray cases: ignore (not scored)"
     print("compare OK (with the ramp columns)")
+    # Compare > Plot: a side without validation results is a warning, not a crash (the figure itself is checked with a
+    # real validation file by validation_figures.py --selftest)
+    app.cmp_b.set(N9)
+    app.plot_compare()
+    assert errors[-1][0] == "Compare" and errors[-1][2] == "warn", errors[-1]
+    errors.pop()
+    app.cmp_b.set("val_from_dialog")
+    # with both results: the A/B figure goes to the export window (nothing is saved until Save); these fabricated
+    # files have no /ranking, so the figure itself fails and the window says so instead of crashing
+    app.plot_compare()
+    cw = app._cmp_win
+    cw.draw()
+    assert cw.labels == [f"compare_{VA}_vs_val_from_dialog"] and cw.fig is None and "Error" in cw.status.get(), cw.status.get()
+    assert not os.path.isdir(cw.folder.get()) or not os.listdir(cw.folder.get())
+    cw.win.destroy()
+    print("compare plot window OK")
     # validate form: only the channel (the rule has no tolerance any more); an old early_tol_s in the YAML is
     # ignored by the stage command and dropped when the form is saved
     ex.save_section(VA, "validate", {"channel": "Axial_disp", "early_tol_s": 0.3})
@@ -588,6 +648,49 @@ try:
     vf._ok()
     va = ex.load(VA)
     assert "early_tol_s" not in va.section("validate") and "--early-tol" not in ex.stages(va)["validate"].cmds[0]
+    # gray cases: three modes, each with its own results file; absent = ignore keeps the old fingerprint
+    h0, c0 = ex.stages(va)["validate"].hash, ex.stages(va)["validate"].cmds[0]
+    assert c0[-2:] == ["--gray", "ignore"] and ex.gray_mode(va) == "ignore"
+    assert os.path.basename(ex.validation_path(va)) == "doe_validation_results.h5"
+    vf = L.ValidateForm(app, va)
+    assert vf.gray.get() == ex.GRAY_LABELS["ignore"]
+    vf.gray.set(ex.GRAY_LABELS["stable"])
+    vf._ok()
+    va = ex.load(VA)
+    sv = ex.stages(va)["validate"]
+    assert va.section("validate")["gray"] == "stable" and ex.gray_mode(va) == "stable"
+    assert os.path.basename(sv.outputs[0]) == "doe_validation_results_gray-stable.h5" and sv.cmds[0][-2:] == ["--gray", "stable"]
+    assert sv.cmds[0][sv.cmds[0].index("--out") + 1] == sv.outputs[0] and sv.hash != h0      # changing the mode: Validate stale
+    ex.save_section(VA, "validate", {"channel": "Axial_disp", "gray": "unstable"})
+    assert os.path.basename(ex.stages(ex.load(VA))["validate"].outputs[0]) == "doe_validation_results_gray-unstable.h5"
+    ex.save_section(VA, "validate", {"channel": "Axial_disp", "gray": "stable", "out": os.path.join(tmp, "mine.h5")})
+    assert ex.validation_path(ex.load(VA)) == os.path.normpath(os.path.join(tmp, "mine.h5"))   # an explicit out is respected
+    ex.save_section(VA, "validate", {"channel": "Axial_disp", "gray": "sometimes"})
+    assert any("validate.gray" in x for x in ex.check(ex.load(VA))[0]) and ex.gray_mode(ex.load(VA)) == "ignore"
+    vf = L.ValidateForm(app, ex.load(N9))                         # back to ignore: the key leaves the YAML
+    ex.save_section(N9, "validate", {"channel": "Axial_disp", "gray": "stable"})
+    vf = L.ValidateForm(app, ex.load(N9))
+    assert vf.gray.get() == ex.GRAY_LABELS["stable"]
+    vf.gray.set(ex.GRAY_LABELS["ignore"])
+    vf._ok()
+    assert "gray" not in ex.load(N9).section("validate")
+    ex.save_section(N9, "validate", {"channel": "Axial_disp", "gray": "stable"})   # metrics of the mode of the experiment
+    n9 = ex.load(N9)
+    os.makedirs(os.path.dirname(ex.validation_path(n9)), exist_ok=True)
+    with h5py.File(ex.validation_path(n9), "w") as h:
+        h.create_group("metrics/run_x").attrs.update(balanced_accuracy=0.8, n_gray=3, n_gray_alarm=1)
+    assert ex.validation_metrics(n9)["run_x"]["n_gray"] == 3 and not ex.validation_metrics(ex.load(VA))
+    mine = os.path.join(tmp, "mine_gray.h5")                       # the card of an experiment with the Validate stage
+    ex.save_section(VA, "validate", {"channel": "Axial_disp", "gray": "stable", "out": mine})
+    with h5py.File(mine, "w") as h:
+        h.create_group("metrics/run_x").attrs.update(balanced_accuracy=0.8, TP=1, FN=0, TN=1, FP=0, n_gray=3, n_gray_alarm=1,
+                                                      balanced_accuracy_lo=0.6, balanced_accuracy_hi=0.9, MCC=0.5, MCC_lo=0.2,
+                                                      MCC_hi=0.8, median_t_ratio=0.45)
+    card = [t for t, _ in ex.stage_summary(ex.load(VA), "validate")]
+    assert card[0].startswith("gray cases: stable (pessimistic)") and any("scored as stable): 3, 1 alarm" in t for t in card), card
+    assert any("bal.acc 0.80 [0.60-0.90]" in t and "MCC 0.50 [0.20-0.80]" in t and "t_det/t_onset 0.45" in t for t in card), card
+    ex.save_section(VA, "validate", {"channel": "Axial_disp"})
+    print("gray modes OK")
     app.notebook.select(app.tab_exp)
     app.select(VA, "validate")
     shot(root, "v2_main_validation.png")

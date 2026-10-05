@@ -66,7 +66,7 @@ Borde oscuro = etapas necesarias para la meta, borde azul = siguiente paso, mora
 | Viewer | Abre su `.h5` de salida en el visor; abajo aparece "Opening the viewer…" mientras carga |
 | Edit config | Los ajustes **de esa etapa** (en Simulate y Extract: la simulación) |
 | Labels YAML | Abre el YAML de etiquetas para revisarlo |
-| Label grid | (en Label build) Abre el dataset etiquetado como una **rejilla de casos**, ordenados por `κ` y paginados: cada panel es la señal de un caso coloreada por su etiqueta (verde estable, gris gray, rojo inestable), con las líneas `±lim_inf` / `±lim_sup` del criterio de amplitud. Se pueden **quitar las líneas** (casilla *criterion lines*) cuando la señal es muy pequeña frente a los límites y no se ve; la barra de matplotlib hace zoom por panel. La casilla *histogram + fitted normal* cambia la señal por el histograma de sus muestras con la normal ajustada (discontinua) y marca `μ` y `μ±σ`; `μ` y `σ` de cada caso (por etiqueta) están escritos en su panel en los dos modos. Elige canal, etiqueta y filas × columnas. Solo lee el `.h5`; sirve para juzgar de un vistazo si el etiquetado tiene sentido |
+| Label grid | (en Label build) Abre el dataset etiquetado como una **rejilla de casos**, ordenados por `κ` y paginados: cada panel es la señal de un caso coloreada por su etiqueta (azul estable, gris gray, naranja inestable: la paleta de las figuras de artículo), con las líneas `±lim_inf` / `±lim_sup` del criterio de amplitud. Se pueden **quitar las líneas** (casilla *criterion lines*) cuando la señal es muy pequeña frente a los límites y no se ve; la barra de matplotlib hace zoom por panel. La casilla *histogram + fitted normal* cambia la señal por el histograma de sus muestras con la normal ajustada (discontinua) y marca `μ` y `μ±σ`; `μ` y `σ` de cada caso (por etiqueta) están escritos en su panel en los dos modos. Elige canal, etiqueta y filas × columnas. **💾 Export…** guarda cada página con estilo de artículo (ver *Guardar figuras*, en el paso 9). Solo lee el `.h5`; sirve para juzgar de un vistazo si el etiquetado tiene sentido |
 | Folder | Abre la carpeta de sus salidas |
 | Go to blocker | Va a la etapa (de otro experimento) que la bloquea |
 | Mark up to date | En una etapa naranja por un cambio de configuración que no altera su resultado: la marca al día |
@@ -87,7 +87,7 @@ Pulsa **New experiment…**.
 2. Rellena la simulación: carpeta (`base_dir`), caso (el modelo Nessy2m), `n`, y las profundidades **en `Ap` [mm] o en `κ`**. Con `κ` eliges `ap_ref`: *manual* (una profundidad), *model* (el mínimo del SLD de un modelo) o *model_at_spin* (el límite del SLD a la `n` de cada caso), con el modelo del SLD.
 3. **Check / preview cases** muestra la tabla de casos (`Ap`, `κ`, `n`) y los problemas. Nada se guarda mientras haya un error en rojo (p. ej. una `n` en un hueco entre lóbulos, donde el límite es infinito). También avisa de los `κ` que ya están (o casi) en la referencia, que no prueban nada nuevo, y estima el tiempo de simulación con las simulaciones anteriores de esa carpeta (`wall_time_s.txt`, con la misma discretización).
 4. **Propose names** propone el nombre del experimento y de la carpeta de datos (sin prefijo obligatorio; puede ser un solo caso).
-5. **Pick the depths on the SLD…** abre los lóbulos del modelo con la línea de tu `n`, su límite y los casos de la referencia coloreados por etiqueta. Con **kappa** marcado el eje vertical está en `κ` (= `Ap` / límite a tu `n`, con una línea en `κ` = 1); con **Ap [mm]**, en milímetros. Clic = añade una profundidad en esa `n`, en las unidades del eje (clic derecho = quita la más cercana), o rellena un rango. La lista dice el `κ` y la zona de cada uno. **Use these Ap** los escribe en el formulario (y, si lo dejas marcado, pone `ap_ref = model_at_spin` de ese modelo).
+5. **Pick the depths on the SLD…** abre los lóbulos del modelo con la línea de tu `n`, su límite y los casos de la referencia coloreados por etiqueta. Con **kappa** marcado el eje vertical está en `κ` (= `Ap` / límite a tu `n`, con una línea en `κ` = 1); con **Ap [mm]**, en milímetros. Clic = añade una profundidad en esa `n`, en las unidades del eje (clic derecho = quita la más cercana), o rellena un rango. La lista dice el `κ` y la zona de cada uno. **Use these Ap** los escribe en el formulario (y, si lo dejas marcado, pone `ap_ref = model_at_spin` de ese modelo). Dos botones llevan la `n` a un punto notable del SLD: **n at the minimum limit** (el fondo del lóbulo donde estás, de todo el SLD o de un modo, según el desplegable) y **n at the intersection**, la `n` corregida donde se cruzan los lóbulos de dos modos (la misma intersección que marca el visor; con varias, la más cercana a la `n` que tienes). Este segundo botón solo se activa con un modelo de dos o más modos, p. ej. `2DOF_150_250` (9989 rpm, 15.557 mm); con un modo, los lóbulos no se cruzan y queda desactivado.
 6. **load values from** también acepta experimentos importados: su simulación se reconstruye desde la carpeta (`doe_config.yaml`, los `var_val.py` o los atributos del `.h5`). Una carpeta importada también se abre en el planificador desde **Edit config** de su Simulate.
 7. ¿Quieres que el planificador de validación elija los `κ` alrededor de los casos del entrenamiento? **Pick kappa with the validation planner…**, guarda su YAML en `configs/` y elígelo en **load values from**, que solo rellena los campos.
 
@@ -117,7 +117,9 @@ Corre cada variante sobre cada caso, aprendiendo de la referencia. Al terminar *
 
 ### Paso 8. Validate
 
-Por variante: TP, FN, TN, FP, exactitud balanceada, MCC, AUC, tiempos de detección. El panel muestra el ranking.
+Por variante: TP, FN, TN, FP, exactitud balanceada, MCC, AUC, tiempos de detección. El panel muestra el ranking. La exactitud balanceada y el MCC llevan su **intervalo del 95 %** entre corchetes (con pocos casos es ancho: dice cuánto fiarse del número) y, si hay aciertos, la **razón mediana `t_det / t_onset`** (< 1: el indicador alarmó antes de que la vibración alcanzara el límite de amplitud; no depende de κ). Compare muestra las mismas columnas.
+
+**Casos grises.** Un caso cuya etiqueta entera es *gray* (Ap constante) no se puntúa por defecto. En **Edit config** de Validate, el campo **gray cases** elige cómo tratarlos: *ignore* (no se puntúan; lo de siempre), *stable (pessimistic)* (una alarma cuenta como falsa alarma, ninguna como acierto) o *unstable (optimistic)* (una alarma cuenta como acierto, ninguna como fallo). El modo recalcula todo (conteos, métricas, ranking, ROC y figuras) y **cada modo tiene su propio archivo** (`doe_validation_results.h5`, `…_gray-stable.h5`, `…_gray-unstable.h5`) y su carpeta de figuras (`figs_validation`, `figs_validation_gray-stable`…): para tener los tres, corre Validate una vez por modo. Cambiar el modo deja Validate desactualizada. La tarjeta dice el modo activo y, aunque no se puntúen, cuántos grises hay, cuántos dan alarma y las cotas «si todos fueran estables / inestables»: son cotas, no un veredicto. En el visor, la leyenda de esos casos dice «(gray)». Compare compara los archivos del modo de cada experimento.
 
 Un caso inestable se puntúa con su **primera detección** frente al inicio de su verdad (`t_onset`: la primera muestra sobre el límite de amplitud en un caso constante): en un **caso constante** cualquier alarma → TP y ninguna → FN; el retraso (`delay_onset_s`, `delay_det_s`) queda como dato, no decide el acierto. En una **rampa que cruza**, una alarma antes del inicio de su verdad es falsa alarma, después es TP y ninguna es FN. No hay tolerancia que configurar (antes existía `early_tol_s`; se quitó y un YAML que aún la lleve se ignora).
 
@@ -125,7 +127,31 @@ Un caso inestable se puntúa con su **primera detección** frente al inicio de s
 
 ![Validación completa](02_validation.png)
 
-**Viewer** abre el resultado. En la pestaña **Compare** eliges dos validaciones y ves sus métricas lado a lado.
+**Viewer** abre el resultado. Hay **una sola ventana de visor** para todos los archivos: si ya tienes un visor abierto, el archivo entra en esa ventana como una pestaña nueva (y si ese archivo ya estaba abierto, su pestaña se recarga con lo último, útil tras volver a correr la etapa); solo si no hay ninguno abierto se abre una ventana nueva. Esto vale para el botón *Viewer* de cualquier experimento o etapa; el botón *Unified viewer* de la pestaña Tools sigue abriendo uno propio. En la pestaña **Compare** eliges dos validaciones y ves sus métricas lado a lado; el botón **Plot** abre la comparación A/B en la ventana de exportación (se guarda al pulsar *Save*, en `figs_validation/`).
+
+En el visor, el panel de la derecha (*Summary plots*) conserva las curvas de referencia: los SLD y, en un archivo de validación, el SLD con el resultado (TP/TN/FN/FP) de cada indicador, solo del modelo con que se simularon los casos. En el SLD, los lóbulos y los casos van siempre en Ap (eje izquierdo: *Width of cut* / *Largeur de coupe* `a_p` [mm]). La casilla **κ axis** añade un **eje derecho en κ** = Ap / límite del SLD a la velocidad de los casos (la mediana de sus rpm; el límite es κ = 1). Es exacto cuando los casos comparten velocidad; si esa velocidad cae en un hueco entre lóbulos, o no hay casos, κ se calcula contra `a_p,min` del modelo y el rótulo lo dice.
+
+En la gráfica de `I(t)`, cada línea tiene un significado y la leyenda lo dice:
+- **Trazo discontinuo con un punto = `t_d`**, la primera detección de ese indicador (del color de su curva).
+- **Línea de puntos = `t_onset`**, el instante en que la verdad pasa a inestable: en una rampa, su primera ventana inestable; en un caso constante de un archivo de validación, cuando la vibración alcanza el límite de amplitud del etiquetado.
+- **Trazo y punto alternados horizontal = límite de detección del indicador**, el umbral que `I(t)` cruza en `t_d`: SST, `lim_sup` (y `lim_inf` si es positivo); RMS-CV, el umbral del CV; MaxEnt-SPRT, las dos cotas ln((1−β)/α) y ln(β/(1−α)). Green no guarda un umbral, así que no se dibuja. Los límites se leen del archivo de indicadores que está junto al de validación.
+- **Δ en la leyenda de cada curva** (solo en validación) = `t_d − t_onset`; negativo = el indicador alarmó antes de que la vibración llegara a la amplitud del etiquetado.
+Con un solo indicador, las curvas se colorean por caso y aparece la **barra de color** de κ, con una marca por cada caso dibujado, como en las demás pestañas. Las demás figuras (las de validación: ranking, ROC, matriz de casos, tiempos de detección…; y las de `t_d` e `I(t)`) están en **Figures…**.
+
+### Guardar figuras (cualquier visor)
+
+Todos los visores tienen el botón **💾 Export…** (el visor, cada vista de la referencia, *Label grid*, *Compare › Plot*, `doe_planner` y `doe_val_planner`); en el visor, **Save…** y **Figures…** abren la misma ventana con su figura elegida. La ventana lista **todas** las figuras de ese visor: los paneles tal como están en pantalla (*Panel — Signals*, *I(t)*, *Forces*…, con su selección y su zoom; se exporta una copia, el panel no cambia) y todas las figuras de resumen. Controles:
+
+| Control | Qué hace |
+|---|---|
+| size | *own* (la figura tal cual: su tamaño de artículo, o el de pantalla para un panel), *SIMPLE* (1 columna), *WIDE* (página), *grid* (columnas × filas de *SIMPLE*; se rellena solo con la disposición de ejes del panel) |
+| scale | multiplica el tamaño (1 = el del artículo, 1.5 por defecto) |
+| language | EN / FR / both. Las figuras de validación y el SLD se dibujan en ese idioma; las demás se traducen al exportar con la tabla `DOE_plots/figure_texts.yaml` (si falta una frase, la barra de estado lo dice: añádela a la tabla) |
+| article proportions | en pantalla, la vista previa con la proporción del archivo |
+| dpi, format | 200 / 300 / 600; png / pdf / svg |
+| folder, name | carpeta (por defecto `figs_validation/`, `figs_indicators/` o `figs_reference/` junto al `.h5`) y nombre del archivo |
+
+**Save** guarda la figura elegida; **Save all**, todas (dice cuáles no se pudieron hacer y qué textos quedaron sin traducir). Una figura sin datos (por ejemplo, las de casos constantes en un archivo que solo tiene rampas) muestra el error abajo en vez de dibujarse.
 
 ## 4. Otras tareas
 

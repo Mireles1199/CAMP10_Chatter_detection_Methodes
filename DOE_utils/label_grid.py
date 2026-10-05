@@ -25,9 +25,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 import experiment as ex  # noqa: E402  (is_ramp / _attr: how the app reads Ap and kappa of a case)
+if ex.PLOTS not in sys.path:
+    sys.path.insert(0, ex.PLOTS)   # plot_style / figures_window (Export...)
+import plot_style as ps  # noqa: E402
 
 LABELS = ("stable", "gray", "unstable")
-COLOR = {"stable": "#2e7d32", "gray": "#8d8d8d", "unstable": "#c62828"}
+COLOR = {"stable": ps.COLOR_STABLE, "gray": ps.COLOR_GRAY, "unstable": ps.COLOR_UNSTABLE}   # Okabe-Ito (plot_style)
+HATCH = {"stable": None, "gray": ps.HATCH_GRAY, "unstable": ps.HATCH_UNSTABLE}   # redundant with the colour
 DEFAULT_CHANNEL = "Axial_disp"
 BINS = 1000   # min/max pairs per panel: keeps the peaks (what the amplitude limits are about) at any length
 
@@ -131,7 +135,7 @@ def draw(fig, h5_path: str, idx: dict, channel: str, label: str = "all", limits:
                 y = np.concatenate(parts)
                 mu, sd = stats(y)
                 if dist:
-                    ax.hist(y, bins=40, density=True, color=COLOR[lab], alpha=0.5, edgecolor="none")
+                    ax.hist(y, bins=40, density=True, color=COLOR[lab], alpha=0.5, hatch=HATCH[lab], edgecolor=COLOR[lab])
                     ax.axvline(mu, color="k", lw=0.8)
                     for s in (mu - sd, mu + sd):
                         ax.axvline(s, color="k", lw=0.7, ls=":")
@@ -150,7 +154,8 @@ def draw(fig, h5_path: str, idx: dict, channel: str, label: str = "all", limits:
             ax.tick_params(labelsize=7)
         for ax in axes.ravel()[len(cs[page * per:(page + 1) * per]):]:
             ax.axis("off")
-    fig.tight_layout()
+    if fig.get_layout_engine() is None:   # constrained layout, as article-plot-style asks (not tight_layout)
+        fig.set_layout_engine("constrained")
     return page, pages, len(cs)
 
 
@@ -191,6 +196,7 @@ class GridWindow:
         ttk.Button(bar, text="◀", width=3, command=lambda: self.replot(self.page - 1)).pack(side=tk.LEFT, padx=(12, 0))
         ttk.Button(bar, text="▶", width=3, command=lambda: self.replot(self.page + 1)).pack(side=tk.LEFT)
         ttk.Label(bar, textvariable=self.info).pack(side=tk.LEFT, padx=10)
+        ttk.Button(bar, text="💾 Export…", command=self.export).pack(side=tk.RIGHT, padx=6)
         self.fig = Figure(figsize=(12, 7.5))
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.root)
         NavigationToolbar2Tk(self.canvas, self.root).update()   # zoom / pan / save: zoom is per panel
@@ -205,6 +211,36 @@ class GridWindow:
         self.info.set(f"page {self.page + 1}/{pages}  ·  {n} cases (sorted by κ)  ·  "
                       + "  ".join(f"{k} {c[k]}" for k in LABELS if c[k]))
         self.canvas.draw_idle()
+
+    def page_figure(self, page: int):
+        """One page of the grid with the current controls, in article-plot-style (grid of FIGSIZE_SIMPLE x FIGSCALE)."""
+        import matplotlib
+        from matplotlib.figure import Figure
+        import plot_style as ps
+        r, c = int(self.rows.get()), int(self.cols.get())
+        size = ps.figsize_from_scale(ps.figsize_grid(c, r), 1.5)
+        with matplotlib.rc_context(ps.ARTICLE_RCPARAMS):
+            fig = Figure(figsize=size, layout="constrained")
+            draw(fig, self.h5, self.idx, self.channel.get(), self.label.get(), self.limits.get(), page, r, c,
+                 self.dist.get())
+        fig._keep_size = size
+        return fig
+
+    def export(self):
+        """The export window (figures_window.py): every page in article style and the view on screen."""
+        win = getattr(self, "_export_win", None)
+        if win is not None and win.win.winfo_exists():
+            win.select(None)
+            return
+        from figures_window import FiguresWindow, Item
+        per = int(self.rows.get()) * int(self.cols.get())
+        pages = max(1, -(-len(select(self.idx, self.channel.get(), self.label.get())) // per))
+        items = [Item(f"Label grid {self.channel.get()} — page {p + 1} of {pages}", (lambda p=p: self.page_figure(p)))
+                 for p in range(pages)]
+        items.append(Item("Label grid — screen", lambda: self.fig, live=True))
+        self._export_win = FiguresWindow(self.root, f"Export — {os.path.basename(self.h5)}", items,
+                                         out_dir=os.path.join(os.path.dirname(self.h5), "figs_reference"),
+                                         select=items[self.page].name)
 
 
 def _selftest():

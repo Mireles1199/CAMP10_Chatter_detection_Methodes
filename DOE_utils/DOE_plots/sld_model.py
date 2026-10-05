@@ -10,7 +10,7 @@ Autotest:  python sld_model.py
 """
 from __future__ import annotations
 
-from functools import lru_cache
+from functools import lru_cache, partial
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -19,6 +19,7 @@ import plot_style as ps
 
 LANGUAGE = "EN"   # "EN" | "FR" | "both"
 FIGSCALE = 1.5    # multiplicador de FIGSIZE_SIMPLE (mismo criterio que los plots de indicadores)
+Y_AXIS = "Ap"     # "Ap" | "kappa": con "kappa" plot_sld añade un eje derecho en kappa (casilla del visor); los lóbulos siguen en Ap
 DEFAULT_XLIM = (7000.0, 15000.0)   # rpm, si ningún caso trae spin_rate
 COLORS = ["#0072B2", "#D55E00", "#009E73", "#CC79A7"]   # Okabe-Ito: un color por modo
 # resultado de validación por caso (attr $outcome_<run>$ de doe_validation_results.h5): color, marcador, texto
@@ -88,6 +89,11 @@ def ap_lim(preset: str, rpm: float) -> float:
         return float("inf")   # hueco entre lóbulos: estable a cualquier profundidad
     raise ValueError(f"SLD '{preset}': {rpm:g} rpm está fuera del rango de los lóbulos calculados "
                      f"({lo:.0f}-{hi:.0f} rpm, k < {lb.shape[1]})")
+
+
+def _scaled(x, k):
+    """x * k (a module-level function, so a figure with the kappa axis can be pickled by the export window)."""
+    return x * k
 
 
 def case_points(cases, outcome_run=None):
@@ -170,13 +176,17 @@ def intersections(preset: str):
     return tuple((float(x * x1), float(y * YCAP)) for x, y in out)
 
 
-def plot_sld(cases, preset: str, seg=None, out_dir=None, language: str | None = None, outcome_run=None):
+def plot_sld(cases, preset: str, seg=None, out_dir=None, language: str | None = None, outcome_run=None,
+             y_axis: str | None = None):
     """Figura SLD del preset (seg=None: todos los modos; seg=j: solo el modo j) con los casos del DOE.
 
     Cada caso es un punto (rpm, Ap); si Ap_start != Ap_end, un segmento vertical. out_dir se ignora:
     el visor lo pasa a todas las figuras de resumen.
     outcome_run: nombre de un indicador de doe_validation_results.h5; los puntos se colorean por su resultado
     (TP/TN/FN/FP, ver OUTCOMES) en vez de todos del mismo color.
+    y_axis: "Ap" o "kappa" (por defecto Y_AXIS). Los lóbulos y los casos siempre van en Ap [mm] (eje izquierdo); con
+    "kappa" se añade un eje derecho kappa = Ap / límite del SLD a la velocidad de los casos (la mediana de sus rpm; si
+    cae en un hueco entre lóbulos o no hay casos, Ap / a_p,min del modelo). Es exacto con los casos a una sola velocidad.
     """
     lang = language or LANGUAGE
     lb, f_peaks = lobes(preset)
@@ -235,7 +245,19 @@ def plot_sld(cases, preset: str, seg=None, out_dir=None, language: str | None = 
         ax.set_xlim(x0, x1)
         ax.set_ylim(0, ymax)
         ax.set_xlabel(ps.lang_text(r"Spindle speed $\Omega$ [rpm]", r"Vitesse de broche $\Omega$ [tr/min]", lang))
-        ax.set_ylabel(ps.lang_text(r"Depth of cut $a_p$ [mm]", r"Profondeur de passe $a_p$ [mm]", lang))
+        ax.set_ylabel(ps.lang_text(r"Width of cut $a_p$ [mm]", r"Largeur de coupe $a_p$ [mm]", lang))
+        if (y_axis or Y_AXIS) == "kappa":   # right axis: kappa = Ap / limit (linear in Ap; the lobes stay in Ap)
+            n_ref = float(np.median([p[0] for p in pts])) if pts else None
+            try:
+                lim = ap_lim(preset, n_ref) if n_ref is not None else float("inf")
+            except ValueError:
+                lim = float("inf")
+            if np.isfinite(lim):
+                txt = rf"$\kappa = a_p\,/\,a_{{p,\lim}}(\Omega = {n_ref:.0f}\ \mathrm{{rpm}})$ [–]"
+            else:   # no cases, or their speed is in a pocket between lobes: against the minimum of the model
+                lim, txt = a_min, r"$\kappa = a_p\,/\,a_{p,\min}$ [–]"
+            sec = ax.secondary_yaxis("right", functions=(partial(_scaled, k=1.0 / lim), partial(_scaled, k=lim)))
+            sec.set_ylabel(txt)
         ax.set_title(f"SLD — {preset}" + (f" — {outcome_run}" if outcome_run else ""))
         # los lóbulos quedan sobre a_p,min: abajo no hay curvas (con outcome, a la derecha: los puntos de un DOE
         # a una sola velocidad caen en el centro)
@@ -291,4 +313,23 @@ if __name__ == "__main__":
         for s in (None, 0):
             fig = plot_sld(cases, p, seg=s)
             assert np.allclose(fig._keep_size, ps.figsize_from_scale(ps.FIGSIZE_SIMPLE, FIGSCALE))
+    # eje Ap por defecto (llamadas de siempre) y rótulo pedido por el usuario
+    assert plot_sld(cases, "1DOF_150", language="FR").axes[0].get_ylabel() == r"Largeur de coupe $a_p$ [mm]"
+    assert plot_sld(cases, "1DOF_150").axes[0].get_ylabel() == r"Width of cut $a_p$ [mm]"
+    # eje kappa: los lóbulos y los casos siguen en Ap; se añade un eje derecho kappa = Ap / ap_lim a las rpm de los casos
+    fig = plot_sld(cases, "1DOF_150", y_axis="kappa")
+    ax = fig.axes[0]
+    assert "Width of cut" in ax.get_ylabel() and len(ax.child_axes) == 1, ax.child_axes
+    sec = ax.child_axes[0]
+    lim = ap_lim("1DOF_150", 12100.0)
+    fig.canvas.draw()   # el eje derecho se sincroniza al dibujar
+    assert "kappa" in sec.get_ylabel() and "12100" in sec.get_ylabel()
+    assert abs(sec.get_ylim()[1] - ax.get_ylim()[1] / lim) < 1e-9 and abs(sec.get_ylim()[0]) < 1e-12   # kappa = Ap / lim
+    assert len(plot_sld(cases, "1DOF_150").axes[0].child_axes) == 0                                      # Ap: sin eje derecho
+    assert "a_{p,\\min}" in plot_sld([], "1DOF_150", y_axis="kappa").axes[0].child_axes[0].get_ylabel()  # sin casos
+    import pickle
+    assert pickle.loads(pickle.dumps(fig)).axes[0].child_axes                                         # el export la copia
+    Y_AXIS = "kappa"                                                                                  # el global de la casilla
+    assert len(plot_sld(cases, "2DOF_150_250").axes[0].child_axes) == 1
+    Y_AXIS = "Ap"
     print("sld_model self-test OK")
