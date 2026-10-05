@@ -223,7 +223,7 @@ Se ordena por **balanced accuracy**, luego **MCC**, luego **AUC**. Los NaN queda
 
 Un caso es **gris** cuando su amplitud máxima queda entre el 10 % y el 40 % de la base: la etiqueta no puede decir si es estable o inestable. En n12000 hay **3 casos grises** (kappa 1.057 a 1.066). En n5189 no hay ninguno.
 
-Los grises **no se puntúan**: su resultado es `n/a` (no aplica), no suman en TP/FN/TN/FP, ni en el ROC, ni en el ranking. **Razón:** no hay una respuesta correcta contra la cual comparar. Forzarles una (decir "estable" o "inestable") sería inventarla.
+Por defecto (modo `ignore`, ver 4.8) los grises **no se puntúan**: su resultado es `n/a` (no aplica), no suman en TP/FN/TN/FP, ni en el ROC, ni en el ranking. **Razón:** no hay una respuesta correcta contra la cual comparar. Forzarles una (decir "estable" o "inestable") sería inventarla.
 
 ### 4.2 El riesgo de ignorarlos
 
@@ -279,6 +279,37 @@ Los 3 grises: los **cuatro indicadores alarman en los tres**.
 | **Resumen de consola** | Sí, una línea por indicador cuando hay grises. |
 | **Figuras** | Los casos grises **se dibujan** (círculo hueco gris) en `detection_time`, `score_vs_kappa` y `score_dist`, y salen en gris en `case_matrix`. **Las cotas pesimista y optimista todavía no se grafican**: hoy solo están como números. |
 | **Interfaz** (tarjeta de Validate, pestaña Compare) | Pendiente: ya se pasó la petición a wt-interfaz. |
+| **Calcular todo en un modo** (ver 4.8) | **Sí**, desde la línea de comandos (`--gray ignore\|stable\|unstable`); el selector en la interfaz está pendiente (wt-interfaz). |
+
+### 4.8 Elegir cómo se tratan los grises (`--gray`): tres modos
+
+Además de las cotas, se puede **recalcular todo** (conteos, métricas, ranking, ROC y figuras) con un tratamiento concreto de los grises:
+
+| Modo | Qué hace con los casos grises | Cuándo usarlo |
+|---|---|---|
+| `ignore` (por defecto) | No se puntúan (resultado `n/a`). | La visión principal: solo casos con etiqueta clara. |
+| `stable` (pesimista) | Se cuentan como **estables**: si alarman, falsa alarma. | Ver el peor caso: ¿qué pasa si esos casos eran en realidad estables? |
+| `unstable` (optimista) | Se cuentan como **inestables**: si alarman, detección. | Ver el mejor caso. |
+
+Cada modo se guarda en **su propio archivo**, para no pisar los otros:
+
+| Modo | Archivo de resultados | Carpeta de figuras |
+|---|---|---|
+| `ignore` | `doe_validation_results.h5` | `figs_validation/` |
+| `stable` | `doe_validation_results_gray-stable.h5` | `figs_validation_gray-stable/` |
+| `unstable` | `doe_validation_results_gray-unstable.h5` | `figs_validation_gray-unstable/` |
+
+Las figuras de los modos `stable` y `unstable` llevan una nota gris abajo ("gray cases counted as stable / unstable") para que nadie las confunda con la visión principal. Los casos grises se dibujan siempre con círculo hueco gris.
+
+**Ejemplo (n12000, Green):**
+
+| Modo | TP / FN / TN / FP | TNR | Balanced accuracy | MCC |
+|---|---|---|---|---|
+| `ignore` | 11 / 0 / 7 / 1 | 0.88 | 0.94 | 0.90 |
+| `stable` | 11 / 0 / 7 / 4 | 0.64 | 0.82 | 0.68 |
+| `unstable` | 14 / 0 / 7 / 1 | 0.88 | 0.94 | 0.90 |
+
+En los tres modos el **orden** de los indicadores es el mismo (Green y ssq, MaxEnt, rms_cv). Las columnas `gray_as_stable_*` y `gray_as_unstable_*` de 4.3 se siguen reportando en cualquier modo, siempre sobre los casos que no son grises.
 
 ---
 

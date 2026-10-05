@@ -8,7 +8,10 @@ Constant-Ap cases only (rows with group == 'global'); ramps are left out until t
 API (what doe_unified_selector.py / launcher.py consume):
     FIGURES                          {name: fig_<name>}, every one  fig_<name>(h5_path, out_dir=None) -> Figure
     fig_compare(h5_a, h5_b, out_dir=None)   A/B of two validation files (not in FIGURES: it needs two files)
-    make_all(h5_path, out_dir=None)  every figure of FIGURES; out_dir default = <folder of the h5>/figs_validation
+    make_all(h5_path, out_dir=None)  every figure of FIGURES; out_dir default = figs_dir(h5_path)
+    figs_dir(h5_path)                <folder of the h5>/figs_validation, + _gray-<mode> when the file was made with --gray stable|unstable
+Gray cases (--gray of validate_indicators.py): mode 'ignore' leaves them out of the metrics; 'stable' / 'unstable' score them
+as such. Either way they are drawn as hollow gray points, and a note on the figure says the mode when it is not 'ignore'.
 A figure is saved as <out_dir>/<name>.png (300 dpi) only when out_dir is given; fig._keep_size holds its size.
 
 CLI:  python validation_figures.py --results X/doe_validation_results.h5 [--out-dir D] [--lang EN|FR|both] [--scale 1.5]
@@ -103,7 +106,12 @@ def _figure(fn):
     @functools.wraps(fn)
     def run(h5_path, out_dir=None):
         with plt.rc_context(ps.ARTICLE_RCPARAMS):
-            fig = fn(load(h5_path))
+            D = load(h5_path)
+            fig = fn(D)
+            mode = str(D.attrs.get("gray_mode", "ignore"))
+            if mode != "ignore":   # a figure of a non-default mode must say so
+                fig.supxlabel(T(f"gray cases counted as {mode}", f"cas gris comptés comme {'stable' if mode == 'stable' else 'instable'}"),
+                              x=0.99, ha="right", fontsize=7, color="grey")   # supxlabel: constrained_layout leaves room for it
         return _done(fig, out_dir, name)
     FIGURES[name] = run
     return run
@@ -111,6 +119,11 @@ def _figure(fn):
 
 def _yscale(v):
     return "log" if np.nanmin(v) > 0 else "symlog"
+
+
+def _gray(s):
+    """Cases whose label was gray (whatever --gray did with them)."""
+    return s["is_gray"] == 1 if "is_gray" in s else s["truth"] == "unlabelled"
 
 
 def _kappa(s):
@@ -196,7 +209,8 @@ def fig_case_matrix(D):
     fig, ax = _fig(ps.FIGSIZE_WIDE)
     ax.imshow(grid, cmap=ListedColormap(colors), vmin=-0.5, vmax=4.5, aspect="auto")
     tr = {"stable": "S", "unstable": "U"}
-    ax.set_xticks(range(len(idx)), [f"{s0['kappa'][i]:.2f} {tr.get(s0['truth'][i], 'g')}" for i in idx], rotation=90)
+    g0 = _gray(s0)
+    ax.set_xticks(range(len(idx)), [f"{s0['kappa'][i]:.2f} {'g' if g0[i] else tr.get(s0['truth'][i], 'g')}" for i in idx], rotation=90)
     ax.set_yticks(range(len(D.order)), [short(r) for r in D.order])
     ax.set_xlabel(T(r"case: $\kappa$ and truth (S stable, U unstable, g gray)",
                     r"cas : $\kappa$ et vérité (S stable, U instable, g gris)"))
@@ -214,8 +228,9 @@ def fig_detection_time(D):
     ax.plot(_kappa(s0)[m][o], s0["t_onset_amp"][m][o], "k-s", ms=4, label=T("amplitude onset $t_{onset}$", "début en amplitude $t_{onset}$", " / "))
     for i, r in enumerate(D.order):
         s = D.summ[r]
-        ok, st, un = np.isfinite(s["first_detection_t"]), s["truth"] == "stable", s["truth"] == "unstable"
-        gr = ok & (s["truth"] == "unlabelled")   # gray: hollow, not scored
+        g = _gray(s)
+        ok, st, un = np.isfinite(s["first_detection_t"]), (s["truth"] == "stable") & ~g, (s["truth"] == "unstable") & ~g
+        gr = ok & g   # gray: hollow
         ax.plot(_kappa(s)[gr], s["first_detection_t"][gr], "o", ms=5, mfc="none", color=RUN_COLOR[i])
         ax.plot(_kappa(s)[ok & un], s["first_detection_t"][ok & un], "o", ms=5, color=RUN_COLOR[i], label=short(r))
         ax.plot(_kappa(s)[ok & st], s["first_detection_t"][ok & st], "x", ms=6, color=RUN_COLOR[i])
@@ -247,12 +262,13 @@ def fig_detection_amp(D):
     fig, ax = _fig()
     base_attr, scale = str(D.attrs.get("labeling_base_attr", "$f_tooth$")), float(D.attrs.get("labeling_base_scale", 1e-3))
     s0 = D.summ[D.order[0]]
+    g0 = _gray(s0)
     with h5py.File(D.path, "r") as f:
         for i, r in enumerate(D.order):
             xs, ys = [], []
             for k, case in enumerate(s0["case"]):
                 td = D.summ[r]["first_detection_t"][k]
-                if s0["truth"][k] != "unstable" or not np.isfinite(td) or "Axial_disp" not in f[case]:
+                if s0["truth"][k] != "unstable" or g0[k] or not np.isfinite(td) or "Axial_disp" not in f[case]:
                     continue
                 t, y = f[case]["Axial_disp/time"][()], f[case]["Axial_disp/values"][()]
                 msk = (t <= td) & (t > td - 0.1)
@@ -278,9 +294,9 @@ def fig_score_vs_kappa(D):
     for ax, r in zip(axs, D.order):
         s, sc = D.summ[r], _case_score(D, r)
         for truth, col in (("stable", ps.COLOR_STABLE), ("unstable", ps.COLOR_UNSTABLE)):
-            k = s["truth"] == truth
+            k = (s["truth"] == truth) & ~_gray(s)
             ax.plot(_kappa(s)[k], sc[k], "o", ms=5, color=col, label=T(truth, {"stable": "stable", "unstable": "instable"}[truth], " / "))
-        g = (s["truth"] == "unlabelled") & np.isfinite(sc)
+        g = _gray(s) & np.isfinite(sc)
         if g.any():
             ax.plot(_kappa(s)[g], sc[g], "o", ms=5, mfc="none", color=ps.COLOR_GRAY, label=T("gray (not scored)", "gris (non noté)", " / "))
         ax.axvline(1, color="grey", ls=":")
@@ -295,9 +311,11 @@ def fig_score_dist(D):
     fig, axs = _grid(len(D.order))
     for ax, r in zip(axs, D.order):
         s, sc = D.summ[r], _case_score(D, r)
-        for x0, truth, col in ((0, "stable", ps.COLOR_STABLE), (1, "unstable", ps.COLOR_UNSTABLE), (2, "unlabelled", ps.COLOR_GRAY)):
-            v = sc[s["truth"] == truth]
-            ax.plot(x0 + np.linspace(-0.15, 0.15, len(v)), v, "o", ms=5, color=col, mfc="none" if truth == "unlabelled" else col)
+        g = _gray(s)
+        for x0, k, col in ((0, (s["truth"] == "stable") & ~g, ps.COLOR_STABLE), (1, (s["truth"] == "unstable") & ~g, ps.COLOR_UNSTABLE),
+                           (2, g, ps.COLOR_GRAY)):
+            v = sc[k]
+            ax.plot(x0 + np.linspace(-0.15, 0.15, len(v)), v, "o", ms=5, color=col, mfc="none" if x0 == 2 else col)
         ax.set_xticks([0, 1, 2], [T("stable", "stable"), T("unstable", "instable"), T("gray", "gris")])
         ax.set(title=f"{short(r)}  AUC={D.met[r]['AUC']:.2f}", yscale=_yscale(sc), xlim=(-0.5, 2.5))
         ax.set_ylabel(T("case score", "score du cas"))
@@ -358,8 +376,15 @@ def fig_compare(h5_a, h5_b, out_dir=None):
 
 
 # ============================================================================== run
+def figs_dir(h5_path):
+    """Where the figures of a validation file go: next to it, in figs_validation (+ _gray-<mode> for --gray stable|unstable)."""
+    with h5py.File(h5_path, "r") as f:
+        mode = str(f.attrs.get("gray_mode", "ignore"))
+    return os.path.join(os.path.dirname(os.path.abspath(h5_path)), "figs_validation" + ("" if mode == "ignore" else f"_gray-{mode}"))
+
+
 def make_all(h5_path, out_dir=None):
-    out_dir = out_dir or os.path.join(os.path.dirname(os.path.abspath(h5_path)), "figs_validation")
+    out_dir = out_dir or figs_dir(h5_path)
     for name, fn in FIGURES.items():
         try:
             plt.close(fn(h5_path, out_dir))
@@ -375,7 +400,7 @@ def _selftest():
     import validate_indicators as vi
     d = tempfile.mkdtemp()
     t = np.arange(0.0, 10.0, 0.1)
-    kap = [0.5, 0.7, 0.9, 1.2, 1.5, 1.9]
+    kap = [0.5, 0.7, 0.9, 1.05, 1.2, 1.5, 1.9]   # 1.05: gray
     ind, lab, out = (os.path.join(d, n) for n in ("ind.h5", "lab.h5", "out.h5"))
     with h5py.File(ind, "w") as f, h5py.File(lab, "w") as fl:
         for i, k in enumerate(kap):
@@ -387,7 +412,7 @@ def _selftest():
                 r["t"], r["I_t"] = t, it
                 if k > 1.0:
                     r["t_d"] = [6.0 - i * 0.5, 6.1 - i * 0.5]
-            p = fl.require_group(f"{'stable' if k < 1.0 else 'unstable'}/case_{i:03d}").create_dataset("Axial_disp__000", data=[0.0])
+            p = fl.require_group(f"{'stable' if k < 1.0 else 'gray' if k == 1.05 else 'unstable'}/case_{i:03d}").create_dataset("Axial_disp__000", data=[0.0])
             p.attrs.update(channel="Axial_disp", t0=0.0, t1=10.0, labeling_strategy="amplitude", labeling_lim_sup_pct=40.0,
                            labeling_lim_inf_pct=10.0, labeling_base_attr="$f_tooth$", labeling_base_scale=1e-3,
                            labeling_signal="Axial_disp", kappa=k, **{"$Ap_start$": 0.005 * k, "$spin_rate$": 12000.0})
@@ -395,7 +420,15 @@ def _selftest():
     figs = os.path.join(d, "figs")
     make_all(out, figs)
     assert sorted(os.listdir(figs)) == sorted(n + ".png" for n in FIGURES), os.listdir(figs)
-    assert len(FIGURES) == 12
+    assert len(FIGURES) == 12 and figs_dir(out) == os.path.join(d, "figs_validation")
+    for mode in ("stable", "unstable"):   # a non-default --gray mode: its own file, its own folder, a note on the figure
+        o = os.path.join(d, f"out{vi.gray_suffix(mode)}.h5")
+        vi.validate(ind, lab, o, reference_h5=lab, gray=mode)
+        assert figs_dir(o) == os.path.join(d, f"figs_validation_gray-{mode}")
+        make_all(o, os.path.join(d, f"f_{mode}"))
+        assert sorted(os.listdir(os.path.join(d, f"f_{mode}"))) == sorted(n + ".png" for n in FIGURES)
+        assert FIGURES["ranking"](o)._supxlabel.get_text().startswith("gray cases counted as")
+    assert FIGURES["ranking"](out)._supxlabel is None   # the default mode carries no note
     fig = FIGURES["roc"](out)
     assert fig._keep_size == tuple(fig.get_size_inches()) and np.allclose(fig._keep_size, ps.figsize_from_scale(ps.FIGSIZE_SIMPLE, FIGSCALE))
     fc = fig_compare(out, out, figs)
@@ -407,7 +440,7 @@ def main():
     global LANGUAGE, FIGSCALE
     p = argparse.ArgumentParser(description="Figures of a doe_validation_results.h5 (read only).")
     p.add_argument("--results", metavar="PATH", help="doe_validation_results.h5")
-    p.add_argument("--out-dir", metavar="DIR", help="default: <folder of the h5>/figs_validation")
+    p.add_argument("--out-dir", metavar="DIR", help="default: figs_dir(h5): <folder of the h5>/figs_validation[_gray-<mode>]")
     p.add_argument("--lang", choices=("EN", "FR", "both"), default=LANGUAGE)
     p.add_argument("--scale", type=float, default=FIGSCALE, help="multiplier of the plot_style presets")
     p.add_argument("--selftest", action="store_true")

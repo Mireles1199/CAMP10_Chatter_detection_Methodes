@@ -45,10 +45,14 @@ Two detection times, over the hits (TP; median):
   t_onset_amp = first time |labeling_signal| exceeds labeling_lim_sup_pct % of the base (labeling_base_attr *
   labeling_base_scale): the same threshold that makes the amplitude labelling call a case unstable. NaN if the signal
   or the base is not in the validation file.
-GRAY cases (truth 'unlabelled': amplitude between the two limits) are not scored: outcome 'n/a', left out of the counts, the
-metrics and the ROC. They are reported apart so the omission is visible (gray_metrics): n_gray, n_gray_alarm,
-gray_alarm_rate and the metrics if ALL of them were counted as stable (gray_as_stable_*: alarm -> FP, none -> TN) or as
-unstable (gray_as_unstable_*: alarm -> TP, none -> FN) for TPR, TNR, balanced_accuracy and MCC: bounds, not a verdict.
+GRAY cases (a case whose whole label is gray: amplitude between the two limits) are handled by --gray (GRAY_MODES):
+  ignore    (default) not scored: outcome 'n/a', left out of the counts, the metrics, the ranking and the ROC
+  stable    pessimistic: scored as stable cases (alarm -> FP, none -> TN), they enter every metric and the ROC
+  unstable  optimistic: scored as unstable cases (alarm -> TP, none -> FN), they enter every metric and the ROC
+The mode is stored as the root attr gray_mode, the case attr $gray$ and the summary column is_gray. A non-default mode goes
+to its own file (gray_suffix: doe_validation_results_gray-stable.h5, ...). Whatever the mode, gray_metrics reports apart
+n_gray, n_gray_alarm, gray_alarm_rate and the bounds gray_as_stable_* / gray_as_unstable_* (TPR, TNR, balanced_accuracy,
+MCC) computed on the cases that are not gray: so the omission is visible and the two scenarios can be compared.
 Alarm quality (window level, but on whole-signal labels so it is clean where it is used):
   alarm_fraction = flagged windows / windows, in STABLE cases (0 = never alarms); mean_alarm_fraction_stable
   persistence    = flagged windows / windows from the first detection on, in TP cases (1 = keeps the alarm on);
@@ -66,6 +70,7 @@ initial transient of an unstable case counts as unstable, so do not use them as 
 
 Usage (with the entorno_CAMP10 Python):
     python validate_indicators.py --ind_results X/doe_indicator_results.h5 --labels X/reference_dataset_amp.h5
+    python validate_indicators.py --ind_results X --labels Y --gray stable      (pessimistic; also: ignore, unstable)
     python validate_indicators.py --selftest
 """
 import argparse
@@ -89,7 +94,15 @@ def detection_outcome(t_det: float, t_onset: float, early_tol=None) -> str:
         return "FN"
     return "TP" if not np.isfinite(t_onset) or t_det >= t_onset else "FA"
 STR = h5py.string_dtype()
-SUMMARY_FLOATS = ("kappa", "ap_mm", "ap_end_mm", "kappa_start", "kappa_end", "spin_rpm", "first_detection_t",
+GRAY_MODES = ("ignore", "stable", "unstable")
+
+
+def gray_suffix(mode: str) -> str:
+    """Suffix of the output files for a gray mode: '' for the default (ignore), '_gray-stable', '_gray-unstable'."""
+    return "" if mode == "ignore" else f"_gray-{mode}"
+
+
+SUMMARY_FLOATS = ("is_gray", "kappa", "ap_mm", "ap_end_mm", "kappa_start", "kappa_end", "spin_rpm", "first_detection_t",
                   "delay_start_s", "t_onset_amp", "t_onset", "delay_onset_s", "delay_det_s", "alarm_fraction", "persistence",
                   "hit_in_unstable", "score_max", "score_min", "tpr", "tnr")
 RANK_BY = ("balanced_accuracy", "MCC", "AUC")
@@ -229,13 +242,16 @@ def _first_piece_attrs(labels_h5: str) -> dict:
     return {}
 
 
-def validate(ind_h5: str, labels_h5: str, out_h5: str, channel: str = "Axial_disp", reference_h5: str = None) -> dict:
+def validate(ind_h5: str, labels_h5: str, out_h5: str, channel: str = "Axial_disp", reference_h5: str = None,
+             gray: str = "ignore") -> dict:
     """Write out_h5 and return {run_name: [row dict per case]}. Each row has 'group': 'ramp' for a ramp of Ap whose
     truth changes from stable to unstable (scored apart: ramp_* metrics), 'global' otherwise (constant cases and
     ramps whose truth does not change: the usual metrics, ranking and ROC)."""
     intervals = read_intervals(labels_h5, channel)
     if not intervals:
         raise ValueError(f"no pieces of channel '{channel}' in {labels_h5}")
+    if gray not in GRAY_MODES:
+        raise ValueError(f"gray must be one of {GRAY_MODES}, not {gray!r}")
     summary = {}
     os.makedirs(os.path.dirname(os.path.abspath(out_h5)), exist_ok=True)
     if os.path.exists(out_h5):
@@ -244,7 +260,7 @@ def validate(ind_h5: str, labels_h5: str, out_h5: str, channel: str = "Axial_dis
     with h5py.File(ind_h5, "r") as src, h5py.File(out_h5, "w") as out:
         out.attrs.update(schema="doe_validation_results/4", created=datetime.datetime.now().isoformat(timespec="seconds"),
                          indicator_results_file=os.path.basename(ind_h5), labels_file=os.path.basename(labels_h5),
-                         channel=channel)
+                         channel=channel, gray_mode=gray)
         out.attrs.update(params)
         if reference_h5:
             out.attrs["reference_h5"] = os.path.basename(reference_h5)
@@ -261,6 +277,10 @@ def validate(ind_h5: str, labels_h5: str, out_h5: str, channel: str = "Axial_dis
                 if sig in sg:
                     src.copy(sg[sig], cg, name=sig)
             truth, t_start = case_truth(intervals[case])
+            is_gray = truth == "unlabelled"
+            if is_gray and gray != "ignore":   # the whole case counts as stable / unstable (--gray)
+                truth = gray
+                t_start = intervals[case][0][0] if gray == "unstable" else t_start
             ramp = is_ramp(sg.attrs)
             group = "ramp" if ramp and truth == "mixed" else "global"
             t_on = amplitude_onset(sg, params, t_start)
@@ -271,7 +291,7 @@ def validate(ind_h5: str, labels_h5: str, out_h5: str, channel: str = "Axial_dis
             k0, k1 = (_attr_float(sg.attrs, "kappa_start"), _attr_float(sg.attrs, "kappa_end")) if ramp else (kappa, kappa)
             ap_mm, spin = _attr_float(sg.attrs, "$Ap_start$", "Ap_start") * 1e3, _attr_float(sg.attrs, "$spin_rate$", "spin_rate")
             ap_end = _attr_float(sg.attrs, "$Ap_end$") * 1e3 if ramp else ap_mm
-            cg.attrs.update({"$kappa$": kappa, "$truth$": truth, "$t_onset_amp$": t_on, "$group$": group,
+            cg.attrs.update({"$kappa$": kappa, "$truth$": truth, "$gray$": int(is_gray), "$t_onset_amp$": t_on, "$group$": group,
                              "$t_onset$": onset if np.isfinite(onset) else t_start})   # NaN for a stable case
             if ramp:
                 cg.attrs.update({"$kappa_start$": k0, "$kappa_end$": k1, "$Ap_end_mm$": ap_end})
@@ -286,6 +306,8 @@ def validate(ind_h5: str, labels_h5: str, out_h5: str, channel: str = "Axial_dis
                 t, i_t = rg["t"][()], rg["I_t"][()]
                 t_d = rg["t_d"][()] if "t_d" in rg else np.array([])
                 pred, tw = pred_windows(t, t_d), truth_windows(t, intervals[case])
+                if is_gray and gray != "ignore":
+                    tw[:] = 0 if gray == "stable" else 1
                 m = score(t, pred, tw, t_start, onset, group == "ramp")
                 fin, fl = np.isfinite(i_t), pred == 1
                 m.update(score_max=float(np.max(i_t[fin])) if fin.any() else np.nan,
@@ -303,7 +325,7 @@ def validate(ind_h5: str, labels_h5: str, out_h5: str, channel: str = "Axial_dis
                 cg.attrs[f"$outcome_{run}$"] = m["outcome"]
                 summary.setdefault(run, []).append(dict(
                     case=case, kappa=kappa, ap_mm=ap_mm, ap_end_mm=ap_end, kappa_start=k0, kappa_end=k1,
-                    spin_rpm=spin, truth=truth, group=group, t_onset_amp=t_on, **m,
+                    spin_rpm=spin, truth=truth, group=group, is_gray=float(is_gray), t_onset_amp=t_on, **m,
                     it_flag_sum=float(i_t[fl & fin].sum()), it_flag_n=int((fl & fin).sum()),     # for roc_direction
                     it_unflag_sum=float(i_t[~fl & fin].sum()), it_unflag_n=int((~fl & fin).sum())))
 
@@ -446,11 +468,12 @@ def roc_metrics(rows) -> tuple:
 
 
 def gray_metrics(rows) -> dict:
-    """The gray (unlabelled) cases are not scored; say how many there are, how many alarm and how the metrics would move if
-    all of them counted as stable (alarm -> FP, none -> TN) or as unstable (alarm -> TP, none -> FN)."""
-    gray = [r for r in rows if r["truth"] == "unlabelled"]
+    """Say how many gray cases there are, how many alarm and the metrics if all of them counted as stable (alarm -> FP,
+    none -> TN) or as unstable (alarm -> TP, none -> FN), over the cases that are not gray: it does not depend on --gray."""
+    isg = lambda r: r.get("is_gray") == 1.0 or r["truth"] == "unlabelled"   # noqa: E731  (original gray, any --gray mode)
+    gray = [r for r in rows if isg(r)]
     alarm = [bool(np.isfinite(r["first_detection_t"])) for r in gray]
-    scored = [r for r in rows if r["outcome"] in ("TP", "FN", "TN", "FP")]
+    scored = [r for r in rows if r["outcome"] in ("TP", "FN", "TN", "FP") and not isg(r)]
     out = dict(n_gray=len(gray), n_gray_alarm=sum(alarm), gray_alarm_rate=sum(alarm) / len(gray) if gray else float("nan"))
     for name, hit, miss in (("stable", "FP", "TN"), ("unstable", "TP", "FN")):
         m = case_metrics(scored + [dict(r, outcome=hit if a else miss) for r, a in zip(gray, alarm)])
@@ -496,7 +519,7 @@ def print_summary(summary: dict) -> None:
               f"{m['mean_persistence']:.2f} | median time: since start {m['median_delay_start_s']:.3f} s, "
               f"vs amplitude onset {m['median_delay_onset_s']:+.3f} s")
         if m.get("n_gray"):
-            print(f"  gray cases (not scored): {m['n_gray']}, {m['n_gray_alarm']} alarm | if all stable: TNR "
+            print(f"  gray cases: {m['n_gray']}, {m['n_gray_alarm']} alarm | if all stable: TNR "
                   f"{m['gray_as_stable_TNR']:.2f}, bal.acc {m['gray_as_stable_balanced_accuracy']:.2f} | if all unstable: TPR "
                   f"{m['gray_as_unstable_TPR']:.2f}, bal.acc {m['gray_as_unstable_balanced_accuracy']:.2f}")
         if m.get("ramp_n"):
@@ -573,7 +596,7 @@ def _selftest():
     with h5py.File(ind, "w") as f:
         # case_002-004: ramps 5 -> 15 mm whose truth turns unstable at 5.0 s: early alarm, late 0.5 s, late 1.0 s
         for name, kap, td in (("case_000", 0.6, []), ("case_001", 1.5, [6.0, 6.1, 7.0]), ("case_002", 0.0, [2.0, 6.0]),
-                              ("case_003", 0.0, [5.5]), ("case_004", 0.0, [6.0])):
+                              ("case_003", 0.0, [5.5]), ("case_004", 0.0, [6.0]), ("case_005", 1.1, [7.0])):
             g = f.create_group(name)
             if kap:
                 g.attrs.update({"$spin_rate$": 12000.0, "$Ap_start$": 0.005 * kap, "kappa": kap, "$f_tooth$": 0.05})
@@ -587,7 +610,7 @@ def _selftest():
                 r["t_d"] = td
     with h5py.File(lab, "w") as f:
         f.create_group("aaa_empty")   # an empty label group first (as an empty 'gray'): the parameters are still found
-        for label, case, t0, t1 in (("stable", "case_000", 0, 10), ("stable", "case_001", 0, 4.95),
+        for label, case, t0, t1 in (("stable", "case_000", 0, 10), ("gray", "case_005", 0, 10), ("stable", "case_001", 0, 4.95),
                                     ("gray", "case_001", 4.95, 5.55), ("unstable", "case_001", 5.55, 10),
                                     *((lab_, c, a, b) for c in ("case_002", "case_003", "case_004")
                                       for lab_, a, b in (("stable", 0, 5.0), ("unstable", 5.0, 10)))):
@@ -595,8 +618,8 @@ def _selftest():
             p.attrs.update(channel="Axial_disp", t0=t0, t1=t1, labeling_strategy="amplitude", labeling_lim_sup_pct=40.0,
                            labeling_base_attr="$f_tooth$", labeling_base_scale=1e-3, labeling_signal="Axial_disp")
     s = validate(ind, lab, out)
-    assert [r["outcome"] for r in s["fake_run"]] == ["TN", "TP", "FA", "TP", "TP"], s
-    assert [r["group"] for r in s["fake_run"]] == ["global", "global", "ramp", "ramp", "ramp"]
+    assert [r["outcome"] for r in s["fake_run"]] == ["TN", "TP", "FA", "TP", "TP", "n/a"], s
+    assert [r["group"] for r in s["fake_run"]] == ["global", "global", "ramp", "ramp", "ramp", "global"]
     with h5py.File(out, "r") as f:
         assert f.attrs["schema"].startswith("doe_validation") and f.attrs["labeling_strategy"] == "amplitude"
         assert "early_tol_s" not in f.attrs
@@ -619,8 +642,29 @@ def _selftest():
         assert mt["ramp_detection_rate_lo"] < 2 / 3 < mt["ramp_detection_rate_hi"]
         # 50 stable windows per ramp (5.0 s is unstable); one detection (2.0 s) in one of them
         assert abs(mt["ramp_alarm_fraction_stable"] - (1 / 50 + 0 + 0) / 3) < 1e-9, mt["ramp_alarm_fraction_stable"]
-        assert list(f["summary/fake_run/group"].asstr()[()]) == ["global", "global", "ramp", "ramp", "ramp"]
+        assert list(f["summary/fake_run/group"].asstr()[()]) == ["global", "global", "ramp", "ramp", "ramp", "global"]
+        assert f.attrs["gray_mode"] == "ignore" and f["case_005"].attrs["$gray$"] == 1 and f["case_005"].attrs["$truth$"] == "unlabelled"
+        assert list(f["summary/fake_run/is_gray"][()]) == [0, 0, 0, 0, 0, 1]
+        assert (mt["n_gray"], mt["n_gray_alarm"], mt["gray_alarm_rate"]) == (1, 1, 1.0)      # ignore: left out of the counts
+        assert mt["gray_as_stable_TNR"] == 0.5 and mt["gray_as_unstable_TPR"] == 1.0 and mt["gray_as_unstable_TNR"] == 1.0
         assert abs(f["summary/fake_run/ap_end_mm"][2] - 15.0) < 1e-9 and f["summary/fake_run/t_onset"][2] == 5.0
+    # the three gray modes on the same files: ignore (above), stable (pessimistic), unstable (optimistic)
+    assert gray_suffix("ignore") == "" and gray_suffix("stable") == "_gray-stable"
+    for mode, outcome, tp, fn, tn, fp, npos, nneg in (("stable", "FP", 1, 0, 1, 1, 0, 2), ("unstable", "TP", 2, 0, 1, 0, 1, 1)):
+        o = os.path.join(d, f"out{gray_suffix(mode)}.h5")
+        sm = validate(ind, lab, o, gray=mode)
+        assert [r["outcome"] for r in sm["fake_run"]][-1] == outcome and [r["truth"] for r in sm["fake_run"]][-1] == mode
+        with h5py.File(o, "r") as f:
+            m3 = f["metrics/fake_run"].attrs
+            assert f.attrs["gray_mode"] == mode and f["case_005"].attrs["$gray$"] == 1 and f["case_005"].attrs["$truth$"] == mode
+            assert (m3["TP"], m3["FN"], m3["TN"], m3["FP"]) == (tp, fn, tn, fp) and (m3["n_pos"], m3["n_neg"]) == (npos, nneg), dict(m3)
+            assert m3["n_gray"] == 1 and m3["gray_as_stable_TNR"] == 0.5 and m3["gray_as_unstable_TPR"] == 1.0   # same bounds, any mode
+            assert f["case_005/fake_run"].attrs["outcome"] == outcome
+    try:
+        validate(ind, lab, os.path.join(d, "x.h5"), gray="maybe")
+        raise SystemExit("gray='maybe' should fail")
+    except ValueError:
+        pass
     # gray cases: left out of the counts, reported apart (bounds if all stable / all unstable)
     gr = [dict(truth=t, outcome=o, first_detection_t=d, delay_start_s=np.nan, delay_onset_s=np.nan) for t, o, d in
           (("unstable", "TP", 1.0), ("unstable", "TP", 2.0), ("stable", "TN", np.nan), ("stable", "FP", 3.0),
@@ -669,7 +713,10 @@ def main():
     p.add_argument("--ind_results", metavar="PATH", help="doe_indicator_results.h5 of the validation DOE")
     p.add_argument("--labels", metavar="PATH", help="reference_dataset*.h5 built on the validation doe_results.h5")
     p.add_argument("--reference", metavar="PATH", default=None, help="training reference_dataset*.h5 (stored in /training)")
-    p.add_argument("--out", metavar="PATH", default=None, help="default: doe_validation_results.h5 next to --ind_results")
+    p.add_argument("--out", metavar="PATH", default=None,
+                   help="default: doe_validation_results[_gray-<mode>].h5 next to --ind_results")
+    p.add_argument("--gray", choices=GRAY_MODES, default="ignore",
+                   help="gray cases: ignore (not scored, default) | stable (pessimistic) | unstable (optimistic)")
     p.add_argument("--channel", default="Axial_disp", help="channel whose pieces give the intervals (default Axial_disp)")
     p.add_argument("--early-tol", type=float, default=None, help=argparse.SUPPRESS)   # DEPRECATED: accepted, ignored
     p.add_argument("--selftest", action="store_true")
@@ -678,8 +725,9 @@ def main():
         return _selftest()
     if not (a.ind_results and a.labels):
         p.error("--ind_results and --labels are required")
-    out = a.out or os.path.join(os.path.dirname(os.path.abspath(a.ind_results)), "doe_validation_results.h5")
-    print_summary(validate(a.ind_results, a.labels, out, a.channel, a.reference))
+    out = a.out or os.path.join(os.path.dirname(os.path.abspath(a.ind_results)),
+                                    f"doe_validation_results{gray_suffix(a.gray)}.h5")
+    print_summary(validate(a.ind_results, a.labels, out, a.channel, a.reference, a.gray))
     print(f"Written: {out}")
 
 
