@@ -160,7 +160,7 @@ Solo lectura de datos que ya guardan los `.h5`; ningún script de etapa cambia.
 - Límites de decisión (`_indicator_limits`, línea horizontal trazo-punto): SST `meta_lim_sup`/`meta_lim_inf`; RMS-CV
   `meta_cv_threshold_used`; MaxEnt `ln((1−β)/α)` y `ln(β/(1−α))` con `pp_alpha`/`pp_beta` (la fórmula es la de
   `MaxEnt_SPRT.lib.sprt`). **Comprobado con datos reales**: en `ramp_check`, `I(t)` está bajo el límite justo antes de `t_d` y sobre él
-  en `t_d` (SST 11.23, MaxEnt 6.61). Green no guarda umbral: no se dibuja. El archivo de validación solo trae unos pocos attrs por
+  en `t_d` (SST 11.23, MaxEnt 6.61). Green SÍ calcula su umbral (mu + z·sigma de log10(area), `upper_log`), pero lo devuelve dentro de `meta["raw_result"]` y `doe_indicators.py` descarta esa clave al escribir el `.h5` (línea `k not in ("raw_result", "signal")` de `run_indicator`): no se dibuja hasta que se guarde. El visor ya lo dibuja si existe `meta_upper_log` (con `meta_I_t_meaning = areas_Ak`, límite = 10**upper_log). El archivo de validación solo trae unos pocos attrs por
   corrida; los `meta_*` se leen (solo attrs) del archivo de indicadores vecino (`indicator_results_file` del atributo raíz).
   Petición abierta a quien mantenga `doe_indicators.py`/Green: guardar el umbral de Green y, en el archivo de validación, copiar los
   umbrales para no depender del archivo vecino.

@@ -1066,6 +1066,12 @@ def _indicator_limits(rn: str, attrs: dict) -> list:
         a, b = num("pp_alpha", "meta_alpha"), num("pp_beta", "meta_beta")
         if a and b and 0 < a < 1 and 0 < b < 1:
             return [float(np.log((1 - b) / a)), float(np.log(b / (1 - a)))]
+    if p == "green" and str(attrs.get("meta_I_t_meaning")) == "areas_Ak":
+        # Green detects when the area exceeds 10**upper_log (mu + z sigma of log10(area) on the training windows). Its
+        # runner returns upper_log inside meta["raw_result"], which doe_indicators does not save: until it is stored as
+        # meta_upper_log there is nothing to draw.
+        v = num("meta_upper_log")
+        return [] if v is None else [float(10.0 ** v)]
     return []
 
 
@@ -4324,6 +4330,9 @@ def _selftest() -> None:
     lm = _indicator_limits("maxent_revo_x", {"pp_alpha": 0.00135, "pp_beta": 0.00135})
     assert abs(lm[0] - 6.6063) < 1e-3 and abs(lm[1] + 6.6063) < 1e-3, lm
     assert _indicator_limits("green_fixed_x", {"pp_z_sigma": 3.0}) == [] and _indicator_limits("ssq_x", {}) == []
+    g = _indicator_limits("green_fixed_x", {"meta_I_t_meaning": "areas_Ak", "meta_upper_log": -8.5})   # once it is stored
+    assert len(g) == 1 and abs(g[0] - 10 ** -8.5) < 1e-20
+    assert _indicator_limits("green_fixed_x", {"meta_I_t_meaning": "sigma_ewma", "meta_upper_log": -8.5}) == []
     assert _run_delay({"attrs": {"delay_onset_s": -0.45}}) == -0.45 and _run_delay({"attrs": {}}) is None
     assert "3 RAMP" not in file_role(doe) and "2 RAMP case(s)" in file_role(doe) and "2 RAMP case(s)" in file_role(lab)
     rows = {(x["case"], x["t0"]): x for x in _index_reference_dataset(lab)}
