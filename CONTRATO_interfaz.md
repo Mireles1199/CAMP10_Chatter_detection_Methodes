@@ -71,3 +71,31 @@ Además, las entradas SLD (todos los modos / modo / outcome por indicador) solo 
 simularon los casos (`sim_model` de los grupos del `.h5`, helper `_sim_models`); si el archivo no lo dice, se mantienen todos
 los presets como antes. Verificado abriendo el visor (Tk) sobre `ramp_check/doe_validation_results.h5` real, solo lectura:
 12 entradas Validation + 5 SLD de `1DOF_150`.
+
+## 7. Ventana "Figures…" del visor (reemplaza lo de §6/6b para las figuras no-referencia)
+Por indicación del usuario: el panel derecho del visor ("Summary plots") conserva solo las curvas de referencia (SLD y
+outcome por indicador, del modelo usado); todo lo demás va a una ventana nueva con más espacio y control.
+- `DOE_plots/figures_window.py` (archivo nuevo, mío): `FiguresWindow(parent, title, labels, render, style, out_dir, language, scale)`.
+  Lista de figuras, lienzo grande con la barra de matplotlib, controles de idioma EN/FR/both, escala (FIGSCALE), proporciones
+  de artículo (mantiene `_keep_size`), dpi (200/300/600), formato (png/pdf/svg), Save, Save all, Open folder. No sabe nada de las
+  figuras: recibe `render(label) -> Figure` (lanza si no hay datos; también se detectan los errores que solo salen al dibujar) y
+  `style(language, scale)`.
+- `DOE_plots/doe_unified_selector.py` (excepción acordada, CRLF): botón **Figures…** en el panel derecho;
+  `_make_summary_figure` (lógica sacada de `_refresh_summary`, la comparten el panel y la ventana); `_open_figures_window`
+  (todas las entradas que no empiezan por `SLD`: las `Validation — …` de §6 y las de t_d / I(t)); `_fig_style` / `_apply_fig_style`
+  fijan `LANGUAGE` y `FIGSCALE` de `validation_figures` y `sld_model` (efecto colateral: el SLD del panel también cambia de idioma).
+  El filtro del desplegable vuelve a ser solo `SLD` (§6b queda superado en eso; el filtro por modelo usado, `_sim_models`, se mantiene).
+- Carpeta de guardado: `figs_validation/` si el `.h5` tiene `/ranking`, si no `figs_indicators/`.
+
+### Auditoría de `validation_figures.py` contra article-plot-style (no se modificó; observaciones para wt-validacion)
+Cumple: `ARTICLE_RCPARAMS` única (vía `plot_style`, en `rc_context`), tamaños `FIGSIZE_SIMPLE`/`FIGSIZE_WIDE` × `FIGSCALE`
+(`figsize_from_scale`, `figsize_grid`), `constrained_layout=True` (sin `tight_layout`), texto EN/FR/both con `lang_text`,
+paleta Okabe-Ito (`COLOR_STABLE` azul `#0072B2`, `COLOR_UNSTABLE` naranja `#E69F00`, gris), leyenda sin marco, grid apagado,
+`dpi=300` al guardar, `_keep_size`. Comprobado a ojo en `tpr_tnr` con idioma `both`.
+Desviaciones menores: (1) no hay `hatch` como codificación redundante estable/inestable en las figuras que usan solo color
+(barras/puntos; la skill lo pide para rellenos y `plot_style` ya tiene `HATCH_UNSTABLE`); (2) `FIGSCALE = 1.5` está duplicado en
+`validation_figures.py` y `sld_model.py`, la skill lo define como `FIGSCALE_SIMPLE` en `plot_style.py` y ahí no existe;
+(3) `legend(fontsize=8)` y `fontsize=14` explícitos en vez del `legend.fontsize` de los rcParams; (4) la skill llama
+`_lang_text` a lo que el proyecto llama `lang_text` (no afecta); (5) varias figuras fallan en un `.h5` que solo tiene rampas
+(`score_vs_kappa`, `score_dist`: array vacío; `detection_time`: escala log sin datos positivos) — el visor lo muestra como
+error; sería mejor que lancen un mensaje claro.

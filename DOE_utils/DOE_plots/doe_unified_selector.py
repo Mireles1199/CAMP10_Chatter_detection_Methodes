@@ -929,6 +929,20 @@ def _make_summary_entries(h5_type: str, cases: list, h5_path: str):
     return entries
 
 
+def _fig_style() -> tuple:
+    """(language, scale) the figure modules are using now (the defaults of the Figures window)."""
+    m = sys.modules.get("validation_figures") or sys.modules.get("sld_model")
+    return getattr(m, "LANGUAGE", "EN"), float(getattr(m, "FIGSCALE", 1.5))
+
+
+def _apply_fig_style(language: str, scale: float) -> None:
+    """Set the language (EN | FR | both) and the scale (multiplier of the plot_style presets) of the figure modules."""
+    for name in ("validation_figures", "sld_model"):
+        m = sys.modules.get(name)
+        if m is not None:
+            m.LANGUAGE, m.FIGSCALE = language, scale
+
+
 def _sim_models(path: str) -> set:
     """SLD models (attr sim_model) of the cases of an .h5; empty if the file does not say."""
     try:
@@ -1400,7 +1414,7 @@ class DoeSelectorUnifiedApp:
         top.pack(fill=tk.X)
         # height: el desplegable de Tk muestra 10 filas por defecto y escondía las últimas (las SLD)
         # solo las SLD cuando las hay; en los demás tipos de archivo, todas las figuras de resumen
-        labels = [l for l in self._summary_labels if l.startswith(("Validation", "SLD"))] or self._summary_labels
+        labels = [l for l in self._summary_labels if l.startswith("SLD")] or self._summary_labels
         self._sum_combo = ttk.Combobox(top, values=labels, state="readonly",
                                        height=max(10, min(len(labels), 30)))
         if labels:
@@ -1410,6 +1424,7 @@ class DoeSelectorUnifiedApp:
         btns.pack(fill=tk.X, pady=(4, 0))
         ttk.Button(btns, text="▶ Preview", command=self._refresh_summary).pack(side=tk.LEFT)
         ttk.Button(btns, text="Save PNG", command=self._save_summary).pack(side=tk.LEFT, padx=4)
+        ttk.Button(btns, text="Figures…", command=self._open_figures_window).pack(side=tk.LEFT)
         self._sum_toolbar_frame = ttk.Frame(rf)
         self._sum_toolbar_frame.pack(fill=tk.X)
         self._sum_canvas_frame = ttk.Frame(rf)
@@ -2706,6 +2721,42 @@ class DoeSelectorUnifiedApp:
         if self.cases:
             _dp.LABEL_KEY = self.cases[0].get("label_key", _dp.LABEL_KEY)
 
+    def _make_summary_figure(self, entry) -> Optional[Figure]:
+        """Figure of a summary entry (label, func, extra); None if there is none, raises if it cannot be made."""
+        _label, func, extra = entry
+        if isinstance(extra, tuple):
+            # plot_convergence*(cases, *args) — returns a Figure
+            return _capture_new_figure(func, self.cases, *extra)
+        if isinstance(extra, dict):
+            if func == "_noise_overlay":
+                return _build_noise_overlay_fig(self.cases, extra["signal"])
+            kw = dict(extra)
+            kw["out_dir"] = None   # solo previsualizar
+            return _capture_new_figure(func, **kw)
+        return None
+
+    def _open_figures_window(self) -> None:
+        """Window for every figure that is not a reference curve (SLD stays in the right panel): more room, language,
+        scale, dpi and format (figures_window.py)."""
+        win = getattr(self, "_figs_win", None)
+        if win is not None and win.win.winfo_exists():
+            win.win.lift()
+            return
+        entries = {e[0]: e for e in self._summary_entries if not e[0].startswith("SLD")}
+        if not entries:
+            messagebox.showinfo("Figures", "This file has no figures besides the SLD.", parent=self.root)
+            return
+        from figures_window import FiguresWindow
+
+        def render(label):
+            self._sync_globals()
+            return self._make_summary_figure(entries[label])
+        lang, scale = _fig_style()
+        folder = "figs_validation" if _is_validation_h5(self.h5_path) else "figs_indicators"
+        self._figs_win = FiguresWindow(self.root, f"Figures — {os.path.basename(os.path.dirname(self.h5_path))}",
+                                       list(entries), render, _apply_fig_style,
+                                       os.path.join(os.path.dirname(self.h5_path), folder), lang, scale)
+
     def _refresh_summary(self) -> None:
         self._sync_globals()
         if not self._summary_entries:
@@ -2715,20 +2766,11 @@ class DoeSelectorUnifiedApp:
         if entry is None:
             return
 
-        label, func, extra = entry
+        label = entry[0]
         fig = None
 
         try:
-            if isinstance(extra, tuple):
-                # plot_convergence*(cases, *args) — returns a Figure
-                fig = _capture_new_figure(func, self.cases, *extra)
-            elif isinstance(extra, dict):
-                if func == "_noise_overlay":
-                    fig = _build_noise_overlay_fig(self.cases, extra["signal"])
-                else:
-                    kw = dict(extra)
-                    kw["out_dir"] = None   # solo previsualizar
-                    fig = _capture_new_figure(func, **kw)
+            fig = self._make_summary_figure(entry)
 
             if fig is None:
                 messagebox.showwarning("No figure",

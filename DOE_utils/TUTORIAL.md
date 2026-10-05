@@ -125,7 +125,9 @@ Un caso inestable se puntúa con su **primera detección** frente al inicio de s
 
 ![Validación completa](02_validation.png)
 
-**Viewer** abre el resultado. En la pestaña **Compare** eliges dos validaciones y ves sus métricas lado a lado.
+**Viewer** abre el resultado. En la pestaña **Compare** eliges dos validaciones y ves sus métricas lado a lado; el botón **Plot** dibuja la comparación A/B y la guarda en `figs_validation/`.
+
+En el visor, el panel de la derecha (*Summary plots*) conserva las curvas de referencia: los SLD y, en un archivo de validación, el SLD con el resultado (TP/TN/FN/FP) de cada indicador, solo del modelo con que se simularon los casos. Las demás figuras (las de validación: ranking, ROC, matriz de casos, tiempos de detección…; y las de `t_d` e `I(t)`) están en el botón **Figures…**: abre una ventana con la lista, más espacio y los controles del estilo de artículo (idioma EN / FR / both, escala, proporciones de artículo, dpi y formato), con **Save** y **Save all** hacia `figs_validation/` (o `figs_indicators/`). Una figura sin datos (por ejemplo, las de casos constantes en un archivo que solo tiene rampas) muestra el error abajo en vez de dibujarse.
 
 ## 4. Otras tareas
 
