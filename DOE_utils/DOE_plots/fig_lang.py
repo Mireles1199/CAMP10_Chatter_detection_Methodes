@@ -17,7 +17,8 @@ import yaml
 HERE = os.path.dirname(os.path.abspath(__file__))
 TABLE_FILE = os.path.join(HERE, "figure_texts.yaml")
 # words that need no translation (acronyms are kept anyway: any word in capitals)
-KEEP = {"vs", "kappa", "rpm", "log", "max", "min", "rms", "dB", "mod", "ref", "per", "sld", "doe"}
+KEEP = {"vs", "kappa", "rpm", "log", "max", "min", "rms", "dB", "mod", "ref", "per", "sld", "doe",
+        "maxent", "sst", "svd", "ssq", "plot"}   # indicator names and the Plot button are names, not words
 _table = None
 
 
@@ -80,8 +81,11 @@ def _texts(fig):
 
 def translate_figure(fig, language: str) -> list:
     """Translate the texts of `fig` in place; returns the original texts that still have untranslated words."""
-    missing = []
+    missing, seen = [], set()
     for t, sep in _texts(fig):
+        if id(t) in seen:   # the same Text can be reached twice (e.g. a title that is also a figure text)
+            continue
+        seen.add(id(t))
         s = t.get_text()
         new, ok = convert(s, language, sep)
         if new != s:
@@ -111,6 +115,7 @@ def _selftest():
     ax.set_xlabel("Time (s)")
     ax.set_ylabel("Something unknown")
     ax.legend()
+    fig.texts.append(ax.title)                                # reached twice: translated once
     missing = translate_figure(fig, "FR")
     assert ax.get_title() == "Temps de détection vs SNR" and ax.get_xlabel() == "Temps (s)"
     assert ax.get_legend().get_texts()[0].get_text() == "Contrôle" and missing == ["Something unknown"]

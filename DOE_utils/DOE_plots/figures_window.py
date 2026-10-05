@@ -59,6 +59,17 @@ def file_name(label: str, fmt: str = "") -> str:
     return stem + ("." + fmt if fmt else "")
 
 
+def layout(fig) -> tuple:
+    """(columns, rows) of the grid of axes of a figure (colorbars and insets not counted); (1, 1) if unknown."""
+    geos = []
+    for ax in fig.axes:
+        spec = ax.get_subplotspec() if hasattr(ax, "get_subplotspec") else None
+        if spec is not None:
+            rows, cols = spec.get_gridspec().get_geometry()
+            geos.append((cols, rows))
+    return max(geos, key=lambda g: g[0] * g[1]) if geos else (1, 1)
+
+
 def target_size(fig, size: str, scale: float, grid=(2, 1)) -> tuple:
     """Size in inches for the export: a plot_style preset x scale, or the figure's own (_keep_size, else as it is)."""
     if size == "SIMPLE":
@@ -149,6 +160,17 @@ class FiguresWindow:
             win.after(100, self.draw)
 
     # ------------------------------------------------------------------ figures
+    def select(self, name: str | None):
+        """Bring the window up with `name` selected (if it is in the list) and draw it."""
+        self.win.deiconify()
+        self.win.lift()
+        if name in self.labels:
+            i = self.labels.index(name)
+            self.lb.selection_clear(0, tk.END)
+            self.lb.selection_set(i)
+            self.lb.see(i)
+            self.draw()
+
     def current(self):
         sel = self.lb.curselection()
         return self.items[sel[0]] if sel else None
@@ -164,9 +186,12 @@ class FiguresWindow:
         self.style(lang, scale)
         fig = item.render()
         if fig is None:
-            raise ValueError("no figure")
+            raise ValueError("nothing to export yet (draw this panel first)")
         if item.live:
-            fig = copy_figure(fig)
+            try:
+                fig = copy_figure(fig)
+            except Exception as exc:   # something in the panel cannot be copied (e.g. a local function)
+                raise ValueError(f"this panel cannot be copied for export: {exc}") from exc
         else:
             plt.close(fig)   # detached from pyplot's windows; the object stays
             FigureCanvasAgg(fig)   # its pyplot canvas was a Tk widget, destroyed by close: resizing it would fail
@@ -192,6 +217,14 @@ class FiguresWindow:
         self.fig = self.canvas = None
         try:
             self.fig = self.make(item)
+            if item is not getattr(self, "_last_item", None):   # a new figure: the grid follows its layout of axes
+                self._last_item = item
+                geo = layout(self.fig)
+                if geo != (int(self.gcols.get()), int(self.grows.get())):
+                    self.gcols.set(str(geo[0]))
+                    self.grows.set(str(geo[1]))
+                    if self.size.get() == "grid":
+                        self.fig = self.make(item)
         except Exception as exc:   # a figure without data raises: shown here
             self.status.set(f"{item.name}: {type(exc).__name__}: {exc}")
             return
@@ -318,6 +351,9 @@ def _selftest():
     w.gcols.set("2")
     w.grows.set("2")
     assert tuple(w.make(w.items[1])._keep_size) == ps.figsize_grid(2, 2)
+    stacked = Figure()
+    stacked.subplots(3, 1)
+    assert layout(stacked) == (1, 3) and layout(Figure()) == (1, 1)   # the grid follows the axes of the panel
     w.size.set("WIDE")
     w.fmt.set("pdf")
     w.save_all()

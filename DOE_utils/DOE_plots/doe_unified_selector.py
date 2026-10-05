@@ -1137,6 +1137,8 @@ class DoeSelectorUnifiedApp:
         )
         self._type_label.pack(side=tk.LEFT, padx=8)
         ttk.Button(bar, text="🔍  Inspect", command=self._open_inspector).pack(side=tk.LEFT, padx=4)
+        ttk.Button(bar, text="💾  Export…", command=lambda: self._open_export(self._active_panel_name())).pack(
+            side=tk.LEFT, padx=4)
         role = file_role(self.h5_path)
         if role:
             tk.Label(self.container, text=role, bg="#fff8e1", fg="#5d4037", anchor="w", padx=8,
@@ -1423,8 +1425,9 @@ class DoeSelectorUnifiedApp:
         btns = ttk.Frame(top)
         btns.pack(fill=tk.X, pady=(4, 0))
         ttk.Button(btns, text="▶ Preview", command=self._refresh_summary).pack(side=tk.LEFT)
-        ttk.Button(btns, text="Save PNG", command=self._save_summary).pack(side=tk.LEFT, padx=4)
-        ttk.Button(btns, text="Figures…", command=self._open_figures_window).pack(side=tk.LEFT)
+        ttk.Button(btns, text="Save…", command=lambda: self._open_export(self._sum_combo.get())).pack(side=tk.LEFT, padx=4)
+        ttk.Button(btns, text="Figures…", command=lambda: self._open_export(
+            next((e[0] for e in self._summary_entries if not e[0].startswith("SLD")), None))).pack(side=tk.LEFT)
         self._sum_toolbar_frame = ttk.Frame(rf)
         self._sum_toolbar_frame.pack(fill=tk.X)
         self._sum_canvas_frame = ttk.Frame(rf)
@@ -2170,7 +2173,7 @@ class DoeSelectorUnifiedApp:
             ax.ticklabel_format(style="sci", axis="y", scilimits=(0, 0))
             if last:
                 ax.set_xlabel("Time (s)", fontsize=14)
-                ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:.3g}"))
+                ax.xaxis.set_major_formatter(mticker.FormatStrFormatter("%.3g"))
 
         n = len(selected)
         lk_disp = _col_header(selected[0]["label_key"]) if selected else ""
@@ -2201,7 +2204,7 @@ class DoeSelectorUnifiedApp:
                 label=lk_disp, shrink=0.85,
                 orientation="horizontal", pad=0.08,
             )
-            self._cbar.formatter = mticker.FuncFormatter(lambda x, _: f"{x:.3g}")
+            self._cbar.formatter = mticker.FormatStrFormatter("%.3g")
             self._cbar.update_ticks()
             self._mark_values_on_colorbar(self._cbar, _cbar_marks)
 
@@ -2306,7 +2309,7 @@ class DoeSelectorUnifiedApp:
             self._force_cbar = self.force_fig.colorbar(
                 sm_f, ax=[self.ax_force_1, self.ax_force_2, self.ax_force_3],
                 label=lk_f, shrink=0.85, orientation="horizontal", pad=0.08)
-            self._force_cbar.formatter = mticker.FuncFormatter(lambda x, _: f"{x:.3g}")
+            self._force_cbar.formatter = mticker.FormatStrFormatter("%.3g")
             self._force_cbar.update_ticks()
             self._mark_values_on_colorbar(self._force_cbar, _cbar_marks_f)
 
@@ -2418,7 +2421,7 @@ class DoeSelectorUnifiedApp:
             self._deflex_cbar = self.deflex_fig.colorbar(
                 sm_d, ax=[self.ax_deflex_d, self.ax_deflex_v],
                 label=lk_disp, shrink=0.85, orientation="horizontal", pad=0.08)
-            self._deflex_cbar.formatter = mticker.FuncFormatter(lambda x, _: f"{x:.3g}")
+            self._deflex_cbar.formatter = mticker.FormatStrFormatter("%.3g")
             self._deflex_cbar.update_ticks()
             self._mark_values_on_colorbar(self._deflex_cbar, _cbar_marks_d)
 
@@ -2735,27 +2738,46 @@ class DoeSelectorUnifiedApp:
             return _capture_new_figure(func, **kw)
         return None
 
-    def _open_figures_window(self) -> None:
-        """Window for every figure that is not a reference curve (SLD stays in the right panel): more room, language,
-        scale, dpi and format (figures_window.py)."""
-        win = getattr(self, "_figs_win", None)
+    # (tab attribute, figure attribute, name in the export window) of the panels of the centre
+    _PANELS = (("_sig_tab", "sig_fig", "Panel — Signals"), ("_force_tab", "force_fig", "Panel — Forces"),
+               ("_It_tab", "It_fig", "Panel — I(t)"), ("_deflex_tab", "deflex_fig", "Panel — Out Deflex"))
+
+    def _export_items(self) -> list:
+        """Every figure of this viewer for the export window: the panels as they are on screen (exported as a copy)
+        and every summary figure (SLD and validation draw their own language; the others are translated)."""
+        from figures_window import Item
+        items = [Item(name, (lambda a=attr: getattr(self, a)), live=True)
+                 for _tab, attr, name in self._PANELS if hasattr(self, attr)]
+        items.append(Item("Panel — right (current)", lambda: self._fig_holder.get("summary"), live=True))
+
+        def gen(entry):
+            self._sync_globals()
+            return self._make_summary_figure(entry)
+        items += [Item(e[0], (lambda e=e: gen(e)), native=e[0].startswith(("SLD", "Validation")))
+                  for e in self._summary_entries]
+        return items
+
+    def _active_panel_name(self) -> Optional[str]:
+        current = self._nb.select() if hasattr(self, "_nb") else None
+        for tab, _attr, name in self._PANELS:
+            if hasattr(self, tab) and current == str(getattr(self, tab)):
+                return name
+        return "Panel — Signals" if hasattr(self, "sig_fig") else None
+
+    def _open_export(self, select: Optional[str] = None) -> None:
+        """The one export window of this viewer (figures_window.py): every panel and every summary figure, with size,
+        scale, language, dpi, format, folder and name. Opened on `select`."""
+        win = getattr(self, "_export_win", None)
         if win is not None and win.win.winfo_exists():
-            win.win.lift()
-            return
-        entries = {e[0]: e for e in self._summary_entries if not e[0].startswith("SLD")}
-        if not entries:
-            messagebox.showinfo("Figures", "This file has no figures besides the SLD.", parent=self.root)
+            win.select(select)
             return
         from figures_window import FiguresWindow
-
-        def render(label):
-            self._sync_globals()
-            return self._make_summary_figure(entries[label])
         lang, scale = _fig_style()
         folder = "figs_validation" if _is_validation_h5(self.h5_path) else "figs_indicators"
-        self._figs_win = FiguresWindow(self.root, f"Figures — {os.path.basename(os.path.dirname(self.h5_path))}",
-                                       list(entries), render, _apply_fig_style,
-                                       os.path.join(os.path.dirname(self.h5_path), folder), lang, scale)
+        self._export_win = FiguresWindow(
+            self.root, f"Export — {os.path.basename(os.path.dirname(self.h5_path))} / {os.path.basename(self.h5_path)}",
+            self._export_items(), style=_apply_fig_style, out_dir=os.path.join(os.path.dirname(self.h5_path), folder),
+            language=lang, scale=scale, select=select)
 
     def _refresh_summary(self) -> None:
         self._sync_globals()
@@ -2786,30 +2808,6 @@ class DoeSelectorUnifiedApp:
         except Exception as exc:
             messagebox.showerror("Error generating figure",
                                  f"{type(exc).__name__}: {exc}", parent=self.root)
-
-    def _save_summary(self) -> None:
-        fig = self._fig_holder.get("summary")
-        if fig is None:
-            messagebox.showinfo("No figure",
-                                "Press ▶ Preview first to generate a figure.",
-                                parent=self.root)
-            return
-        out_dir = os.path.join(os.path.dirname(self.h5_path),
-                               "figs_validation" if _is_validation_h5(self.h5_path) else "figs_indicators")
-        os.makedirs(out_dir, exist_ok=True)
-        label   = self._sum_combo.get()
-        fname   = _sanitize(label) + ".png"
-        path    = os.path.join(out_dir, fname)
-        try:
-            # el lienzo Tk ajusta la figura al widget: las SLD vuelven a su FIGSIZE x FIGSCALE al guardar
-            shown = fig.get_size_inches().copy()
-            if getattr(fig, "_keep_size", None):
-                fig.set_size_inches(*fig._keep_size, forward=False)
-            fig.savefig(path, dpi=300, bbox_inches="tight")
-            fig.set_size_inches(*shown, forward=False)
-            messagebox.showinfo("Saved", f"Figure saved to:\n{path}", parent=self.root)
-        except Exception as exc:
-            messagebox.showerror("Error saving", str(exc), parent=self.root)
 
     # ── ABRIR ARCHIVO ─────────────────────────────────────────────────────────────
     def _open_file(self) -> None:
@@ -3099,26 +3097,26 @@ class ReferenceViewerApp:
             messagebox.showerror("Error loading", str(exc), parent=self.root)
 
     # ── EXPORTAR FIGURA (comun a las dos vistas) ──────────────────────────────
-    def _save_figure_to_reference_dir(self, fig: Figure, name_hint: str) -> str:
-        """Guarda `fig` (ya construida en estilo article-plot-style) y devuelve la
-        ruta -- sin messagebox, para poder llamarla varias veces en lote (una por
-        página) y avisar una sola vez al final. Mismo criterio de guardado que ya
-        usa DoeSelectorUnifiedApp (_save_summary): carpeta fija junto al .h5,
-        nombre auto-generado, dpi=300, bbox_inches='tight'."""
-        out_dir = os.path.join(os.path.dirname(self.h5_path), "figs_reference")
-        os.makedirs(out_dir, exist_ok=True)
-        path = os.path.join(out_dir, _sanitize(name_hint) + ".png")
-        fig.savefig(path, dpi=300, bbox_inches="tight")
-        return path
-
-    def _export_figure(self, fig: Figure, name_hint: str) -> None:
-        """Guarda una sola figura y avisa por messagebox (ver _save_figure_to_reference_dir
-        para guardado silencioso en lote, ej. exportar varias páginas)."""
-        try:
-            path = self._save_figure_to_reference_dir(fig, name_hint)
-            messagebox.showinfo("Saved", f"Figure saved to:\n{path}", parent=self.root)
-        except Exception as exc:
-            messagebox.showerror("Error saving figure", f"{type(exc).__name__}: {exc}", parent=self.root)
+    def _open_export(self) -> None:
+        """The one export window (figures_window.py) with the figures of this view: the article-style version of the
+        selection (built like before: article-plot-style) and the view as it is on screen; saved in figs_reference/."""
+        win = getattr(self, "_export_win", None)
+        if win is not None and win.win.winfo_exists():
+            win.select(None)
+            return
+        from figures_window import Item, FiguresWindow
+        if self.h5_type == TYPE_REFERENCE_DATASET:
+            items = [Item("Segments — article (selection)", self._tramos_article_figure),
+                     Item("Segments — screen", lambda: self._fig_tramos, live=True)]
+        else:
+            n = self._combinado_pages()
+            items = [Item("Combined — article" + (f" (page {p + 1}/{n})" if n > 1 else ""),
+                          (lambda p=p: self._combinado_article_figure(p))) for p in range(n)]
+            items.append(Item("Combined — screen", lambda: self._fig_comb, live=True))
+        lang, scale = _fig_style()
+        self._export_win = FiguresWindow(
+            self.root, f"Export — {os.path.basename(self.h5_path)}", items, style=_apply_fig_style,
+            out_dir=os.path.join(os.path.dirname(self.h5_path), "figs_reference"), language=lang, scale=scale)
 
     @staticmethod
     def _apply_sci_y(ax) -> None:
@@ -3127,14 +3125,13 @@ class ReferenceViewerApp:
         fmt.set_powerlimits((-2, 2))
         ax.yaxis.set_major_formatter(fmt)
 
-    def _export_tramos_figure(self) -> None:
+    def _tramos_article_figure(self) -> Figure:
         """Reconstruye la selección actual (overlay, mismo layout que la vista interactiva)
-        como figura nueva en estilo article-plot-style (skill: plot_style.py) -- no guarda
-        la figura interactiva tal cual, esa está pensada para pantalla."""
+        como figura nueva en estilo article-plot-style (skill: plot_style.py) -- la figura
+        interactiva tal cual se exporta aparte ("Segments — screen")."""
         sel = self._tree.selection()
         if not sel:
-            messagebox.showinfo("No figure", "Select at least one segment first.", parent=self.root)
-            return
+            raise ValueError("select at least one segment first")
         pieces = [self._index[int(iid)] for iid in sel]
 
         show_signal = self._tramos_show_signal_var.get()
@@ -3194,73 +3191,66 @@ class ReferenceViewerApp:
                 if detailed:
                     ax.legend()
 
-            self._export_figure(fig, f"segments_{channel_txt}_{'-'.join(row_kinds)}")
+            return fig
 
-    def _export_combinado_grid_figure(self, channel: str, show_dist: bool) -> None:
+    def _combinado_pages(self) -> int:
+        """Pages of the article version of the combined view: one per grid page with 'Grid by case', else 1."""
+        if not self._combinado_grid_var.get():
+            return 1
+        _pieces, cases = self._combinado_pieces_by_case()
+        return max(1, -(-len(cases) // self._combinado_grid_page_size()))
+
+    def _combinado_grid_figure(self, channel: str, show_dist: bool, page: int) -> Figure:
         """Version article-plot-style del grid por case (ver _plot_combinado_grid) --
-        un PNG por pagina (mismo page_size que la vista interactiva), en vez de una
+        una figura por pagina (mismo page_size que la vista interactiva), en vez de una
         sola imagen gigante con todos los cases."""
         pieces_by_label, cases = self._combinado_pieces_by_case()
         if not cases:
-            messagebox.showinfo("No figure", "No data for this channel.", parent=self.root)
-            return
+            raise ValueError("no data for this channel")
         ylabel = _channel_ylabel(channel)
-        mode = "distribution" if show_dist else "signal"
         page_size = self._combinado_grid_page_size()
-        n_pages = -(-len(cases) // page_size)
+        page_cases = cases[page * page_size:(page + 1) * page_size]
+        with matplotlib.rc_context(plot_style.ARTICLE_RCPARAMS):
+            fig = Figure(figsize=plot_style.figsize_grid(len(page_cases), 2), constrained_layout=True)
+            axes_grid = fig.subplots(2, len(page_cases), squeeze=False)
+            for col, case in enumerate(page_cases):
+                for row, (label, color, hatch) in enumerate((
+                    ("stable", plot_style.COLOR_STABLE, None),
+                    ("unstable", plot_style.COLOR_UNSTABLE, plot_style.HATCH_UNSTABLE),
+                )):
+                    ax = axes_grid[row][col]
+                    piece = pieces_by_label[label].get(case)
+                    if piece is None:
+                        ax.axis("off")
+                        continue
+                    t_piece, y_piece = piece
+                    if show_dist:
+                        ax.hist(np.asarray(y_piece).ravel(), bins=30, density=True,
+                                color=color, alpha=0.5, hatch=hatch, edgecolor=color)
+                        ax.set_xlabel(ylabel, labelpad=14)
+                        if col == 0:
+                            ax.set_ylabel("Density")
+                    else:
+                        t_dec, y_dec = _decimate_for_plot(t_piece, y_piece)
+                        ax.plot(t_dec, y_dec, color=color, lw=1.0)
+                        ax.set_xlabel("t [s]")
+                        if col == 0:
+                            ax.set_ylabel(ylabel)
+                        self._apply_sci_y(ax)
+                axes_grid[0][col].set_title(case)
+        return fig
 
-        try:
-            paths = []
-            for page in range(n_pages):
-                page_cases = cases[page * page_size:(page + 1) * page_size]
-                with matplotlib.rc_context(plot_style.ARTICLE_RCPARAMS):
-                    fig = Figure(figsize=plot_style.figsize_grid(len(page_cases), 2), constrained_layout=True)
-                    axes_grid = fig.subplots(2, len(page_cases), squeeze=False)
-                    for col, case in enumerate(page_cases):
-                        for row, (label, color, hatch) in enumerate((
-                            ("stable", plot_style.COLOR_STABLE, None),
-                            ("unstable", plot_style.COLOR_UNSTABLE, plot_style.HATCH_UNSTABLE),
-                        )):
-                            ax = axes_grid[row][col]
-                            piece = pieces_by_label[label].get(case)
-                            if piece is None:
-                                ax.axis("off")
-                                continue
-                            t_piece, y_piece = piece
-                            if show_dist:
-                                ax.hist(np.asarray(y_piece).ravel(), bins=30, density=True,
-                                        color=color, alpha=0.5, hatch=hatch, edgecolor=color)
-                                ax.set_xlabel(ylabel, labelpad=14)
-                                if col == 0:
-                                    ax.set_ylabel("Density")
-                            else:
-                                t_dec, y_dec = _decimate_for_plot(t_piece, y_piece)
-                                ax.plot(t_dec, y_dec, color=color, lw=1.0)
-                                ax.set_xlabel("t [s]")
-                                if col == 0:
-                                    ax.set_ylabel(ylabel)
-                                self._apply_sci_y(ax)
-                        axes_grid[0][col].set_title(case)
-                    name_hint = f"combined_grid_{channel}_{mode}_page{page + 1}of{n_pages}"
-                    paths.append(self._save_figure_to_reference_dir(fig, name_hint))
-            messagebox.showinfo("Saved", f"{len(paths)} figure(s) saved to:\n" + "\n".join(paths), parent=self.root)
-        except Exception as exc:
-            messagebox.showerror("Error saving figure", f"{type(exc).__name__}: {exc}", parent=self.root)
-
-    def _export_combinado_figure(self) -> None:
+    def _combinado_article_figure(self, page: int = 0) -> Figure:
         """Reconstruye stable/unstable como figura nueva en estilo article-plot-style
         (skill: plot_style.py), lado a lado (FIGSIZE_WIDE = 2 paneles), no la figura
-        interactiva tal cual. Si el toggle "Grid by case" esta activo, exporta esa
-        vista en su lugar (ver _export_combinado_grid_figure)."""
+        interactiva tal cual. Si el toggle "Grid by case" esta activo, la pagina `page`
+        de esa vista en su lugar (ver _combinado_grid_figure)."""
         channel = self._channel_var.get()
         if not channel or not any(self._combined_data.get(l) for l in ("stable", "unstable")):
-            messagebox.showinfo("No figure", "Pick a channel first.", parent=self.root)
-            return
+            raise ValueError("pick a channel first")
         show_dist = self._show_distribution_var.get()
-
         if self._combinado_grid_var.get():
-            self._export_combinado_grid_figure(channel, show_dist)
-            return
+            return self._combinado_grid_figure(channel, show_dist, page)
 
         with matplotlib.rc_context(plot_style.ARTICLE_RCPARAMS):
             fig = Figure(figsize=plot_style.FIGSIZE_WIDE, constrained_layout=True)
@@ -3289,9 +3279,7 @@ class ReferenceViewerApp:
                     ax.set_xlabel("t [s]")
                     ax.set_ylabel(_channel_ylabel(channel))
                     self._apply_sci_y(ax)
-
-            mode = "distribution" if show_dist else "signal"
-            self._export_figure(fig, f"combined_{channel}_{mode}")
+        return fig
 
     # ══════════════════════════════ PESTAÑA "TRAMOS" ═══════════════════════════════
     def _build_tramos_ui(self) -> None:
@@ -3344,7 +3332,7 @@ class ReferenceViewerApp:
 
         self._add_normal_toggle(bar, self._plot_selected_tramos)
         ttk.Separator(bar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6, pady=2)
-        ttk.Button(bar, text="💾 Export figure", command=self._export_tramos_figure).pack(side=tk.LEFT, padx=4)
+        ttk.Button(bar, text="💾 Export figure", command=self._open_export).pack(side=tk.LEFT, padx=4)
 
         body = ttk.Panedwindow(self.container, orient=tk.HORIZONTAL)
         body.pack(fill=tk.BOTH, expand=True)
@@ -3587,7 +3575,7 @@ class ReferenceViewerApp:
         ).pack(side=tk.LEFT, padx=4)
 
         ttk.Separator(bar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6, pady=2)
-        ttk.Button(bar, text="💾 Export figure", command=self._export_combinado_figure).pack(side=tk.LEFT, padx=4)
+        ttk.Button(bar, text="💾 Export figure", command=self._open_export).pack(side=tk.LEFT, padx=4)
 
         body = ttk.Panedwindow(self.container, orient=tk.HORIZONTAL)
         body.pack(fill=tk.BOTH, expand=True)
