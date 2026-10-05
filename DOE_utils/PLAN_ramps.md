@@ -7,7 +7,7 @@
   Pendiente para el usuario: (1) decidir el valor de `early_tol_s` (0.5 s convierte en "alarma temprana" las
   detecciones durante el crecimiento del chatter, ver F5 en la bitácora); (2) re-correr Label template/build del cono
   y Validate de `DOE_Test_1DOF_150_n12000` (quedan en naranja a propósito); (3) copiar la `db_def` de dos sentidos a
-  otras carpetas de caso si quiere rampas decrecientes allí.
+  otras carpetas de caso si quiere rampas decrecientes allí. Informe final de la noche: `INFORME_ramps_2026-10-05.md`.
 - **Python:** `D:/Thesis/03-Code_Storage/02-Altintlas_Nessy2m_Storage/Env/entorno_CAMP10/Scripts/python.exe`.
 - **Restricciones:** no correr indicadores de verdad salvo el E2E corto acordado (F0 / Verificación 3); no tocar los
   experimentos del usuario ni sus borrados sin commitear; sin ramas ni worktrees nuevos; `check_app_dialogs.py` en
