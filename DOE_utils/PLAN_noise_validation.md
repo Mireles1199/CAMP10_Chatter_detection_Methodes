@@ -1,6 +1,6 @@
 # PLAN — Validación con ruido blanco (Ap constante)
 
-**Estado (2026-10-05):** N1–N4 ✅ hechos en `wt-validacion` (a57c847 doe_noise, 4cabb64 + 5036ca0 doe_indicators, b80745c refactor, cbb3296 validate_noise, 86df0a2 figuras; selftests OK). N5 en curso (n12000 por CLI). wt-interfaz: I1–I3 ✅ (merge de wt-validacion 8788d2e en wt-interfaz → 6e7f0bb; e6b374b etapas, 1aa3bd0 formularios, ee0b09a visor). Rama de la interfaz: `wt-interfaz`. Coordina: sesión `DOE_utils/PLAN_app_v2.md` (manager).
+**Estado (2026-10-05):** N1–N4 ✅ hechos en `wt-validacion` (a57c847 doe_noise, 4cabb64 + 5036ca0 doe_indicators, b80745c refactor, cbb3296 validate_noise, 86df0a2 figuras; selftests OK). N5 ✅ (n12000 por CLI, 12 casos × 6 niveles × 3 realizaciones; medidas en §8). wt-interfaz: I1–I3 ✅ (merge de wt-validacion 8788d2e en wt-interfaz → 6e7f0bb; e6b374b etapas, 1aa3bd0 formularios, ee0b09a visor). Rama de la interfaz: `wt-interfaz`. Coordina: sesión `DOE_utils/PLAN_app_v2.md` (manager).
 **Cómo retomar:** leer §0 y la tabla de fases (§9); la última fase marcada ✅ es donde se quedó.
 
 Estilo de trabajo: **ponytail** (reusar lo que ya existe, el cambio más corto que funcione, un selftest por lógica nueva) y figuras con **article-plot-style** (`DOE_plots/plot_style.py`: `FIGSIZE_SIMPLE`/`FIGSIZE_WIDE` × `FIGSCALE`, `figsize_grid`, `lang_text`, paleta Okabe-Ito, `fig._keep_size`).
@@ -154,6 +154,7 @@ Todas con `lang_text` (EN/FR/both), `constrained_layout`, leyendas fuera de los 
 - Con `time` en enlaces duros solo cuentan los `values` (≈ 9 MB por copia → ≈ 2 GB); sin ellos serían ≈ 3.9 GB.
 - Tiempo: 216 copias × 4 indicadores; se mide en la fase E2E antes de pasar a `all`, **con más `workers`** (n12000 tiene `indicators.workers: 1`; `workers` no entra en la huella).
 - No abrir el archivo multi en el visor hasta que I3 haga la carga perezosa.
+- **Medido en N5 (n12000, 12 casos × 6 niveles × 3 realizaciones = 216 copias):** `doe_noise_multi_results.h5` = 2.13 GB, generado en 6 s. `doe_noise_indicator_results.h5` (sin señales) = 65 MB. `doe_noise_validation_results.h5` = 0.36 MB (+ `_by_snr.csv` 8 KB); `validate_noise.py` tarda 2 s. Indicadores (864 tareas): un grupo con los 4 indicadores en un proceso = 87 s → 1 worker ≈ 5.2 h; 3 workers ≈ 5.8 tareas/min (≈ 2.5 h); 6 workers ≈ 11 tareas/min (≈ 1.3 h) pero sin memoria virtual (ver arriba). Windows también puede suspender el equipo y cortar la corrida: se reanuda con `--cases` de los grupos incompletos (en N5 se usó un lanzador que reintenta y pide no suspender, `SetThreadExecutionState`).
 - **Memoria (medido en N5):** cada worker de `noise_indicators` llega a ~3 GB de pico (un grupo, 4 indicadores, 1 proceso: 87 s, 2.9 GB). Con 6 workers Windows se quedó sin memoria virtual (log System 18:27:02, "Mémoire virtuelle minimale insuffisante") y el pool se cayó tras 399/864 tareas. **Usar `workers` <= 3.** Como los resultados se escriben incrementalmente, se retoma pasando `--cases` con los grupos incompletos.
 - **Alternativa anotada** (no se hace ahora): no guardar las señales ruidosas y regenerarlas desde la semilla dentro de `noise_indicators`.
 
@@ -165,7 +166,7 @@ Todas con `lang_text` (EN/FR/both), `constrained_layout`, leyendas fuera de los 
 | N2 ✅ | wt-validacion | `doe_indicators.py --no-signals` + selftest | `feat(noise): --no-signals for noisy indicator results` |
 | N3 ✅ | wt-validacion | `effective_truth` compartida + `validate_noise.py` + selftest | `feat(validation): validate_noise.py (metrics per SNR x realization)` |
 | N4 ✅ | wt-validacion | `NOISE_FIGURES` + `figs_dir` + selftest | `feat(validation): noise validation figures` |
-| N5 | wt-validacion | E2E por CLI en n12000 con 12 casos (~2 GB en disco: **confirmar con el usuario antes**): tamaños y tiempos reales, revisión a ojo de las figuras | ajustes + `docs(validation)` GUIA/INFORME |
+| N5 ✅ | wt-validacion | E2E por CLI en n12000 con 12 casos (~2 GB en disco: **confirmar con el usuario antes**): tamaños y tiempos reales, revisión a ojo de las figuras | ajustes + `docs(validation)` GUIA/INFORME |
 | N6 | wt-validacion → manager + wt-interfaz | Mensaje de entrega: hash, contrato (§4), comandos (§5), resultados E2E | — |
 | I1 ✅ | wt-interfaz | YAML + `experiment.py` (stages `noise` ampliado, `noise_indicators --no-signals`, `noise_validate`) | su rama |
 | I2 ✅ | wt-interfaz | Formularios y tarjetas | su rama |
