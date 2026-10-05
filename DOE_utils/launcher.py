@@ -543,6 +543,7 @@ class App:
             self.cmp_tree.heading(c, text=c.replace("balanced_accuracy", "bal.acc").replace("mean_", "")
                                   .replace("median_delay_onset_s", "delay_onset").replace("_stable", "")
                                   .replace("ramp_median_delay_s", "ramp delay").replace("_rate", "")
+                                  .replace("median_t_ratio", "t_det/t_onset").replace("delay_onset_p", "delay p")
                                   .replace("early_alarm", "early").replace("gray_as_stable_", "gray=st ")
                                   .replace("gray_as_unstable_", "gray=unst ")
                                   .replace("detection", "det.").replace("ramp_", "ramp* "))

@@ -579,7 +579,8 @@ try:
             h.create_group("metrics/maxent_revo_dec7_1step").attrs.update(
                 balanced_accuracy=ba, MCC=ba - 0.1, **({"ramp_n": 2, "ramp_detection_rate": 0.5, "n_gray": 2,
                                                          "n_gray_alarm": 1, "gray_alarm_rate": 0.5,
-                                                         "gray_as_stable_TNR": 0.6, "gray_as_unstable_TPR": 0.8}
+                                                         "gray_as_stable_TNR": 0.6, "gray_as_unstable_TPR": 0.8,
+                                                         "balanced_accuracy_lo": 0.8, "median_t_ratio": 0.5}
                                                         if n == VA else {}))
     ex.reload()
     app.refresh(True)
@@ -591,6 +592,9 @@ try:
     assert rows[0][1] == "0.900" and rows[0][2] == "0.700", rows
     j = 1 + 2 * ex.METRIC_COLUMNS.index("ramp_detection_rate")
     assert rows[0][j] == "0.500" and rows[0][j + 1] == "", rows          # the ramp metrics: A has them, B not
+    for k, v in (("balanced_accuracy_lo", "0.800"), ("median_t_ratio", "0.500")):   # intervals / ratio (new files) vs old files
+        j = 1 + 2 * ex.METRIC_COLUMNS.index(k)
+        assert rows[0][j] == v and rows[0][j + 1] == "", (k, rows[0][j], rows[0][j + 1])
     for k, v in (("n_gray", "2"), ("gray_alarm_rate", "0.500"), ("gray_as_stable_TNR", "0.600"),
                  ("gray_as_unstable_TPR", "0.800")):                     # gray cases: A (new files) has them, B not
         j = 1 + 2 * ex.METRIC_COLUMNS.index(k)
@@ -661,9 +665,12 @@ try:
     mine = os.path.join(tmp, "mine_gray.h5")                       # the card of an experiment with the Validate stage
     ex.save_section(VA, "validate", {"channel": "Axial_disp", "gray": "stable", "out": mine})
     with h5py.File(mine, "w") as h:
-        h.create_group("metrics/run_x").attrs.update(balanced_accuracy=0.8, TP=1, FN=0, TN=1, FP=0, n_gray=3, n_gray_alarm=1)
+        h.create_group("metrics/run_x").attrs.update(balanced_accuracy=0.8, TP=1, FN=0, TN=1, FP=0, n_gray=3, n_gray_alarm=1,
+                                                      balanced_accuracy_lo=0.6, balanced_accuracy_hi=0.9, MCC=0.5, MCC_lo=0.2,
+                                                      MCC_hi=0.8, median_t_ratio=0.45)
     card = [t for t, _ in ex.stage_summary(ex.load(VA), "validate")]
     assert card[0].startswith("gray cases: stable (pessimistic)") and any("scored as stable): 3, 1 alarm" in t for t in card), card
+    assert any("bal.acc 0.80 [0.60-0.90]" in t and "MCC 0.50 [0.20-0.80]" in t and "t_det/t_onset 0.45" in t for t in card), card
     ex.save_section(VA, "validate", {"channel": "Axial_disp"})
     print("gray modes OK")
     app.notebook.select(app.tab_exp)

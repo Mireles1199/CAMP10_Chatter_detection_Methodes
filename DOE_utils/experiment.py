@@ -1464,6 +1464,9 @@ def _stage_summary(exp: Exp, key: str) -> list:
         if not m:
             return [("no validation results yet", None)]
         f2 = lambda x: "-" if x is None or x != x else f"{x:.2f}"
+        # 95 % interval of a metric, " [lo-hi]" (files written before the intervals existed: nothing)
+        ci = lambda d, k: ("" if d.get(k + "_lo") is None or d.get(k + "_lo") != d.get(k + "_lo")
+                           else f" [{f2(d.get(k + '_lo'))}-{f2(d.get(k + '_hi'))}]")
         rank = sorted(m, key=lambda r: -(m[r].get("balanced_accuracy") or -1))
         gm = gray_mode(exp)
         out.append((f"gray cases: {GRAY_LABELS[gm]}" + ("" if gm == "ignore" else "  (file " + os.path.basename(validation_path(exp))
@@ -1473,8 +1476,11 @@ def _stage_summary(exp: Exp, key: str) -> list:
             out.append(("no constant case (or ramp that does not cross) scored: global metrics and ranking empty", None))
         for i, r in enumerate([] if empty else rank, 1):
             d = m[r]
-            out.append((f"{i}. {r}: bal.acc {f2(d.get('balanced_accuracy'))}  MCC {f2(d.get('MCC'))}  "
-                        f"AUC {f2(d.get('AUC'))}  TP {d.get('TP')} FN {d.get('FN')} TN {d.get('TN')} FP {d.get('FP')}",
+            tr = d.get("median_t_ratio")   # median t_det / t_onset of the hits: < 1 = the alarm came before the amplitude limit
+            out.append((f"{i}. {r}: bal.acc {f2(d.get('balanced_accuracy'))}{ci(d, 'balanced_accuracy')}  "
+                        f"MCC {f2(d.get('MCC'))}{ci(d, 'MCC')}  AUC {f2(d.get('AUC'))}  "
+                        f"TP {d.get('TP')} FN {d.get('FN')} TN {d.get('TN')} FP {d.get('FP')}"
+                        + ("" if tr is None or tr != tr else f"  t_det/t_onset {tr:.2f}"),
                         "ok" if i == 1 else None))
             if d.get("n_gray"):   # gray cases: how many, how many alarm, and the bounds (not a verdict)
                 out.append((f"     gray cases ({'not scored' if gm == 'ignore' else 'scored as ' + gm}): {d['n_gray']}, "
@@ -1877,7 +1883,9 @@ LABEL_DEFAULTS = {"strategy": "amplitude", "amp_signal": "Axial_disp", "base_att
                   "lim_inf_pct": 10.0, "lim_sup_pct": 40.0, "warmup": 0.0}
 INDICATOR_PRESETS_DEFAULT = ("maxent_revo_dec7_1step", "rms_cv_revo_aux4_n_aux4_dec7_1step",
                              "ssq_revo_aux4_n_aux4_dec7_1step", "green_fixed_revo_dec7_1step")
-METRIC_COLUMNS = ("balanced_accuracy", "MCC", "AUC", "TPR", "TNR", "F1", "accuracy", "median_delay_onset_s",
+METRIC_COLUMNS = ("balanced_accuracy", "MCC", "AUC", "TPR", "TNR", "F1", "accuracy", "balanced_accuracy_lo",
+                  "balanced_accuracy_hi", "MCC_lo", "MCC_hi", "median_delay_onset_s", "delay_onset_p25_s",
+                  "delay_onset_p75_s", "median_t_ratio",
                   "mean_alarm_fraction_stable", "mean_persistence", "n_gray", "gray_alarm_rate", "gray_as_stable_TNR",
                   "gray_as_unstable_TPR", "ramp_n", "ramp_detection_rate",
                   "ramp_early_alarm_rate", "ramp_miss_rate", "ramp_median_delay_s")

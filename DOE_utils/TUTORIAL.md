@@ -117,7 +117,7 @@ Corre cada variante sobre cada caso, aprendiendo de la referencia. Al terminar *
 
 ### Paso 8. Validate
 
-Por variante: TP, FN, TN, FP, exactitud balanceada, MCC, AUC, tiempos de detección. El panel muestra el ranking.
+Por variante: TP, FN, TN, FP, exactitud balanceada, MCC, AUC, tiempos de detección. El panel muestra el ranking. La exactitud balanceada y el MCC llevan su **intervalo del 95 %** entre corchetes (con pocos casos es ancho: dice cuánto fiarse del número) y, si hay aciertos, la **razón mediana `t_det / t_onset`** (< 1: el indicador alarmó antes de que la vibración alcanzara el límite de amplitud; no depende de κ). Compare muestra las mismas columnas.
 
 **Casos grises.** Un caso cuya etiqueta entera es *gray* (Ap constante) no se puntúa por defecto. En **Edit config** de Validate, el campo **gray cases** elige cómo tratarlos: *ignore* (no se puntúan; lo de siempre), *stable (pessimistic)* (una alarma cuenta como falsa alarma, ninguna como acierto) o *unstable (optimistic)* (una alarma cuenta como acierto, ninguna como fallo). El modo recalcula todo (conteos, métricas, ranking, ROC y figuras) y **cada modo tiene su propio archivo** (`doe_validation_results.h5`, `…_gray-stable.h5`, `…_gray-unstable.h5`) y su carpeta de figuras (`figs_validation`, `figs_validation_gray-stable`…): para tener los tres, corre Validate una vez por modo. Cambiar el modo deja Validate desactualizada. La tarjeta dice el modo activo y, aunque no se puntúen, cuántos grises hay, cuántos dan alarma y las cotas «si todos fueran estables / inestables»: son cotas, no un veredicto. En el visor, la leyenda de esos casos dice «(gray)». Compare compara los archivos del modo de cada experimento.
 

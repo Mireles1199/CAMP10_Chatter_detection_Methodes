@@ -178,3 +178,13 @@ Solo lectura de datos que ya guardan los `.h5`; ningún script de etapa cambia.
   recarga; trae la ventana al frente); `main()` arranca el servidor y lo cierra al salir.
 - `launcher.py`: `send_to_viewer` y `view_h5` lo prueban antes de lanzar el proceso. La pestaña Tools no cambia.
 - Comprobado con el visor real como proceso aparte y en el mismo proceso (`viewer_ipc --selftest`, `check_app_dialogs`).
+
+## 12. Métricas con intervalo y razón t_det/t_onset (hito 8 de wt-validacion, `git merge wt-validacion`)
+Solo lectura de claves aditivas de `/metrics/<run>` (schema sigue en `doe_validation_results/4`); todo con `.get`, los `.h5` anteriores se ven igual.
+- Tarjeta de Validate: "bal.acc 0.94 [0.74-0.99]" y "MCC x [lo-hi]" (IC 95 %, `*_lo`/`*_hi`) y "t_det/t_onset" (`median_t_ratio`: < 1 = la alarma llegó
+  antes de que la vibración alcanzara el límite de amplitud, independiente de κ). Sin intervalo en el archivo: no se muestra nada.
+- Compare (`METRIC_COLUMNS`): `balanced_accuracy_lo/hi`, `MCC_lo/hi`, `delay_onset_p25_s`, `delay_onset_p75_s`, `median_t_ratio` (celdas vacías si faltan).
+- `/pairwise` (McNemar exacto entre pares): el visor lee los grupos `case_*` como casos y las corridas de cada caso, así que no se confunde con un
+  indicador (comprobado con un archivo generado por el backend nuevo con 2 indicadores: corridas vistas = las 2, 15 figuras de validación).
+  `pairwise_test` y `gray_bounds` lanzan `ValueError` sin datos y el visor lo muestra como error (ya lo hacía).
+- Green: `doe_indicators.py` ahora guarda `meta_upper_log` etc.; el visor ya dibuja su límite (10**meta_upper_log) — hay que re-correr Indicators.
