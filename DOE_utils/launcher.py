@@ -260,6 +260,14 @@ def build_cmd(kind: str, script: str, args) -> list:
     return [python_exe(), path] + a
 
 
+def send_to_viewer(paths) -> bool:
+    """True if a viewer window is open and took the files as new tabs (DOE_plots/viewer_ipc.py); else the caller opens one."""
+    if ex.PLOTS not in sys.path:
+        sys.path.insert(0, ex.PLOTS)
+    import viewer_ipc
+    return viewer_ipc.send(paths)
+
+
 def launch(kind: str, script: str, args):
     """Start a tool (args: list of arguments, or text). Returns (Popen, stderr_log_path or None)."""
     cwd = os.path.dirname(os.path.join(HERE, script))
@@ -1090,8 +1098,13 @@ class App:
         self.view_h5(h5)
 
     def view_h5(self, h5: str):
-        """Open the viewer on an .h5; says that it is opening (loading takes a few seconds) and shows its error
-        if it fails to start."""
+        """Show an .h5 in the viewer: as a new tab of the viewer window that is already open (one window for all the
+        files), else a new viewer; says that it is opening (loading takes a few seconds) and shows its error if it
+        fails to start."""
+        if send_to_viewer([h5]):
+            self.status_msg.set(f"Sent {os.path.basename(h5)} to the open viewer window (a new tab, or refreshed if it "
+                                "was already open)…")
+            return
         try:
             p, log = launch("gui", "DOE_plots/doe_unified_selector.py", ["--h5", h5])
         except OSError as exc:

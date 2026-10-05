@@ -74,6 +74,7 @@ fake_doe(VA_DIR, [0.7, 0.9, 1.1], False)
 
 import tkinter as tk  # noqa: E402
 from tkinter import messagebox  # noqa: E402
+os.environ["DOE_VIEWER_LOCK"] = os.path.join(tmp, "viewer_lock.json")   # never talk to a viewer the user has open
 from PIL import ImageGrab  # noqa: E402
 import ctypes  # noqa: E402
 F = ctypes.windll.shcore.GetScaleFactorForDevice(0) / 100.0
@@ -271,6 +272,16 @@ try:
     app.view_h5("D:/x y/doe_results.h5")
     assert launched[-1] == ("DOE_plots/doe_unified_selector.py", ["--h5", "D:/x y/doe_results.h5"]), launched[-1]
     print("viewer arguments OK")
+    # one viewer window: with one open the file is sent to it (no new process); without, a new viewer is started
+    sent = []
+    L.send_to_viewer = lambda paths: sent.append(list(paths)) or True
+    n_launched = len(launched)
+    app.view_h5("D:/x y/doe_results.h5")
+    assert sent == [["D:/x y/doe_results.h5"]] and len(launched) == n_launched and "viewer window" in app.status_msg.get()
+    L.send_to_viewer = lambda paths: False
+    app.view_h5("D:/x y/doe_results.h5")
+    assert len(launched) == n_launched + 1
+    print("viewer reuse OK")
     # ---- import: preview of the folder before OK, name = folder, choice of the labelled dataset
     from tkinter import filedialog
     filedialog.askdirectory = lambda **k: TR_DIR

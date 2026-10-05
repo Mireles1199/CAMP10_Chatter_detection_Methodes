@@ -167,3 +167,14 @@ Solo lectura de datos que ya guardan los `.h5`; ningún script de etapa cambia.
 - Barra de color de κ en la pestaña `I(t)` (como Signals/Forces/Deflex) cuando las curvas van coloreadas por caso (un indicador), con
   marca por caso; el título de arranque "Select cases and press Plot" se sustituye por "κ — N case(s)" como en las señales; se quitó
   `tight_layout()` (la figura ya usa `constrained_layout`).
+
+## 11. Una sola ventana de visor (el botón Viewer reutiliza el visor abierto)
+- `DOE_plots/viewer_ipc.py` (nuevo, mío): el visor (`doe_unified_selector.main`) abre un servidor en `127.0.0.1` (puerto efímero) y escribe
+  puerto + token en `%TEMP%/doe_unified_viewer.json` (`DOE_VIEWER_LOCK` lo cambia; las pruebas lo usan para no hablar con un visor del
+  usuario). `send(paths)` conecta con ese puerto: si el visor contesta, el archivo entra como pestaña nueva; si no hay visor, o el
+  archivo de bloqueo es de uno cerrado (conexión rechazada), devuelve `False` y quien llama arranca uno nuevo como antes. Solo
+  rutas, solo local, con token. El hilo del servidor solo encola; la apertura la hace el hilo de Tk (`after`).
+- `doe_unified_selector.py` (CRLF): `TabbedViewer.open_or_refresh(path)` (si ya hay una pestaña de ese archivo, se cierra y se
+  recarga; trae la ventana al frente); `main()` arranca el servidor y lo cierra al salir.
+- `launcher.py`: `send_to_viewer` y `view_h5` lo prueban antes de lanzar el proceso. La pestaña Tools no cambia.
+- Comprobado con el visor real como proceso aparte y en el mismo proceso (`viewer_ipc --selftest`, `check_app_dialogs`).

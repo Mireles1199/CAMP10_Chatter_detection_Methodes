@@ -127,7 +127,7 @@ Un caso inestable se puntúa con su **primera detección** frente al inicio de s
 
 ![Validación completa](02_validation.png)
 
-**Viewer** abre el resultado. En la pestaña **Compare** eliges dos validaciones y ves sus métricas lado a lado; el botón **Plot** abre la comparación A/B en la ventana de exportación (se guarda al pulsar *Save*, en `figs_validation/`).
+**Viewer** abre el resultado. Hay **una sola ventana de visor** para todos los archivos: si ya tienes un visor abierto, el archivo entra en esa ventana como una pestaña nueva (y si ese archivo ya estaba abierto, su pestaña se recarga con lo último, útil tras volver a correr la etapa); solo si no hay ninguno abierto se abre una ventana nueva. Esto vale para el botón *Viewer* de cualquier experimento o etapa; el botón *Unified viewer* de la pestaña Tools sigue abriendo uno propio. En la pestaña **Compare** eliges dos validaciones y ves sus métricas lado a lado; el botón **Plot** abre la comparación A/B en la ventana de exportación (se guarda al pulsar *Save*, en `figs_validation/`).
 
 En el visor, el panel de la derecha (*Summary plots*) conserva las curvas de referencia: los SLD y, en un archivo de validación, el SLD con el resultado (TP/TN/FN/FP) de cada indicador, solo del modelo con que se simularon los casos. En el SLD, los lóbulos y los casos van siempre en Ap (eje izquierdo: *Width of cut* / *Largeur de coupe* `a_p` [mm]). La casilla **κ axis** añade un **eje derecho en κ** = Ap / límite del SLD a la velocidad de los casos (la mediana de sus rpm; el límite es κ = 1). Es exacto cuando los casos comparten velocidad; si esa velocidad cae en un hueco entre lóbulos, o no hay casos, κ se calcula contra `a_p,min` del modelo y el rótulo lo dice.
 

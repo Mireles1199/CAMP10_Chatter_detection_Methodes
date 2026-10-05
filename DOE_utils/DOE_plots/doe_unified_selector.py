@@ -4146,6 +4146,23 @@ class TabbedViewer:
         self._on_tab_changed()
         return app
 
+    def open_or_refresh(self, path: str):
+        """A file sent by the launcher (Viewer button): a new tab; if that file is already open in a tab, that tab is
+        replaced by a fresh load (the stage may have been run again), and the window is brought to the front."""
+        path = os.path.abspath(path)
+        for tid, app in list(self.apps.items()):
+            if os.path.normcase(os.path.abspath(app.h5_path)) == os.path.normcase(path):
+                self.close_tab(tid)
+        app = self.add(path)
+        try:
+            self.root.deiconify()   # it may be minimised
+            self.root.lift()
+            self.root.attributes("-topmost", True)   # a plain lift() does not take the focus on Windows
+            self.root.after(300, lambda: self.root.attributes("-topmost", False))
+        except tk.TclError:
+            pass
+        return app
+
     def open_dialog(self) -> None:
         paths = filedialog.askopenfilenames(
             parent=self.root, title="Open .h5 (one tab per file)",
@@ -4258,8 +4275,21 @@ def main() -> None:
 
     root = tk.Tk()
     root.update()  # pinta la ventana ya, antes de la carga pesada del .h5
-    _launch_app_for(root, h5_paths)
-    root.mainloop()
+    viewer = _launch_app_for(root, h5_paths)
+    # one window for all the files: while it is open, the launcher's Viewer button sends the files here (new tabs)
+    import viewer_ipc
+    server = viewer_ipc.Server()
+
+    def take():
+        for p in server.poll():
+            if os.path.isfile(p):
+                viewer.open_or_refresh(p)
+        root.after(300, take)
+    root.after(300, take)
+    try:
+        root.mainloop()
+    finally:
+        server.close()
 
 
 def _selftest() -> None:
