@@ -186,6 +186,33 @@ def case_truth(intervals) -> tuple:
     return ("stable" if "stable" in labels else "unlabelled"), t_start
 
 
+def effective_truth(intervals, gray: str = "ignore") -> tuple:
+    """(truth, t_start, is_gray): case_truth, and a case whose whole label is gray counted as `gray` ('stable' /
+    'unstable', --gray) when gray != 'ignore' (an unstable one starts at its first interval)."""
+    truth, t_start = case_truth(intervals)
+    is_gray = truth == "unlabelled"
+    if is_gray and gray != "ignore":
+        truth = gray
+        t_start = intervals[0][0] if gray == "unstable" else t_start
+    return truth, t_start, is_gray
+
+
+def score_run(t, i_t, t_d, intervals, t_start, onset, ramp: bool = False, gray_as=None) -> tuple:
+    """(m, pred, truth_w, roc_sums) of one indicator run on one case: score() + score_max / score_min, and the I_t
+    sums of flagged / unflagged windows that roc_metrics uses for the orientation. gray_as = 'stable' / 'unstable'
+    for a whole-gray case scored under --gray (all its windows take that truth), else None."""
+    pred, tw = pred_windows(t, t_d), truth_windows(t, intervals)
+    if gray_as:
+        tw[:] = 0 if gray_as == "stable" else 1
+    m = score(t, pred, tw, t_start, onset, ramp)
+    fin, fl = np.isfinite(i_t), pred == 1
+    m.update(score_max=float(np.max(i_t[fin])) if fin.any() else np.nan,
+             score_min=float(np.min(i_t[fin])) if fin.any() else np.nan)
+    roc_sums = dict(it_flag_sum=float(i_t[fl & fin].sum()), it_flag_n=int((fl & fin).sum()),
+                    it_unflag_sum=float(i_t[~fl & fin].sum()), it_unflag_n=int((~fl & fin).sum()))
+    return m, pred, tw, roc_sums
+
+
 def amplitude_onset(sg, params: dict, t_start: float) -> float:
     """First time |signal| > lim_sup% of the base (the amplitude-labelling threshold), from t_start + warmup on.
     NaN when the case has no unstable interval, the signal is not in the case group or the base is missing."""
@@ -283,11 +310,7 @@ def validate(ind_h5: str, labels_h5: str, out_h5: str, channel: str = "Axial_dis
             for sig in ("Axial_disp", "Axial_vel", "Axial_acc"):   # signals, so the viewer shows them too
                 if sig in sg:
                     src.copy(sg[sig], cg, name=sig)
-            truth, t_start = case_truth(intervals[case])
-            is_gray = truth == "unlabelled"
-            if is_gray and gray != "ignore":   # the whole case counts as stable / unstable (--gray)
-                truth = gray
-                t_start = intervals[case][0][0] if gray == "unstable" else t_start
+            truth, t_start, is_gray = effective_truth(intervals[case], gray)
             ramp = is_ramp(sg.attrs)
             group = "ramp" if ramp and truth == "mixed" else "global"
             t_on = amplitude_onset(sg, params, t_start)
@@ -312,13 +335,8 @@ def validate(ind_h5: str, labels_h5: str, out_h5: str, channel: str = "Axial_dis
                     continue
                 t, i_t = rg["t"][()], rg["I_t"][()]
                 t_d = rg["t_d"][()] if "t_d" in rg else np.array([])
-                pred, tw = pred_windows(t, t_d), truth_windows(t, intervals[case])
-                if is_gray and gray != "ignore":
-                    tw[:] = 0 if gray == "stable" else 1
-                m = score(t, pred, tw, t_start, onset, group == "ramp")
-                fin, fl = np.isfinite(i_t), pred == 1
-                m.update(score_max=float(np.max(i_t[fin])) if fin.any() else np.nan,
-                         score_min=float(np.min(i_t[fin])) if fin.any() else np.nan)
+                m, pred, tw, roc_sums = score_run(t, i_t, t_d, intervals[case], t_start, onset, group == "ramp",
+                                                  gray if is_gray and gray != "ignore" else None)
                 og = cg.create_group(run)
                 for k, v in rg.attrs.items():
                     og.attrs[k] = v
@@ -332,9 +350,7 @@ def validate(ind_h5: str, labels_h5: str, out_h5: str, channel: str = "Axial_dis
                 cg.attrs[f"$outcome_{run}$"] = m["outcome"]
                 summary.setdefault(run, []).append(dict(
                     case=case, kappa=kappa, ap_mm=ap_mm, ap_end_mm=ap_end, kappa_start=k0, kappa_end=k1,
-                    spin_rpm=spin, truth=truth, group=group, is_gray=float(is_gray), t_onset_amp=t_on, **m,
-                    it_flag_sum=float(i_t[fl & fin].sum()), it_flag_n=int((fl & fin).sum()),     # for roc_direction
-                    it_unflag_sum=float(i_t[~fl & fin].sum()), it_unflag_n=int((~fl & fin).sum())))
+                    spin_rpm=spin, truth=truth, group=group, is_gray=float(is_gray), t_onset_amp=t_on, **m, **roc_sums))
 
         sg, mg = out.create_group("summary"), out.create_group("metrics")
         for run, rows in summary.items():
@@ -731,6 +747,11 @@ def _selftest():
         assert abs(f["summary/fake_run/t_ratio"][1] - 6.0 / 5.6) < 1e-9, f["summary/fake_run/t_ratio"][()]   # case_001: t_det 6.0, onset 5.6
         assert mt["gray_as_stable_TNR"] == 0.5 and mt["gray_as_unstable_TPR"] == 1.0 and mt["gray_as_unstable_TNR"] == 1.0
         assert abs(f["summary/fake_run/ap_end_mm"][2] - 15.0) < 1e-9 and f["summary/fake_run/t_onset"][2] == 5.0
+    # effective_truth: gray counted as the mode; the others untouched
+    gi = [(0.0, 10.0, "gray")]
+    assert effective_truth(gi) == ("unlabelled", np.nan, True) or effective_truth(gi)[0] == "unlabelled"
+    assert effective_truth(gi, "stable")[:1] == ("stable",) and effective_truth(gi, "unstable")[:2] == ("unstable", 0.0)
+    assert effective_truth([(0.0, 10.0, "stable")], "unstable")[0] == "stable"
     # the three gray modes on the same files: ignore (above), stable (pessimistic), unstable (optimistic)
     assert gray_suffix("ignore") == "" and gray_suffix("stable") == "_gray-stable"
     for mode, outcome, tp, fn, tn, fp, npos, nneg in (("stable", "FP", 1, 0, 1, 1, 0, 2), ("unstable", "TP", 2, 0, 1, 0, 1, 1)):
