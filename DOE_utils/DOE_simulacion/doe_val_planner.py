@@ -178,6 +178,13 @@ def run_gui(h5_path: str, doe_name: str = ""):
     out = tk.Text(left, height=14, width=44, font=("Consolas", 9), state="disabled")
     fig = Figure(figsize=(7, 3), dpi=100)
     ax = fig.add_subplot(111)
+
+    def export():   # Export… (DOE_plots/figures_window.py): the figure on screen, as a copy
+        sys.path.insert(0, os.path.join(HERE, "..", "DOE_plots"))
+        from figures_window import FiguresWindow, Item
+        FiguresWindow(root, "Export — doe_val_planner", [Item("val_planner_kappa", lambda: fig, live=True)],
+                      out_dir=os.path.dirname(st["path"]) if st["path"] else "")
+    ttk.Button(right, text="💾  Export…", command=export).pack(side=tk.TOP, anchor="e")
     cv = FigureCanvasTkAgg(fig, master=right)
     tb = NavigationToolbar2Tk(cv, right)   # zoom / pan / home / save PNG
     tb.pack(side=tk.BOTTOM, fill=tk.X)
