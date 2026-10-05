@@ -18,6 +18,11 @@ Implementado en `validate_indicators.py` (selftest OK) y `validation_figures.py`
   `experiment.py` (l.729-733 pasa `--early-tol`; l.1137, 1448-1463 texto/regla; l.1848-1850 METRIC_COLUMNS y EARLY_TOL_S; l.1899, 2228 sección validate), `launcher.py` (l.231, 536, 1492-1508, 2695), `check_app_dialogs.py` l.588, yaml y `PLAN_ramps.md`.
 - **Etiqueta operacional, se deja como está (usuario).** `kappa` es solo informativo; "inestable" = chatter visible en amplitud. Los FP de green/ssq/maxent (1–2) son casos con kappa>1 que no alcanzan el límite en el horizonte: se leen como "el indicador detecta antes de que la inestabilidad sea visible operacionalmente", no como error. Las figuras muestran kappa solo como contexto. (Se retira la opción (d) de §2.)
 - **Hallazgo abierto, no de métrica:** rms_cv alarma en la 1ª ventana (t≈0.07–0.11 s) en casi todos los casos (warmup, `warmup_ignore_alerts: false`); sin tolerancia hunde su TNR (0.12 en n12000, 0.00 en n5189). Es configuración del indicador.
+- **Casos grises (truth `unlabelled`, outcome `n/a`)**: siguen fuera de conteos, métricas, ROC y ranking, pero ahora se reportan aparte en `/metrics/<run>` (aditivo, schema sigue en /4; archivos antiguos no traen estas claves): `n_gray`, `n_gray_alarm`, `gray_alarm_rate` y las cotas `gray_as_stable_{TPR,TNR,balanced_accuracy,MCC}` (gris con alarma -> FP, sin alarma -> TN) y `gray_as_unstable_{...}` (con alarma -> TP, sin alarma -> FN). Son cotas, no un veredicto. n12000: 3 grises (kappa 1.057-1.066), los 4 indicadores alarman en los 3; TNR si todos fueran estables: green/ssq 0.64, maxent 0.55, rms_cv 0.09; TPR si todos fueran inestables: 1.00. n5189: sin grises. `validation_figures.py` los dibuja con marcador hueco gris (detection_time, score_vs_kappa, score_dist); case_matrix ya los mostraba en gris.
+- **Modos de grises `--gray ignore|stable|unstable` (decisión del usuario)**: `ignore` (defecto, lo de siempre), `stable` (pesimista: grises puntuados como estables) y `unstable` (optimista). El modo se aplica a TODO: conteos, métricas, ranking, ROC y figuras. Compatible: CLI aditivo, `--gray` ausente = `ignore`; nuevas marcas `gray_mode` (attr raíz), `$gray$` (attr de caso), columna `is_gray` en `/summary` (el `truth` de /summary y `$truth$` pasan a ser el efectivo: `stable`/`unstable` para un gris en modo no-ignore; `is_gray` dice cuáles eran grises). Cada modo = archivo propio (`gray_suffix(mode)`: `doe_validation_results[_gray-stable|_gray-unstable].h5` y su `_metrics.csv`) y carpeta de figuras propia (`figs_dir(h5)` en validation_figures.py: `figs_validation[_gray-<mode>]`); las figuras de un modo no-ignore llevan una nota. Resultado n12000 (green): ignore TP/FN/TN/FP 11/0/7/1; stable 11/0/7/4 (TNR 0.64, bal.acc 0.82, MCC 0.68); unstable 14/0/7/1; el orden de los indicadores no cambia.
+- **Métricas nuevas (aditivas, schema sigue en /4; archivos viejos no las traen: usar .get)**: en `/metrics/<run>` y CSV: `balanced_accuracy_lo/hi` y `MCC_lo/hi` (intervalo 95 % por simulación Beta-Jeffreys, 4000 muestras, semilla fija, siempre contiene la estimación), `delay_onset_p25_s`, `delay_onset_p75_s`, `median_t_ratio` (mediana de t_det/t_onset de los TP). En `/summary/<run>` columna `t_ratio` (por caso; NaN si no es TP o no hay t_onset). Nuevo grupo `/pairwise` (run_a, run_b, a_only, b_only, p_value): prueba exacta de McNemar entre cada par de indicadores sobre los casos puntuados (existe si hay >= 2 indicadores). `delay_start_s` y `median_delay_start_s` se conservan solo por compatibilidad (no son un retraso real) y ya no salen en el resumen de consola. n12000: green vs rms_cv p=0.031, maxent vs rms_cv p=0.062, green/ssq/maxent entre sí p=1; n5189: rms_cv vs los otros p=0.001-0.002.
+- **Figuras nuevas** (FIGURES ahora tiene 15 + fig_compare): `anticipation` (t_ratio vs kappa), `pairwise_test` (matriz de p-valores), `gray_bounds` (bal.acc y MCC pesimista/optimista; ValueError si no hay grises). Pulido: `ranking` con intervalos en las tres métricas, `roc` con un marcador distinto por indicador (los puntos operativos coincidentes ya no se tapan), `detection_time` con leyenda fuera de los ejes, `pairwise_test` con pie en dos líneas.
+- **doe_indicators.py (petición de wt-interfaz vía manager)**: Green guarda su límite de detección. `_threshold_scalars(raw, params_physical)` copia a meta, antes de que run_indicator descarte raw_result, los escalares finitos `mu_log`, `sigma_log`, `upper_log`, `lower_log` (+ `z_sigma` si hay upper_log; de raw_result o de params_physical) -> attrs `meta_mu_log`, `meta_sigma_log`, `meta_upper_log`, `meta_lower_log`, `meta_z_sigma`. El límite sobre I_t de Green (que es el área) es `10**meta_upper_log` (detecta cuando area > 10**upper_log). Estrictamente aditivo: sin umbral (`use_area_threshold` desactivado) o con valores None/NaN no se escribe nada (probado en el selftest); SST, RMS-CV y MaxEnt no cambian. **Los .h5 de indicadores existentes no lo tienen: hay que re-correr Indicators.**
 - Rampas: DIFERIDAS por el usuario hasta cerrar Ap constante (no se analizan ni se deciden ahora). Lo que hay en el código (alarma antes del inicio inestable = FA) es solo consecuencia de quitar early_tol y es PROVISIONAL.
 
 ---
@@ -46,18 +51,25 @@ Alternativas para decidir (NO decididas, usuario): (a) hit = "alarma en algún m
 (c) t_onset por umbral bajo (p. ej. 2–5 % de la base) — más cercano a la sensibilidad real de los indicadores;
 (d) kappa>1 & "stable" → gris o 'slow unstable'; (e) persistencia de la alarma para separar alarma real de transitorio.
 
-## 3. Figuras que valen la pena en la interfaz, y qué lee cada una
-| Figura | Archivo | Datos del .h5 | Valor |
-|---|---|---|---|
-| Ranking (bal.acc, MCC, AUC ± IC) | ranking.png | `/ranking/{run,rank,balanced_accuracy,MCC,AUC}`, `/metrics/<run>` attrs `AUC_lo/AUC_hi` | alto: portada; mostrar junto a AUC por la contradicción |
-| ROC por indicador + punto operativo | roc.png | `/roc/<run>/{high,low}/{fpr,tpr,thr}` (según `roc_direction`), `/metrics` `TPR,TNR,AUC` | alto: el punto operativo muy por debajo de la curva ES el hallazgo 1 |
-| Matriz run × caso (outcome por kappa) | case_matrix.png | `/summary/<run>/{outcome,kappa,truth,group,ap_mm,ap_end_mm}` | alto: ve dónde falla cada indicador |
-| Detección vs t_onset (log) | detection_time.png | `/summary/<run>/{first_detection_t,t_onset_amp,kappa,truth}` | alto: muestra adelanto y FP con kappa>1 |
-| Retraso firmado vs kappa + banda early_tol | delay_vs_kappa.png | `/summary/<run>/delay_det_s`, attrs raíz `early_tol_s` | alto: justifica (o refuta) la tolerancia |
-| Amplitud (% base) en la 1ª alarma | detection_amp.png | `case_NNN/Axial_disp/{time,values}`, `case_NNN` attr `$f_tooth$`, attrs raíz `labeling_*`, `/summary first_detection_t` | medio: costoso (lee señales), pero es la mejor evidencia de sensibilidad |
-| max(I_t) por caso vs kappa | score_vs_kappa.png | `/summary/<run>/{score_max,score_min,truth,kappa}`, `/metrics roc_direction` | medio: explica qué umbraliza el ROC |
-| Tabla de métricas | (tabla) | `*_metrics.csv` o `/metrics/<run>` attrs (TPR/TNR/F1/MCC con Wilson, `n_early_alarm`, `early_alarm_rate`, `mean_alarm_fraction_stable`, `mean_persistence`) | alto |
-| Rampas: tasas ramp_* | (tabla/barras) | `/metrics/<run>` attrs `ramp_*` | pendiente: ramp_check tiene solo 2 casos, sin datos globales ni kappa; sin evidencia aún |
-| Entrenamiento vs validación (cobertura kappa/spin) | (no hecha) | `/training/{kappa,ap_mm,spin_rpm,label}` | bajo/opcional |
+## 3. Figuras de validación (13) — estado final
+Script: `DOE_utils/DOE_plots/validation_figures.py` (estilo `plot_style.py`: FIGSIZE_SIMPLE/WIDE x FIGSCALE=1.5, `lang_text`, Okabe-Ito; solo Ap constante, rampas diferidas).
+API: `FIGURES = {nombre: fig_<nombre>(h5_path, out_dir=None) -> Figure}`, `fig_compare(h5_a, h5_b, out_dir=None)`, `make_all(h5_path, out_dir=None)`. CLI: `--results X.h5 [--out-dir D] [--lang EN|FR|both] [--scale 1.5]`, `--selftest`.
+**Dónde se guardan:** `<carpeta del .h5>/figs_validation/<nombre>.png` (300 dpi) por defecto; Compare: `figs_validation/compare_<A>_vs_<B>.png`; mis pruebas en `validacion_figs/<x>/fig/` (excluida de git).
 
-Notas de contrato: no se tocó nada del contrato ni launcher/experiment/yaml. Cualquier cambio de regla (§2) debería ser aditivo (nuevas columnas/attrs, p. ej. un `early_tol` relativo o un outcome alternativo), manteniendo `outcome`/`TP...` actuales.
+| Nombre | Preset | Datos del .h5 | Responde |
+|---|---|---|---|
+| ranking | SIMPLE | `/ranking`, `/metrics` (AUC_lo/hi) | ¿cuál es mejor? |
+| roc | SIMPLE | `/roc/<run>/{high,low}`, `/metrics` TPR TNR AUC | ¿umbral bien ajustado? |
+| tpr_tnr | SIMPLE | `/metrics` TPR TNR + Wilson | ¿diferencia significativa? |
+| confusion | grid | `/metrics` TP FN TN FP | lectura rápida 2x2 |
+| case_matrix | WIDE | `/summary` outcome, kappa, truth | ¿dónde falla cada uno? |
+| detection_time | SIMPLE | `/summary` first_detection_t, t_onset_amp | adelanto y FP |
+| delay_vs_kappa | SIMPLE | `/summary` delay_det_s | anticipación vs kappa |
+| detection_amp | SIMPLE | `case_NNN/Axial_disp`, `$f_tooth$`, `labeling_*` | amplitud al alarmar |
+| score_vs_kappa | grid | `/summary` score_max/min | qué umbraliza el ROC |
+| score_dist | grid | `/summary` score_max/min por truth | separación estable/inestable |
+| alarm_quality | WIDE | `/metrics` mean_alarm_fraction_stable, mean_persistence | calidad de la alarma |
+| training_coverage | SIMPLE | `/training`, `/summary` | ¿entrenamiento cubre lo validado? (necesita `--reference`) |
+| compare (A/B) | WIDE | `/metrics` de 2 archivos | efecto de cambiar experimento |
+
+Nota: con `--lang both --scale 1` las etiquetas largas se solapan (el estilo del repo usa fuentes de 14-16 pt); el defecto (scale 1.5) está pensado para esto.
