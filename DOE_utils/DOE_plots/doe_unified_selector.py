@@ -905,7 +905,10 @@ def _make_summary_entries(h5_type: str, cases: list, h5_path: str):
 
     # SLD: casos del DOE (spin_rate, Ap) sobre los lóbulos de cada preset de sld_model.MODELS
     if sld_model and h5_type in (TYPE_DOE_RESULTS, TYPE_DOE_INDICATOR):
-        for p, m in sld_model.MODELS.items():
+        used = _sim_models(h5_path)   # only the SLD of the model the cases were simulated with (all if the file does not say)
+        presets = [p for p in sld_model.MODELS if p in used] or list(sld_model.MODELS)
+        for p in presets:
+            m = sld_model.MODELS[p]
             entries.append((f"SLD — {p} [todos los modos]", sld_model.plot_sld, {"cases": cases, "preset": p}))
             if len(m["modes"]) > 1:
                 for j, f in enumerate(sorted(x[0] for x in m["modes"])):
@@ -913,17 +916,27 @@ def _make_summary_entries(h5_type: str, cases: list, h5_path: str):
                                     {"cases": cases, "preset": p, "seg": j}))
         # doe_validation_results.h5: casos coloreados por TP/TN/FN/FP de cada indicador ($outcome_<run>$)
         for rn in sorted({k[len("outcome_"):] for c in cases for k in c.get("var_val", {}) if k.startswith("outcome_")}):
-            for p in sld_model.MODELS:
+            for p in presets:
                 entries.append((f"SLD — {p} [outcome {rn}]", sld_model.plot_sld,
                                 {"cases": cases, "preset": p, "outcome_run": rn}))
 
-    # doe_validation_results.h5 (has /ranking): the validation figures of validation_figures.py (same API as the SLD:
-    # fn(h5_path=..., out_dir=None) -> Figure with _keep_size; a figure without data raises, shown as a viewer error)
+    # doe_validation_results.h5 (has /ranking): the validation figures of validation_figures.py, FIRST in the list (same API
+    # as the SLD: fn(h5_path=..., out_dir=None) -> Figure with _keep_size; a figure without data raises, shown as a viewer error)
     if _is_validation_h5(h5_path):
         import validation_figures as vf
-        entries += [(f"Validation — {n}", fn, {"h5_path": h5_path}) for n, fn in vf.FIGURES.items()]
+        entries = [(f"Validation — {n}", fn, {"h5_path": h5_path}) for n, fn in vf.FIGURES.items()] + entries
 
     return entries
+
+
+def _sim_models(path: str) -> set:
+    """SLD models (attr sim_model) of the cases of an .h5; empty if the file does not say."""
+    try:
+        with h5py.File(path, "r") as f:
+            vals = [f[g].attrs.get("sim_model") for g in list(f.keys())[:50] if isinstance(f[g], h5py.Group)]
+    except OSError:
+        return set()
+    return {v.decode() if isinstance(v, bytes) else str(v) for v in vals if v is not None}
 
 
 def _is_validation_h5(path: str) -> bool:
@@ -1387,7 +1400,7 @@ class DoeSelectorUnifiedApp:
         top.pack(fill=tk.X)
         # height: el desplegable de Tk muestra 10 filas por defecto y escondía las últimas (las SLD)
         # solo las SLD cuando las hay; en los demás tipos de archivo, todas las figuras de resumen
-        labels = [l for l in self._summary_labels if l.startswith("SLD")] or self._summary_labels
+        labels = [l for l in self._summary_labels if l.startswith(("Validation", "SLD"))] or self._summary_labels
         self._sum_combo = ttk.Combobox(top, values=labels, state="readonly",
                                        height=max(10, min(len(labels), 30)))
         if labels:

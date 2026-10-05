@@ -62,3 +62,12 @@ con `fig._keep_size`, y `fig_compare(h5_a, h5_b, out_dir=None)`.
 Una figura sin datos (p. ej. `training_coverage` sin `/training`) lanza excepción y el visor la muestra como error (ya lo hacía `_refresh_summary`). Hay 12 figuras en `FIGURES` + `fig_compare`. Solo Ap constante.
 Verificado sobre un `.h5` de validación sintético (el del selftest de validation_figures) en el scratchpad: 12/12 figuras se
 generan en el visor, el guardado va a `figs_validation/`, y Plot abre la ventana y guarda `compare_*.png`.
+
+### 6b. Corrección (visor)
+Primera versión de §6: las entradas `Validation — …` no salían en el desplegable de "Summary plots", porque el visor solo
+lista las que empiezan por `SLD` cuando existen (`_build_right_panel`). Ahora el filtro admite `Validation` y `SLD`; en un
+archivo de validación las figuras `Validation — …` van **primero** (y "ranking" queda preseleccionada).
+Además, las entradas SLD (todos los modos / modo / outcome por indicador) solo se generan para el/los modelo(s) con que se
+simularon los casos (`sim_model` de los grupos del `.h5`, helper `_sim_models`); si el archivo no lo dice, se mantienen todos
+los presets como antes. Verificado abriendo el visor (Tk) sobre `ramp_check/doe_validation_results.h5` real, solo lectura:
+12 entradas Validation + 5 SLD de `1DOF_150`.
