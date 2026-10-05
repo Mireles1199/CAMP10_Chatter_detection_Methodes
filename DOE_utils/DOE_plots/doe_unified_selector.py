@@ -608,7 +608,9 @@ def _case_legend(c: dict, lk: str, lv: float) -> str:
             return f"kappa {float(vv['kappa_start']):.3g}->{float(vv['kappa_end']):.3g}"
         except (KeyError, TypeError, ValueError):
             return f"{c.get('group', '?')} (ramp)"
-    return f"{_col_header(lk)}={lv:.3g}" if np.isfinite(lv) else c.get("group", "?")
+    base = f"{_col_header(lk)}={lv:.3g}" if np.isfinite(lv) else c.get("group", "?")
+    # a validation made with --gray stable|unstable scores the gray cases as such: their legend keeps saying they were gray
+    return base + (" (gray)" if str(vv.get("gray")) in ("1", "1.0", "True") else "")
 
 
 def _draw_truth_marks(axes, c: dict, color, shade: bool) -> None:
@@ -2781,7 +2783,11 @@ class DoeSelectorUnifiedApp:
             return
         from figures_window import FiguresWindow
         lang, scale = _fig_style()
-        folder = "figs_validation" if _is_validation_h5(self.h5_path) else "figs_indicators"
+        if _is_validation_h5(self.h5_path):   # one folder per gray mode (validation_figures.figs_dir)
+            import validation_figures as vf
+            folder = os.path.basename(vf.figs_dir(self.h5_path))
+        else:
+            folder = "figs_indicators"
         self._export_win = FiguresWindow(
             self.root, f"Export — {os.path.basename(os.path.dirname(self.h5_path))} / {os.path.basename(self.h5_path)}",
             self._export_items(), style=_apply_fig_style, out_dir=os.path.join(os.path.dirname(self.h5_path), folder),

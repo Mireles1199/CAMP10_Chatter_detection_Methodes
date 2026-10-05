@@ -129,3 +129,18 @@ que los `.h5` anteriores (sin esas claves) se ven igual que antes.
   son cotas, no veredicto).
 - Compare (`METRIC_COLUMNS`): `n_gray`, `gray_alarm_rate`, `gray_as_stable_TNR`, `gray_as_unstable_TPR` (celdas vacías si faltan).
 - `check_app_dialogs.py`: columnas grises con A que las tiene y B que no, y la línea de la tarjeta.
+
+## 10. Modos de casos grises (`--gray ignore|stable|unstable`) — tras `git merge wt-validacion` (970764d)
+| Qué | Cambio | Compatibilidad |
+|---|---|---|
+| Argumentos a `validate_indicators.py` (`experiment._all_stages`) | **nuevo**: `--gray <modo>` (siempre; `ignore` = el comportamiento de antes). Además `--out` ahora trae el sufijo del modo | un YAML sin `gray` = `ignore` |
+| Sección `validate` del YAML | clave nueva `gray: stable\|unstable` (ausente = `ignore`; el formulario la borra al volver a `ignore`). Un valor desconocido es un error de `check` y se trata como `ignore` | — |
+| Archivo de resultados | `doe_validation_results[_gray-<modo>].h5` (`experiment.validation_path`); un `validate.out` explícito se respeta tal cual | mismo nombre de siempre en `ignore` |
+| Huella de Validate | el modo entra **solo si no es `ignore`**: las validaciones ya hechas siguen al día; cambiar de modo marca Validate como desactualizada | — |
+| Consumidores del archivo | `validation_metrics`, tarjeta, Compare, botón Viewer y Plot usan `validation_path` (el modo del experimento), no el nombre fijo | — |
+| Carpeta de figuras | `validation_figures.figs_dir(h5)` → `figs_validation[_gray-<modo>]`: el Export del visor y Compare › Plot guardan ahí | — |
+| `experiment.gray_suffix` | copia de la regla de `validate_indicators.gray_suffix` (no se importa el script: carga numpy/scipy); `check_app_dialogs` y la prueba de extremo a extremo comprueban que coinciden | — |
+| Visor (`_case_legend`) | un caso con `$gray$`=1 muestra "(gray)" en su leyenda aunque su `truth` sea stable/unstable | ninguna otra lógica |
+UI: `ValidateForm` gana el campo **gray cases** (ignore / stable (pessimistic) / unstable (optimistic)) con una nota; la tarjeta de
+Validate empieza con "gray cases: <modo>" y, con `n_gray`, la línea de conteo dice "not scored" o "scored as <modo>". Un modo por
+corrida: para tener los tres hay que correr Validate tres veces (cada una con su archivo y su carpeta de figuras).

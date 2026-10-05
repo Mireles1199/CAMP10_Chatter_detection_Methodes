@@ -1233,11 +1233,12 @@ class App:
 
     def plot_compare(self):
         """A/B figure of the two validations (validation_figures.fig_compare) in the export window
-        (figures_window.py): language, size, dpi, format; saved in <folder of A's results>/figs_validation/."""
+        (figures_window.py): language, size, dpi, format; saved in the figures folder of A's results
+        (validation_figures.figs_dir: figs_validation, or figs_validation_gray-<mode>)."""
         a, b = self.cmp_a.get(), self.cmp_b.get()
         if not a or not b:
             return
-        pa, pb = (ex.load(n).out("validate", "out", "doe_validation_results.h5") for n in (a, b))
+        pa, pb = (ex.validation_path(ex.load(n)) for n in (a, b))
         missing = [p for p in (pa, pb) if not os.path.isfile(p)]
         if missing:
             self._msg("Compare", "No validation results yet:\n" + "\n".join(missing), "warn")
@@ -1254,8 +1255,8 @@ class App:
         self._cmp_win = FiguresWindow(
             self.root, f"Validation compare — A = {a}   B = {b}",
             [Item(f"compare_{a}_vs_{b}", lambda: vf.fig_compare(pa, pb), native=True)], style=style,
-            out_dir=os.path.join(os.path.dirname(pa), "figs_validation"), language=vf.LANGUAGE, scale=vf.FIGSCALE)
-        self.cmp_note.set(f"A/B figure: Save in its window ({os.path.join(os.path.dirname(pa), 'figs_validation')})")
+            out_dir=vf.figs_dir(pa), language=vf.LANGUAGE, scale=vf.FIGSCALE)
+        self.cmp_note.set(f"A/B figure: Save in its window ({vf.figs_dir(pa)})")
 
 
 # ============================================================================== dialogs
@@ -1530,6 +1531,12 @@ class ValidateForm(_Dialog):
         self.ch = self.field("channel of the labels", self.tk.StringVar(value=e.section("validate").get("channel", "Axial_disp")),
                              values=["Axial_disp", "Axial_vel", "Axial_acc"],
                              note="the channel of the ground-truth dataset whose labels score the detections")
+        self.gray = self.field("gray cases", self.tk.StringVar(value=ex.GRAY_LABELS[ex.gray_mode(e)]),
+                               values=[ex.GRAY_LABELS[m] for m in ex.GRAY_MODES], state="readonly",
+                               note="a case whose whole label is gray (constant Ap): ignore = not scored (default) · stable = "
+                                    "alarm counts as a false alarm, none as correct (pessimistic) · unstable = alarm counts as a "
+                                    "hit, none as a miss (optimistic). Each mode has its own results file and figures folder, "
+                                    "so run Validate once per mode to keep the three")
         self.note("Ground truth = this experiment's labelled dataset (" + os.path.basename(e.label["out"]) + "), labelled "
                   f"with the '{e.label.get('strategy')}' strategy on {e.label.get('amp_signal', 'Axial_disp')}. "
                   "The indicators were trained on " + os.path.basename(e.reference) +
@@ -1540,6 +1547,11 @@ class ValidateForm(_Dialog):
         sec = ex.own_yaml(self.e.name).get("validate") or {}
         sec["channel"] = self.ch.get()
         sec.pop("early_tol_s", None)   # the rule has no tolerance any more
+        mode = next(m for m in ex.GRAY_MODES if ex.GRAY_LABELS[m] == self.gray.get())
+        if mode == "ignore":
+            sec.pop("gray", None)   # absent = ignore: the YAML (and the fingerprint) stay as they were
+        else:
+            sec["gray"] = mode
         ex.save_section(self.e.name, "validate", sec)
 
 

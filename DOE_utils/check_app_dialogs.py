@@ -586,7 +586,8 @@ try:
         assert rows[0][j] == v and rows[0][j + 1] == "", (k, rows[0][j], rows[0][j + 1])
     card = [t for t, _ in ex.stage_summary(ex.load(VA), "validate")]
     assert any("gray cases (not scored): 2, 1 alarm" in t and "TNR 0.60" in t and "TPR 0.80" in t for t in card), card
-    assert not any("gray cases" in t for t, _ in ex.stage_summary(ex.load("val_from_dialog"), "validate"))
+    assert not any("gray cases (" in t for t, _ in ex.stage_summary(ex.load("val_from_dialog"), "validate"))   # no n_gray
+    assert ex.stage_summary(ex.load("val_from_dialog"), "validate")[0][0] == "gray cases: ignore (not scored)"
     print("compare OK (with the ramp columns)")
     # Compare > Plot: a side without validation results is a warning, not a crash (the figure itself is checked with a
     # real validation file by validation_figures.py --selftest)
@@ -614,6 +615,46 @@ try:
     vf._ok()
     va = ex.load(VA)
     assert "early_tol_s" not in va.section("validate") and "--early-tol" not in ex.stages(va)["validate"].cmds[0]
+    # gray cases: three modes, each with its own results file; absent = ignore keeps the old fingerprint
+    h0, c0 = ex.stages(va)["validate"].hash, ex.stages(va)["validate"].cmds[0]
+    assert c0[-2:] == ["--gray", "ignore"] and ex.gray_mode(va) == "ignore"
+    assert os.path.basename(ex.validation_path(va)) == "doe_validation_results.h5"
+    vf = L.ValidateForm(app, va)
+    assert vf.gray.get() == ex.GRAY_LABELS["ignore"]
+    vf.gray.set(ex.GRAY_LABELS["stable"])
+    vf._ok()
+    va = ex.load(VA)
+    sv = ex.stages(va)["validate"]
+    assert va.section("validate")["gray"] == "stable" and ex.gray_mode(va) == "stable"
+    assert os.path.basename(sv.outputs[0]) == "doe_validation_results_gray-stable.h5" and sv.cmds[0][-2:] == ["--gray", "stable"]
+    assert sv.cmds[0][sv.cmds[0].index("--out") + 1] == sv.outputs[0] and sv.hash != h0      # changing the mode: Validate stale
+    ex.save_section(VA, "validate", {"channel": "Axial_disp", "gray": "unstable"})
+    assert os.path.basename(ex.stages(ex.load(VA))["validate"].outputs[0]) == "doe_validation_results_gray-unstable.h5"
+    ex.save_section(VA, "validate", {"channel": "Axial_disp", "gray": "stable", "out": os.path.join(tmp, "mine.h5")})
+    assert ex.validation_path(ex.load(VA)) == os.path.normpath(os.path.join(tmp, "mine.h5"))   # an explicit out is respected
+    ex.save_section(VA, "validate", {"channel": "Axial_disp", "gray": "sometimes"})
+    assert any("validate.gray" in x for x in ex.check(ex.load(VA))[0]) and ex.gray_mode(ex.load(VA)) == "ignore"
+    vf = L.ValidateForm(app, ex.load(N9))                         # back to ignore: the key leaves the YAML
+    ex.save_section(N9, "validate", {"channel": "Axial_disp", "gray": "stable"})
+    vf = L.ValidateForm(app, ex.load(N9))
+    assert vf.gray.get() == ex.GRAY_LABELS["stable"]
+    vf.gray.set(ex.GRAY_LABELS["ignore"])
+    vf._ok()
+    assert "gray" not in ex.load(N9).section("validate")
+    ex.save_section(N9, "validate", {"channel": "Axial_disp", "gray": "stable"})   # metrics of the mode of the experiment
+    n9 = ex.load(N9)
+    os.makedirs(os.path.dirname(ex.validation_path(n9)), exist_ok=True)
+    with h5py.File(ex.validation_path(n9), "w") as h:
+        h.create_group("metrics/run_x").attrs.update(balanced_accuracy=0.8, n_gray=3, n_gray_alarm=1)
+    assert ex.validation_metrics(n9)["run_x"]["n_gray"] == 3 and not ex.validation_metrics(ex.load(VA))
+    mine = os.path.join(tmp, "mine_gray.h5")                       # the card of an experiment with the Validate stage
+    ex.save_section(VA, "validate", {"channel": "Axial_disp", "gray": "stable", "out": mine})
+    with h5py.File(mine, "w") as h:
+        h.create_group("metrics/run_x").attrs.update(balanced_accuracy=0.8, TP=1, FN=0, TN=1, FP=0, n_gray=3, n_gray_alarm=1)
+    card = [t for t, _ in ex.stage_summary(ex.load(VA), "validate")]
+    assert card[0].startswith("gray cases: stable (pessimistic)") and any("scored as stable): 3, 1 alarm" in t for t in card), card
+    ex.save_section(VA, "validate", {"channel": "Axial_disp"})
+    print("gray modes OK")
     app.notebook.select(app.tab_exp)
     app.select(VA, "validate")
     shot(root, "v2_main_validation.png")
