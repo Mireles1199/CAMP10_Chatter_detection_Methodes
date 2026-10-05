@@ -1428,6 +1428,14 @@ class DoeSelectorUnifiedApp:
         ttk.Button(btns, text="Save…", command=lambda: self._open_export(self._sum_combo.get())).pack(side=tk.LEFT, padx=4)
         ttk.Button(btns, text="Figures…", command=lambda: self._open_export(
             next((e[0] for e in self._summary_entries if not e[0].startswith("SLD")), None))).pack(side=tk.LEFT)
+        if sld_model:   # vertical axis of the SLD: Ap [mm] or kappa = Ap / SLD limit at that speed (also for its export)
+            self._kappa_axis = tk.BooleanVar(value=sld_model.Y_AXIS == "kappa")
+
+            def flip_axis():
+                sld_model.Y_AXIS = "kappa" if self._kappa_axis.get() else "Ap"
+                if self._sum_combo.get().startswith("SLD"):
+                    self._refresh_summary()
+            ttk.Checkbutton(btns, text="κ axis", variable=self._kappa_axis, command=flip_axis).pack(side=tk.LEFT, padx=6)
         self._sum_toolbar_frame = ttk.Frame(rf)
         self._sum_toolbar_frame.pack(fill=tk.X)
         self._sum_canvas_frame = ttk.Frame(rf)

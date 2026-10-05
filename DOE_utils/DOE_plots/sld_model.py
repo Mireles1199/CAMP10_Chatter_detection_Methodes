@@ -19,6 +19,7 @@ import plot_style as ps
 
 LANGUAGE = "EN"   # "EN" | "FR" | "both"
 FIGSCALE = 1.5    # multiplicador de FIGSIZE_SIMPLE (mismo criterio que los plots de indicadores)
+Y_AXIS = "Ap"     # eje vertical de plot_sld: "Ap" [mm] | "kappa" = Ap / límite del SLD a esa velocidad (casilla del visor)
 DEFAULT_XLIM = (7000.0, 15000.0)   # rpm, si ningún caso trae spin_rate
 COLORS = ["#0072B2", "#D55E00", "#009E73", "#CC79A7"]   # Okabe-Ito: un color por modo
 # resultado de validación por caso (attr $outcome_<run>$ de doe_validation_results.h5): color, marcador, texto
@@ -88,6 +89,45 @@ def ap_lim(preset: str, rpm: float) -> float:
         return float("inf")   # hueco entre lóbulos: estable a cualquier profundidad
     raise ValueError(f"SLD '{preset}': {rpm:g} rpm está fuera del rango de los lóbulos calculados "
                      f"({lo:.0f}-{hi:.0f} rpm, k < {lb.shape[1]})")
+
+
+@lru_cache(maxsize=None)
+def envelope(preset: str, n: int = 1500):
+    """(rpm, límite [mm]) de la envolvente del SLD (ap_lim) en n velocidades sobre todo el rango de los lóbulos;
+    inf en un hueco entre lóbulos. Tabla para dibujar los lóbulos en kappa (los casos usan ap_lim exacto)."""
+    x = lobes(preset)[0][..., 0]
+    x = x[np.isfinite(x)]
+    rpm = np.linspace(x.min(), x.max(), n)
+    lim = []
+    for r in rpm:
+        try:
+            lim.append(ap_lim(preset, r))
+        except ValueError:
+            lim.append(np.nan)
+    return rpm, np.array(lim)
+
+
+def kappa_of(preset: str, rpm, ap_mm, exact: bool = False):
+    """kappa = Ap / límite del SLD a esas rpm (nan en un hueco entre lóbulos o fuera de su rango).
+    exact: ap_lim punto a punto (los casos); si no, interpolado en envelope() (los lóbulos, miles de puntos)."""
+    rpm, ap_mm = np.asarray(rpm, float), np.asarray(ap_mm, float)
+    if exact:
+        def one(r):
+            try:
+                v = ap_lim(preset, float(r))
+            except ValueError:
+                return np.nan
+            return v if np.isfinite(v) else np.nan   # hueco entre lóbulos: kappa sin definir, no 0
+        lim = np.vectorize(one, otypes=[float])(rpm)
+    else:
+        g, e = envelope(preset)
+        ok = np.isfinite(e)
+        lim = np.interp(rpm, g[ok], e[ok], left=np.nan, right=np.nan)
+        lim[~ok[np.clip(np.searchsorted(g, rpm), 0, len(g) - 1)]] = np.nan   # en un hueco: sin límite
+    with np.errstate(divide="ignore", invalid="ignore"):
+        k = ap_mm / lim
+    k[~np.isfinite(k)] = np.nan
+    return k
 
 
 def case_points(cases, outcome_run=None):
@@ -170,17 +210,24 @@ def intersections(preset: str):
     return tuple((float(x * x1), float(y * YCAP)) for x, y in out)
 
 
-def plot_sld(cases, preset: str, seg=None, out_dir=None, language: str | None = None, outcome_run=None):
+def plot_sld(cases, preset: str, seg=None, out_dir=None, language: str | None = None, outcome_run=None,
+             y_axis: str | None = None):
     """Figura SLD del preset (seg=None: todos los modos; seg=j: solo el modo j) con los casos del DOE.
 
     Cada caso es un punto (rpm, Ap); si Ap_start != Ap_end, un segmento vertical. out_dir se ignora:
     el visor lo pasa a todas las figuras de resumen.
     outcome_run: nombre de un indicador de doe_validation_results.h5; los puntos se colorean por su resultado
     (TP/TN/FN/FP, ver OUTCOMES) en vez de todos del mismo color.
+    y_axis: "Ap" [mm] o "kappa" (por defecto Y_AXIS). En kappa cada lóbulo se divide por el límite del SLD a su
+    velocidad (la envolvente queda en kappa = 1) y cada caso va a Ap / límite a su velocidad (con estos lóbulos;
+    puede diferir del kappa guardado en el .h5 si su ap_ref no fue model_at_spin de este modelo).
     """
     lang = language or LANGUAGE
+    yk = (y_axis or Y_AXIS) == "kappa"
     lb, f_peaks = lobes(preset)
     pts = case_points(cases, outcome_run)
+    if yk:   # (rpm, kappa_ini, kappa_fin[, outcome])
+        pts = [(p[0], *(float(v) for v in kappa_of(preset, [p[0], p[0]], p[1:3], exact=True)), *p[3:]) for p in pts]
 
     with plt.rc_context(ps.ARTICLE_RCPARAMS):
         fig, ax = plt.subplots(figsize=ps.figsize_from_scale(ps.FIGSIZE_SIMPLE, FIGSCALE),
@@ -198,19 +245,30 @@ def plot_sld(cases, preset: str, seg=None, out_dir=None, language: str | None = 
             for i in range(lb.shape[1]):   # un lóbulo por k, todos del color de su modo
                 x, y = lb[j, i, :, 0], lb[j, i, :, 1]
                 ok = np.isfinite(x) & np.isfinite(y)
-                ax.plot(x[ok], y[ok], color=c,
+                ax.plot(x[ok], kappa_of(preset, x[ok], y[ok]) if yk else y[ok], color=c,
                         label=rf"{f_peaks[j]:.0f} Hz  ($a_{{p,\min}}$ = {a_j:.3f} mm)" if i == 0 else None)
-            ax.axhline(a_j, color=c, linewidth=0.8, linestyle="--")
+            if not yk:
+                ax.axhline(a_j, color=c, linewidth=0.8, linestyle="--")
         a_min = ap_crit(preset, seg)
-        ymax = max(1.3 * max(max(p[1], p[2]) for p in pts), 2.0 * a_min) if pts else 3.0 * a_min
+        vals = [v for p in pts for v in p[1:3] if np.isfinite(v)]
+        top = max(vals) if vals else np.nan
+        if yk:
+            ax.axhline(1.0, color="k", linewidth=0.8, linestyle="--",
+                       label=ps.lang_text(r"$\kappa$ = 1 (stability limit)", r"$\kappa$ = 1 (limite de stabilité)", lang,
+                                          sep=" / "))
+            ymax = max(1.3 * top, 2.0) if np.isfinite(top) else 2.0
+        else:
+            ymax = max(1.3 * top, 2.0 * a_min) if np.isfinite(top) else 3.0 * a_min
 
         # TODOS los cruces entre los modos (solo si se dibujan 2 o más): punto + nota con (rpm, Ap).
         # Los límites se fijan abajo según los casos; los cruces fuera de vista aparecen al hacer zoom out.
         if seg is None and len(lb) > 1:
             for n, (xi, yi) in enumerate(intersections(preset)):
-                ax.scatter([xi], [yi], marker="D", s=45, facecolor="white", edgecolor="k", linewidths=0.9,
+                yv = float(kappa_of(preset, [xi], [yi], exact=True)[0]) if yk else yi
+                ax.scatter([xi], [yv], marker="D", s=45, facecolor="white", edgecolor="k", linewidths=0.9,
                            zorder=6, label=ps.lang_text("Intersection", "Intersection", lang) if n == 0 else None)
-                ax.annotate(f"{xi:.0f} rpm\n{yi:.3f} mm", (xi, yi), xytext=(14, 14 if n % 2 == 0 else -34),
+                ax.annotate(f"{xi:.0f} rpm\n" + (f"κ = {yv:.2f}" if yk else f"{yi:.3f} mm"), (xi, yv),
+                            xytext=(14, 14 if n % 2 == 0 else -34),
                             textcoords="offset points", fontsize=9, zorder=7,
                             arrowprops=dict(arrowstyle="-", linewidth=0.6))
 
@@ -235,7 +293,8 @@ def plot_sld(cases, preset: str, seg=None, out_dir=None, language: str | None = 
         ax.set_xlim(x0, x1)
         ax.set_ylim(0, ymax)
         ax.set_xlabel(ps.lang_text(r"Spindle speed $\Omega$ [rpm]", r"Vitesse de broche $\Omega$ [tr/min]", lang))
-        ax.set_ylabel(ps.lang_text(r"Depth of cut $a_p$ [mm]", r"Profondeur de passe $a_p$ [mm]", lang))
+        ax.set_ylabel(r"$\kappa = a_p\,/\,a_{p,\lim}(\Omega)$ [–]" if yk else
+                      ps.lang_text(r"Width of cut $a_p$ [mm]", r"Largeur de coupe $a_p$ [mm]", lang))
         ax.set_title(f"SLD — {preset}" + (f" — {outcome_run}" if outcome_run else ""))
         # los lóbulos quedan sobre a_p,min: abajo no hay curvas (con outcome, a la derecha: los puntos de un DOE
         # a una sola velocidad caen en el centro)
@@ -291,4 +350,22 @@ if __name__ == "__main__":
         for s in (None, 0):
             fig = plot_sld(cases, p, seg=s)
             assert np.allclose(fig._keep_size, ps.figsize_from_scale(ps.FIGSIZE_SIMPLE, FIGSCALE))
+    # eje Ap por defecto (llamadas de siempre) y rótulo pedido por el usuario
+    assert plot_sld(cases, "1DOF_150", language="FR").axes[0].get_ylabel() == r"Largeur de coupe $a_p$ [mm]"
+    assert plot_sld(cases, "1DOF_150").axes[0].get_ylabel() == r"Width of cut $a_p$ [mm]"
+    # kappa: el caso a 9 mm y 12100 rpm va a 9 / ap_lim; la envolvente de los lóbulos queda en 1
+    fig = plot_sld(cases, "1DOF_150", y_axis="kappa")
+    ax = fig.axes[0]
+    k9 = 9.0 / ap_lim("1DOF_150", 12100.0)
+    pts_y = np.concatenate([c.get_offsets()[:, 1] for c in ax.collections])
+    assert np.any(np.isclose(pts_y, k9, rtol=1e-6)), (pts_y, k9)
+    g, e = envelope("1DOF_150")
+    ok = np.isfinite(e)
+    assert np.allclose(kappa_of("1DOF_150", g[ok][::50], e[ok][::50]), 1.0)                 # el límite en kappa = 1
+    assert np.isnan(kappa_of("1DOF_150", [8980.0], [5.0], exact=True)[0])                  # hueco: sin kappa
+    assert np.isnan(kappa_of("1DOF_150", [1e6], [5.0], exact=True)[0])                     # fuera de los lóbulos
+    assert "kappa" in ax.get_ylabel() and any(ln.get_ydata()[0] == 1.0 for ln in ax.lines if len(ln.get_ydata()) == 2)
+    Y_AXIS = "kappa"                                                                         # el global de la casilla
+    assert "kappa" in plot_sld(cases, "2DOF_150_250").axes[0].get_ylabel()
+    Y_AXIS = "Ap"
     print("sld_model self-test OK")
