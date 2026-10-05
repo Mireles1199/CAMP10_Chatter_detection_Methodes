@@ -1577,7 +1577,7 @@ def _stage_summary(exp: Exp, key: str) -> list:
                 a = f.attrs
                 lv, nr, nc = len(a.get("snr_levels", [])), int(a.get("realizations", 0)), len(a.get("cases", []))
                 ref = str(a.get("snr_ref_case", "?"))
-            return [(f"{len(snr)} noisy copies = {nc} cases x {lv} SNR levels x {nr} realizations", "ok"),
+            return [(f"{len(snr)} noisy copies = {nc} cases x {lv} SNR levels x {nr} realization(s)", "ok"),
                     (f"reference of the noise power: {ref} (the weakest unstable case: one sigma for every case)", None)]
         return [(f"control + {len(snr)} SNR levels" + (f" ({snr[0][4:]} ... {snr[-1][4:]} dB)" if snr else ""), "ok")]
     if key == "noise_validate":

@@ -1802,7 +1802,8 @@ class IndicatorsForm(_Dialog):
         self.cases = self.field("cases", tk.StringVar(value=cases if isinstance(cases, str) else " ".join(cases)),
                                 note="'all' or case_000 case_003 …")
         self.workers = self.field("workers", tk.StringVar(value=str(e.indicators.get("workers") or 6)),
-                                  note="processes in parallel (each reads the reference: ~0.7 GB RAM)")
+                                  note="processes in parallel: ~1 GB RAM each, up to ~3 GB on signals of 600 000 samples "
+                                       "(6 workers once ran out of virtual memory: 3 or fewer if other programs are open)")
         self._fill()
         self._toggle()
         self.buttons()

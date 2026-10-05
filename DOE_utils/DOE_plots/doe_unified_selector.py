@@ -1786,8 +1786,8 @@ class DoeSelectorUnifiedApp:
         self.tree = ttk.Treeview(tf, columns=cols, show="headings",
                                  selectmode="extended")
         for col in cols:
-            if col == "case":
-                hdr, w = "case", 68
+            if col == "case":   # the copies of a multi-case noise file are named snr_060.00__case_011__r00
+                hdr, w = "case", max(68, min(230, 7 * max((len(str(c["group"])) for c in self.cases), default=0)))
             elif col.startswith("td_"):
                 hdr = "t_d:" + col[3:][:10]
                 w   = 90
