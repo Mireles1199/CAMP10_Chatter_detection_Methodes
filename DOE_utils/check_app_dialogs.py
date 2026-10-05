@@ -578,6 +578,13 @@ try:
     j = 1 + 2 * ex.METRIC_COLUMNS.index("ramp_detection_rate")
     assert rows[0][j] == "0.500" and rows[0][j + 1] == "", rows          # the ramp metrics: A has them, B not
     print("compare OK (with the ramp columns)")
+    # Compare > Plot: a side without validation results is a warning, not a crash (the figure itself is checked with a
+    # real validation file by validation_figures.py --selftest)
+    app.cmp_b.set(N9)
+    app.plot_compare()
+    assert errors[-1][0] == "Compare" and errors[-1][2] == "warn", errors[-1]
+    errors.pop()
+    app.cmp_b.set("val_from_dialog")
     # validate form: only the channel (the rule has no tolerance any more); an old early_tol_s in the YAML is
     # ignored by the stage command and dropped when the form is saved
     ex.save_section(VA, "validate", {"channel": "Axial_disp", "early_tol_s": 0.3})

@@ -917,7 +917,22 @@ def _make_summary_entries(h5_type: str, cases: list, h5_path: str):
                 entries.append((f"SLD — {p} [outcome {rn}]", sld_model.plot_sld,
                                 {"cases": cases, "preset": p, "outcome_run": rn}))
 
+    # doe_validation_results.h5 (has /ranking): the validation figures of validation_figures.py (same API as the SLD:
+    # fn(h5_path=..., out_dir=None) -> Figure with _keep_size; a figure without data raises, shown as a viewer error)
+    if _is_validation_h5(h5_path):
+        import validation_figures as vf
+        entries += [(f"Validation — {n}", fn, {"h5_path": h5_path}) for n, fn in vf.FIGURES.items()]
+
     return entries
+
+
+def _is_validation_h5(path: str) -> bool:
+    """True for a doe_validation_results.h5 (it has the /ranking group)."""
+    try:
+        with h5py.File(path, "r") as f:
+            return "ranking" in f
+    except OSError:
+        return False
 
 
 def _build_noise_overlay_fig(cases: list, signal: str) -> Optional[Figure]:
@@ -2724,7 +2739,8 @@ class DoeSelectorUnifiedApp:
                                 "Press ▶ Preview first to generate a figure.",
                                 parent=self.root)
             return
-        out_dir = os.path.join(os.path.dirname(self.h5_path), "figs_indicators")
+        out_dir = os.path.join(os.path.dirname(self.h5_path),
+                               "figs_validation" if _is_validation_h5(self.h5_path) else "figs_indicators")
         os.makedirs(out_dir, exist_ok=True)
         label   = self._sum_combo.get()
         fname   = _sanitize(label) + ".png"

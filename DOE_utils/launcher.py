@@ -526,6 +526,7 @@ class App:
         self.cmp_cb_b = ttk.Combobox(row, textvariable=self.cmp_b, state="readonly", width=34)
         self.cmp_cb_b.pack(side=tk.LEFT, padx=4)
         ttk.Button(row, text="Compare", command=self.compare).pack(side=tk.LEFT, padx=6)
+        ttk.Button(row, text="Plot", command=self.plot_compare).pack(side=tk.LEFT)
         self.cmp_note = tk.StringVar(value="Validation experiments with doe_validation_results.h5   (ramp* columns: provisional criterion)")
         ttk.Label(f, textvariable=self.cmp_note, foreground="#555").pack(anchor="w", pady=4)
         cols = ("variant",) + tuple(f"{s}:{m}" for m in ex.METRIC_COLUMNS for s in ("A", "B"))
@@ -1228,6 +1229,39 @@ class App:
             self.cmp_tree.insert("", "end", values=row)
         self.cmp_note.set(f"A = {a}   B = {b}   (empty = that variant was not run in that experiment; ramp columns: "
                           "the ramps whose truth crosses, scored apart from the global metrics)")
+
+    def plot_compare(self):
+        """A/B figure of the two validations (validation_figures.fig_compare), shown in a window and saved as
+        <folder of A's results>/figs_validation/compare_<A>_vs_<B>.png."""
+        a, b = self.cmp_a.get(), self.cmp_b.get()
+        if not a or not b:
+            return
+        pa, pb = (ex.load(n).out("validate", "out", "doe_validation_results.h5") for n in (a, b))
+        missing = [p for p in (pa, pb) if not os.path.isfile(p)]
+        if missing:
+            self._msg("Compare", "No validation results yet:\n" + "\n".join(missing), "warn")
+            return
+        import matplotlib
+        matplotlib.use("TkAgg")
+        import matplotlib.pyplot as plt
+        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+        if ex.PLOTS not in sys.path:
+            sys.path.insert(0, ex.PLOTS)
+        try:
+            import validation_figures as vf
+            fig = vf.fig_compare(pa, pb, out_dir=os.path.join(os.path.dirname(pa), "figs_validation"))
+        except Exception as exc:   # a figure without data raises: shown as an error, like in the viewer
+            self._msg("Compare", f"{type(exc).__name__}: {exc}", "error")
+            return
+        plt.close(fig)   # detach from pyplot's window manager; the object stays
+        top = self.tk.Toplevel(self.root)
+        top.title(f"Validation compare — A = {a}   B = {b}")
+        canvas = FigureCanvasTkAgg(fig, master=top)
+        NavigationToolbar2Tk(canvas, top).update()
+        canvas.get_tk_widget().pack(fill=self.tk.BOTH, expand=True)
+        canvas.draw()
+        top._canvas = canvas   # keeps it alive
+        self.cmp_note.set(f"Plot saved in {os.path.join(os.path.dirname(pa), 'figs_validation')}")
 
 
 # ============================================================================== dialogs

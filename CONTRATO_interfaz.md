@@ -47,3 +47,18 @@ las rampas (título `ramp Ap0 -> Ap1 mm`), sin lógica propia.
 ## 5. Nota de edición
 Los scripts de parche con Python en Windows reescriben a CRLF; el repo está en LF. Hay un commit `chore` que lo
 revierte; el diff neto contra a868948 es solo contenido.
+
+## 6. Figuras de validación en el visor y en Compare — commit `feat(experiments)`
+Tras sincronizar con REPO-Utils y wt-validacion (merges sin conflicto). Se usa la API de
+`DOE_plots/validation_figures.py` (de wt-validacion, no se toca): `FIGURES = {nombre: fn(h5_path, out_dir=None) -> Figure}`
+con `fig._keep_size`, y `fig_compare(h5_a, h5_b, out_dir=None)`.
+
+| Archivo | Cambio |
+|---|---|
+| `DOE_plots/doe_unified_selector.py` (excepción acordada) | `_is_validation_h5(path)` (hay grupo `/ranking`); `_make_summary_entries` añade una entrada `Validation — <nombre>` por cada figura de `FIGURES` si el `.h5` es de validación; `_save_summary` guarda en `<carpeta del .h5>/figs_validation/` para esos archivos (y en `figs_indicators/` para el resto, como antes). Este archivo está en CRLF en el repo y se mantiene así |
+| `launcher.py` pestaña Compare | botón **Plot**: `validation_figures.fig_compare(h5_A, h5_B, out_dir=<carpeta de A>/figs_validation)`, se muestra en una ventana y queda guardado como `compare_<A>_vs_<B>.png`. Si falta el resultado de alguno, aviso (no error); si la figura lanza excepción, se muestra el error |
+| `check_app_dialogs.py` | comprueba el aviso de Plot sin resultados |
+
+Una figura sin datos (p. ej. `training_coverage` sin `/training`) lanza excepción y el visor la muestra como error (ya lo hacía `_refresh_summary`). Hay 12 figuras en `FIGURES` + `fig_compare`. Solo Ap constante.
+Verificado sobre un `.h5` de validación sintético (el del selftest de validation_figures) en el scratchpad: 12/12 figuras se
+generan en el visor, el guardado va a `figs_validation/`, y Plot abre la ventana y guarda `compare_*.png`.
