@@ -214,8 +214,8 @@ def fig_detection_time(D):
     ax.plot(_kappa(s0)[m][o], s0["t_onset_amp"][m][o], "k-s", ms=4, label=T("amplitude onset $t_{onset}$", "début en amplitude $t_{onset}$", " / "))
     for i, r in enumerate(D.order):
         s = D.summ[r]
-        ok, st = np.isfinite(s["first_detection_t"]), s["truth"] == "stable"
-        ax.plot(_kappa(s)[ok & ~st], s["first_detection_t"][ok & ~st], "o", ms=5, color=RUN_COLOR[i], label=short(r))
+        ok, st, un = np.isfinite(s["first_detection_t"]), s["truth"] == "stable", s["truth"] == "unstable"   # gray: left out
+        ax.plot(_kappa(s)[ok & un], s["first_detection_t"][ok & un], "o", ms=5, color=RUN_COLOR[i], label=short(r))
         ax.plot(_kappa(s)[ok & st], s["first_detection_t"][ok & st], "x", ms=6, color=RUN_COLOR[i])
     ax.axvline(1, color="grey", ls=":")
     ax.set(xlabel=r"$\kappa$", ylabel=T("first detection [s]", "première détection [s]"), yscale="log")
