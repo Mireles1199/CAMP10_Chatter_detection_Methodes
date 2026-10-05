@@ -46,18 +46,25 @@ Alternativas para decidir (NO decididas, usuario): (a) hit = "alarma en algún m
 (c) t_onset por umbral bajo (p. ej. 2–5 % de la base) — más cercano a la sensibilidad real de los indicadores;
 (d) kappa>1 & "stable" → gris o 'slow unstable'; (e) persistencia de la alarma para separar alarma real de transitorio.
 
-## 3. Figuras que valen la pena en la interfaz, y qué lee cada una
-| Figura | Archivo | Datos del .h5 | Valor |
-|---|---|---|---|
-| Ranking (bal.acc, MCC, AUC ± IC) | ranking.png | `/ranking/{run,rank,balanced_accuracy,MCC,AUC}`, `/metrics/<run>` attrs `AUC_lo/AUC_hi` | alto: portada; mostrar junto a AUC por la contradicción |
-| ROC por indicador + punto operativo | roc.png | `/roc/<run>/{high,low}/{fpr,tpr,thr}` (según `roc_direction`), `/metrics` `TPR,TNR,AUC` | alto: el punto operativo muy por debajo de la curva ES el hallazgo 1 |
-| Matriz run × caso (outcome por kappa) | case_matrix.png | `/summary/<run>/{outcome,kappa,truth,group,ap_mm,ap_end_mm}` | alto: ve dónde falla cada indicador |
-| Detección vs t_onset (log) | detection_time.png | `/summary/<run>/{first_detection_t,t_onset_amp,kappa,truth}` | alto: muestra adelanto y FP con kappa>1 |
-| Retraso firmado vs kappa + banda early_tol | delay_vs_kappa.png | `/summary/<run>/delay_det_s`, attrs raíz `early_tol_s` | alto: justifica (o refuta) la tolerancia |
-| Amplitud (% base) en la 1ª alarma | detection_amp.png | `case_NNN/Axial_disp/{time,values}`, `case_NNN` attr `$f_tooth$`, attrs raíz `labeling_*`, `/summary first_detection_t` | medio: costoso (lee señales), pero es la mejor evidencia de sensibilidad |
-| max(I_t) por caso vs kappa | score_vs_kappa.png | `/summary/<run>/{score_max,score_min,truth,kappa}`, `/metrics roc_direction` | medio: explica qué umbraliza el ROC |
-| Tabla de métricas | (tabla) | `*_metrics.csv` o `/metrics/<run>` attrs (TPR/TNR/F1/MCC con Wilson, `n_early_alarm`, `early_alarm_rate`, `mean_alarm_fraction_stable`, `mean_persistence`) | alto |
-| Rampas: tasas ramp_* | (tabla/barras) | `/metrics/<run>` attrs `ramp_*` | pendiente: ramp_check tiene solo 2 casos, sin datos globales ni kappa; sin evidencia aún |
-| Entrenamiento vs validación (cobertura kappa/spin) | (no hecha) | `/training/{kappa,ap_mm,spin_rpm,label}` | bajo/opcional |
+## 3. Figuras de validación (13) — estado final
+Script: `DOE_utils/DOE_plots/validation_figures.py` (estilo `plot_style.py`: FIGSIZE_SIMPLE/WIDE x FIGSCALE=1.5, `lang_text`, Okabe-Ito; solo Ap constante, rampas diferidas).
+API: `FIGURES = {nombre: fig_<nombre>(h5_path, out_dir=None) -> Figure}`, `fig_compare(h5_a, h5_b, out_dir=None)`, `make_all(h5_path, out_dir=None)`. CLI: `--results X.h5 [--out-dir D] [--lang EN|FR|both] [--scale 1.5]`, `--selftest`.
+**Dónde se guardan:** `<carpeta del .h5>/figs_validation/<nombre>.png` (300 dpi) por defecto; Compare: `figs_validation/compare_<A>_vs_<B>.png`; mis pruebas en `validacion_figs/<x>/fig/` (excluida de git).
 
-Notas de contrato: no se tocó nada del contrato ni launcher/experiment/yaml. Cualquier cambio de regla (§2) debería ser aditivo (nuevas columnas/attrs, p. ej. un `early_tol` relativo o un outcome alternativo), manteniendo `outcome`/`TP...` actuales.
+| Nombre | Preset | Datos del .h5 | Responde |
+|---|---|---|---|
+| ranking | SIMPLE | `/ranking`, `/metrics` (AUC_lo/hi) | ¿cuál es mejor? |
+| roc | SIMPLE | `/roc/<run>/{high,low}`, `/metrics` TPR TNR AUC | ¿umbral bien ajustado? |
+| tpr_tnr | SIMPLE | `/metrics` TPR TNR + Wilson | ¿diferencia significativa? |
+| confusion | grid | `/metrics` TP FN TN FP | lectura rápida 2x2 |
+| case_matrix | WIDE | `/summary` outcome, kappa, truth | ¿dónde falla cada uno? |
+| detection_time | SIMPLE | `/summary` first_detection_t, t_onset_amp | adelanto y FP |
+| delay_vs_kappa | SIMPLE | `/summary` delay_det_s | anticipación vs kappa |
+| detection_amp | SIMPLE | `case_NNN/Axial_disp`, `$f_tooth$`, `labeling_*` | amplitud al alarmar |
+| score_vs_kappa | grid | `/summary` score_max/min | qué umbraliza el ROC |
+| score_dist | grid | `/summary` score_max/min por truth | separación estable/inestable |
+| alarm_quality | WIDE | `/metrics` mean_alarm_fraction_stable, mean_persistence | calidad de la alarma |
+| training_coverage | SIMPLE | `/training`, `/summary` | ¿entrenamiento cubre lo validado? (necesita `--reference`) |
+| compare (A/B) | WIDE | `/metrics` de 2 archivos | efecto de cambiar experimento |
+
+Nota: con `--lang both --scale 1` las etiquetas largas se solapan (el estilo del repo usa fuentes de 14-16 pt); el defecto (scale 1.5) está pensado para esto.
