@@ -857,6 +857,9 @@ def _safe_attr(v):
     return str(v)
 
 
+NOISE_ROOT_ATTRS = ("noise_layout", "snr_mode", "snr_ref_case", "snr_levels", "realizations", "seed", "cases")
+
+
 def _wanted_groups(cli_cases, enabled_cases, layout: str, from_experiment: bool):
     """Grupos a procesar: los del CLI; si no, ENABLED_CASES; pero en un archivo de RUIDO con --experiment siempre
     'all': indicators.cases del experimento lista case_* (no existen en el archivo de ruido, daría 0 grupos) y la
@@ -878,6 +881,11 @@ def write_results(out_path: str, res: Dict[str, Any], h5_src: str,
             if res.get(k):
                 out_f.attrs[{"reference_h5": "reference_dataset", "truth_h5": "label_dataset",
                              "strategy": "label_strategy"}[k]] = res[k]
+        if "__" in res["case"] and "noise_layout" not in out_f.attrs:   # multi-case noise file: its root attrs (SNR reference, levels...)
+            with h5py.File(h5_src, "r") as src_f:
+                for k, v in src_f.attrs.items():
+                    if k in NOISE_ROOT_ATTRS or k.startswith("snr_ref_power_"):
+                        out_f.attrs[k] = v
         case_grp = out_f.require_group(res["case"])
         if res["run_name"] in case_grp:
             del case_grp[res["run_name"]]
@@ -1111,6 +1119,15 @@ def _selftest() -> None:
     write_results(dst2, res, src, copy_signals=False)
     with h5py.File(dst2, "r") as f:
         assert "Axial_disp" not in f["case_000"] and f["case_000"].attrs["kappa"] == 1.03 and "maxent_x" in f["case_000"]
+    # un archivo de ruido multi-caso pasa sus attrs raíz (referencia del SNR, niveles) al de indicadores
+    nsrc, ndst = os.path.join(tmp, "noise_src.h5"), os.path.join(tmp, "noise_dst.h5")
+    with h5py.File(src, "r") as a, h5py.File(nsrc, "w") as b:
+        a.copy(a["case_000"], b, name="snr_040.00__case_000__r00")
+        b.attrs.update(noise_layout="multi", snr_ref_case="case_000", snr_ref_power_Axial_disp=1e-10, other="x")
+    write_results(ndst, dict(res, case="snr_040.00__case_000__r00"), nsrc, copy_signals=False)
+    with h5py.File(ndst, "r") as f:
+        assert f.attrs["noise_layout"] == "multi" and f.attrs["snr_ref_case"] == "case_000" and "other" not in f.attrs
+        assert f.attrs["snr_ref_power_Axial_disp"] == 1e-10
     # los grupos de un archivo de ruido no se filtran con indicators.cases del experimento
     assert _wanted_groups(None, ["case_000", "case_003"], "noise", True) == "all"
     assert _wanted_groups(None, ["case_000"], "doe", True) == ["case_000"] and _wanted_groups(["snr_040.00"], "all", "noise", True) == ["snr_040.00"]
