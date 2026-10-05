@@ -5,6 +5,19 @@ Datos leídos (solo lectura): `Data/1DOF_150_Ap_Cont_test_ind/{Ap_Cons_test_ind/
 (el .h5 guardado de n12000 es schema/2, regla vieja). Figuras: `validacion_figs/<x>/fig/*.png` (excluida vía .git/info/exclude), generadas con
 `DOE_utils/DOE_plots/validation_figures.py --results X/doe_validation_results.h5 --out-dir D`.
 
+## 0. DECISIÓN DEL USUARIO (2026-10-05): `early_tol` eliminada por completo
+Implementado en `validate_indicators.py` (selftest OK) y `validation_figures.py`:
+- Caso constante inestable: TP si el indicador alarma en cualquier momento, FN si nunca. Estable: FP/TN igual que antes. Sin tolerancia, ni informativa. `delay_onset_s`/`delay_det_s` siguen como dato del retraso (no deciden nada).
+- Desaparecen outcome `TP_early`, attr raíz `early_tol_s`, métricas `n_anticipated`, `n_early_alarm`, `early_alarm_rate`, `ramp_anticipated_rate*`.
+- Rampas que cruzan (etiqueta en el tiempo): alarma antes del inicio de la primera ventana inestable = FA (sin tolerancia), después = TP, ninguna = FN. **Criterio a confirmar por el usuario**: con 2 rampas (ramp_check) ambas salen FA.
+- Resultados sin tolerancia: n12000 green/ssq bal.acc 0.94 (MCC 0.90), maxent 0.88, rms_cv 0.56; n5189 green/ssq 0.96, maxent 0.92, rms_cv 0.50.
+- `validate()` ahora crea el directorio de `--out`.
+- COMPAT (contrato): `--early-tol` se sigue aceptando pero se ignora (oculto en --help), y `EARLY_TOL_S` (=0.0, sin efecto), `OUTCOME_TEXT`, `detection_outcome(t, onset, early_tol=None)` siguen exportados porque `doe_indicators.py` los importa. Quedan referencias a limpiar por wt-interfaz / dueños:
+  `experiment.py` (l.729-733 pasa `--early-tol`; l.1137, 1448-1463 texto/regla; l.1848-1850 METRIC_COLUMNS y EARLY_TOL_S; l.1899, 2228 sección validate), `launcher.py` (l.231, 1492-1508 campo early_tol_s, 536, 2695),
+  `check_app_dialogs.py` l.588, `doe_indicators.py` (l.43, 338-358, 424, 928-964, 1009, 1083-1106: usa la tolerancia en el texto de progreso de rampas; `detection_outcome` ya no la aplica) y `PLAN_ramps.md`.
+
+---
+
 ## 1. Qué hace la validación (resumen)
 - Verdad por CASO (etiqueta de amplitud: |Axial_disp| > 40 % de f_tooth·1e-3). `t_onset_amp` = primer instante sobre ese límite.
 - Primer detectado: `t_det` = primera ventana con alarma. Inestable: TP si `t_det >= t_onset`; TP_early si cae en `[t_onset-0.5 s, t_onset)`; FA si antes; FN si nunca.

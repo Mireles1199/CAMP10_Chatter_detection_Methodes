@@ -9,7 +9,7 @@ One PNG per figure (name -> h5 data it reads):
   roc.png              case-level ROC, orientation of roc_direction, operating point        /roc/<run>/{high,low}, /metrics
   case_matrix.png      run x case grid of outcomes, cases ordered by kappa (ramps: by Ap)    /summary/<run>
   detection_time.png   first detection vs kappa, against the amplitude onset t_onset         /summary/<run>
-  delay_vs_kappa.png   signed delay of the first detection vs kappa, with the early_tol band /summary/<run>, attrs early_tol_s
+  delay_vs_kappa.png   signed delay of the first detection vs kappa (reported, never decides the outcome) /summary/<run>
   detection_amp.png    amplitude (% of the labelling base) when each indicator first alarms  case_NNN/Axial_disp, /summary
   score_vs_kappa.png   max(I_t) per case vs kappa (what the ROC thresholds)                 /summary/<run>.score_max
 """
@@ -29,7 +29,7 @@ from plot_style import ARTICLE_RCPARAMS  # noqa: E402
 
 STYLE = {**ARTICLE_RCPARAMS, "font.size": 10, "axes.titlesize": 11, "axes.labelsize": 11, "xtick.labelsize": 9,
          "ytick.labelsize": 9, "legend.fontsize": 8, "lines.markersize": 5, "xtick.direction": "out", "ytick.direction": "out", "savefig.transparent": False, "savefig.dpi": 160}
-OUT_COLOR = {"TP": "#2a9d8f", "TP_early": "#8ecae6", "FA": "#e76f51", "FN": "#9b2226", "TN": "#bfd8bd",
+OUT_COLOR = {"TP": "#2a9d8f", "FA": "#e76f51", "FN": "#9b2226", "TN": "#bfd8bd",
              "FP": "#f4a261", "n/a": "#dddddd"}
 RUN_COLOR = ["#0072B2", "#D55E00", "#009E73", "#CC79A7", "#E69F00", "#56B4E9"]
 
@@ -108,7 +108,7 @@ def fig_matrix(summ, order, out_dir):
     ax.set_xticks(range(len(idx)), lab, rotation=90)
     ax.set_yticks(range(len(order)), [short(r) for r in order])
     ax.set_xlabel("case: kappa and truth  [S stable, U unstable, M ramp crossing, g gray]")
-    ax.legend(handles=[plt.Rectangle((0, 0), 1, 1, color=c, label=o) for o, c in OUT_COLOR.items()], ncol=7,
+    ax.legend(handles=[plt.Rectangle((0, 0), 1, 1, color=c, label=o) for o, c in OUT_COLOR.items()], ncol=6,
               loc="lower center", bbox_to_anchor=(0.5, 1.0), fontsize=7)
     _save(fig, out_dir, "case_matrix.png")
 
@@ -133,18 +133,17 @@ def fig_detection_time(summ, order, out_dir):
     _save(fig, out_dir, "detection_time.png")
 
 
-def fig_delay(summ, order, early_tol, out_dir):
+def fig_delay(summ, order, out_dir):
     fig, ax = plt.subplots(figsize=(6, 4))
     for i, r in enumerate(order):
         s = summ[r]
         x, ramp = _xkey(s)
         ok = ~ramp & np.isfinite(s["delay_det_s"])
         ax.plot(x[ok], s["delay_det_s"][ok], "o-", color=RUN_COLOR[i], ms=4, label=short(r))
-    ax.axhspan(-early_tol, 0, color="#8ecae6", alpha=0.4, label=f"anticipated hit (early_tol={early_tol:g} s)")
     ax.axhline(0, color="k", lw=0.8)
-    ax.set(xlabel="kappa", ylabel="first detection - t_onset [s]", yscale="symlog", yticks=[-10, -3, -1, -0.5, 0, 1],
+    ax.set(xlabel="kappa", ylabel="first detection - t_onset [s]", yscale="symlog", yticks=[-10, -3, -1, 0, 1],
            title="signed delay (negative = alarm before the amplitude onset)")
-    ax.set_yticklabels(["-10", "-3", "-1", "-0.5", "0", "1"])
+    ax.set_yticklabels(["-10", "-3", "-1", "0", "1"])
     ax.legend(fontsize=7)
     _save(fig, out_dir, "delay_vs_kappa.png")
 
@@ -195,7 +194,7 @@ def make_all(path, out_dir):
     attrs, summ, order, met = load(path)
     jobs = (lambda: fig_ranking(met, order, out_dir), lambda: fig_roc(path, met, order, out_dir),
             lambda: fig_matrix(summ, order, out_dir), lambda: fig_detection_time(summ, order, out_dir),
-            lambda: fig_delay(summ, order, float(attrs.get("early_tol_s", 0.5)), out_dir),
+            lambda: fig_delay(summ, order, out_dir),
             lambda: fig_detection_amp(path, summ, attrs, order, out_dir), lambda: fig_score(summ, met, order, out_dir))
     with plt.rc_context(STYLE):
         for job in jobs:   # a figure without data (e.g. only ramps: no kappa) is skipped, not fatal
