@@ -17,6 +17,7 @@ so doe_unified_selector.py opens it as-is (table columns, SLD, I_t curves), plus
                    sub-group of a case as an indicator run)
   case_NNN/<run> : pred, truth_w (per window: 0 stable, 1 unstable, -1 gray/unlabelled) + attrs outcome,
                    first_detection_t, delay_start_s, delay_onset_s and the window counts TP FP TN FN tpr tnr
+  schema 4 (was 3): no early_tol (no TP_early outcome, no early_alarm/anticipated metrics, no early_tol_s attr)
   /summary/<run> : one row per case (case, kappa, ap_mm, spin_rpm, truth, outcome, first_detection_t,
                    delay_start_s, t_onset_amp, delay_onset_s, tpr, tnr)
   /metrics/<run> : attrs with the per-case metrics below (+ alarm quality and ROC/AUC)
@@ -25,22 +26,22 @@ so doe_unified_selector.py opens it as-is (table columns, SLD, I_t curves), plus
   /training      : case, kappa, ap_mm, spin_rpm, label of the training dataset
 
 Labels are per CASE (the amplitude labelling gives each constant case one interval over the whole signal), so the
-headline metrics are per case. A case with an unstable part is scored from its FIRST detection t_det against the
-onset of its truth t_onset (detection_outcome): t_det >= t_onset -> TP; t_onset - early_tol <= t_det < t_onset ->
-TP_early (anticipated hit, negative delay); earlier -> FA (early alarm); no detection -> FN. In the 2x2 matrix TP_early
-counts as TP and FA as FN (the positive was not detected in time); early_alarm_rate = FA / unstable cases. A case
-with a stable label is FP if it detects anything (else TN); gray cases are ignored. t_onset = t_onset_amp below (first
-sample over the limit) for constant cases; --early-tol (default 0.5 s).
-RAMPS of Ap (PLAN_ramps.md): a ramp whose truth goes from stable to unstable ('mixed', group 'ramp') is scored with
-the same rule, t_onset = start of its first unstable window (no theoretical crossing time anywhere); these ramps do
-NOT enter the global metrics, the ranking nor the ROC (group 'global' = constant cases + ramps whose truth does not
-change) and get their own ramp_* metrics in /metrics/<run> (see ramp_metrics).
+headline metrics are per case and there is NO time tolerance: an unstable case is TP if the indicator flags anything
+(its first detection t_det exists), else FN; a stable case is FP if it flags anything, else TN; gray cases are ignored.
+This is what the case-level ROC measures too (a detection = I_t above a threshold anywhere). t_onset = t_onset_amp below
+(first sample over the limit) for constant cases; it is used only to report the delay, never to decide the outcome.
+RAMPS of Ap (PLAN_ramps.md): a ramp whose truth goes from stable to unstable ('mixed', group 'ramp') has a label in time
+(stable stretch, then unstable), so its first detection t_det is compared with t_onset = start of its first unstable
+window (no theoretical crossing time anywhere): t_det >= t_onset -> TP; t_det < t_onset -> FA (false alarm in the stable
+stretch, nothing is tolerated); no detection -> FN. These ramps do NOT enter the global metrics, the ranking nor the ROC
+(group 'global' = constant cases + ramps whose truth does not change) and get their own ramp_* metrics in /metrics/<run>
+(see ramp_metrics).
   TPR = TP/(TP+FN)   TNR = TN/(TN+FP)   accuracy = (TP+TN)/(TP+TN+FP+FN)   balanced accuracy = (TPR+TNR)/2
   F1 = 2TP/(2TP+FP+FN)   MCC = (TP*TN - FP*FN)/sqrt((TP+FP)(TP+FN)(TN+FP)(TN+FN))
   TPR, TNR and accuracy come with a 95% Wilson interval (_lo/_hi): with few cases a bare proportion is very coarse.
-Two detection times, over the hits (TP and anticipated TP_early; median):
+Two detection times, over the hits (TP; median):
   delay_start_s = first flagged window inside the unstable part - its start (time since the signal starts)
-  delay_onset_s = first detection - t_onset, signed (negative: an anticipated hit, before the truth's onset)
+  delay_onset_s = first detection - t_onset, signed (negative: the alarm came before the amplitude of the truth reached the limit)
   t_onset_amp = first time |labeling_signal| exceeds labeling_lim_sup_pct % of the base (labeling_base_attr *
   labeling_base_scale): the same threshold that makes the amplitude labelling call a case unstable. NaN if the signal
   or the base is not in the validation file.
@@ -72,21 +73,17 @@ import h5py
 import numpy as np
 
 CODE = {"stable": 0, "unstable": 1}   # anything else (gray) -> -1
-EARLY_TOL_S = 0.5   # a detection up to this before the onset of the truth is an ANTICIPATED hit; earlier = false alarm
-OUTCOME_TEXT = {"TP": "OK", "TP_early": "ANTICIPATED", "FA": "MAL: false alarm", "FN": "MAL: missed",
-                "TN": "OK", "FP": "MAL: false alarm"}
+EARLY_TOL_S = 0.0   # DEPRECATED, no effect: only so that doe_indicators / experiment.py (--early-tol) still import and call
+OUTCOME_TEXT = {"TP": "OK", "FA": "MAL: false alarm", "FN": "MAL: missed", "TN": "OK", "FP": "MAL: false alarm"}
 
 
-def detection_outcome(t_det: float, t_onset: float, early_tol: float = EARLY_TOL_S) -> str:
-    """Outcome of an UNSTABLE case (or the unstable part of a ramp) from its FIRST detection t_det and the onset of
-    the truth t_onset: TP if t_det >= t_onset; TP_early (anticipated hit, signed delay < 0) if it is at most
-    early_tol before; FA (false alarm: too early) before that; FN without detection. Without an onset, any
-    detection is TP. In the 2x2 matrix FA counts as FN (the positive was not detected in time)."""
+def detection_outcome(t_det: float, t_onset: float, early_tol=None) -> str:
+    """Outcome of the unstable part of a RAMP from its FIRST detection t_det and the onset of the truth t_onset: TP if
+    t_det >= t_onset, FA (false alarm in the stable stretch) before it, FN without detection. Without an onset, any
+    detection is TP. early_tol is DEPRECATED and ignored."""
     if not np.isfinite(t_det):
         return "FN"
-    if not np.isfinite(t_onset) or t_det >= t_onset:
-        return "TP"
-    return "TP_early" if t_det >= t_onset - early_tol else "FA"
+    return "TP" if not np.isfinite(t_onset) or t_det >= t_onset else "FA"
 STR = h5py.string_dtype()
 SUMMARY_FLOATS = ("kappa", "ap_mm", "ap_end_mm", "kappa_start", "kappa_end", "spin_rpm", "first_detection_t",
                   "delay_start_s", "t_onset_amp", "t_onset", "delay_onset_s", "delay_det_s", "alarm_fraction", "persistence",
@@ -127,17 +124,17 @@ def pred_windows(t, t_d) -> np.ndarray:
     return pred
 
 
-def score(t, pred, truth_w, t_start, t_onset=np.nan, early_tol: float = EARLY_TOL_S) -> dict:
-    """Window counts + case outcome + the detection times. A case with an unstable part is scored from its FIRST
-    detection against t_onset (detection_outcome: TP, TP_early, FA, FN; no t_onset -> t_start); a stable case is FP
-    with any detection, else TN. delay_onset_s = first detection - t_onset, signed, for TP and TP_early;
-    delay_start_s = first flagged window inside the unstable part - t_start (as before)."""
+def score(t, pred, truth_w, t_start, t_onset=np.nan, ramp: bool = False) -> dict:
+    """Window counts + case outcome + the detection times. A constant case with an unstable part is TP with any
+    detection, else FN (no tolerance); a ramp is scored from its FIRST detection against t_onset (detection_outcome:
+    TP, FA, FN; no t_onset -> t_start); a stable case is FP with any detection, else TN. delay_onset_s = first
+    detection - t_onset, signed, for TP; delay_start_s = first flagged window inside the unstable part - t_start."""
     p, s, u = pred == 1, truth_w == 0, truth_w == 1
     tp, fp, tn, fn = int((p & u).sum()), int((p & s).sum()), int((~p & s).sum()), int((~p & u).sum())
     t_det = float(t[p][0]) if p.any() else np.nan
     onset = t_onset if np.isfinite(t_onset) else t_start
     if u.any():
-        outcome = detection_outcome(t_det, onset, early_tol)
+        outcome = detection_outcome(t_det, onset) if ramp else ("TP" if np.isfinite(t_det) else "FN")
     elif s.any():
         outcome = "FP" if fp > 0 else "TN"
     else:
@@ -151,7 +148,7 @@ def score(t, pred, truth_w, t_start, t_onset=np.nan, early_tol: float = EARLY_TO
                 first_detection_t=t_det, n_fp_windows=fp, outcome=outcome, t_onset=float(onset),
                 hit_in_unstable=float(hit),   # 0 for a 'TP' whose detections all fall outside the unstable part
                 delay_start_s=float(t_hit[0] - t_start) if hit and np.isfinite(t_start) else np.nan,
-                delay_onset_s=float(t_det - onset) if outcome in ("TP", "TP_early") and np.isfinite(onset) else np.nan,
+                delay_onset_s=float(t_det - onset) if outcome == "TP" and np.isfinite(onset) else np.nan,
                 # diagnostic: the same signed delay for ANY first detection (also an early alarm's)
                 delay_det_s=float(t_det - onset) if u.any() and np.isfinite(onset) else np.nan)
 
@@ -228,8 +225,7 @@ def _first_piece_attrs(labels_h5: str) -> dict:
     return {}
 
 
-def validate(ind_h5: str, labels_h5: str, out_h5: str, channel: str = "Axial_disp", reference_h5: str = None,
-             early_tol: float = EARLY_TOL_S) -> dict:
+def validate(ind_h5: str, labels_h5: str, out_h5: str, channel: str = "Axial_disp", reference_h5: str = None) -> dict:
     """Write out_h5 and return {run_name: [row dict per case]}. Each row has 'group': 'ramp' for a ramp of Ap whose
     truth changes from stable to unstable (scored apart: ramp_* metrics), 'global' otherwise (constant cases and
     ramps whose truth does not change: the usual metrics, ranking and ROC)."""
@@ -237,13 +233,14 @@ def validate(ind_h5: str, labels_h5: str, out_h5: str, channel: str = "Axial_dis
     if not intervals:
         raise ValueError(f"no pieces of channel '{channel}' in {labels_h5}")
     summary = {}
+    os.makedirs(os.path.dirname(os.path.abspath(out_h5)), exist_ok=True)
     if os.path.exists(out_h5):
         os.remove(out_h5)
     params = {k: v for k, v in _first_piece_attrs(labels_h5).items() if k.startswith("labeling_")}   # same for all
     with h5py.File(ind_h5, "r") as src, h5py.File(out_h5, "w") as out:
-        out.attrs.update(schema="doe_validation_results/3", created=datetime.datetime.now().isoformat(timespec="seconds"),
+        out.attrs.update(schema="doe_validation_results/4", created=datetime.datetime.now().isoformat(timespec="seconds"),
                          indicator_results_file=os.path.basename(ind_h5), labels_file=os.path.basename(labels_h5),
-                         channel=channel, early_tol_s=float(early_tol))
+                         channel=channel)
         out.attrs.update(params)
         if reference_h5:
             out.attrs["reference_h5"] = os.path.basename(reference_h5)
@@ -285,7 +282,7 @@ def validate(ind_h5: str, labels_h5: str, out_h5: str, channel: str = "Axial_dis
                 t, i_t = rg["t"][()], rg["I_t"][()]
                 t_d = rg["t_d"][()] if "t_d" in rg else np.array([])
                 pred, tw = pred_windows(t, t_d), truth_windows(t, intervals[case])
-                m = score(t, pred, tw, t_start, onset, early_tol)
+                m = score(t, pred, tw, t_start, onset, group == "ramp")
                 fin, fl = np.isfinite(i_t), pred == 1
                 m.update(score_max=float(np.max(i_t[fin])) if fin.any() else np.nan,
                          score_min=float(np.min(i_t[fin])) if fin.any() else np.nan)
@@ -340,7 +337,7 @@ def wilson(k: int, n: int, z: float = 1.96) -> tuple:
     return float(max(c - h, 0.0)), float(min(c + h, 1.0))
 
 
-HIT = ("TP", "TP_early")   # detected in time (TP_early: anticipated, within the tolerance)
+HIT = ("TP",)
 
 
 def _mean(v) -> float:
@@ -350,11 +347,10 @@ def _mean(v) -> float:
 
 def case_metrics(rows) -> dict:
     """Per-case confusion for one indicator: counts, TPR/TNR/accuracy (+ Wilson 95%), balanced accuracy, F1, MCC and the
-    median of the two detection times over the hits. TP = detected in time (TP and anticipated TP_early); FN =
-    missed AND early alarms (FA: the positive was not detected in time); TN / FP from the stable cases. Also
-    n_anticipated, n_early_alarm and early_alarm_rate = FA / positives."""
-    c = {o: sum(r["outcome"] == o for r in rows) for o in ("TP", "TP_early", "FA", "FN", "TN", "FP")}
-    tp, fn, tn, fp = c["TP"] + c["TP_early"], c["FN"] + c["FA"], c["TN"], c["FP"]
+    median of the two detection times over the hits. TP / FN from the unstable cases (detected or not), TN / FP from
+    the stable ones; there is no time tolerance."""
+    c = {o: sum(r["outcome"] == o for r in rows) for o in ("TP", "FN", "TN", "FP")}
+    tp, fn, tn, fp = c["TP"], c["FN"], c["TN"], c["FP"]
     n = dict(TP=tp, FN=fn, TN=tn, FP=fp)
     div = lambda a, b: a / b if b else float("nan")
     tpr, tnr = div(tp, tp + fn), div(tn, tn + fp)
@@ -363,8 +359,7 @@ def case_metrics(rows) -> dict:
         else float("nan")
     out = dict(**n, TPR=tpr, TNR=tnr, accuracy=div(tp + tn, sum(n.values())), balanced_accuracy=(tpr + tnr) / 2,
                F1=div(2 * tp, 2 * tp + fp + fn), MCC=float((tp * tn - fp * fn) / mcc_den) if mcc_den else float("nan"),
-               median_delay_start_s=med("delay_start_s"), median_delay_onset_s=med("delay_onset_s"),
-               n_anticipated=c["TP_early"], n_early_alarm=c["FA"], early_alarm_rate=div(c["FA"], tp + fn))
+               median_delay_start_s=med("delay_start_s"), median_delay_onset_s=med("delay_onset_s"))
     for name, k, m in (("TPR", tp, tp + fn), ("TNR", tn, tn + fp), ("accuracy", tp + tn, sum(n.values()))):
         out[f"{name}_lo"], out[f"{name}_hi"] = wilson(k, m)
     af = [r.get("alarm_fraction", np.nan) for r in rows if r["outcome"] in ("TN", "FP")]
@@ -375,18 +370,17 @@ def case_metrics(rows) -> dict:
 
 def ramp_metrics(rows) -> dict:
     """Metrics of the ramps whose truth crosses from stable to unstable (group 'ramp'), apart from the global ones,
-    with the same bookkeeping (an early alarm is a failure of the positive): ramp_n, the rates of detection
-    (TP + anticipated), anticipation, early alarm and miss (+ Wilson 95%), the signed delay to the crossing of the
-    truth (median, p25, p75; over the detections in time), the alarm fraction in the stable stretch of the ramps
-    and the persistence in their unstable stretch. {} without such ramps."""
+    ramp_n, the rates of detection (TP: first detection at or after the crossing), early alarm (first detection before
+    it, in the stable stretch) and miss (+ Wilson 95%), the signed delay to the crossing of the truth (median, p25,
+    p75; over the TP), the alarm fraction in the stable stretch of the ramps and the persistence in their unstable
+    stretch. {} without such ramps."""
     rows = [r for r in rows if r.get("group") == "ramp"]
     if not rows:
         return {}
     n = len(rows)
-    k = {o: sum(r["outcome"] == o for r in rows) for o in ("TP", "TP_early", "FA", "FN")}
+    k = {o: sum(r["outcome"] == o for r in rows) for o in ("TP", "FA", "FN")}
     out = {"ramp_n": n}
-    for name, cnt in (("detection", k["TP"] + k["TP_early"]), ("anticipated", k["TP_early"]),
-                      ("early_alarm", k["FA"]), ("miss", k["FN"])):
+    for name, cnt in (("detection", k["TP"]), ("early_alarm", k["FA"]), ("miss", k["FN"])):
         out[f"ramp_{name}_rate"] = cnt / n
         out[f"ramp_{name}_rate_lo"], out[f"ramp_{name}_rate_hi"] = wilson(cnt, n)
     d = [r["delay_onset_s"] for r in rows if r["outcome"] in HIT and np.isfinite(r["delay_onset_s"])]
@@ -483,13 +477,11 @@ def print_summary(summary: dict) -> None:
               f" | AUC {ci('AUC')} (high I_t = {chatter_is}; {m['roc_direction_source']})"
               f"\n  alarm in stable cases={m['mean_alarm_fraction_stable']:.3f} of windows | persistence after detection="
               f"{m['mean_persistence']:.2f} | median time: since start {m['median_delay_start_s']:.3f} s, "
-              f"vs amplitude onset {m['median_delay_onset_s']:+.3f} s"
-              f"\n  anticipated hits {m['n_anticipated']} | early alarms (counted as FN) {m['n_early_alarm']}"
-              f" = {m['early_alarm_rate']:.2f} of the unstable cases")
+              f"vs amplitude onset {m['median_delay_onset_s']:+.3f} s")
         if m.get("ramp_n"):
             rc = lambda k: f"{m[k]:.2f} [{m[k + '_lo']:.2f}-{m[k + '_hi']:.2f}]"   # noqa: E731
-            print(f"  RAMPS that cross ({m['ramp_n']}): detected {rc('ramp_detection_rate')}, anticipated "
-                  f"{rc('ramp_anticipated_rate')}, early alarm {rc('ramp_early_alarm_rate')}, missed "
+            print(f"  RAMPS that cross ({m['ramp_n']}): detected {rc('ramp_detection_rate')}, early alarm "
+                  f"{rc('ramp_early_alarm_rate')}, missed "
                   f"{rc('ramp_miss_rate')} | delay to the crossing {m['ramp_median_delay_s']:+.3f} s "
                   f"[{m['ramp_delay_p25_s']:+.3f}, {m['ramp_delay_p75_s']:+.3f}] | alarm in their stable stretch "
                   f"{m['ramp_alarm_fraction_stable']:.3f} | persistence {m['ramp_persistence']:.2f}")
@@ -508,21 +500,22 @@ def _selftest():
     iv = [(0.0, 4.95, "stable"), (4.95, 5.55, "gray"), (5.55, 10.0, "unstable")]
     tw = truth_windows(t, iv)
     assert tw[0] == 0 and tw[50] == -1 and tw[60] == 1 and case_truth(iv) == ("mixed", 5.55)
-    # the rule of the first detection against the onset of the truth (0.5 s of tolerance)
+    # constant case: any detection is TP (no tolerance); the delay to the onset is only reported
     ok = score(t, pred_windows(t, t[tw == 1][:3]), tw, 5.55, 5.8)          # 5.6 s: 0.2 s before the onset 5.8 s
-    assert ok["outcome"] == "TP_early" and ok["FP"] == 0 and ok["TN"] == (tw == 0).sum()   # anticipated hit
+    assert ok["outcome"] == "TP" and ok["FP"] == 0 and ok["TN"] == (tw == 0).sum()
     assert abs(ok["delay_start_s"] - 0.05) < 1e-9 and abs(ok["delay_onset_s"] - (-0.2)) < 1e-9   # 5.6 - 5.55 | 5.6 - 5.8
     late = score(t, pred_windows(t, np.array([6.0, 6.1])), tw, 5.55, 5.8)
     assert late["outcome"] == "TP" and abs(late["delay_onset_s"] - 0.2) < 1e-9 and late["t_onset"] == 5.8
-    early = score(t, pred_windows(t, np.array([1.0, 6.0])), tw, 5.55)  # alarm at 1.0 s (> 0.5 s early) + detects at 6.0
+    early = score(t, pred_windows(t, np.array([1.0, 6.0])), tw, 5.55, ramp=True)   # ramp: alarm at 1.0 s, before the onset
     assert early["outcome"] == "FA" and early["FP"] == 1 and early["n_fp_windows"] == 1 and np.isnan(early["delay_onset_s"])
     assert early["t_onset"] == 5.55                                     # no amplitude onset: the unstable interval start
     assert abs(early["delay_det_s"] - (1.0 - 5.55)) < 1e-9 and np.isnan(miss_d := score(t, pred_windows(t, np.array([])), tw, 5.55)["delay_det_s"])
-    assert score(t, pred_windows(t, np.array([5.2])), tw, 5.55)["outcome"] == "TP_early"    # 0.35 s early: in tolerance
-    assert score(t, pred_windows(t, np.array([5.2])), tw, 5.55, early_tol=0.1)["outcome"] == "FA"
+    assert score(t, pred_windows(t, np.array([1.0, 6.0])), tw, 5.55)["outcome"] == "TP"   # the same detections, constant case
+    assert score(t, pred_windows(t, np.array([5.2])), tw, 5.55, ramp=True)["outcome"] == "FA"   # nothing tolerated on a ramp
+    assert score(t, pred_windows(t, np.array([5.2])), tw, 5.55)["outcome"] == "TP"
     miss = score(t, pred_windows(t, np.array([])), tw, 5.55)
     assert miss["outcome"] == "FN" and miss["tpr"] == 0 and miss["tnr"] == 1 and np.isnan(miss["delay_start_s"])
-    assert [detection_outcome(x, 10.0, 0.5) for x in (10.0, 9.5, 9.49, np.nan)] == ["TP", "TP_early", "FA", "FN"]
+    assert [detection_outcome(x, 10.0) for x in (10.0, 9.99, 9.5, np.nan)] == ["TP", "FA", "FA", "FN"]
     assert detection_outcome(3.0, np.nan) == "TP"                       # no onset known: any detection
     st = [(0.0, 10.0, "stable")]
     stw = truth_windows(t, st)
@@ -549,17 +542,17 @@ def _selftest():
     assert abs(m["accuracy"] - 4 / 6) < 1e-12 and abs(m["balanced_accuracy"] - 2 / 3) < 1e-12 and abs(m["F1"] - 2 / 3) < 1e-12
     assert abs(m["MCC"] - 1 / 3) < 1e-12 and m["median_delay_start_s"] == 2.0 and m["median_delay_onset_s"] == 0.0
     assert m["TPR_lo"] < m["TPR"] < m["TPR_hi"] and np.isnan(case_metrics([])["TPR"]) and np.isnan(case_metrics([])["MCC"])
-    # an anticipated hit is a TP, an early alarm a FN (and its own rate)
+    # the delay is the median over the hits (signed: negative = before the onset)
     m2 = case_metrics([dict(outcome=o, delay_start_s=1.0, delay_onset_s=d) for o, d in
-                       (("TP_early", -0.3), ("FA", np.nan), ("TP", 0.5), ("TN", np.nan))])
-    assert (m2["TP"], m2["FN"], m2["TN"], m2["FP"]) == (2, 1, 1, 0) and m2["n_anticipated"] == 1 and m2["n_early_alarm"] == 1
-    assert abs(m2["early_alarm_rate"] - 1 / 3) < 1e-12 and abs(m2["median_delay_onset_s"] - 0.1) < 1e-12
+                       (("TP", -0.3), ("TP", 0.5), ("FN", np.nan), ("TN", np.nan))])
+    assert (m2["TP"], m2["FN"], m2["TN"], m2["FP"]) == (2, 1, 1, 0) and abs(m2["median_delay_onset_s"] - 0.1) < 1e-12
+    assert not {"n_anticipated", "n_early_alarm", "early_alarm_rate"} & set(m2)
     # end to end on synthetic files
     ind, lab, out = (os.path.join(d, n) for n in ("ind.h5", "lab.h5", "out.h5"))
     with h5py.File(ind, "w") as f:
-        # case_002-004: ramps 5 -> 15 mm whose truth turns unstable at 5.0 s: early alarm, anticipated, late
+        # case_002-004: ramps 5 -> 15 mm whose truth turns unstable at 5.0 s: early alarm, late 0.5 s, late 1.0 s
         for name, kap, td in (("case_000", 0.6, []), ("case_001", 1.5, [6.0, 6.1, 7.0]), ("case_002", 0.0, [2.0, 6.0]),
-                              ("case_003", 0.0, [4.8, 5.5]), ("case_004", 0.0, [6.0])):
+                              ("case_003", 0.0, [5.5]), ("case_004", 0.0, [6.0])):
             g = f.create_group(name)
             if kap:
                 g.attrs.update({"$spin_rate$": 12000.0, "$Ap_start$": 0.005 * kap, "kappa": kap, "$f_tooth$": 0.05})
@@ -581,11 +574,11 @@ def _selftest():
             p.attrs.update(channel="Axial_disp", t0=t0, t1=t1, labeling_strategy="amplitude", labeling_lim_sup_pct=40.0,
                            labeling_base_attr="$f_tooth$", labeling_base_scale=1e-3, labeling_signal="Axial_disp")
     s = validate(ind, lab, out)
-    assert [r["outcome"] for r in s["fake_run"]] == ["TN", "TP", "FA", "TP_early", "TP"], s
+    assert [r["outcome"] for r in s["fake_run"]] == ["TN", "TP", "FA", "TP", "TP"], s
     assert [r["group"] for r in s["fake_run"]] == ["global", "global", "ramp", "ramp", "ramp"]
     with h5py.File(out, "r") as f:
         assert f.attrs["schema"].startswith("doe_validation") and f.attrs["labeling_strategy"] == "amplitude"
-        assert f.attrs["early_tol_s"] == 0.5
+        assert "early_tol_s" not in f.attrs
         c1 = f["case_001"]
         assert c1.attrs["$truth$"] == "mixed" and "$zone$" not in c1.attrs and np.isnan(f["case_000"].attrs["$t_onset_amp$"])
         assert c1.attrs["$outcome_fake_run$"] == "TP" and list(c1["truth_label"].asstr()[()])[-1] == "unstable"
@@ -598,13 +591,13 @@ def _selftest():
         # the ramps: onset = start of the first unstable window (5.0 s), no theoretical time; their metrics apart
         c3 = f["case_003"].attrs
         assert c3["$group$"] == "ramp" and c3["$t_onset$"] == 5.0 and np.isnan(c3["$kappa$"]) and c3["$kappa_end$"] == 1.74
-        assert c3["$Ap_end_mm$"] == 15.0 and abs(f["case_003/fake_run"].attrs["delay_onset_s"] + 0.2) < 1e-9
+        assert c3["$Ap_end_mm$"] == 15.0 and abs(f["case_003/fake_run"].attrs["delay_onset_s"] - 0.5) < 1e-9
         assert mt["ramp_n"] == 3 and abs(mt["ramp_detection_rate"] - 2 / 3) < 1e-12 and abs(mt["ramp_early_alarm_rate"] - 1 / 3) < 1e-12
-        assert abs(mt["ramp_anticipated_rate"] - 1 / 3) < 1e-12 and mt["ramp_miss_rate"] == 0.0
-        assert abs(mt["ramp_median_delay_s"] - 0.4) < 1e-9 and mt["ramp_delay_p25_s"] < mt["ramp_median_delay_s"] < mt["ramp_delay_p75_s"]
+        assert mt["ramp_miss_rate"] == 0.0 and "ramp_anticipated_rate" not in mt
+        assert abs(mt["ramp_median_delay_s"] - 0.75) < 1e-9 and mt["ramp_delay_p25_s"] < mt["ramp_median_delay_s"] < mt["ramp_delay_p75_s"]
         assert mt["ramp_detection_rate_lo"] < 2 / 3 < mt["ramp_detection_rate_hi"]
-        # 50 stable windows per ramp (5.0 s is unstable); detections at 2.0 and 4.8 s in two of them
-        assert abs(mt["ramp_alarm_fraction_stable"] - (1 / 50 + 1 / 50 + 0) / 3) < 1e-9, mt["ramp_alarm_fraction_stable"]
+        # 50 stable windows per ramp (5.0 s is unstable); one detection (2.0 s) in one of them
+        assert abs(mt["ramp_alarm_fraction_stable"] - (1 / 50 + 0 + 0) / 3) < 1e-9, mt["ramp_alarm_fraction_stable"]
         assert list(f["summary/fake_run/group"].asstr()[()]) == ["global", "global", "ramp", "ramp", "ramp"]
         assert abs(f["summary/fake_run/ap_end_mm"][2] - 15.0) < 1e-9 and f["summary/fake_run/t_onset"][2] == 5.0
     # alarm quality: 3 flagged windows from 5.6 on, 44 windows from 5.6 to 9.9 inside the unstable interval
@@ -647,9 +640,7 @@ def main():
     p.add_argument("--reference", metavar="PATH", default=None, help="training reference_dataset*.h5 (stored in /training)")
     p.add_argument("--out", metavar="PATH", default=None, help="default: doe_validation_results.h5 next to --ind_results")
     p.add_argument("--channel", default="Axial_disp", help="channel whose pieces give the intervals (default Axial_disp)")
-    p.add_argument("--early-tol", type=float, default=EARLY_TOL_S,
-                   help=f"[s] a first detection up to this before the onset of the truth is an anticipated hit; "
-                        f"earlier = early alarm, counted as FN (default {EARLY_TOL_S})")
+    p.add_argument("--early-tol", type=float, default=None, help=argparse.SUPPRESS)   # DEPRECATED: accepted, ignored
     p.add_argument("--selftest", action="store_true")
     a = p.parse_args()
     if a.selftest:
@@ -657,7 +648,7 @@ def main():
     if not (a.ind_results and a.labels):
         p.error("--ind_results and --labels are required")
     out = a.out or os.path.join(os.path.dirname(os.path.abspath(a.ind_results)), "doe_validation_results.h5")
-    print_summary(validate(a.ind_results, a.labels, out, a.channel, a.reference, a.early_tol))
+    print_summary(validate(a.ind_results, a.labels, out, a.channel, a.reference))
     print(f"Written: {out}")
 
 
