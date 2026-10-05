@@ -585,6 +585,15 @@ try:
     assert errors[-1][0] == "Compare" and errors[-1][2] == "warn", errors[-1]
     errors.pop()
     app.cmp_b.set("val_from_dialog")
+    # with both results: the A/B figure goes to the export window (nothing is saved until Save); these fabricated
+    # files have no /ranking, so the figure itself fails and the window says so instead of crashing
+    app.plot_compare()
+    cw = app._cmp_win
+    cw.draw()
+    assert cw.labels == [f"compare_{VA}_vs_val_from_dialog"] and cw.fig is None and "Error" in cw.status.get(), cw.status.get()
+    assert not os.path.isdir(cw.folder.get()) or not os.listdir(cw.folder.get())
+    cw.win.destroy()
+    print("compare plot window OK")
     # validate form: only the channel (the rule has no tolerance any more); an old early_tol_s in the YAML is
     # ignored by the stage command and dropped when the form is saved
     ex.save_section(VA, "validate", {"channel": "Axial_disp", "early_tol_s": 0.3})

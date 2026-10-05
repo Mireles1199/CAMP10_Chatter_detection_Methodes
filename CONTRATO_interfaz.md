@@ -99,3 +99,24 @@ Desviaciones menores: (1) no hay `hatch` como codificación redundante estable/i
 `_lang_text` a lo que el proyecto llama `lang_text` (no afecta); (5) varias figuras fallan en un `.h5` que solo tiene rampas
 (`score_vs_kappa`, `score_dist`: array vacío; `detection_time`: escala log sin datos positivos) — el visor lo muestra como
 error; sería mejor que lancen un mensaje claro.
+
+## 8. Exportación configurable de toda figura + eje κ / Ap en el SLD (PLAN_figuras.md)
+Autorizado por el manager para `doe_unified_selector.py`, `sld_model.py`, `doe_planner.py`, `doe_val_planner.py`. Supera §7 en
+la parte del guardado: ya no hay `Save PNG`/`_save_summary` ni `_export_figure`/`_save_figure_to_reference_dir`; todo pasa por
+la ventana de exportación.
+
+| Archivo | Cambio | Compatibilidad |
+|---|---|---|
+| `DOE_plots/figures_window.py` (mío) | ventana única: `Item(name, render, native, live)`; tamaño own / SIMPLE / WIDE / grid × escala, idioma, dpi, formato, carpeta, nombre; los paneles vivos se exportan como copia (`pickle`) | la llamada antigua `(parent, title, labels, render, style, out_dir, lang, scale)` sigue valiendo |
+| `DOE_plots/fig_lang.py` + `figure_texts.yaml` (míos, nuevos) | EN / FR / both para las figuras de texto fijo: se traduce la copia exportada frase a frase; los plotters no se tocan | — |
+| `DOE_plots/doe_unified_selector.py` (CRLF) | botón **💾 Export…** en la barra; `Save…`/`Figures…` del panel derecho y `💾 Export figure` de la referencia abren la misma ventana; los exportadores de la referencia ahora devuelven la figura (`_tramos_article_figure`, `_combinado_article_figure(page)`, `_combinado_pages`); casilla **κ axis**; los 4 `FuncFormatter(lambda …)` → `FormatStrFormatter("%.3g")` (mismo texto; la lambda impedía copiar el panel) | archivos `figs_*` en las mismas carpetas de antes |
+| `DOE_plots/sld_model.py` (CRLF en el repo, se mantiene) | `plot_sld(..., y_axis=None)`: `None` → global `Y_AXIS = "Ap"`; `"kappa"` = Ap / `ap_lim` a esa velocidad (lóbulos divididos por `envelope()`, línea κ = 1, casos con `ap_lim` exacto; hueco entre lóbulos → sin κ). Nuevas `envelope`, `kappa_of` | **llamadores revisados con grep**: el visor (3 entradas) y `doe_planner` (`plot_sld(cases, preset)`); `validation_figures` solo importa `OUTCOMES`. Con `y_axis` por defecto todo dibuja igual que antes |
+| `sld_model.py` — **texto visible** | eje Ap rotulado EN « Width of cut $a_p$ [mm] » / FR « Largeur de coupe $a_p$ [mm] » (antes *Depth of cut* / *Profondeur de passe*). Decisión del usuario; cambia el rótulo de **todas** las figuras con SLD (visor, planner, exportaciones) | — |
+| `DOE_simulacion/doe_planner.py` (LF) | **solo** botón **💾 Export…** + `export()` que abre la ventana con su figura | ninguna otra lógica |
+| `DOE_simulacion/doe_val_planner.py` (CRLF en el repo, se mantiene) | **solo** botón **💾 Export…** + `export()` | ninguna otra lógica |
+| `label_grid.py`, `launcher.py` (míos) | Export… en Label grid (cada página en estilo artículo); Compare › Plot pasa por la ventana (ya no guarda solo); Label grid con la paleta de `plot_style` (azul / gris / naranja + hatch) y `constrained_layout` | — |
+
+Verificado: selftests (`figures_window`, `fig_lang`, `sld_model`, `doe_unified_selector`, `validation_figures`, `label_grid`,
+`experiment`, `launcher`) y `check_app_dialogs.py`; Export… en los visores sobre archivos reales en solo lectura (resultados,
+indicadores, validación, referencia de `ramp_check`; rejilla de `n5189`; Compare con `n12000`; los dos planners), guardando en el
+scratchpad, en EN y FR: sin textos sin traducir en esos archivos. Finales de línea comprobados por bytes contra HEAD.

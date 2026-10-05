@@ -66,7 +66,7 @@ Borde oscuro = etapas necesarias para la meta, borde azul = siguiente paso, mora
 | Viewer | Abre su `.h5` de salida en el visor; abajo aparece "Opening the viewer…" mientras carga |
 | Edit config | Los ajustes **de esa etapa** (en Simulate y Extract: la simulación) |
 | Labels YAML | Abre el YAML de etiquetas para revisarlo |
-| Label grid | (en Label build) Abre el dataset etiquetado como una **rejilla de casos**, ordenados por `κ` y paginados: cada panel es la señal de un caso coloreada por su etiqueta (verde estable, gris gray, rojo inestable), con las líneas `±lim_inf` / `±lim_sup` del criterio de amplitud. Se pueden **quitar las líneas** (casilla *criterion lines*) cuando la señal es muy pequeña frente a los límites y no se ve; la barra de matplotlib hace zoom por panel. La casilla *histogram + fitted normal* cambia la señal por el histograma de sus muestras con la normal ajustada (discontinua) y marca `μ` y `μ±σ`; `μ` y `σ` de cada caso (por etiqueta) están escritos en su panel en los dos modos. Elige canal, etiqueta y filas × columnas. Solo lee el `.h5`; sirve para juzgar de un vistazo si el etiquetado tiene sentido |
+| Label grid | (en Label build) Abre el dataset etiquetado como una **rejilla de casos**, ordenados por `κ` y paginados: cada panel es la señal de un caso coloreada por su etiqueta (azul estable, gris gray, naranja inestable: la paleta de las figuras de artículo), con las líneas `±lim_inf` / `±lim_sup` del criterio de amplitud. Se pueden **quitar las líneas** (casilla *criterion lines*) cuando la señal es muy pequeña frente a los límites y no se ve; la barra de matplotlib hace zoom por panel. La casilla *histogram + fitted normal* cambia la señal por el histograma de sus muestras con la normal ajustada (discontinua) y marca `μ` y `μ±σ`; `μ` y `σ` de cada caso (por etiqueta) están escritos en su panel en los dos modos. Elige canal, etiqueta y filas × columnas. **💾 Export…** guarda cada página con estilo de artículo (ver *Guardar figuras*, en el paso 9). Solo lee el `.h5`; sirve para juzgar de un vistazo si el etiquetado tiene sentido |
 | Folder | Abre la carpeta de sus salidas |
 | Go to blocker | Va a la etapa (de otro experimento) que la bloquea |
 | Mark up to date | En una etapa naranja por un cambio de configuración que no altera su resultado: la marca al día |
@@ -125,9 +125,24 @@ Un caso inestable se puntúa con su **primera detección** frente al inicio de s
 
 ![Validación completa](02_validation.png)
 
-**Viewer** abre el resultado. En la pestaña **Compare** eliges dos validaciones y ves sus métricas lado a lado; el botón **Plot** dibuja la comparación A/B y la guarda en `figs_validation/`.
+**Viewer** abre el resultado. En la pestaña **Compare** eliges dos validaciones y ves sus métricas lado a lado; el botón **Plot** abre la comparación A/B en la ventana de exportación (se guarda al pulsar *Save*, en `figs_validation/`).
 
-En el visor, el panel de la derecha (*Summary plots*) conserva las curvas de referencia: los SLD y, en un archivo de validación, el SLD con el resultado (TP/TN/FN/FP) de cada indicador, solo del modelo con que se simularon los casos. Las demás figuras (las de validación: ranking, ROC, matriz de casos, tiempos de detección…; y las de `t_d` e `I(t)`) están en el botón **Figures…**: abre una ventana con la lista, más espacio y los controles del estilo de artículo (idioma EN / FR / both, escala, proporciones de artículo, dpi y formato), con **Save** y **Save all** hacia `figs_validation/` (o `figs_indicators/`). Una figura sin datos (por ejemplo, las de casos constantes en un archivo que solo tiene rampas) muestra el error abajo en vez de dibujarse.
+En el visor, el panel de la derecha (*Summary plots*) conserva las curvas de referencia: los SLD y, en un archivo de validación, el SLD con el resultado (TP/TN/FN/FP) de cada indicador, solo del modelo con que se simularon los casos. La casilla **κ axis** cambia el eje vertical del SLD: en Ap (*Width of cut* / *Largeur de coupe* `a_p` [mm]) o en κ = Ap / límite del SLD a esa velocidad (el límite queda en la línea κ = 1, los lóbulos se dividen por él y cada caso va a su κ; en un hueco entre lóbulos el κ no está definido y el caso no se dibuja). Las demás figuras (las de validación: ranking, ROC, matriz de casos, tiempos de detección…; y las de `t_d` e `I(t)`) están en **Figures…**.
+
+### Guardar figuras (cualquier visor)
+
+Todos los visores tienen el botón **💾 Export…** (el visor, cada vista de la referencia, *Label grid*, *Compare › Plot*, `doe_planner` y `doe_val_planner`); en el visor, **Save…** y **Figures…** abren la misma ventana con su figura elegida. La ventana lista **todas** las figuras de ese visor: los paneles tal como están en pantalla (*Panel — Signals*, *I(t)*, *Forces*…, con su selección y su zoom; se exporta una copia, el panel no cambia) y todas las figuras de resumen. Controles:
+
+| Control | Qué hace |
+|---|---|
+| size | *own* (la figura tal cual: su tamaño de artículo, o el de pantalla para un panel), *SIMPLE* (1 columna), *WIDE* (página), *grid* (columnas × filas de *SIMPLE*; se rellena solo con la disposición de ejes del panel) |
+| scale | multiplica el tamaño (1 = el del artículo, 1.5 por defecto) |
+| language | EN / FR / both. Las figuras de validación y el SLD se dibujan en ese idioma; las demás se traducen al exportar con la tabla `DOE_plots/figure_texts.yaml` (si falta una frase, la barra de estado lo dice: añádela a la tabla) |
+| article proportions | en pantalla, la vista previa con la proporción del archivo |
+| dpi, format | 200 / 300 / 600; png / pdf / svg |
+| folder, name | carpeta (por defecto `figs_validation/`, `figs_indicators/` o `figs_reference/` junto al `.h5`) y nombre del archivo |
+
+**Save** guarda la figura elegida; **Save all**, todas (dice cuáles no se pudieron hacer y qué textos quedaron sin traducir). Una figura sin datos (por ejemplo, las de casos constantes en un archivo que solo tiene rampas) muestra el error abajo en vez de dibujarse.
 
 ## 4. Otras tareas
 
