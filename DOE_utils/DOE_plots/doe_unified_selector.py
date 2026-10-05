@@ -613,18 +613,28 @@ def _case_legend(c: dict, lk: str, lv: float) -> str:
     return base + (" (gray)" if str(vv.get("gray")) in ("1", "1.0", "True") else "")
 
 
+def _case_onset(c: dict):
+    """t_onset [s] of a case: where its ground truth turns unstable (a ramp: the first unstable window; a constant case of a
+    validation file: the first sample over the amplitude limit of the labelling), or None."""
+    v = c.get("t_onset") if c.get("ramp") else c.get("var_val", {}).get("t_onset")
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return None
+    return v if np.isfinite(v) else None
+
+
 def _draw_truth_marks(axes, c: dict, color, shade: bool) -> None:
-    """A ramp case: vertical line where its ground truth turns unstable (t_onset) and, when one case is shown,
-    the stable / gray / unstable intervals of the truth shaded. Nothing for a constant case."""
-    if not c.get("ramp"):
-        return
+    """Vertical line where the ground truth of a case turns unstable (t_onset) and, for a ramp with one case shown, the
+    stable / gray / unstable intervals of the truth shaded. Nothing for a case with no t_onset (a stable one)."""
+    t_on = _case_onset(c)
     for ax in axes:
-        if shade:
+        if shade and c.get("ramp"):
             for t0, t1, lab in c.get("truth_iv", []):
                 ax.axvspan(t0, t1, color=TRUTH_SHADE.get(lab, "#999999"), alpha=0.08, lw=0, zorder=0)
-        if c.get("t_onset") is not None:
-            ax.axvline(c["t_onset"], color=color, ls=":", lw=1.8, zorder=8,
-                       label=f"truth turns unstable ({c['t_onset']:.2f} s)" if shade else None)
+        if t_on is not None:
+            ax.axvline(t_on, color=color, ls=":", lw=1.8, zorder=8,
+                       label=f"truth turns unstable ({t_on:.2f} s)" if shade else None)
 
 
 def _assign_case_colors(cases: List[Dict], qualitative: bool = False) -> None:
@@ -1033,6 +1043,42 @@ def _variable_keys_with_variation(cases: List[Dict]) -> List[str]:
     return varying
 
 
+def _indicator_limits(rn: str, attrs: dict) -> list:
+    """Decision limits of an indicator on its I(t), from the attributes of its run (checked against the first detections:
+    I(t) crosses them at t_d). SST: lim_sup (and lim_inf); RMS-CV: the CV threshold; MaxEnt-SPRT: the two bounds
+    ln((1-beta)/alpha) and ln(beta/(1-alpha)). [] when the indicator stores none (Green)."""
+    def num(*keys):
+        for k in keys:
+            try:
+                v = float(attrs[k])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if np.isfinite(v):
+                return v
+        return None
+    p = _run_indicator_prefix(rn)
+    if p == "ssq":
+        return [v for v in (num("meta_lim_sup"), num("meta_lim_inf")) if v is not None]
+    if p == "rms_cv":
+        v = num("meta_cv_threshold_used")
+        return [] if v is None else [v]
+    if p == "maxent":
+        a, b = num("pp_alpha", "meta_alpha"), num("pp_beta", "meta_beta")
+        if a and b and 0 < a < 1 and 0 < b < 1:
+            return [float(np.log((1 - b) / a)), float(np.log(b / (1 - a)))]
+    return []
+
+
+def _run_delay(run_data: dict):
+    """delay_onset_s = first detection - t_onset [s] (negative: the alarm came before the amplitude of the truth), if the
+    file (validation) has it for this run, else None."""
+    try:
+        v = float(run_data.get("attrs", {}).get("delay_onset_s"))
+    except (TypeError, ValueError):
+        return None
+    return v if np.isfinite(v) else None
+
+
 def _it_plot_yscale(runs_to_show: List[str]) -> str:
     """Escala Y para I_t: log solo para green* y sst_svd*; resto lineal."""
     if not runs_to_show:
@@ -1067,6 +1113,7 @@ class DoeSelectorUnifiedApp:
         self._cbar       = None
         self._force_cbar = None
         self._deflex_cbar = None
+        self._It_cbar     = None
         self._sort_col: Optional[str] = None
         self._sort_rev: bool           = False
         self._iid_to_case: dict = {}
@@ -1599,6 +1646,35 @@ class DoeSelectorUnifiedApp:
         """Sincroniza el checkbox 'todos' según el estado individual."""
         all_on = all(v.get() for v in self._ind_check_vars.values())
         self._ind_all_var.set(all_on)
+
+    def _indicator_attrs(self, rn: str) -> dict:
+        """Attributes of the run `rn` with the law and thresholds of the indicator (meta_* / pp_*): the same in every case.
+        A validation file keeps only a few of them: then they are read, attributes only, from the indicator results file
+        next to it (root attr indicator_results_file)."""
+        cache = self.__dict__.setdefault("_ind_attrs", {})
+        if rn in cache:
+            return cache[rn]
+        attrs: dict = {}
+        for c in self.cases:
+            a = c.get("runs", {}).get(rn, {}).get("attrs", {})
+            if any(str(k).startswith("meta_") for k in a):
+                attrs = dict(a)
+                break
+        if not attrs:
+            try:
+                with h5py.File(self.h5_path, "r") as f:
+                    name = str(f.attrs.get("indicator_results_file", ""))
+                path = os.path.join(os.path.dirname(self.h5_path), name)
+                if name and os.path.isfile(path):
+                    with h5py.File(path, "r") as f:
+                        for g in f:
+                            if isinstance(f[g], h5py.Group) and rn in f[g]:
+                                attrs = dict(f[g][rn].attrs)
+                                break
+            except OSError:
+                pass
+        cache[rn] = attrs
+        return attrs
 
     def _selected_run_filter(self) -> Optional[str]:
         """Retorna None (compatibilidad; la lógica real está en _get_runs_to_show)."""
@@ -2480,10 +2556,17 @@ class DoeSelectorUnifiedApp:
 
         vals = [c.get("label_val", float("nan")) for c in selected]
 
+        if self._It_cbar is not None:
+            try:
+                self._It_cbar.remove()
+            except Exception:
+                pass
+            self._It_cbar = None
         self.ax_It.cla()
 
         lk_disp = _col_header(selected[0]["label_key"]) if selected else ""
         plotted = td_drawn = False
+        cbar_marks, deltas = [], []
 
         # Decide coloring strategy:
         #   · varios indicadores  → color por indicador (tab10)
@@ -2542,11 +2625,17 @@ class DoeSelectorUnifiedApp:
                     color = self._ind_color_map.get(ind_prefix, (0.5, 0.5, 0.5)) if hasattr(self, "_ind_color_map") else c.get("_color", (0.5, 0.5, 0.5))
                 lv_str = "control" if is_ctrl else (f"{pv:.3g}" if np.isfinite(pv) else "?")
                 lw = 2.2 if is_ctrl else _it_lw_nc
+                delay = _run_delay(run_data)   # validation files: first detection - t_onset
+                if delay is not None:
+                    deltas.append(delay)
+                if color_by_case and not is_ctrl:
+                    cbar_marks.append((pv, color))
                 self.ax_It.plot(t[::_IND_DECIMATE], I_t[::_IND_DECIMATE],
                                 color=color, lw=lw,
                                 alpha=_it_ctrl_alp if is_ctrl else case_alpha,
                                 label=(f"{_case_legend(c, c.get('label_key', ''), pv)} | {rn}" if c.get("ramp")
-                                       else f"{lk_disp}={lv_str} | {rn}"),
+                                       else f"{lk_disp}={lv_str} | {rn}")
+                                      + ("" if delay is None else f"   Δ = {delay:+.2f} s"),
                                 zorder=_it_ctrl_zo if is_ctrl else (3 + ci),
                                 rasterized=True)
                 # t_d vline
@@ -2571,8 +2660,21 @@ class DoeSelectorUnifiedApp:
         self.ax_It.grid(False)
         self.ax_It.set_yscale(_it_plot_yscale(runs_to_show))
 
+        # decision limits of each indicator (the same for every case: it learns once), dash-dot, in its colour
+        lim_drawn = False
+        for rn in runs_to_show:
+            if not any(rn in c.get("runs", {}) for c in selected):
+                continue
+            lcol = "k" if color_by_case else self._ind_color_map.get(_run_indicator_prefix(rn), "k")
+            for v in _indicator_limits(rn, self._indicator_attrs(rn)):
+                if self.ax_It.get_yscale() == "log" and v <= 0:
+                    continue
+                self.ax_It.axhline(v, color=lcol, ls="-.", lw=1.4, alpha=0.9, zorder=2)
+                lim_drawn = True
+
         run_txt = run_filter or "(all)"
         self.ax_It.set_title(f"I_t(t)  —  run: {run_txt}", fontsize=13)
+        self.It_fig.suptitle(f"{lk_disp}  —  {len(selected)} case(s)")   # as the signals panels (replaces the start-up text)
 
         # what the vertical lines are (same colour as the curve they belong to): dashed + dot = first detection t_d of
         # that indicator; dotted = t_onset, where the ground truth of a ramp turns unstable (only when several cases are
@@ -2582,8 +2684,13 @@ class DoeSelectorUnifiedApp:
         if td_drawn:
             proxies.append(Line2D([0], [0], color="0.35", ls="--", lw=2.2, marker="o", ms=4,
                                   label=r"$t_d$: first detection of the indicator"))
-        if len(selected) > 1 and any(c.get("ramp") and c.get("t_onset") is not None for c in selected):
-            proxies.append(Line2D([0], [0], color="0.35", ls=":", lw=2.2, label=r"$t_{onset}$: truth turns unstable (ramp)"))
+        if len(selected) > 1 and any(_case_onset(c) is not None for c in selected):
+            proxies.append(Line2D([0], [0], color="0.35", ls=":", lw=2.2,
+                                  label=r"$t_{onset}$: truth turns unstable (labelling amplitude reached)"))
+        if lim_drawn:
+            proxies.append(Line2D([0], [0], color="0.35", ls="-.", lw=1.4, label="detection limit of the indicator"))
+        if deltas:
+            proxies.append(Line2D([0], [0], color="none", label=r"$\Delta = t_d - t_{onset}$ (< 0: detected before the amplitude)"))
         n = len(selected) * len(runs_to_show)
         if n <= 10 and plotted:
             handles, labels = self.ax_It.get_legend_handles_labels()
@@ -2591,8 +2698,22 @@ class DoeSelectorUnifiedApp:
         elif proxies:   # too many curves for a legend: still say what the vertical lines mean
             self.ax_It.legend(handles=proxies, fontsize=11, loc="upper left")
 
+        # colour bar of the cases (as the signals panels): only when the curves are coloured by case (one indicator)
+        if color_by_case and plotted:
+            cbar_cases = self.cases if use_fixed else selected
+            finite = [v for v in (c.get("label_val", float("nan")) for c in cbar_cases if not self._is_control(c))
+                      if np.isfinite(v)]
+            if len(finite) >= 2:
+                sm = cm.ScalarMappable(cmap=matplotlib.colormaps["viridis"],
+                                       norm=mcolors.Normalize(vmin=min(finite), vmax=max(finite)))
+                sm.set_array([])
+                self._It_cbar = self.It_fig.colorbar(sm, ax=self.ax_It, label=lk_disp, shrink=0.85,
+                                                     orientation="horizontal", pad=0.08)
+                self._It_cbar.formatter = mticker.FormatStrFormatter("%.3g")
+                self._It_cbar.update_ticks()
+                self._mark_values_on_colorbar(self._It_cbar, cbar_marks)
+
         self._draw_reference_lines({"I_t": self.ax_It})
-        self.It_fig.tight_layout()
         self.It_canvas.draw()
         self.It_toolbar.update()
         self._plotted_iids = set(self.tree.selection())
@@ -4191,8 +4312,19 @@ def _selftest() -> None:
     ax = fig.add_subplot(111)
     _draw_truth_marks([ax], by["case_001"], "C0", shade=True)
     assert len(ax.lines) == 1 and ax.lines[0].get_xdata()[0] == 6.0 and len(ax.patches) == 2
-    _draw_truth_marks([ax], by["case_000"], "C0", shade=True)          # a constant case: nothing drawn
+    _draw_truth_marks([ax], by["case_000"], "C0", shade=True)          # a constant case without t_onset: nothing drawn
     assert len(ax.lines) == 1
+    _draw_truth_marks([ax], {"var_val": {"t_onset": 0.9}}, "C0", shade=False)   # a constant case of a validation: t_onset
+    assert len(ax.lines) == 2 and ax.lines[1].get_xdata()[0] == 0.9
+    assert _case_onset({"var_val": {"t_onset": float("nan")}}) is None and _case_onset({"var_val": {}}) is None
+    assert _case_onset({"ramp": True, "t_onset": 2.0, "var_val": {}}) == 2.0
+    # decision limits of the indicators (checked on real files: I(t) crosses them at t_d) and the delay of a run
+    assert _indicator_limits("ssq_revo_x", {"meta_lim_sup": 11.2, "meta_lim_inf": -4.3}) == [11.2, -4.3]
+    assert _indicator_limits("rms_cv_x", {"meta_cv_threshold_used": 0.0011}) == [0.0011]
+    lm = _indicator_limits("maxent_revo_x", {"pp_alpha": 0.00135, "pp_beta": 0.00135})
+    assert abs(lm[0] - 6.6063) < 1e-3 and abs(lm[1] + 6.6063) < 1e-3, lm
+    assert _indicator_limits("green_fixed_x", {"pp_z_sigma": 3.0}) == [] and _indicator_limits("ssq_x", {}) == []
+    assert _run_delay({"attrs": {"delay_onset_s": -0.45}}) == -0.45 and _run_delay({"attrs": {}}) is None
     assert "3 RAMP" not in file_role(doe) and "2 RAMP case(s)" in file_role(doe) and "2 RAMP case(s)" in file_role(lab)
     rows = {(x["case"], x["t0"]): x for x in _index_reference_dataset(lab)}
     assert rows[("case_001", 6.0)]["kappa_txt"] == "1.276->1.740" and rows[("case_001", 6.0)]["ap_txt"] == "11.00->15.00"

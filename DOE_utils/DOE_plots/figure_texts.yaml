@@ -32,6 +32,9 @@
 - [Log RMS of, Log RMS of, Log RMS de]
 - [Ground truth, Ground truth, Vérité terrain]
 - [first detection of the indicator, first detection of the indicator, première détection de l'indicateur]
+- [labelling amplitude reached, labelling amplitude reached, amplitude de l'étiquetage atteinte]
+- [detection limit of the indicator, detection limit of the indicator, limite de détection de l'indicateur]
+- [detected before the amplitude, detected before the amplitude, détecté avant l'amplitude]
 # SLD (sld_model draws its own language; these are for copies of a panel that shows an SLD: viewer right panel, planner)
 - [Spindle speed, Spindle speed, Vitesse de broche]
 - [Width of cut, Width of cut, Largeur de coupe]

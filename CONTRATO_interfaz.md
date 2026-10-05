@@ -150,3 +150,20 @@ corrida: para tener los tres hay que correr Validate tres veces (cada una con su
 - Visor, gráfica de `I(t)`: la leyenda explica las líneas verticales: trazo discontinuo + punto = `t_d` (primera detección del
   indicador, color de su curva); línea de puntos = `t_onset` (la verdad de una rampa pasa a inestable; solo rampas, y con varios
   casos; con un solo caso esa línea ya lleva su propia etiqueta). Con más de 10 curvas, la leyenda muestra solo esas dos líneas.
+
+### 8c. Gráfica de I(t) del visor: t_onset de casos constantes, retrasos, límites de los indicadores y barra de color
+Solo lectura de datos que ya guardan los `.h5`; ningún script de etapa cambia.
+- `t_onset` (`_case_onset`): se dibuja también en casos **constantes** de un archivo de validación (attr `$t_onset$` = primera
+  muestra sobre el límite de amplitud del etiquetado), no solo en rampas; vale también para las pestañas de señales.
+- Retraso Δ = `delay_onset_s` (attr de la corrida en el archivo de validación) en la leyenda de cada curva; con proxy que explica
+  Δ = t_d − t_onset (negativo = detectó antes de la amplitud).
+- Límites de decisión (`_indicator_limits`, línea horizontal trazo-punto): SST `meta_lim_sup`/`meta_lim_inf`; RMS-CV
+  `meta_cv_threshold_used`; MaxEnt `ln((1−β)/α)` y `ln(β/(1−α))` con `pp_alpha`/`pp_beta` (la fórmula es la de
+  `MaxEnt_SPRT.lib.sprt`). **Comprobado con datos reales**: en `ramp_check`, `I(t)` está bajo el límite justo antes de `t_d` y sobre él
+  en `t_d` (SST 11.23, MaxEnt 6.61). Green no guarda umbral: no se dibuja. El archivo de validación solo trae unos pocos attrs por
+  corrida; los `meta_*` se leen (solo attrs) del archivo de indicadores vecino (`indicator_results_file` del atributo raíz).
+  Petición abierta a quien mantenga `doe_indicators.py`/Green: guardar el umbral de Green y, en el archivo de validación, copiar los
+  umbrales para no depender del archivo vecino.
+- Barra de color de κ en la pestaña `I(t)` (como Signals/Forces/Deflex) cuando las curvas van coloreadas por caso (un indicador), con
+  marca por caso; el título de arranque "Select cases and press Plot" se sustituye por "κ — N case(s)" como en las señales; se quitó
+  `tight_layout()` (la figura ya usa `constrained_layout`).

@@ -131,7 +131,12 @@ Un caso inestable se puntúa con su **primera detección** frente al inicio de s
 
 En el visor, el panel de la derecha (*Summary plots*) conserva las curvas de referencia: los SLD y, en un archivo de validación, el SLD con el resultado (TP/TN/FN/FP) de cada indicador, solo del modelo con que se simularon los casos. En el SLD, los lóbulos y los casos van siempre en Ap (eje izquierdo: *Width of cut* / *Largeur de coupe* `a_p` [mm]). La casilla **κ axis** añade un **eje derecho en κ** = Ap / límite del SLD a la velocidad de los casos (la mediana de sus rpm; el límite es κ = 1). Es exacto cuando los casos comparten velocidad; si esa velocidad cae en un hueco entre lóbulos, o no hay casos, κ se calcula contra `a_p,min` del modelo y el rótulo lo dice.
 
-En la gráfica de `I(t)`, las líneas verticales tienen un significado cada una y la leyenda lo dice: **trazo discontinuo con un punto = `t_d`**, la primera detección de ese indicador (del color de su curva); **línea de puntos = `t_onset`**, el instante en que la verdad de una **rampa** pasa a inestable (los casos constantes no la tienen). Las demás figuras (las de validación: ranking, ROC, matriz de casos, tiempos de detección…; y las de `t_d` e `I(t)`) están en **Figures…**.
+En la gráfica de `I(t)`, cada línea tiene un significado y la leyenda lo dice:
+- **Trazo discontinuo con un punto = `t_d`**, la primera detección de ese indicador (del color de su curva).
+- **Línea de puntos = `t_onset`**, el instante en que la verdad pasa a inestable: en una rampa, su primera ventana inestable; en un caso constante de un archivo de validación, cuando la vibración alcanza el límite de amplitud del etiquetado.
+- **Trazo y punto alternados horizontal = límite de detección del indicador**, el umbral que `I(t)` cruza en `t_d`: SST, `lim_sup` (y `lim_inf` si es positivo); RMS-CV, el umbral del CV; MaxEnt-SPRT, las dos cotas ln((1−β)/α) y ln(β/(1−α)). Green no guarda un umbral, así que no se dibuja. Los límites se leen del archivo de indicadores que está junto al de validación.
+- **Δ en la leyenda de cada curva** (solo en validación) = `t_d − t_onset`; negativo = el indicador alarmó antes de que la vibración llegara a la amplitud del etiquetado.
+Con un solo indicador, las curvas se colorean por caso y aparece la **barra de color** de κ, con una marca por cada caso dibujado, como en las demás pestañas. Las demás figuras (las de validación: ranking, ROC, matriz de casos, tiempos de detección…; y las de `t_d` e `I(t)`) están en **Figures…**.
 
 ### Guardar figuras (cualquier visor)
 
