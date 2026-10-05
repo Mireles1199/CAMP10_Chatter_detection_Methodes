@@ -5,7 +5,8 @@
 Each panel shows the signal of a case coloured by its label (green stable, grey gray, red unstable) and, if the
 dataset was labelled by amplitude, the lines of the criterion (+-lim_inf, +-lim_sup of max|y|; they can be switched
 off: when the signal is far below the limits they flatten it, and the autoscale then fits the signal). Cases are
-sorted by kappa and paged. Read-only: the .h5 is never written.
+sorted by kappa and paged. A switch turns the signal into the histogram of its samples with the fitted normal; mu and
+sigma of every case (per label) are written in its panel. Read-only: the .h5 is never written.
 
 Usage (entorno_CAMP10 Python):
     python label_grid.py --h5 reference_dataset_amp.h5 [--channel Axial_disp]
@@ -98,9 +99,16 @@ def select(idx: dict, channel: str, label: str = "all") -> list:
     return [c for c in idx["cases"] if any(p[2] == channel and label in ("all", p[0]) for p in c["pieces"])]
 
 
+def stats(y) -> tuple:
+    """(mu, sigma) of the samples of a piece (the normal fitted to them)."""
+    return float(np.mean(y)), float(np.std(y))
+
+
 def draw(fig, h5_path: str, idx: dict, channel: str, label: str = "all", limits: bool = True, page: int = 0,
-         rows: int = 3, cols: int = 3) -> tuple:
-    """Draw one page of the grid on `fig`. Returns (page used, number of pages, number of cases)."""
+         rows: int = 3, cols: int = 3, dist: bool = False) -> tuple:
+    """Draw one page of the grid on `fig`: the signal of each case, or (dist=True) the histogram of its samples with
+    the fitted normal (dashed) and mu, mu +- sigma. mu and sigma are always written in the panel, per label.
+    Returns (page used, number of pages, number of cases)."""
     cs = select(idx, channel, label)
     per = max(1, rows * cols)
     pages = max(1, -(-len(cs) // per))
@@ -109,22 +117,36 @@ def draw(fig, h5_path: str, idx: dict, channel: str, label: str = "all", limits:
     axes = fig.subplots(rows, cols, squeeze=False)
     with h5py.File(h5_path, "r") as f:
         for ax, c in zip(axes.ravel(), cs[page * per:(page + 1) * per]):
-            labs = set()
-            lim = None
+            ys, lim = {}, None   # label -> samples of the case with that label
             for lab, pn, ch, lm in c["pieces"]:
                 if ch != channel or label not in ("all", lab):
                     continue
                 g = f[lab][c["case"]][pn]
-                t, y = _minmax(g["t"][()], g["y"][()])
-                ax.plot(t, y, color=COLOR[lab], lw=0.7)
-                labs.add(lab)
+                t, y = g["t"][()], g["y"][()]
+                ys.setdefault(lab, []).append(y)
                 lim = lim or lm
+                if not dist:
+                    ax.plot(*_minmax(t, y), color=COLOR[lab], lw=0.7)
+            for i, (lab, parts) in enumerate(ys.items()):
+                y = np.concatenate(parts)
+                mu, sd = stats(y)
+                if dist:
+                    ax.hist(y, bins=40, density=True, color=COLOR[lab], alpha=0.5, edgecolor="none")
+                    ax.axvline(mu, color="k", lw=0.8)
+                    for s in (mu - sd, mu + sd):
+                        ax.axvline(s, color="k", lw=0.7, ls=":")
+                    if sd > 0:
+                        x = np.linspace(y.min(), y.max(), 200)
+                        ax.plot(x, np.exp(-0.5 * ((x - mu) / sd) ** 2) / (sd * np.sqrt(2 * np.pi)), "k--", lw=1.0)
+                ax.text(0.02, 0.97 - 0.09 * i, f"μ={mu:.3g}  σ={sd:.3g}", transform=ax.transAxes, fontsize=7,
+                        va="top", color=COLOR[lab], bbox=dict(fc="white", ec="none", alpha=0.7, pad=1))
             if limits and lim:
+                line = ax.axvline if dist else ax.axhline   # the criterion is on the amplitude: vertical on a histogram
                 for v, ls in ((lim[0], ":"), (lim[1], "-.")):
                     for s in (v, -v):
-                        ax.axhline(s, color="k", lw=0.7, ls=ls, alpha=0.7)
+                        line(s, color="k", lw=0.7, ls=ls, alpha=0.7)
             ax.set_title(f"{c['case']}  {c['ktxt']}", fontsize=9,
-                         color=COLOR[next(iter(labs))] if len(labs) == 1 else "k")
+                         color=COLOR[next(iter(ys))] if len(ys) == 1 else "k")
             ax.tick_params(labelsize=7)
         for ax in axes.ravel()[len(cs[page * per:(page + 1) * per]):]:
             ax.axis("off")
@@ -148,6 +170,7 @@ class GridWindow:
         self.channel = v(channel if channel in self.idx["channels"] else self.idx["default_channel"])
         self.label, self.rows, self.cols = v("all"), v("3"), v("3")
         self.limits = tk.BooleanVar(value=True)
+        self.dist = tk.BooleanVar(value=False)
         self.info = v("")
         bar = ttk.Frame(self.root, padding=(6, 4))
         bar.pack(side=tk.TOP, fill=tk.X)
@@ -161,6 +184,8 @@ class GridWindow:
         combo("label", self.label, ["all", *LABELS], 9)
         ttk.Checkbutton(bar, text="criterion lines (±lim_inf, ±lim_sup)", variable=self.limits,
                         command=lambda: self.replot()).pack(side=tk.LEFT, padx=10)
+        ttk.Checkbutton(bar, text="histogram + fitted normal", variable=self.dist,
+                        command=lambda: self.replot()).pack(side=tk.LEFT, padx=4)
         combo("rows", self.rows, ["1", "2", "3", "4", "5"], 3)
         combo("cols", self.cols, ["1", "2", "3", "4", "5", "6"], 3)
         ttk.Button(bar, text="◀", width=3, command=lambda: self.replot(self.page - 1)).pack(side=tk.LEFT, padx=(12, 0))
@@ -175,7 +200,7 @@ class GridWindow:
     def replot(self, page=None):
         self.page, pages, n = draw(self.fig, self.h5, self.idx, self.channel.get(), self.label.get(),
                                    self.limits.get(), self.page if page is None else page,
-                                   int(self.rows.get()), int(self.cols.get()))
+                                   int(self.rows.get()), int(self.cols.get()), self.dist.get())
         c = counts(self.idx, self.channel.get())
         self.info.set(f"page {self.page + 1}/{pages}  ·  {n} cases (sorted by κ)  ·  "
                       + "  ".join(f"{k} {c[k]}" for k in LABELS if c[k]))
@@ -209,6 +234,12 @@ def _selftest():
         assert len(fig.axes[0].lines) == 1 + 4 and len(fig.axes[1].lines) == 1 + 4   # signal + 4 criterion lines
         draw(fig, p, idx, "Axial_disp", limits=False, rows=1, cols=2)
         assert len(fig.axes[0].lines) == 1                                         # lines off: signal only
+        draw(fig, p, idx, "Axial_disp", rows=1, cols=2, dist=True)
+        ax = fig.axes[0]
+        assert len(ax.patches) == 40 and len(ax.lines) == 1 + 2 + 1 + 4            # bins; normal, mu, mu+-sigma, 4 limits
+        assert "μ=" in ax.texts[0].get_text() and "σ=" in ax.texts[0].get_text()
+        mu, sd = stats(np.array([1.0, 3.0]))
+        assert (mu, sd) == (2.0, 1.0)
         assert draw(fig, p, idx, "Axial_disp", page=9, rows=1, cols=2)[0] == 1     # page clamped
         x, y = _minmax(np.arange(100000.0), np.sin(np.arange(100000.0)))
         assert len(x) == len(y) == 2 * BINS
