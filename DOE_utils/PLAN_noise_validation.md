@@ -154,6 +154,7 @@ Todas con `lang_text` (EN/FR/both), `constrained_layout`, leyendas fuera de los 
 - Con `time` en enlaces duros solo cuentan los `values` (≈ 9 MB por copia → ≈ 2 GB); sin ellos serían ≈ 3.9 GB.
 - Tiempo: 216 copias × 4 indicadores; se mide en la fase E2E antes de pasar a `all`, **con más `workers`** (n12000 tiene `indicators.workers: 1`; `workers` no entra en la huella).
 - No abrir el archivo multi en el visor hasta que I3 haga la carga perezosa.
+- **Memoria (medido en N5):** cada worker de `noise_indicators` llega a ~3 GB de pico (un grupo, 4 indicadores, 1 proceso: 87 s, 2.9 GB). Con 6 workers Windows se quedó sin memoria virtual (log System 18:27:02, "Mémoire virtuelle minimale insuffisante") y el pool se cayó tras 399/864 tareas. **Usar `workers` <= 3.** Como los resultados se escriben incrementalmente, se retoma pasando `--cases` con los grupos incompletos.
 - **Alternativa anotada** (no se hace ahora): no guardar las señales ruidosas y regenerarlas desde la semilla dentro de `noise_indicators`.
 
 ## 9. Fases
