@@ -288,6 +288,7 @@ def _selftest():
     ax = live.add_subplot(111)
     ax.plot(np.arange(100), np.sin(np.arange(100) / 5))
     ax.set_xlim(10, 40)
+    ax.set_xlabel("Time (s)")
     FigureCanvasTkAgg(live, master=top).draw()
 
     def gen():
@@ -305,6 +306,10 @@ def _selftest():
     assert w.current().name == "generated" and w.name.get() == "generated"
     f = w.make(w.items[0])                                         # panel: an independent copy, zoom kept
     assert f is not live and f.axes[0].get_xlim() == (10.0, 40.0) and tuple(f._keep_size) == (8.0, 5.0)
+    w.lang.set("FR")                                               # fixed text translated on the copy only
+    f = w.make(w.items[0])
+    assert f.axes[0].get_xlabel() == "Temps (s)" and live.axes[0].get_xlabel() == "Time (s)"
+    w.lang.set("EN")
     w.size.set("SIMPLE")
     w.scale.set("1")
     f = w.make(w.items[0])
