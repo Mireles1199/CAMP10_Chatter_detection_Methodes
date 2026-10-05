@@ -110,7 +110,7 @@ la ventana de exportación.
 | `DOE_plots/figures_window.py` (mío) | ventana única: `Item(name, render, native, live)`; tamaño own / SIMPLE / WIDE / grid × escala, idioma, dpi, formato, carpeta, nombre; los paneles vivos se exportan como copia (`pickle`) | la llamada antigua `(parent, title, labels, render, style, out_dir, lang, scale)` sigue valiendo |
 | `DOE_plots/fig_lang.py` + `figure_texts.yaml` (míos, nuevos) | EN / FR / both para las figuras de texto fijo: se traduce la copia exportada frase a frase; los plotters no se tocan | — |
 | `DOE_plots/doe_unified_selector.py` (CRLF) | botón **💾 Export…** en la barra; `Save…`/`Figures…` del panel derecho y `💾 Export figure` de la referencia abren la misma ventana; los exportadores de la referencia ahora devuelven la figura (`_tramos_article_figure`, `_combinado_article_figure(page)`, `_combinado_pages`); casilla **κ axis**; los 4 `FuncFormatter(lambda …)` → `FormatStrFormatter("%.3g")` (mismo texto; la lambda impedía copiar el panel) | archivos `figs_*` en las mismas carpetas de antes |
-| `DOE_plots/sld_model.py` (CRLF en el repo, se mantiene) | `plot_sld(..., y_axis=None)`: `None` → global `Y_AXIS = "Ap"`; `"kappa"` = Ap / `ap_lim` a esa velocidad (lóbulos divididos por `envelope()`, línea κ = 1, casos con `ap_lim` exacto; hueco entre lóbulos → sin κ). Nuevas `envelope`, `kappa_of` | **llamadores revisados con grep**: el visor (3 entradas) y `doe_planner` (`plot_sld(cases, preset)`); `validation_figures` solo importa `OUTCOMES`. Con `y_axis` por defecto todo dibuja igual que antes |
+| `DOE_plots/sld_model.py` (CRLF en el repo, se mantiene) | `plot_sld(..., y_axis=None)`: `None` → global `Y_AXIS = "Ap"`; `"kappa"` **solo añade un eje derecho** κ = Ap / `ap_lim(rpm mediana de los casos)` (lóbulos y casos siguen en Ap; sin casos o en un hueco → contra `ap_crit`). Corregido a petición del usuario: la primera versión dividía los lóbulos por el límite. `_scaled` (módulo) para poder copiar la figura | **llamadores revisados con grep**: el visor (3 entradas) y `doe_planner` (`plot_sld(cases, preset)`); `validation_figures` solo importa `OUTCOMES`. Con `y_axis` por defecto todo dibuja igual que antes |
 | `sld_model.py` — **texto visible** | eje Ap rotulado EN « Width of cut $a_p$ [mm] » / FR « Largeur de coupe $a_p$ [mm] » (antes *Depth of cut* / *Profondeur de passe*). Decisión del usuario; cambia el rótulo de **todas** las figuras con SLD (visor, planner, exportaciones) | — |
 | `DOE_simulacion/doe_planner.py` (LF) | **solo** botón **💾 Export…** + `export()` que abre la ventana con su figura | ninguna otra lógica |
 | `DOE_simulacion/doe_val_planner.py` (CRLF en el repo, se mantiene) | **solo** botón **💾 Export…** + `export()` | ninguna otra lógica |
@@ -144,3 +144,9 @@ que los `.h5` anteriores (sin esas claves) se ven igual que antes.
 UI: `ValidateForm` gana el campo **gray cases** (ignore / stable (pessimistic) / unstable (optimistic)) con una nota; la tarjeta de
 Validate empieza con "gray cases: <modo>" y, con `n_gray`, la línea de conteo dice "not scored" o "scored as <modo>". Un modo por
 corrida: para tener los tres hay que correr Validate tres veces (cada una con su archivo y su carpeta de figuras).
+
+### 8b. Corrección del eje κ y leyenda de I(t) (a petición del usuario)
+- SLD: ver la fila de `sld_model.py` arriba. `envelope`/`kappa_of` ya no existen.
+- Visor, gráfica de `I(t)`: la leyenda explica las líneas verticales: trazo discontinuo + punto = `t_d` (primera detección del
+  indicador, color de su curva); línea de puntos = `t_onset` (la verdad de una rampa pasa a inestable; solo rampas, y con varios
+  casos; con un solo caso esa línea ya lleva su propia etiqueta). Con más de 10 curvas, la leyenda muestra solo esas dos líneas.

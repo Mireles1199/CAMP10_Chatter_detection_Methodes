@@ -31,6 +31,7 @@
 - [RMS reference time, RMS reference time, Temps de référence du RMS]
 - [Log RMS of, Log RMS of, Log RMS de]
 - [Ground truth, Ground truth, Vérité terrain]
+- [first detection of the indicator, first detection of the indicator, première détection de l'indicateur]
 # SLD (sld_model draws its own language; these are for copies of a panel that shows an SLD: viewer right panel, planner)
 - [Spindle speed, Spindle speed, Vitesse de broche]
 - [Width of cut, Width of cut, Largeur de coupe]

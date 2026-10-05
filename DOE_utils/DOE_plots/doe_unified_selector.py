@@ -2483,7 +2483,7 @@ class DoeSelectorUnifiedApp:
         self.ax_It.cla()
 
         lk_disp = _col_header(selected[0]["label_key"]) if selected else ""
-        plotted = False
+        plotted = td_drawn = False
 
         # Decide coloring strategy:
         #   · varios indicadores  → color por indicador (tab10)
@@ -2553,6 +2553,7 @@ class DoeSelectorUnifiedApp:
                 for key, style in (("t_d", "--"),):
                     td = run_data.get(key, np.array([]))
                     if td.size > 0:
+                        td_drawn = True
                         self.ax_It.axvline(td[0], color=color, lw=2.2,
                                            linestyle=style,
                                            alpha=_it_ctrl_alp if is_ctrl else case_alpha,
@@ -2573,9 +2574,22 @@ class DoeSelectorUnifiedApp:
         run_txt = run_filter or "(all)"
         self.ax_It.set_title(f"I_t(t)  —  run: {run_txt}", fontsize=13)
 
+        # what the vertical lines are (same colour as the curve they belong to): dashed + dot = first detection t_d of
+        # that indicator; dotted = t_onset, where the ground truth of a ramp turns unstable (only when several cases are
+        # shown: with one case that line already carries its own label)
+        from matplotlib.lines import Line2D
+        proxies = []
+        if td_drawn:
+            proxies.append(Line2D([0], [0], color="0.35", ls="--", lw=2.2, marker="o", ms=4,
+                                  label=r"$t_d$: first detection of the indicator"))
+        if len(selected) > 1 and any(c.get("ramp") and c.get("t_onset") is not None for c in selected):
+            proxies.append(Line2D([0], [0], color="0.35", ls=":", lw=2.2, label=r"$t_{onset}$: truth turns unstable (ramp)"))
         n = len(selected) * len(runs_to_show)
         if n <= 10 and plotted:
-            self.ax_It.legend(fontsize=14, loc="upper left")
+            handles, labels = self.ax_It.get_legend_handles_labels()
+            self.ax_It.legend(handles=handles + proxies, fontsize=14, loc="upper left")
+        elif proxies:   # too many curves for a legend: still say what the vertical lines mean
+            self.ax_It.legend(handles=proxies, fontsize=11, loc="upper left")
 
         self._draw_reference_lines({"I_t": self.ax_It})
         self.It_fig.tight_layout()
