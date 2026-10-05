@@ -91,6 +91,21 @@ Ejemplo (green, n12000): el adelanto es −4.7 s con kappa 1.08 y −0.45 s con 
 
 Los conteos **por ventana** (TP/FP/TN/FN y `tpr`/`tnr` por caso) están en el archivo pero **no son métrica**: como el registro completo está etiquetado inestable, el transitorio inicial cuenta como inestable y los números no se pueden interpretar.
 
+### 2.6b Casos grises: qué son y cómo se reportan
+
+Un caso es **gris** cuando su amplitud máxima queda entre el límite inferior (10 %) y el superior (40 %) de la base: la etiqueta no puede decir si es estable o inestable. Esos casos **no se puntúan**: su resultado es `n/a`, no suman en TP/FN/TN/FP, ni en el ROC, ni en el ranking. Forzarles una verdad sería inventarla.
+
+Para que la omisión no esconda nada, cada indicador reporta (en `/metrics` y el CSV):
+
+| Métrica | Qué es | Cómo leerla |
+|---|---|---|
+| `n_gray` | Cuántos casos grises hay. | 0 = no hay nada omitido (n5189). 3 en n12000. |
+| `n_gray_alarm`, `gray_alarm_rate` | Cuántos de ellos alarman, y la fracción. | 1.0 = alarma en todos. |
+| `gray_as_stable_TNR` (y `_TPR`, `_balanced_accuracy`, `_MCC`) | Las métricas **si todos los grises se contaran como estables** (alarma = falsa alarma). | Es la cota **pesimista**. n12000: TNR de green/ssq 0.64 (en vez de 0.875), maxent 0.55, rms_cv 0.09. |
+| `gray_as_unstable_TPR` (y `_TNR`, `_balanced_accuracy`, `_MCC`) | Las métricas **si todos los grises se contaran como inestables** (alarma = acierto). | Es la cota **optimista** mientras el indicador alarme. n12000: TPR 1.00. |
+
+Cómo decirlo: *"sobre los casos con etiqueta clara, esto; los 3 casos ambiguos (kappa ≈ 1.06) los alarman todos los indicadores; si se contaran como estables el TNR de green bajaría a 0.64, si se contaran como inestables el TPR seguiría en 1.00"*. Son **cotas**, no un veredicto. En las figuras los grises salen con un círculo hueco gris.
+
 ### 2.7 Ranking
 
 Se ordena por **balanced accuracy**, luego **MCC**, luego **AUC** (los NaN quedan al final).

@@ -45,6 +45,10 @@ Two detection times, over the hits (TP; median):
   t_onset_amp = first time |labeling_signal| exceeds labeling_lim_sup_pct % of the base (labeling_base_attr *
   labeling_base_scale): the same threshold that makes the amplitude labelling call a case unstable. NaN if the signal
   or the base is not in the validation file.
+GRAY cases (truth 'unlabelled': amplitude between the two limits) are not scored: outcome 'n/a', left out of the counts, the
+metrics and the ROC. They are reported apart so the omission is visible (gray_metrics): n_gray, n_gray_alarm,
+gray_alarm_rate and the metrics if ALL of them were counted as stable (gray_as_stable_*: alarm -> FP, none -> TN) or as
+unstable (gray_as_unstable_*: alarm -> TP, none -> FN) for TPR, TNR, balanced_accuracy and MCC: bounds, not a verdict.
 Alarm quality (window level, but on whole-signal labels so it is clean where it is used):
   alarm_fraction = flagged windows / windows, in STABLE cases (0 = never alarms); mean_alarm_fraction_stable
   persistence    = flagged windows / windows from the first detection on, in TP cases (1 = keeps the alarm on);
@@ -441,12 +445,25 @@ def roc_metrics(rows) -> tuple:
     return out, {o: roc_curve(*v) for o, v in sc.items()}
 
 
+def gray_metrics(rows) -> dict:
+    """The gray (unlabelled) cases are not scored; say how many there are, how many alarm and how the metrics would move if
+    all of them counted as stable (alarm -> FP, none -> TN) or as unstable (alarm -> TP, none -> FN)."""
+    gray = [r for r in rows if r["truth"] == "unlabelled"]
+    alarm = [bool(np.isfinite(r["first_detection_t"])) for r in gray]
+    scored = [r for r in rows if r["outcome"] in ("TP", "FN", "TN", "FP")]
+    out = dict(n_gray=len(gray), n_gray_alarm=sum(alarm), gray_alarm_rate=sum(alarm) / len(gray) if gray else float("nan"))
+    for name, hit, miss in (("stable", "FP", "TN"), ("unstable", "TP", "FN")):
+        m = case_metrics(scored + [dict(r, outcome=hit if a else miss) for r, a in zip(gray, alarm)])
+        out.update({f"gray_as_{name}_{k}": m[k] for k in ("TPR", "TNR", "balanced_accuracy", "MCC")})
+    return out
+
+
 def run_metrics(rows) -> tuple:
     """(all metrics of one indicator as a dict, ROC curves). The global metrics, ranking and ROC use the 'global'
     rows only (constant cases and ramps whose truth does not change); the ramps that cross give the ramp_* ones."""
     glob = [r for r in rows if r.get("group", "global") == "global"]
     roc, curves = roc_metrics(glob)
-    return {**case_metrics(glob), **roc, **ramp_metrics(rows)}, curves
+    return {**case_metrics(glob), **roc, **gray_metrics(glob), **ramp_metrics(rows)}, curves
 
 
 def rank_runs(metrics: dict) -> list:
@@ -478,6 +495,10 @@ def print_summary(summary: dict) -> None:
               f"\n  alarm in stable cases={m['mean_alarm_fraction_stable']:.3f} of windows | persistence after detection="
               f"{m['mean_persistence']:.2f} | median time: since start {m['median_delay_start_s']:.3f} s, "
               f"vs amplitude onset {m['median_delay_onset_s']:+.3f} s")
+        if m.get("n_gray"):
+            print(f"  gray cases (not scored): {m['n_gray']}, {m['n_gray_alarm']} alarm | if all stable: TNR "
+                  f"{m['gray_as_stable_TNR']:.2f}, bal.acc {m['gray_as_stable_balanced_accuracy']:.2f} | if all unstable: TPR "
+                  f"{m['gray_as_unstable_TPR']:.2f}, bal.acc {m['gray_as_unstable_balanced_accuracy']:.2f}")
         if m.get("ramp_n"):
             rc = lambda k: f"{m[k]:.2f} [{m[k + '_lo']:.2f}-{m[k + '_hi']:.2f}]"   # noqa: E731
             print(f"  RAMPS that cross ({m['ramp_n']}): detected {rc('ramp_detection_rate')}, early alarm "
@@ -600,6 +621,16 @@ def _selftest():
         assert abs(mt["ramp_alarm_fraction_stable"] - (1 / 50 + 0 + 0) / 3) < 1e-9, mt["ramp_alarm_fraction_stable"]
         assert list(f["summary/fake_run/group"].asstr()[()]) == ["global", "global", "ramp", "ramp", "ramp"]
         assert abs(f["summary/fake_run/ap_end_mm"][2] - 15.0) < 1e-9 and f["summary/fake_run/t_onset"][2] == 5.0
+    # gray cases: left out of the counts, reported apart (bounds if all stable / all unstable)
+    gr = [dict(truth=t, outcome=o, first_detection_t=d, delay_start_s=np.nan, delay_onset_s=np.nan) for t, o, d in
+          (("unstable", "TP", 1.0), ("unstable", "TP", 2.0), ("stable", "TN", np.nan), ("stable", "FP", 3.0),
+           ("unlabelled", "n/a", 4.0), ("unlabelled", "n/a", np.nan))]
+    g = gray_metrics(gr)
+    assert (g["n_gray"], g["n_gray_alarm"], g["gray_alarm_rate"]) == (2, 1, 0.5)
+    assert g["gray_as_stable_TNR"] == 0.5 and g["gray_as_stable_TPR"] == 1.0          # alarm -> FP, none -> TN: TN 2, FP 2
+    assert g["gray_as_unstable_TPR"] == 0.75 and g["gray_as_unstable_TNR"] == 0.5      # alarm -> TP, none -> FN: TP 3, FN 1
+    assert case_metrics([r for r in gr if r["truth"] != "unlabelled"])["TN"] == 1      # the headline counts do not move
+    assert gray_metrics(gr[:4])["n_gray"] == 0 and np.isnan(gray_metrics(gr[:4])["gray_alarm_rate"])
     # alarm quality: 3 flagged windows from 5.6 on, 44 windows from 5.6 to 9.9 inside the unstable interval
     assert ok["alarm_fraction"] == 0.0 and abs(ok["persistence"] - 3 / 44) < 1e-12
     fa = score(t, pred_windows(t, np.array([3.0])), stw, np.nan)

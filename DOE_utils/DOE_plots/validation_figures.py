@@ -214,9 +214,12 @@ def fig_detection_time(D):
     ax.plot(_kappa(s0)[m][o], s0["t_onset_amp"][m][o], "k-s", ms=4, label=T("amplitude onset $t_{onset}$", "début en amplitude $t_{onset}$", " / "))
     for i, r in enumerate(D.order):
         s = D.summ[r]
-        ok, st, un = np.isfinite(s["first_detection_t"]), s["truth"] == "stable", s["truth"] == "unstable"   # gray: left out
+        ok, st, un = np.isfinite(s["first_detection_t"]), s["truth"] == "stable", s["truth"] == "unstable"
+        gr = ok & (s["truth"] == "unlabelled")   # gray: hollow, not scored
+        ax.plot(_kappa(s)[gr], s["first_detection_t"][gr], "o", ms=5, mfc="none", color=RUN_COLOR[i])
         ax.plot(_kappa(s)[ok & un], s["first_detection_t"][ok & un], "o", ms=5, color=RUN_COLOR[i], label=short(r))
         ax.plot(_kappa(s)[ok & st], s["first_detection_t"][ok & st], "x", ms=6, color=RUN_COLOR[i])
+    ax.plot([], [], "o", mfc="none", color="k", label=T("gray (not scored)", "gris (non noté)", " / "))
     ax.axvline(1, color="grey", ls=":")
     ax.set(xlabel=r"$\kappa$", ylabel=T("first detection [s]", "première détection [s]"), yscale="log")
     ax.legend(fontsize=8, ncol=2)
@@ -277,6 +280,9 @@ def fig_score_vs_kappa(D):
         for truth, col in (("stable", ps.COLOR_STABLE), ("unstable", ps.COLOR_UNSTABLE)):
             k = s["truth"] == truth
             ax.plot(_kappa(s)[k], sc[k], "o", ms=5, color=col, label=T(truth, {"stable": "stable", "unstable": "instable"}[truth], " / "))
+        g = (s["truth"] == "unlabelled") & np.isfinite(sc)
+        if g.any():
+            ax.plot(_kappa(s)[g], sc[g], "o", ms=5, mfc="none", color=ps.COLOR_GRAY, label=T("gray (not scored)", "gris (non noté)", " / "))
         ax.axvline(1, color="grey", ls=":")
         ax.set(title=f"{short(r)}  AUC={D.met[r]['AUC']:.2f}", xlabel=r"$\kappa$", yscale=_yscale(sc))
         ax.set_ylabel("max $I_t$" if D.met[r]["roc_direction"] == 1 else "min $I_t$")
@@ -289,11 +295,11 @@ def fig_score_dist(D):
     fig, axs = _grid(len(D.order))
     for ax, r in zip(axs, D.order):
         s, sc = D.summ[r], _case_score(D, r)
-        for x0, truth, col in ((0, "stable", ps.COLOR_STABLE), (1, "unstable", ps.COLOR_UNSTABLE)):
+        for x0, truth, col in ((0, "stable", ps.COLOR_STABLE), (1, "unstable", ps.COLOR_UNSTABLE), (2, "unlabelled", ps.COLOR_GRAY)):
             v = sc[s["truth"] == truth]
-            ax.plot(x0 + np.linspace(-0.15, 0.15, len(v)), v, "o", ms=5, color=col)
-        ax.set_xticks([0, 1], [T("stable", "stable"), T("unstable", "instable")])
-        ax.set(title=f"{short(r)}  AUC={D.met[r]['AUC']:.2f}", yscale=_yscale(sc), xlim=(-0.5, 1.5))
+            ax.plot(x0 + np.linspace(-0.15, 0.15, len(v)), v, "o", ms=5, color=col, mfc="none" if truth == "unlabelled" else col)
+        ax.set_xticks([0, 1, 2], [T("stable", "stable"), T("unstable", "instable"), T("gray", "gris")])
+        ax.set(title=f"{short(r)}  AUC={D.met[r]['AUC']:.2f}", yscale=_yscale(sc), xlim=(-0.5, 2.5))
         ax.set_ylabel(T("case score", "score du cas"))
     return fig
 
