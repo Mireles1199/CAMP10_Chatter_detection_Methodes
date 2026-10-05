@@ -590,7 +590,27 @@ El ruido es aleatorio: con otra "tirada" (semilla) el resultado de un caso puede
 - Anticipación `t_det / t_onset` (sección 3.9) contra el SNR.
 - **Cómo leerla:** si el ruido hace alarmar antes (valor más bajo) o más tarde (más alto). Ojo: alarmar "antes" con ruido puede ser una falsa alarma disfrazada; hay que leerla junto con `noise_metrics`.
 
-### 8.7 Qué se puede y qué no se puede concluir
+### 8.7 Resultados de la primera pasada (n12000)
+
+12 casos (5 estables, 1 gris, 6 inestables), niveles 80, 60, 40, 30, 20 y 10 dB, 3 realizaciones. Balanced accuracy sin ruido (en esos mismos 12 casos) y SNR de quiebre:
+
+| Indicador | Sin ruido | A qué SNR empieza a fallar |
+|---|---|---|
+| green | 0.90 | **20 dB** |
+| ssq | 0.90 | **20 dB** |
+| maxent | 0.80 | **40 dB** |
+| rms_cv | 0.60 | ya falla a 80 dB (0.50) |
+
+**Cómo se lee:**
+- **El TPR no baja:** con ruido los indicadores siguen detectando todos los casos inestables. El ruido no tapa el chatter en este rango.
+- **Lo que cae es el TNR:** los casos estables vibran muy poco (~1e-8 m), así que el ruido los hace parecer chatter y se disparan **falsas alarmas**. Con el entrenamiento limpio, los umbrales no aguantan ruido de ese tamaño.
+- **Green y ssq aguantan mucho más que maxent** (hasta ~30 dB frente a ~60 dB). rms_cv ya fallaba sin ruido (por su arranque), así que el ruido casi no empeora algo que ya estaba mal.
+- **En `noise_case_matrix`** se ve el mismo patrón por caso: los estables pasan todos a la vez de acertar a fallar al cruzar el quiebre; los inestables nunca fallan. El estable de kappa 1.05 falla incluso sin ruido (es el caso ambiguo de siempre).
+- **En `noise_anticipation`:** al llegar al quiebre la anticipación se desploma (`t_det/t_onset` → ~0): el indicador alarma desde el principio, es decir, falsas alarmas, no detección temprana.
+
+Las bandas mínimo–máximo entre realizaciones son casi invisibles: las 3 realizaciones coinciden en casi todo (el resultado de cada caso es de todo o nada y el ruido a ese nivel no lo cambia). Eso es buena señal, pero con 12 casos y 3 realizaciones sigue siendo una primera pasada.
+
+### 8.8 Qué se puede y qué no se puede concluir
 
 - **Sí:** a qué nivel de ruido cada indicador, **con su calibración limpia**, empieza a fallar, y si falla por falsas alarmas o por perder el chatter.
 - **No:** cómo se comportaría si se **entrenara con ruido** (es otra pregunta, anotada para el futuro), ni cómo es el ruido de un sensor concreto (aquí es ruido blanco ideal, independiente en desplazamiento y velocidad: una simplificación declarada).
