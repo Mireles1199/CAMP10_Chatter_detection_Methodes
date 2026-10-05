@@ -45,6 +45,7 @@ TOOLS = [
     ("cli", "DOE_simulacion/reference_dataset.py", "Labels template / build / combine reference dataset"),
     ("cli", "DOE_analisis/doe_indicators.py", "Run the indicators over a DOE"),
     ("cli", "DOE_analisis/validate_indicators.py", "Score the indicators against the validation labels"),
+    ("cli", "DOE_analisis/validate_noise.py", "Score the indicators on noisy copies (per SNR x realization)"),
     ("cli", "DOE_analisis/doe_model_snr.py", "Model SNR analysis"),
     ("cli", "DOE_plots/doe_plotter.py", "Plot DOE results"),
     ("cli", "DOE_plots/doe_indicator_plotter.py", "Plot indicator results"),
@@ -230,6 +231,12 @@ SLD picker). Its kappa is kappa_start -> kappa_end; its ground truth is the ampl
 window of the indicators, Edit config of the labelling) and t_onset is where it turns unstable. Validate scores
 the ramps that cross apart from the global metrics (ramp_* columns), with the same rule as every unstable case:
 any alarm on an unstable constant case = TP; on a ramp that crosses, an alarm before t_onset = false alarm, after = TP.
+
+NOISE VALIDATION (does an indicator trained on clean data survive sensor noise?): Edit config of Noise > 'Noise for the
+validation': pick the validation cases, the SNR levels [dB] (absolute: one sigma for every case, set from the weakest
+unstable case) and the realizations; copies = cases x levels x realizations. Noise indicators runs the clean-trained
+indicators on them; Noise validation (needs Validate) scores each copy against the truth of its CLEAN case. Its Viewer
+has balanced accuracy vs SNR (with the breakdown level), the case x SNR matrix and the anticipation.
 
 COMPARE tab: metrics of two validations side by side. TOOLS tab: every script on its own.
 TUTORIAL tab: step-by-step guide (the same text as DOE_utils/TUTORIAL.md).

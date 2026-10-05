@@ -130,6 +130,16 @@ def _parse_snr_from_name(name: str):
     return float(m.group(1)) if m else None
 
 
+def _check_single_case(h5_path: str) -> None:
+    """These figures assume ONE control case (the SNR comes from the group name). A multi-case noise file (a group per
+    noisy copy, attr 'realization') is scored by validate_noise.py and drawn by validation_figures.NOISE_FIGURES."""
+    with h5py.File(h5_path, "r") as f:
+        first = next(iter(f), None)
+        if first is not None and isinstance(f[first], h5py.Group) and "realization" in f[first].attrs:
+            raise ValueError(f"{os.path.basename(h5_path)} is a multi-case noise file (one group per noisy copy): these "
+                             "figures assume one control case; use validate_noise.py and validation_figures.py")
+
+
 def _first_or_nan(ds) -> float:
     """Devuelve el primer elemento de un dataset HDF5 o NaN si vacío."""
     try:
@@ -164,6 +174,7 @@ def _use_log_scale_for_it(indicator: str) -> bool:
 
 def load_noise_results(h5_path: str) -> dict:
     """Lee doe_noise_results.h5 → dict {group_name: {attrs, signals}}."""
+    _check_single_case(h5_path)
     data = {}
     with h5py.File(h5_path, "r") as f:
         for grp_name in sorted(f.keys()):
@@ -314,6 +325,7 @@ def gather_detection_rows(h5_path: str) -> pd.DataFrame:
     Devuelve DataFrame con columnas:
         case, indicator, snr_db (NaN para control), t_d
     """
+    _check_single_case(h5_path)
     rows = []
     with h5py.File(h5_path, "r") as f:
         for case_name in sorted(f.keys()):
@@ -571,6 +583,7 @@ def gather_indicator_curves(h5_path: str, indicators_filter: list = None) -> dic
     Carga t e I_t por cada (indicador, caso).
     Resultado: {ind: {case_name: {"t": ndarray, "I_t": ndarray, "t_d": float, "snr_db": float|nan}}}
     """
+    _check_single_case(h5_path)
     result = {}
     with h5py.File(h5_path, "r") as f:
         for case_name in sorted(f.keys()):
