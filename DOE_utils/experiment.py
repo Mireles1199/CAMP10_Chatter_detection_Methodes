@@ -160,6 +160,8 @@ def presets() -> dict:
 
 # keys that never change a result (parallelism, launcher, text): left out of the configuration fingerprint
 HASH_IGNORE = {"nb_proc", "n2m_bat", "workers", "description", "timed", "auto_extract"}
+# indicator processes in parallel when the experiment does not say: each takes ~1-3 GB (6 once ran out of virtual memory)
+DEFAULT_WORKERS = 3
 
 
 def _canon(o):
@@ -595,6 +597,7 @@ class Exp:
         if self.ref is not None:
             for k in ("f_modal", "workers"):
                 ind.setdefault(k, self.ref.indicators.get(k))
+        ind["workers"] = ind.get("workers") or DEFAULT_WORKERS   # an explicit value of the file is kept
         if v == "inherit":
             specs = dict(self.ref.indicators["specs"]) if self.ref is not None else {}
         elif isinstance(v, dict):
@@ -1990,7 +1993,7 @@ def label_defaults(indicators_section=None) -> dict:
 
 def default_indicators() -> dict:
     lib = presets()
-    return {"f_modal": 150.0, "cases": "all", "workers": 6,
+    return {"f_modal": 150.0, "cases": "all", "workers": DEFAULT_WORKERS,
             "variants": {n: lib[n] for n in INDICATOR_PRESETS_DEFAULT if n in lib}}
 
 
@@ -3106,6 +3109,12 @@ def _selftest_noise(v2: Exp) -> None:
     assert not noise_multi(old) and S["noise"].outputs == [os.path.join(old.data_dir, "doe_noise_results.h5")]
     assert "label_build" not in [k for _, k in S["noise"].deps] and "--no-signals" not in S["noise_indicators"].cmds[0]
     assert not _all_stages(old)["noise_validate"].runnable and not _noise_problems(old, [])
+    # workers not written: the default (6 once ran out of memory); written: kept, and neither changes a fingerprint
+    h = stages(old)["indicators"].hash
+    assert old.indicators["workers"] == DEFAULT_WORKERS == 3
+    save_section("vn", "indicators", dict(own.get("indicators") or {}, workers=5))
+    assert load("vn").indicators["workers"] == 5 and stages(load("vn"))["indicators"].hash == h
+    yaml_save(dict(own, stages=own["stages"] + ["noise", "noise_indicators"], noise={"seed": 1}), exp_path("vn"))
     # several cases: its own file in out_dir, waits for the labels, indicators without signals, new stage
     cfg = {"cases": ["case_000"], "snr_list": [20, 10], "realizations": 2}
     yaml_save(dict(own, stages=own["stages"] + ["noise", "noise_indicators", "noise_validate"], noise=cfg), exp_path("vn"))
