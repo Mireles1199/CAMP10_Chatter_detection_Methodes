@@ -17,6 +17,7 @@ so doe_unified_selector.py opens it as-is (table columns, SLD, I_t curves), plus
                    sub-group of a case as an indicator run)
   case_NNN/<run> : pred, truth_w (per window: 0 stable, 1 unstable, -1 gray/unlabelled) + attrs outcome,
                    first_detection_t, delay_start_s, delay_onset_s and the window counts TP FP TN FN tpr tnr
+  schema 4 (was 3): no early_tol (no TP_early outcome, no early_alarm/anticipated metrics, no early_tol_s attr)
   /summary/<run> : one row per case (case, kappa, ap_mm, spin_rpm, truth, outcome, first_detection_t,
                    delay_start_s, t_onset_amp, delay_onset_s, tpr, tnr)
   /metrics/<run> : attrs with the per-case metrics below (+ alarm quality and ROC/AUC)
@@ -237,7 +238,7 @@ def validate(ind_h5: str, labels_h5: str, out_h5: str, channel: str = "Axial_dis
         os.remove(out_h5)
     params = {k: v for k, v in _first_piece_attrs(labels_h5).items() if k.startswith("labeling_")}   # same for all
     with h5py.File(ind_h5, "r") as src, h5py.File(out_h5, "w") as out:
-        out.attrs.update(schema="doe_validation_results/3", created=datetime.datetime.now().isoformat(timespec="seconds"),
+        out.attrs.update(schema="doe_validation_results/4", created=datetime.datetime.now().isoformat(timespec="seconds"),
                          indicator_results_file=os.path.basename(ind_h5), labels_file=os.path.basename(labels_h5),
                          channel=channel)
         out.attrs.update(params)

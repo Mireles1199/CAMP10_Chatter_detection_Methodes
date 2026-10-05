@@ -40,7 +40,7 @@ from ssq_chatter import run_sst_svd, SignalData as _SignalDataSSQ  # noqa: E402
 from green_integral import run_green_std, StdSignalData as _StdSignalDataGreen  # noqa: E402
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from validate_indicators import EARLY_TOL_S, OUTCOME_TEXT, detection_outcome  # noqa: E402  (rule of the ramps)
+from validate_indicators import OUTCOME_TEXT, detection_outcome  # noqa: E402  (rule of the ramps)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -335,7 +335,7 @@ def main() -> None:
     # -- --experiment: todo lo de arriba sale del experimento (DOE_utils/experiments/<exp>.yaml) ----------------
     #    variantes de experiments/indicator_variants.yaml con T_rev/T_modal por caso, referencia = dataset de
     #    entrenamiento, casos/workers del experimento, corte = biblioteca (fin = fin de la señal de cada caso).
-    spin_fallback, truth, strategy, truth_h5, onset, early_tol = None, {}, "", "", {}, EARLY_TOL_S
+    spin_fallback, truth, strategy, truth_h5, onset = None, {}, "", "", {}
     if args.experiment:
         ex = _experiment_module()
         exp = ex.load(args.experiment)
@@ -355,7 +355,6 @@ def main() -> None:
         info = ex.label_info(truth_h5)
         truth = {c: d["label"] for c, d in info.items()}
         onset = {c: d["t_onset"] for c, d in info.items() if d["ramp"] and d["t_onset"] is not None}   # ramps
-        early_tol = float(exp.section("validate").get("early_tol_s", EARLY_TOL_S))
         strategy = str(exp.label.get("strategy", ""))
         log.info("Experimento: %s  (%s)", exp.name, exp.path)
         log.info("Etiquetas  : %s", f"{len(truth)} casos de {truth_h5}" if truth else "aún no hay dataset etiquetado")
@@ -421,7 +420,7 @@ def main() -> None:
             "label_key": label_key,
             "reference_h5": reference_h5,
             "spin_fallback": spin_fallback,
-            "truth": truth, "strategy": strategy, "truth_h5": truth_h5, "onset": onset, "early_tol": early_tol,
+            "truth": truth, "strategy": strategy, "truth_h5": truth_h5, "onset": onset,
         },
         nb_workers=workers,
         dry_run=args.dry_run,
@@ -925,11 +924,11 @@ def write_results(out_path: str, res: Dict[str, Any], h5_src: str,
 # ==============================================================================
 
 def _case_summary(h5_path: str, case: str, results: list, true_label: str, strategy: str,
-                  t_onset: Optional[float] = None, early_tol: float = EARLY_TOL_S) -> None:
+                  t_onset: Optional[float] = None) -> None:
     """Resumen de un caso al terminar todas sus variantes: kappa, Ap, etiqueta verdadera y, por variante,
     detección (con acierto si se conoce la verdad), error o avisos de varianza mínima. Rampa que cruza (verdad
     'mixed'): el cruce de la verdad t_onset, la detección, el retraso con signo y la regla de Validate
-    (OK / ANTICIPATED dentro de early_tol / MAL: false alarm antes / MAL: missed)."""
+    (OK / MAL: false alarm si detecta antes del cruce / MAL: missed), sin tolerancia."""
     try:
         with h5py.File(h5_path, "r") as f:
             a = dict(f[case].attrs) if case in f else {}
@@ -946,7 +945,7 @@ def _case_summary(h5_path: str, case: str, results: list, true_label: str, strat
             head += f"  Ap {float(a['$Ap_start$']) * 1e3:.3f} mm"
     head += f"  verdad: {true_label} ({strategy})" if true_label else "  verdad: sin etiqueta"
     if true_label == "mixed" and t_onset is not None:
-        head += f", cruza a inestable en {t_onset:.3f} s (tolerancia {early_tol:g} s)"
+        head += f", cruza a inestable en {t_onset:.3f} s"
     lines = [head]
     for r in sorted(results, key=lambda r: r["run_name"]):
         m = r.get("meta", {})
@@ -960,7 +959,7 @@ def _case_summary(h5_path: str, case: str, results: list, true_label: str, strat
             txt = "sin detección"
         if true_label == "mixed" and t_onset is not None and not m.get("error") and not m.get("skipped"):
             t_det = float(r["t_d"][0]) if r["t_d"].size else float("nan")
-            o = detection_outcome(t_det, t_onset, early_tol)
+            o = detection_outcome(t_det, t_onset)
             txt += (f" (retraso {t_det - t_onset:+.3f} s)" if np.isfinite(t_det) else "") + f"   {OUTCOME_TEXT[o]}"
         elif true_label in ("stable", "unstable") and not m.get("error") and not m.get("skipped"):
             flag = bool(r["t_d"].size)
@@ -1006,7 +1005,7 @@ def run_all(
         per_case.setdefault(res["case"], []).append(res)
         if len(per_case[res["case"]]) == len(runs) and not dry_run:
             _case_summary(h5_path, res["case"], per_case.pop(res["case"]), res["true_label"], res["strategy"],
-                          res["t_onset"], settings.get("early_tol", EARLY_TOL_S))
+                          res["t_onset"])
 
     if nb_workers == 1 or dry_run:
         for grp, run in tasks:
@@ -1080,7 +1079,7 @@ def _selftest() -> None:
         assert f["case_000/maxent_x"].attrs["meta_variance_floor_count"] == 3
     _case_summary(src, "case_000", [res], "unstable", "amplitude")
     # a ramp that crosses: true label 'mixed', t_onset and Ap at both ends written; the summary applies the rule of
-    # Validate (detection >= onset OK, within the tolerance ANTICIPATED, earlier a false alarm, none missed)
+    # Validate (detection >= onset OK, earlier a false alarm, none missed; no tolerance)
     with h5py.File(src, "a") as f:
         g = f.create_group("case_001")
         g.attrs.update({"$Ap_start$": 0.005, "$Ap_end$": 0.015, "kappa": 0.58, "kappa_start": 0.58, "kappa_end": 1.74})
@@ -1098,12 +1097,12 @@ def _selftest() -> None:
     log.addHandler(h)
     try:
         _case_summary(src, "case_001", [mk("late", [10.4]), mk("early", [9.8]), mk("fa", [2.0]), mk("none", [])],
-                      "mixed", "amplitude", 10.0, 0.5)
+                      "mixed", "amplitude", 10.0)
     finally:
         log.removeHandler(h)
     txt = "\n".join(seen)
     assert "rampa Ap 5.000 -> 15.000 mm  kappa 0.580 -> 1.740" in txt and "cruza a inestable en 10.000 s" in txt, txt
-    for name, end in (("late", "(retraso +0.400 s)   OK"), ("early", "(retraso -0.200 s)   ANTICIPATED"),
+    for name, end in (("late", "(retraso +0.400 s)   OK"), ("early", "(retraso -0.200 s)   MAL: false alarm"),
                       ("fa", "(retraso -8.000 s)   MAL: false alarm"), ("none", "sin detección   MAL: missed")):
         assert any(line.strip().startswith(name) and line.endswith(end) for line in txt.splitlines()), (name, txt)
     print("doe_indicators selftest OK")

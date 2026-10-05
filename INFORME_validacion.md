@@ -12,9 +12,11 @@ Implementado en `validate_indicators.py` (selftest OK) y `validation_figures.py`
 - Rampas que cruzan (etiqueta en el tiempo): alarma antes del inicio de la primera ventana inestable = FA (sin tolerancia), después = TP, ninguna = FN. **Criterio a confirmar por el usuario**: con 2 rampas (ramp_check) ambas salen FA.
 - Resultados sin tolerancia: n12000 green/ssq bal.acc 0.94 (MCC 0.90), maxent 0.88, rms_cv 0.56; n5189 green/ssq 0.96, maxent 0.92, rms_cv 0.50.
 - `validate()` ahora crea el directorio de `--out`.
-- COMPAT (contrato): `--early-tol` se sigue aceptando pero se ignora (oculto en --help), y `EARLY_TOL_S` (=0.0, sin efecto), `OUTCOME_TEXT`, `detection_outcome(t, onset, early_tol=None)` siguen exportados porque `doe_indicators.py` los importa. Quedan referencias a limpiar por wt-interfaz / dueños:
-  `experiment.py` (l.729-733 pasa `--early-tol`; l.1137, 1448-1463 texto/regla; l.1848-1850 METRIC_COLUMNS y EARLY_TOL_S; l.1899, 2228 sección validate), `launcher.py` (l.231, 1492-1508 campo early_tol_s, 536, 2695),
-  `check_app_dialogs.py` l.588, `doe_indicators.py` (l.43, 338-358, 424, 928-964, 1009, 1083-1106: usa la tolerancia en el texto de progreso de rampas; `detection_outcome` ya no la aplica) y `PLAN_ramps.md`.
+- **Schema del .h5 de validación: `doe_validation_results/4`** (antes /3; /2 es el viejo sin t_onset). Así el visor/apps distinguen resultados viejos (con `early_tol_s`, `TP_early`) de los nuevos.
+- COMPAT (contrato): `--early-tol` se sigue aceptando pero se ignora (oculto en --help); `EARLY_TOL_S` (=0.0, sin efecto), `OUTCOME_TEXT` y `detection_outcome(t, onset, early_tol=None)` siguen exportados.
+- `doe_indicators.py` YA limpio (no lee `early_tol_s` del yaml, ya no pasa tolerancia; su selftest OK). Quedan por limpiar, a cargo de wt-interfaz:
+  `experiment.py` (l.729-733 pasa `--early-tol`; l.1137, 1448-1463 texto/regla; l.1848-1850 METRIC_COLUMNS y EARLY_TOL_S; l.1899, 2228 sección validate), `launcher.py` (l.231, 536, 1492-1508, 2695), `check_app_dialogs.py` l.588, yaml y `PLAN_ramps.md`.
+- Criterio de rampas (alarma antes del inicio inestable = FA) **pendiente de confirmación del usuario**.
 
 ---
 
