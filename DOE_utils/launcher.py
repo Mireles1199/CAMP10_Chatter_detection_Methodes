@@ -1231,8 +1231,8 @@ class App:
                           "the ramps whose truth crosses, scored apart from the global metrics)")
 
     def plot_compare(self):
-        """A/B figure of the two validations (validation_figures.fig_compare), shown in a window and saved as
-        <folder of A's results>/figs_validation/compare_<A>_vs_<B>.png."""
+        """A/B figure of the two validations (validation_figures.fig_compare) in the export window
+        (figures_window.py): language, size, dpi, format; saved in <folder of A's results>/figs_validation/."""
         a, b = self.cmp_a.get(), self.cmp_b.get()
         if not a or not b:
             return
@@ -1243,25 +1243,18 @@ class App:
             return
         import matplotlib
         matplotlib.use("TkAgg")
-        import matplotlib.pyplot as plt
-        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
         if ex.PLOTS not in sys.path:
             sys.path.insert(0, ex.PLOTS)
-        try:
-            import validation_figures as vf
-            fig = vf.fig_compare(pa, pb, out_dir=os.path.join(os.path.dirname(pa), "figs_validation"))
-        except Exception as exc:   # a figure without data raises: shown as an error, like in the viewer
-            self._msg("Compare", f"{type(exc).__name__}: {exc}", "error")
-            return
-        plt.close(fig)   # detach from pyplot's window manager; the object stays
-        top = self.tk.Toplevel(self.root)
-        top.title(f"Validation compare — A = {a}   B = {b}")
-        canvas = FigureCanvasTkAgg(fig, master=top)
-        NavigationToolbar2Tk(canvas, top).update()
-        canvas.get_tk_widget().pack(fill=self.tk.BOTH, expand=True)
-        canvas.draw()
-        top._canvas = canvas   # keeps it alive
-        self.cmp_note.set(f"Plot saved in {os.path.join(os.path.dirname(pa), 'figs_validation')}")
+        import validation_figures as vf
+        from figures_window import FiguresWindow, Item
+
+        def style(language, scale):
+            vf.LANGUAGE, vf.FIGSCALE = language, scale
+        self._cmp_win = FiguresWindow(
+            self.root, f"Validation compare — A = {a}   B = {b}",
+            [Item(f"compare_{a}_vs_{b}", lambda: vf.fig_compare(pa, pb), native=True)], style=style,
+            out_dir=os.path.join(os.path.dirname(pa), "figs_validation"), language=vf.LANGUAGE, scale=vf.FIGSCALE)
+        self.cmp_note.set(f"A/B figure: Save in its window ({os.path.join(os.path.dirname(pa), 'figs_validation')})")
 
 
 # ============================================================================== dialogs
