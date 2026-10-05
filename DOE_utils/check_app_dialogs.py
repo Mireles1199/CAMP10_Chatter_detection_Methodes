@@ -566,7 +566,10 @@ try:
         ex.yaml_save(d, ex.exp_path(n))
         with h5py.File(out, "w") as h:
             h.create_group("metrics/maxent_revo_dec7_1step").attrs.update(
-                balanced_accuracy=ba, MCC=ba - 0.1, **({"ramp_n": 2, "ramp_detection_rate": 0.5} if n == VA else {}))
+                balanced_accuracy=ba, MCC=ba - 0.1, **({"ramp_n": 2, "ramp_detection_rate": 0.5, "n_gray": 2,
+                                                         "n_gray_alarm": 1, "gray_alarm_rate": 0.5,
+                                                         "gray_as_stable_TNR": 0.6, "gray_as_unstable_TPR": 0.8}
+                                                        if n == VA else {}))
     ex.reload()
     app.refresh(True)
     assert set(app.cmp_cb_a["values"]) >= {VA, "val_from_dialog"}, app.cmp_cb_a["values"]
@@ -577,6 +580,13 @@ try:
     assert rows[0][1] == "0.900" and rows[0][2] == "0.700", rows
     j = 1 + 2 * ex.METRIC_COLUMNS.index("ramp_detection_rate")
     assert rows[0][j] == "0.500" and rows[0][j + 1] == "", rows          # the ramp metrics: A has them, B not
+    for k, v in (("n_gray", "2"), ("gray_alarm_rate", "0.500"), ("gray_as_stable_TNR", "0.600"),
+                 ("gray_as_unstable_TPR", "0.800")):                     # gray cases: A (new files) has them, B not
+        j = 1 + 2 * ex.METRIC_COLUMNS.index(k)
+        assert rows[0][j] == v and rows[0][j + 1] == "", (k, rows[0][j], rows[0][j + 1])
+    card = [t for t, _ in ex.stage_summary(ex.load(VA), "validate")]
+    assert any("gray cases (not scored): 2, 1 alarm" in t and "TNR 0.60" in t and "TPR 0.80" in t for t in card), card
+    assert not any("gray cases" in t for t, _ in ex.stage_summary(ex.load("val_from_dialog"), "validate"))
     print("compare OK (with the ramp columns)")
     # Compare > Plot: a side without validation results is a warning, not a crash (the figure itself is checked with a
     # real validation file by validation_figures.py --selftest)

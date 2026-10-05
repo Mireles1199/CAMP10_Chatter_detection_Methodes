@@ -120,3 +120,12 @@ Verificado: selftests (`figures_window`, `fig_lang`, `sld_model`, `doe_unified_s
 `experiment`, `launcher`) y `check_app_dialogs.py`; Export… en los visores sobre archivos reales en solo lectura (resultados,
 indicadores, validación, referencia de `ramp_check`; rejilla de `n5189`; Compare con `n12000`; los dos planners), guardando en el
 scratchpad, en EN y FR: sin textos sin traducir en esos archivos. Finales de línea comprobados por bytes contra HEAD.
+
+## 9. Casos grises en la validación (lado de la app) — tras `git merge wt-validacion` (c42d796)
+Solo lectura de claves nuevas y aditivas de `/metrics/<run>` (schema sigue en `doe_validation_results/4`); todo con `.get`, así
+que los `.h5` anteriores (sin esas claves) se ven igual que antes.
+- Tarjeta de Validate (`experiment._stage_summary`): bajo cada indicador, si `n_gray`: « gray cases (not scored): N, K alarm |
+  if all stable: TNR x, bal.acc y | if all unstable: TPR x, bal.acc y » (mismo formato que `validate_indicators.print_summary`;
+  son cotas, no veredicto).
+- Compare (`METRIC_COLUMNS`): `n_gray`, `gray_alarm_rate`, `gray_as_stable_TNR`, `gray_as_unstable_TPR` (celdas vacías si faltan).
+- `check_app_dialogs.py`: columnas grises con A que las tiene y B que no, y la línea de la tarjeta.

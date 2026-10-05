@@ -1445,6 +1445,11 @@ def _stage_summary(exp: Exp, key: str) -> list:
             out.append((f"{i}. {r}: bal.acc {f2(d.get('balanced_accuracy'))}  MCC {f2(d.get('MCC'))}  "
                         f"AUC {f2(d.get('AUC'))}  TP {d.get('TP')} FN {d.get('FN')} TN {d.get('TN')} FP {d.get('FP')}",
                         "ok" if i == 1 else None))
+            if d.get("n_gray"):   # gray cases are not scored: how many, how many alarm, and the bounds (not a verdict)
+                out.append((f"     gray cases (not scored): {d['n_gray']}, {d.get('n_gray_alarm')} alarm | if all stable: "
+                            f"TNR {f2(d.get('gray_as_stable_TNR'))}, bal.acc {f2(d.get('gray_as_stable_balanced_accuracy'))}"
+                            f" | if all unstable: TPR {f2(d.get('gray_as_unstable_TPR'))}, bal.acc "
+                            f"{f2(d.get('gray_as_unstable_balanced_accuracy'))}", None))
         ramps = [r for r in rank if m[r].get("ramp_n")]
         if ramps:
             out.append((f"ramps that cross ({m[ramps[0]]['ramp_n']}, apart from the ranking): detected / "
@@ -1841,7 +1846,8 @@ LABEL_DEFAULTS = {"strategy": "amplitude", "amp_signal": "Axial_disp", "base_att
 INDICATOR_PRESETS_DEFAULT = ("maxent_revo_dec7_1step", "rms_cv_revo_aux4_n_aux4_dec7_1step",
                              "ssq_revo_aux4_n_aux4_dec7_1step", "green_fixed_revo_dec7_1step")
 METRIC_COLUMNS = ("balanced_accuracy", "MCC", "AUC", "TPR", "TNR", "F1", "accuracy", "median_delay_onset_s",
-                  "mean_alarm_fraction_stable", "mean_persistence", "ramp_n", "ramp_detection_rate",
+                  "mean_alarm_fraction_stable", "mean_persistence", "n_gray", "gray_alarm_rate", "gray_as_stable_TNR",
+                  "gray_as_unstable_TPR", "ramp_n", "ramp_detection_rate",
                   "ramp_early_alarm_rate", "ramp_miss_rate", "ramp_median_delay_s")
 
 
