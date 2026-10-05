@@ -160,6 +160,48 @@ Ejemplos de n12000:
 - Si los intervalos **no se tocan** (Green [0.53–0.98] frente a rms_cv [0.02–0.47]): la diferencia probablemente es real.
 - Si **se solapan mucho** (Green frente a MaxEnt): con estos datos **no se puede afirmar quién es mejor**. Solapar no prueba que sean iguales; solo dice que los datos no alcanzan.
 
+### 3.7b Intervalo de balanced accuracy y de MCC: "¿y el número del ranking?"
+
+El ranking se ordena por **balanced accuracy** y **MCC**, así que ellas también necesitan su rango de incertidumbre. No tienen una fórmula cerrada sencilla como la de Wilson, así que se calcula **por simulación**:
+
+1. Con lo observado (por ejemplo, 11 de 11 inestables detectados y 7 de 8 estables en silencio), se generan 4000 "versiones posibles" del TPR y del TNR reales. Cada versión es plausible con esos conteos.
+2. En cada versión se calcula la balanced accuracy y el MCC.
+3. El intervalo es el rango que contiene el 95 % central de esos 4000 valores.
+
+La semilla es fija: los mismos conteos dan siempre el mismo intervalo. El intervalo siempre contiene el valor medido.
+
+Ejemplo (n12000):
+
+| Indicador | Balanced accuracy | MCC |
+|---|---|---|
+| green | 0.94 [0.74 – 0.99] | 0.90 [0.53 – 0.98] |
+| ssq | 0.94 [0.74 – 0.99] | 0.90 [0.53 – 0.98] |
+| maxent | 0.88 [0.67 – 0.96] | 0.80 [0.40 – 0.94] |
+| rms_cv | 0.56 [0.45 – 0.71] | 0.28 [−0.16 – 0.52] |
+
+**Cómo leerlo:** los intervalos de green, ssq y maxent se **solapan mucho**: con estos casos no se puede afirmar quién es mejor entre ellos. El de rms_cv queda claramente por debajo (y su MCC incluso llega a valores negativos).
+
+### 3.7c ¿La diferencia entre dos indicadores es real? Prueba de McNemar
+
+Los intervalos se pueden comparar a ojo; la **prueba de McNemar** lo hace con un número. Compara a los indicadores **de dos en dos, caso por caso**:
+
+- Se mira solo en qué casos **discrepan**: casos que el indicador A acierta y el B falla (A solo), y casos que el B acierta y el A falla (B solo).
+- Si los dos fueran igual de buenos, esas discrepancias se repartirían al azar mitad y mitad. La prueba calcula qué tan raro sería el reparto observado.
+- El resultado es un **valor p**. **p < 0.05** significa que la diferencia es **más que casualidad** con estos casos. **p grande** significa que no hay evidencia de diferencia (no que sean iguales).
+
+Ejemplo (n12000):
+
+| Pareja | A solo \| B solo | p | Lectura |
+|---|---|---|---|
+| green frente a ssq | 0 \| 0 | 1.00 | Idénticos en todos los casos. |
+| green frente a maxent | 1 \| 0 | 1.00 | Una discrepancia: sin evidencia de diferencia. |
+| green frente a rms_cv | 6 \| 0 | **0.031** | Green acierta 6 casos que rms_cv falla y ninguno al revés: diferencia real. |
+| maxent frente a rms_cv | 5 \| 0 | 0.062 | Casi, pero no llega a 0.05. |
+
+En n5189 las parejas con rms_cv dan p ≈ 0.001. **Conclusión que respalda la prueba:** rms_cv es peor que los otros tres; entre los otros tres no se puede declarar diferencia.
+
+Un detalle: p = 1.00 en "0 | 0" no quiere decir "demostrado igual", solo que no discreparon en ningún caso.
+
 ### 3.8 ROC y AUC: "¿qué pasa si muevo la perilla de sensibilidad?"
 
 Hasta aquí hemos evaluado cada indicador **con su umbral actual**. La curva ROC y el AUC evalúan algo más general: **si el indicador, con el umbral ideal, podría separar bien los casos estables de los inestables.**
@@ -176,6 +218,26 @@ Hasta aquí hemos evaluado cada indicador **con su umbral actual**. La curva ROC
 - **Punto operativo:** es el círculo en el gráfico que indica dónde está el indicador **con su umbral real**: (1 − TNR, TPR). La curva muestra lo que *podría* lograr con otro umbral; el círculo, lo que logra *hoy*. Si el círculo está lejos de la esquina pero la curva llega, el umbral está mal calibrado, no el indicador.
 - **Intervalo del AUC** (método Hanley-McNeil): igual idea que el de Wilson. **Ojo:** con 11 inestables y 8 estables perfectamente separados, un AUC = 1.00 tiene intervalo [1.00, 1.00] que **no informa**: no significa "infalible", significa que con tan pocos casos el método no puede decir más.
 
+### 3.8b El puntaje del caso, el umbral y los puntos de la curva (en detalle)
+
+**El puntaje de cada caso.** Cada indicador da un valor `I_t` en cada ventana. El puntaje del caso es el **máximo** de `I_t` en toda la señal (el mínimo, con signo cambiado, para los indicadores que marcan chatter con valores bajos). Razón: "el indicador alarma en algún momento" es lo mismo que "su `I_t` máximo supera el umbral". El sistema decide la orientación (valores altos o bajos) mirando las alarmas del propio indicador, nunca las etiquetas.
+
+**Tres cosas distintas se llaman "umbral":**
+
+| # | Qué es | ¿Quién lo fija? | ¿Se mueve? |
+|---|---|---|---|
+| 1 | **Umbral de la etiqueta** (10 % y 40 % de la base) | El criterio operacional | No: es parte de la verdad, no del indicador. |
+| 2 | **Umbral real del indicador** (con el que alarma) | El propio indicador, a partir del entrenamiento: por ejemplo μ + 3σ en SST-SVD, Green y RMS-CV; `alpha` y `beta` en MaxEnt | Sí, con sus parámetros (el 3 de "3σ", etc.). Es el que da los TP, FN, TN y FP de las tablas. |
+| 3 | **Umbral hipotético de la ROC** | Es un ejercicio de cálculo | Se simula, sin tocar nada. |
+
+**La "perilla" es una simulación.** Nadie gira nada. Como de cada caso ya se guardó su puntaje, se puede preguntar: *"si el umbral hubiera estado en X, ¿qué casos habrían alarmado?"*. Los estables que lo superan serían falsas alarmas; los inestables que no lo superan serían fallos. Subir el umbral hace al indicador más exigente (menos falsas alarmas, pero pueden escaparse inestables); bajarlo, más sensible (más detecciones, pero más falsas alarmas). Es como cambiar la regla de 3σ por 2σ o 4σ, pero solo en papel.
+
+**El círculo de la figura `roc`** es el rendimiento con el umbral **real** (el 2): (falsas alarmas, detecciones) = (1 − TNR, TPR). Cae sobre la curva. Si el círculo está lejos de la esquina pero la curva llega a ella, el problema es el umbral y no el indicador.
+
+**Cuántos puntos tiene la curva.** El umbral no se mueve en pasos fijos: se coloca justo en cada puntaje que existe, de mayor a menor, porque entre dos puntajes seguidos el resultado no cambia. Por eso el número de puntos es **el número de puntajes distintos + 1** (el +1 es el punto de partida (0, 0), con el umbral tan alto que nadie alarma). En n12000: 19 casos puntuables, 19 umbrales y **20 puntos**. Cada salto vale 1/11 = 0.09 en detecciones (si pasa un caso inestable) o 1/8 = 0.125 en falsas alarmas (si pasa uno estable). Esa es la resolución con tan pocos casos.
+
+**Una salvedad con MaxEnt.** En Green, SST-SVD y RMS-CV mover el umbral sobre el puntaje equivale a cambiar su regla de σ. MaxEnt usa un contraste secuencial (SPRT, con `alpha` y `beta`) que no es un simple "`I_t` mayor que X", así que para MaxEnt la ROC es una aproximación razonable, no una réplica exacta de lo que pasaría al cambiar sus parámetros.
+
 ### 3.9 Tiempos: "¿con cuánta anticipación detecta?"
 
 Estas cifras **no deciden si un caso es acierto o fallo**. Solo cuentan **cuánto se anticipa o retrasa** la alarma.
@@ -185,7 +247,9 @@ Estas cifras **no deciden si un caso es acierto o fallo**. Solo cuentan **cuánt
 | `first_detection_t` | El primer instante con alarma. | Menor = detecta antes. |
 | `delay_onset_s` | `t_det − t_onset`, con signo, solo en los casos detectados (en el resumen: la mediana). | **Negativo = alarmó antes de que la amplitud llegara al 40 %.** Eso es anticipación, no un error. |
 | `delay_det_s` | El mismo retraso para cualquier primera detección. | Es el que usan las figuras. |
-| `delay_start_s` | Primera ventana marcada en la parte inestable − inicio de esa parte. | **Hoy no es un retraso real**: el registro entero está etiquetado como inestable desde 0.05 s, así que es casi el tiempo de detección. |
+| `delay_onset_p25_s`, `delay_onset_p75_s` | Los cuartiles (25 % y 75 %) del retraso `delay_onset_s` entre los casos detectados. | La mediana sola esconde la dispersión: el rango entre estos dos números contiene a la mitad central de los casos. Green n12000: mediana −1.91 s, rango [−4.06, −0.93] s. |
+| `t_ratio` (por caso) y `median_t_ratio` (por indicador) | `t_det / t_onset`: en qué fracción del tiempo hasta el límite de amplitud llega la alarma. | **1 = alarma justo cuando la amplitud llega al límite; 0.5 = a la mitad de ese tiempo; menos de 1 = anticipa.** No depende de kappa, así que permite comparar. n12000: green 0.58, ssq 0.57, maxent 0.37. rms_cv da 0.02, pero porque alarma en el arranque. |
+| `delay_start_s` | Primera ventana marcada en la parte inestable − inicio de esa parte. | **Hoy no es un retraso real y no se debe usar**: el registro entero está etiquetado como inestable desde 0.05 s, así que es casi el tiempo de detección. Se conserva en el archivo solo por compatibilidad. |
 
 Ejemplo (Green, n12000): el adelanto es de **−4.7 s con kappa 1.08** y de **−0.45 s con kappa 2.0**. Cuanto más inestable el corte, más rápido crece el chatter y menos margen hay.
 
@@ -322,12 +386,13 @@ Los colores son una paleta segura para daltónicos. Verde = acierto TP, azul = T
 ### 5.1 `ranking`: barras de balanced accuracy, MCC y AUC
 - **Qué muestra:** tres barras por indicador, ordenados del mejor al peor. La barrita de error sobre el AUC es su intervalo.
 - **Cómo leerla:** más alto es mejor. Buscar el orden y los saltos grandes.
-- **Qué vemos:** Green y ssq empatados arriba; MaxEnt un poco abajo; rms_cv claramente peor.
-- **Qué no concluir:** una barrita de error plana en 1.0 no es certeza (sección 3.8). Para saber si las diferencias importan, ver `tpr_tnr`.
+- **Las barras de error** son los intervalos de 95 % de las tres métricas (balanced accuracy y MCC por simulación, AUC por Hanley-McNeil; ver 3.7b y 3.8).
+- **Qué vemos:** Green y ssq empatados arriba; MaxEnt un poco abajo; rms_cv claramente peor. Pero las barras de Green, ssq y MaxEnt se solapan mucho: **no se puede afirmar quién es mejor entre los tres**.
+- **Qué no concluir:** una barrita de error plana en 1.0 (AUC) no es certeza (sección 3.8). Para ver si una diferencia es más que casualidad, ver `pairwise_test`.
 
 ### 5.2 `roc`: curvas ROC con el punto operativo
 - **Ejes:** horizontal = falsas alarmas (FPR); vertical = detecciones (TPR).
-- **Cómo leerla:** cuanto más pegada la curva a la esquina superior izquierda, mejor. El círculo hueco es el indicador con su umbral real.
+- **Cómo leerla:** cuanto más pegada la curva a la esquina superior izquierda, mejor. El **marcador hueco** (uno distinto por indicador: círculo, cuadrado, rombo, triángulo) es el indicador con su umbral real. Dos indicadores con el mismo resultado se ven uno dentro del otro.
 - **Qué vemos:** Green, ssq y MaxEnt tocan la esquina (AUC 1.00): existe un umbral perfecto. Pero el círculo de MaxEnt queda a la derecha de la esquina: su umbral actual da falsas alarmas que otro umbral evitaría. rms_cv tiene curva escalonada y un círculo lejano (FPR 0.875).
 - **Qué no concluir:** las curvas de Green y ssq se superponen y una tapa a la otra; no es un error.
 
@@ -369,6 +434,22 @@ Los colores son una paleta segura para daltónicos. Verde = acierto TP, azul = T
 - **Cómo leerla:** tres columnas por indicador (estable, inestable, gris), escala logarítmica. **Cuanto más separadas las nubes, mejor.**
 - **Qué vemos:** Green, ssq y MaxEnt separan completamente estables de inestables, y **los grises quedan en medio** (en Green y ssq, entre ambas nubes): coherente con que son casos ambiguos. Los puntos "estables" más altos son los casos de kappa 1.03–1.05. En rms_cv hay solape.
 - **Ojo:** si el indicador usa valores negativos (MaxEnt), la escala es mixta.
+
+### 5.10b `anticipation`: cuánto se anticipa, independiente de kappa
+- **Ejes:** horizontal = kappa; vertical = `t_det / t_onset` (ver 3.9), solo casos inestables detectados. La línea punteada en 1 = "alarma cuando la amplitud llega al límite".
+- **Cómo leerla:** más abajo = más anticipación. Una línea **plana** significa que el indicador alarma siempre en la misma fracción del camino, sea cual sea kappa.
+- **Qué vemos:** Green y ssq alarman a ~0.5–0.6 del tiempo; MaxEnt a ~0.4; las tres casi planas. rms_cv queda pegado a 0 porque alarma en el arranque, no porque detecte antes.
+- **Para qué sirve:** es la forma más limpia de decir "cuánto antes" sin depender de los segundos concretos de cada caso.
+
+### 5.10c `pairwise_test`: ¿las diferencias entre indicadores son más que casualidad?
+- **Cómo leerla:** matriz con los indicadores en filas y columnas. Cada celda lleva el valor p de la prueba de McNemar (3.7c) y dos números: `fila acierta y columna falla | al revés`. **Celda naranja = p < 0.05** (diferencia real).
+- **Qué vemos:** solo las celdas con rms_cv son naranjas; entre green, ssq y maxent no hay ninguna.
+- **Qué no concluir:** una celda gris no demuestra que dos indicadores sean iguales; solo que estos casos no alcanzan para distinguirlos.
+
+### 5.10d `gray_bounds`: las cotas de los casos grises
+- **Cómo leerla:** dos paneles (balanced accuracy y MCC). Por indicador, un cuadrado azul = si los grises fueran estables (pesimista), un triángulo naranja = si fueran inestables (optimista), y un punto negro = el valor de este archivo. La línea gris entre los extremos es el rango posible.
+- **Qué vemos:** el rango de green y ssq es el más amplio en balanced accuracy (≈ 0.82 a 0.94); el de rms_cv, muy estrecho. El orden de los indicadores es el mismo en los dos extremos.
+- **Si no hay casos grises** (n5189) la figura no se genera.
 
 ### 5.11 `alarm_quality`: alarmas en estables y persistencia
 - **Cómo leerla:** izquierda = fracción de ventanas con alarma en casos estables (**menor es mejor**); derecha = persistencia de la alarma una vez que arranca (**mayor es mejor**).

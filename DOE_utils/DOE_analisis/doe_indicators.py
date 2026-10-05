@@ -799,6 +799,7 @@ def _run_one(
         k: v for k, v in dict(getattr(result, "meta", {})).items()
         if not callable(v) and k not in ("raw_result", "signal")
     }
+    meta.update(_threshold_scalars(dict(getattr(result, "meta", {})).get("raw_result"), cfg["params_physical"]))
     if floor.n:
         meta["variance_floor_count"] = floor.n
 
@@ -922,6 +923,20 @@ def write_results(out_path: str, res: Dict[str, Any], h5_src: str,
 # ==============================================================================
 # EJECUCIÓN PARALELA / SECUENCIAL
 # ==============================================================================
+
+def _threshold_scalars(raw, params_physical: dict) -> dict:
+    """Green's detection limit (log10 of the area: mu +- z*sigma, detects when area > 10**upper_log) lives in the
+    raw_result that run_indicator drops. Keep its scalars in meta (-> attrs meta_mu_log, meta_sigma_log, meta_upper_log,
+    meta_lower_log, meta_z_sigma), only the finite ones: without a threshold (use_area_threshold off) nothing is added."""
+    num = lambda v: isinstance(v, (int, float, np.integer, np.floating)) and not isinstance(v, bool) and np.isfinite(v)  # noqa: E731
+    out = {k: float(v) for k in ("mu_log", "sigma_log", "upper_log", "lower_log") if num(v := getattr(raw, k, None))}
+    if "upper_log" in out:
+        z = getattr(raw, "z_sigma", None)
+        z = (params_physical or {}).get("z_sigma") if z is None else z
+        if num(z):
+            out["z_sigma"] = float(z)
+    return out
+
 
 def _case_summary(h5_path: str, case: str, results: list, true_label: str, strategy: str,
                   t_onset: Optional[float] = None) -> None:
@@ -1105,6 +1120,13 @@ def _selftest() -> None:
     for name, end in (("late", "(retraso +0.400 s)   OK"), ("early", "(retraso -0.200 s)   MAL: false alarm"),
                       ("fa", "(retraso -8.000 s)   MAL: false alarm"), ("none", "sin detección   MAL: missed")):
         assert any(line.strip().startswith(name) and line.endswith(end) for line in txt.splitlines()), (name, txt)
+    from types import SimpleNamespace as NS   # Green's detection limit survives raw_result (and is absent, not NaN, without one)
+    assert _threshold_scalars(NS(mu_log=-14.2, sigma_log=0.3, upper_log=-13.3, lower_log=-15.1), {"z_sigma": 3.0}) == \
+        dict(mu_log=-14.2, sigma_log=0.3, upper_log=-13.3, lower_log=-15.1, z_sigma=3.0)
+    assert _threshold_scalars(NS(mu_log=None, sigma_log=None, upper_log=None, lower_log=None), {"z_sigma": 3.0}) == {}
+    assert _threshold_scalars(NS(mu_log=-1.0, sigma_log=float("nan"), upper_log=float("nan")), {}) == {"mu_log": -1.0}
+    assert _threshold_scalars(None, {"z_sigma": 3.0}) == {} and _threshold_scalars(NS(), None) == {}
+    assert _threshold_scalars(NS(upper_log=-1.0, z_sigma=2.0), {"z_sigma": 3.0}) == {"upper_log": -1.0, "z_sigma": 2.0}
     print("doe_indicators selftest OK")
 
 

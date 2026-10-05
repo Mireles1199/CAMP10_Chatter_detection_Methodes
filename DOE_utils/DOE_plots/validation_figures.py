@@ -18,7 +18,7 @@ CLI:  python validation_figures.py --results X/doe_validation_results.h5 [--out-
       python validation_figures.py --selftest
 
 name (-> h5 data it reads)
-  ranking            bal. accuracy / MCC / AUC (+ Hanley-McNeil)       /ranking, /metrics/<run>
+  ranking            bal. accuracy / MCC / AUC with their 95% intervals  /ranking, /metrics/<run> (*_lo, *_hi)
   roc                case-level ROC + operating point                   /roc/<run>/{high,low}, /metrics
   tpr_tnr            TPR and TNR with Wilson 95%                        /metrics/<run> TPR TNR (_lo, _hi)
   confusion          2x2 per indicator                                  /metrics/<run> TP FN TN FP
@@ -28,6 +28,9 @@ name (-> h5 data it reads)
   detection_amp      |Axial_disp| (% of base) at the first alarm        case_NNN/Axial_disp, /summary/<run>
   score_vs_kappa     max(I_t) per case vs kappa                         /summary/<run>
   score_dist         score of stable vs unstable cases                  /summary/<run>
+  anticipation       t_det / t_onset of the hits vs kappa               /summary/<run>.t_ratio
+  pairwise_test      exact McNemar p-value between indicators           /pairwise
+  gray_bounds        bal. accuracy / MCC if gray = stable / unstable    /metrics/<run> gray_as_*
   alarm_quality      alarm fraction in stable cases, persistence        /metrics/<run>
   training_coverage  training cases vs validated cases (kappa, rpm)     /training, /summary/<run>
 """
@@ -117,6 +120,14 @@ def _figure(fn):
     return run
 
 
+def _err(D, k):
+    """[[v - lo], [hi - v]] of metric k over the runs of the ranking, None if the file has no interval for it."""
+    try:
+        return np.nan_to_num(np.array([[D.met[r][k] - D.met[r][k + "_lo"], D.met[r][k + "_hi"] - D.met[r][k]] for r in D.order], float).T)
+    except KeyError:
+        return None
+
+
 def _yscale(v):
     return "log" if np.nanmin(v) > 0 else "symlog"
 
@@ -137,10 +148,7 @@ def fig_ranking(D):
     w, x = 0.26, np.arange(len(D.order))
     for j, (k, lab) in enumerate((("balanced_accuracy", T("balanced accuracy", "exactitude équilibrée", " / ")),
                                   ("MCC", "MCC"), ("AUC", "AUC"))):
-        err = None
-        if k == "AUC":
-            err = np.nan_to_num(np.array([[D.met[r]["AUC"] - D.met[r]["AUC_lo"], D.met[r]["AUC_hi"] - D.met[r]["AUC"]]
-                                          for r in D.order], float).T)
+        err = _err(D, k)
         ax.bar(x + (j - 1) * w, np.nan_to_num([D.met[r][k] for r in D.order]), w, yerr=err, capsize=2, color=RUN_COLOR[j],
                label=lab)
     ax.axhline(0, color="k", lw=0.8)
@@ -157,9 +165,11 @@ def fig_roc(D):
         for i, r in enumerate(D.order):
             m = D.met[r]
             g = f[f"roc/{r}/{'high' if m['roc_direction'] == 1 else 'low'}"]
-            ax.step(g["fpr"][()], g["tpr"][()], where="post", color=RUN_COLOR[i],
+            mk = "osD^v<"[i % 6]   # one marker per indicator: identical points do not hide each other
+            ax.step(g["fpr"][()], g["tpr"][()], where="post", color=RUN_COLOR[i])
+            ax.plot(1 - m["TNR"], m["TPR"], mk, ms=9, mfc="none", mew=1.5, color=RUN_COLOR[i])   # operating point of the indicator
+            ax.plot([], [], color=RUN_COLOR[i], marker=mk, mfc="none", ms=8,
                     label=f"{short(r)} AUC={m['AUC']:.2f}" + ("" if m["roc_direction"] == 1 else " (low)"))
-            ax.plot(1 - m["TNR"], m["TPR"], "o", ms=7, mfc="none", color=RUN_COLOR[i])   # operating point of the indicator
     ax.plot([0, 1], [0, 1], "k:", lw=0.8)
     ax.set(xlabel=T("FPR (stable cases that alarm)", "FPR (cas stables avec alarme)"), ylabel="TPR",
            xlim=(-0.02, 1.02), ylim=(-0.02, 1.02))
@@ -174,8 +184,7 @@ def fig_tpr_tnr(D):
     for off, k, col, lab in ((-0.15, "TPR", ps.COLOR_UNSTABLE, T("TPR (unstable cases)", "TPR (cas instables)", " / ")),
                              (0.15, "TNR", ps.COLOR_STABLE, T("TNR (stable cases)", "TNR (cas stables)", " / "))):
         v = np.array([D.met[r][k] for r in D.order], float)
-        err = np.array([[D.met[r][k] - D.met[r][k + "_lo"], D.met[r][k + "_hi"] - D.met[r][k]] for r in D.order], float).T
-        ax.errorbar(x + off, v, yerr=np.nan_to_num(err), fmt="o", ms=6, capsize=3, color=col, label=lab)
+        ax.errorbar(x + off, v, yerr=_err(D, k), fmt="o", ms=6, capsize=3, color=col, label=lab)
     ax.set_xticks(x, [short(r) for r in D.order], rotation=15)
     ax.set(ylim=(-0.05, 1.05), ylabel=T("rate (Wilson 95%)", "taux (Wilson 95 %)"))
     fig.legend(*ax.get_legend_handles_labels(), loc="outside upper center", ncol=1 if LANGUAGE == "both" else 2)
@@ -237,7 +246,7 @@ def fig_detection_time(D):
     ax.plot([], [], "o", mfc="none", color="k", label=T("gray (not scored)", "gris (non noté)", " / "))
     ax.axvline(1, color="grey", ls=":")
     ax.set(xlabel=r"$\kappa$", ylabel=T("first detection [s]", "première détection [s]"), yscale="log")
-    ax.legend(fontsize=8, ncol=2)
+    fig.legend(*ax.get_legend_handles_labels(), loc="outside upper center", ncol=3, fontsize=8)
     return fig
 
 
@@ -319,6 +328,72 @@ def fig_score_dist(D):
         ax.set_xticks([0, 1, 2], [T("stable", "stable"), T("unstable", "instable"), T("gray", "gris")])
         ax.set(title=f"{short(r)}  AUC={D.met[r]['AUC']:.2f}", yscale=_yscale(sc), xlim=(-0.5, 2.5))
         ax.set_ylabel(T("case score", "score du cas"))
+    return fig
+
+
+@_figure
+def fig_anticipation(D):
+    """t_det / t_onset of the hits: 1 = the alarm comes when the amplitude reaches the limit, 0.5 = at half of that time."""
+    fig, ax = _fig()
+    for i, r in enumerate(D.order):
+        s = D.summ[r]
+        if "t_ratio" not in s:
+            raise ValueError("no t_ratio in this file (run validate again)")
+        ok = np.isfinite(s["t_ratio"]) & ~_gray(s)
+        o = np.argsort(_kappa(s)[ok])
+        ax.plot(_kappa(s)[ok][o], s["t_ratio"][ok][o], "o-", ms=4, color=RUN_COLOR[i], label=short(r))
+    ax.axhline(1, color="k", ls="--", lw=0.8)
+    ax.set(xlabel=r"$\kappa$", ylabel=T("$t_{det}\,/\,t_{onset}$", "$t_{det}\,/\,t_{onset}$"), ylim=(0, 1.1))
+    ax.text(0.02, 0.97, T("1 = alarm when the amplitude reaches the limit", "1 = alarme quand l'amplitude atteint la limite"),
+            transform=ax.transAxes, va="top", fontsize=8)
+    ax.legend(fontsize=8, loc="lower right")
+    return fig
+
+
+@_figure
+def fig_pairwise_test(D):
+    """Exact McNemar p-value for every pair of indicators over the cases both scored: p < 0.05 = more than chance."""
+    with h5py.File(D.path, "r") as f:
+        if "pairwise" not in f:
+            raise ValueError("no /pairwise in this file (needs two or more indicators)")
+        g = f["pairwise"]
+        pa, pb, ao, bo, pv = (g[c].asstr()[()] if c.startswith("run") else g[c][()] for c in ("run_a", "run_b", "a_only", "b_only", "p_value"))
+    n = len(D.order)
+    pos = {r: i for i, r in enumerate(D.order)}
+    grid = np.full((n, n), -1)
+    fig, ax = _fig()
+    for a, b, x, y, p in zip(pa, pb, ao, bo, pv):
+        for i, j, u, v in ((pos[a], pos[b], x, y), (pos[b], pos[a], y, x)):
+            grid[i, j] = int(p < 0.05)
+            ax.text(j, i, f"p={p:.3f}\n{u} | {v}", ha="center", va="center", fontsize=9)
+    ax.imshow(grid, cmap=ListedColormap(["#f2f2f2", "#dddddd", ps.COLOR_UNSTABLE]), vmin=-1, vmax=1)
+    ax.set_xticks(range(n), [short(r) for r in D.order], rotation=15)
+    ax.set_yticks(range(n), [short(r) for r in D.order])
+    ax.set_xlabel(T("orange: p < 0.05 (more than chance)\ncell: row right, column wrong | the reverse",
+                    "orange : p < 0,05 (plus que le hasard)\ncase : ligne juste, colonne fausse | l'inverse"), fontsize=8)
+    ax.tick_params(length=0)
+    return fig
+
+
+@_figure
+def fig_gray_bounds(D):
+    """Balanced accuracy and MCC if the gray cases counted as stable (pessimistic) or as unstable (optimistic)."""
+    if not any(D.met[r].get("n_gray", 0) for r in D.order):
+        raise ValueError("no gray cases in this file")
+    fig, axs = _fig(ps.FIGSIZE_WIDE, ncols=2)
+    y = np.arange(len(D.order))
+    for ax, k, lab in ((axs[0], "balanced_accuracy", T("balanced accuracy", "exactitude équilibrée")), (axs[1], "MCC", "MCC")):
+        pes = np.array([D.met[r]["gray_as_stable_" + k] for r in D.order], float)
+        opt = np.array([D.met[r]["gray_as_unstable_" + k] for r in D.order], float)
+        cur = np.array([D.met[r][k] for r in D.order], float)
+        ax.hlines(y, np.fmin(pes, opt), np.fmax(pes, opt), color="grey", lw=2)
+        ax.plot(pes, y, "s", ms=7, mfc="none", mew=1.5, color=ps.COLOR_STABLE, label=T("gray = stable (pessimistic)", "gris = stable (pessimiste)", " / "))
+        ax.plot(opt, y, "^", ms=8, mfc="none", mew=1.5, color=ps.COLOR_UNSTABLE, label=T("gray = unstable (optimistic)", "gris = instable (optimiste)", " / "))
+        ax.plot(cur, y, "o", ms=5, color="k", label=T("this file", "ce fichier", " / "))
+        ax.set_yticks(y, [short(r) for r in D.order] if ax is axs[0] else [])
+        ax.set(xlabel=lab)
+        ax.invert_yaxis()
+    fig.legend(*axs[0].get_legend_handles_labels(), loc="outside upper center", ncol=3, fontsize=8)
     return fig
 
 
@@ -420,7 +495,7 @@ def _selftest():
     figs = os.path.join(d, "figs")
     make_all(out, figs)
     assert sorted(os.listdir(figs)) == sorted(n + ".png" for n in FIGURES), os.listdir(figs)
-    assert len(FIGURES) == 12 and figs_dir(out) == os.path.join(d, "figs_validation")
+    assert len(FIGURES) == 15 and figs_dir(out) == os.path.join(d, "figs_validation")
     for mode in ("stable", "unstable"):   # a non-default --gray mode: its own file, its own folder, a note on the figure
         o = os.path.join(d, f"out{vi.gray_suffix(mode)}.h5")
         vi.validate(ind, lab, o, reference_h5=lab, gray=mode)
