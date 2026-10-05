@@ -16,6 +16,8 @@ Implementado en `validate_indicators.py` (selftest OK) y `validation_figures.py`
 - COMPAT (contrato): `--early-tol` se sigue aceptando pero se ignora (oculto en --help); `EARLY_TOL_S` (=0.0, sin efecto), `OUTCOME_TEXT` y `detection_outcome(t, onset, early_tol=None)` siguen exportados.
 - `doe_indicators.py` YA limpio (no lee `early_tol_s` del yaml, ya no pasa tolerancia; su selftest OK). Quedan por limpiar, a cargo de wt-interfaz:
   `experiment.py` (l.729-733 pasa `--early-tol`; l.1137, 1448-1463 texto/regla; l.1848-1850 METRIC_COLUMNS y EARLY_TOL_S; l.1899, 2228 sección validate), `launcher.py` (l.231, 536, 1492-1508, 2695), `check_app_dialogs.py` l.588, yaml y `PLAN_ramps.md`.
+- **Etiqueta operacional, se deja como está (usuario).** `kappa` es solo informativo; "inestable" = chatter visible en amplitud. Los FP de green/ssq/maxent (1–2) son casos con kappa>1 que no alcanzan el límite en el horizonte: se leen como "el indicador detecta antes de que la inestabilidad sea visible operacionalmente", no como error. Las figuras muestran kappa solo como contexto. (Se retira la opción (d) de §2.)
+- **Hallazgo abierto, no de métrica:** rms_cv alarma en la 1ª ventana (t≈0.07–0.11 s) en casi todos los casos (warmup, `warmup_ignore_alerts: false`); sin tolerancia hunde su TNR (0.12 en n12000, 0.00 en n5189). Es configuración del indicador.
 - Rampas: DIFERIDAS por el usuario hasta cerrar Ap constante (no se analizan ni se deciden ahora). Lo que hay en el código (alarma antes del inicio inestable = FA) es solo consecuencia de quitar early_tol y es PROVISIONAL.
 
 ---
