@@ -112,13 +112,13 @@ Corta las señales según el YAML. Los casos gray no cuentan en las métricas.
 
 ### Paso 7. Indicators
 
-Corre cada variante sobre cada caso, aprendiendo de la referencia. Al terminar **cada caso** la consola (y el log) muestra un resumen: `κ`, `Ap`, la etiqueta verdadera y, por variante, si detectó, en qué momento y si acertó (`OK` / `MAL`). En una rampa que cruza muestra además dónde la verdad pasa a inestable, el retraso con signo y `OK` / `ANTICIPATED` / `MAL: false alarm` / `MAL: missed` (la regla de Validate).
+Corre cada variante sobre cada caso, aprendiendo de la referencia. Al terminar **cada caso** la consola (y el log) muestra un resumen: `κ`, `Ap`, la etiqueta verdadera y, por variante, si detectó, en qué momento y si acertó (`OK` / `MAL`). En una rampa que cruza muestra además dónde la verdad pasa a inestable, el retraso con signo y si fue acierto, falsa alarma (antes del inicio) o fallo (la regla de Validate).
 
 ### Paso 8. Validate
 
 Por variante: TP, FN, TN, FP, exactitud balanceada, MCC, AUC, tiempos de detección. El panel muestra el ranking.
 
-Un caso inestable se puntúa con su **primera detección** frente al inicio de su verdad (`t_onset`: la primera muestra sobre el límite de amplitud en un caso constante): detección después del inicio → TP; hasta `early_tol_s` antes → TP **anticipado** (retraso negativo); antes de eso → **alarma temprana**, que cuenta como FN; sin detección → FN. `early_tol_s` (0.5 s por defecto) se cambia en **Edit config** de Validate. Cuidado: los indicadores que detectan el chatter mientras crece (antes de que la amplitud llegue al 40 % del avance) quedan como alarmas tempranas con una tolerancia corta (ver la bitácora de `PLAN_ramps.md`).
+Un caso inestable se puntúa con su **primera detección** frente al inicio de su verdad (`t_onset`: la primera muestra sobre el límite de amplitud en un caso constante): en un **caso constante** cualquier alarma → TP y ninguna → FN; el retraso (`delay_onset_s`, `delay_det_s`) queda como dato, no decide el acierto. En una **rampa que cruza**, una alarma antes del inicio de su verdad es falsa alarma, después es TP y ninguna es FN. No hay tolerancia que configurar (antes existía `early_tol_s`; se quitó y un YAML que aún la lleve se ignora).
 
 ### Paso 9. Ver y comparar
 
@@ -178,7 +178,7 @@ Un caso en **rampa** cambia la profundidad durante el corte (con `n` fija): `Ap`
 - **Rampas decrecientes.** La pieza de la plantilla `1DOF_150Hz` solo sabe hacer crecer `Ap`; con ella una rampa decreciente saldría como un caso constante, y la app la rechaza. Usa un caso cuya `db_def` admita los dos sentidos (marca `# ramps: both directions`), p. ej. `Data/1DOF_150_Ramp_check/1DOF_150Hz`.
 - **κ.** Una rampa tiene `kappa_start` y `kappa_end`; su `kappa` suelto (si existe) se ignora en toda la app.
 - **La verdad.** La misma regla de amplitud (`max|y|` frente a `lim_inf` / `lim_sup`), pero **ventana a ventana**, con ventanas como las de un indicador (`window_mode`, `window_N`, `window_step` en **Edit config** del etiquetado; por defecto los de las variantes, hoy 7 vueltas con paso 1). Ventanas seguidas iguales forman un intervalo; si alternan cerca del umbral se dejan tal cual (revísalo en el YAML). `t_onset` = inicio de la primera ventana inestable. No se usa ningún tiempo teórico de cruce `κ = 1`. Los casos constantes se etiquetan igual que siempre.
-- **Validación.** Las rampas que cruzan (estable → inestable) se puntúan con la misma regla que los constantes, contra su `t_onset`, pero **fuera** de las métricas globales, del ranking y del ROC: tienen sus métricas `ramp_*` (tasa de detección, anticipadas, alarmas tempranas, fallos, retraso con signo, alarmas en el tramo estable, persistencia). Una rampa que no cruza se puntúa como un caso constante. El panel de Validate y la pestaña **Compare** las muestran.
+- **Validación.** Las rampas que cruzan (estable → inestable) se puntúan con la misma regla que los constantes, contra su `t_onset`, pero **fuera** de las métricas globales, del ranking y del ROC: tienen sus métricas `ramp_*` (tasa de detección, alarmas antes del inicio, fallos, retraso con signo, alarmas en el tramo estable, persistencia). Una rampa que no cruza se puntúa como un caso constante. El panel de Validate y la pestaña **Compare** las muestran.
 - **Visor.** Las tablas tienen `kappa_start`, `kappa_end` y `t_onset`; las rampas se ordenan por su `κ` de inicio. En señal e `I(t)`, una línea punteada marca dónde la verdad pasa a inestable y, con un solo caso, se sombrean sus intervalos estable / gray / inestable.
 
 ## 5. Cosas que conviene saber

@@ -723,14 +723,12 @@ def _all_stages(exp: Exp) -> dict:
                             ind_section,
                             roles=(["data", f"labelled dataset the indicators learn from (experiment {ref_exp.name})"],
                                    ["indicator results: I(t) and detections per case and variant"]))
-    val = exp.section("validate")
-    # the tolerance of the early-detection rule is always part of the fingerprint: validations scored before the
-    # rule existed (any alarm = hit) turn stale, and re-running Validate takes seconds
-    val.setdefault("early_tol_s", EARLY_TOL_S)
+    # early_tol_s no longer exists (the rule has no tolerance): an old YAML that still carries it is ignored, and
+    # dropping it from the fingerprint turns the validations scored with the tolerance stale (re-run takes seconds)
+    val = {k: v for k, v in exp.section("validate").items() if k != "early_tol_s"}
     val_out = exp.out("validate", "out", "doe_validation_results.h5")
     cmd = _py(os.path.join(ANA, "validate_indicators.py"), "--ind_results", ind["out"], "--labels", label["out"],
-              "--reference", exp.reference, "--out", val_out, "--channel", val.get("channel", "Axial_disp"),
-              "--early-tol", val["early_tol_s"])
+              "--reference", exp.reference, "--out", val_out, "--channel", val.get("channel", "Axial_disp"))
     S["validate"] = Stage(exp, "validate", [(exp, "label_build"), (exp, "indicators")],
                           [ind["out"], label["out"]], [val_out], [cmd], {**val, "out": val_out},
                           roles=(["indicator results", "ground truth (this experiment's labelled dataset)"],
@@ -1133,9 +1131,10 @@ STAGE_INFO = {
                    "(and, MaxEnt, unstable) pieces of a labelled dataset: the reference experiment's, or this "
                    "experiment's own. That is why it needs Label build first. T_rev comes from the spin of each case.",
                    "Every case x variant done, no errors; how many stable / unstable cases each variant flags."),
-    "validate": ("Scores each variant against the validation labels: TP/FN/TN/FP per case (an alarm earlier "
-                 "than early_tol_s before the onset of the truth is an early alarm, counted as FN), balanced "
-                 "accuracy, MCC, AUC and detection times; ramps that cross are scored apart (ramp_* metrics).",
+    "validate": ("Scores each variant against the validation labels: TP/FN/TN/FP per case (an unstable constant "
+                 "case is a hit with any alarm, a miss with none; a ramp that crosses is a false alarm if the alarm "
+                 "comes before the onset of the truth), balanced accuracy, MCC, AUC and detection times; ramps that "
+                 "cross are scored apart (ramp_* metrics).",
                  "Ranking of the variants; the Compare tab puts two validations side by side."),
     "static_deflection": ("Adds the theoretical static deflection (group Out_Deflex) to doe_results.h5.",
                           "Its section of the experiment YAML sets f_tooth_mm, k_cut, k_sys, alpha_deg, theta_deg."),
@@ -1444,23 +1443,20 @@ def _stage_summary(exp: Exp, key: str) -> list:
         for i, r in enumerate([] if empty else rank, 1):
             d = m[r]
             out.append((f"{i}. {r}: bal.acc {f2(d.get('balanced_accuracy'))}  MCC {f2(d.get('MCC'))}  "
-                        f"AUC {f2(d.get('AUC'))}  TP {d.get('TP')} FN {d.get('FN')} TN {d.get('TN')} FP {d.get('FP')}"
-                        + (f"  (early alarms {d['n_early_alarm']}, anticipated {d['n_anticipated']})"
-                           if d.get("n_early_alarm") or d.get("n_anticipated") else ""),
+                        f"AUC {f2(d.get('AUC'))}  TP {d.get('TP')} FN {d.get('FN')} TN {d.get('TN')} FP {d.get('FP')}",
                         "ok" if i == 1 else None))
         ramps = [r for r in rank if m[r].get("ramp_n")]
         if ramps:
-            out.append((f"ramps that cross ({m[ramps[0]]['ramp_n']}, apart from the ranking): detected / anticipated / "
-                        f"early alarm / missed, median delay to the crossing of the truth", None))
+            out.append((f"ramps that cross ({m[ramps[0]]['ramp_n']}, apart from the ranking): detected / "
+                        f"false alarm before the onset / missed, median delay to the crossing of the truth", None))
             for r in ramps:
                 d = m[r]
-                out.append((f"  {r}: {f2(d.get('ramp_detection_rate'))} / {f2(d.get('ramp_anticipated_rate'))} / "
+                out.append((f"  {r}: {f2(d.get('ramp_detection_rate'))} / "
                             f"{f2(d.get('ramp_early_alarm_rate'))} / {f2(d.get('ramp_miss_rate'))}, delay "
                             + ("-" if d.get("ramp_median_delay_s") is None or d["ramp_median_delay_s"] != d["ramp_median_delay_s"]
                                else f"{d['ramp_median_delay_s']:+.3f} s"), None))
-        tol = exp.section("validate").get("early_tol_s", EARLY_TOL_S)
-        out.append((f"rule: a first detection more than {tol:g} s before the onset of the truth is an early alarm "
-                    f"(counted as FN); within {tol:g} s, an anticipated hit", None))
+        out.append(("rule: an unstable constant case is a hit with any alarm and a miss with none; a ramp that crosses "
+                    "is a false alarm if the first alarm comes before the onset of the truth, a hit after it", None))
         return out
     if key == "noise":
         info = h5_info(S[key].outputs[0])
@@ -1845,9 +1841,8 @@ LABEL_DEFAULTS = {"strategy": "amplitude", "amp_signal": "Axial_disp", "base_att
 INDICATOR_PRESETS_DEFAULT = ("maxent_revo_dec7_1step", "rms_cv_revo_aux4_n_aux4_dec7_1step",
                              "ssq_revo_aux4_n_aux4_dec7_1step", "green_fixed_revo_dec7_1step")
 METRIC_COLUMNS = ("balanced_accuracy", "MCC", "AUC", "TPR", "TNR", "F1", "accuracy", "median_delay_onset_s",
-                  "mean_alarm_fraction_stable", "mean_persistence", "early_alarm_rate", "ramp_n", "ramp_detection_rate",
-                  "ramp_anticipated_rate", "ramp_early_alarm_rate", "ramp_miss_rate", "ramp_median_delay_s")
-EARLY_TOL_S = 0.5   # [s] validate: a first detection up to this before the onset of the truth is an anticipated hit
+                  "mean_alarm_fraction_stable", "mean_persistence", "ramp_n", "ramp_detection_rate",
+                  "ramp_early_alarm_rate", "ramp_miss_rate", "ramp_median_delay_s")
 
 
 def label_defaults(indicators_section=None) -> dict:
@@ -1896,7 +1891,7 @@ def create_experiment(name: str, runs: list, stages_on=None, reference: str | No
     if "label_template" in st and not reference and "label" not in sections:
         sections["label"] = label_defaults(sections.get("indicators"))
     if "validate" in st and "validate" not in sections:
-        sections["validate"] = {"channel": "Axial_disp", "early_tol_s": EARLY_TOL_S}
+        sections["validate"] = {"channel": "Axial_disp"}
     d.update({k: v for k, v in sections.items() if v})
     yaml_save(d, path)
     reload()
@@ -2225,7 +2220,7 @@ def import_dir(name: str, doe_dir: str, reference: str | None = None, label_out:
     if reference:
         d["stages"] += ["label_template", "label_build", "indicators", "validate"]
         d["indicators"] = indicators_for(reference)
-        d["validate"] = {"channel": "Axial_disp", "early_tol_s": EARLY_TOL_S}
+        d["validate"] = {"channel": "Axial_disp"}
     if not d["description"] and not h5:
         sw = run["simulation"]["sweep"]
         n = sorted(set(sw.get("$spin_rate$", [])))
