@@ -188,3 +188,9 @@ Solo lectura de claves aditivas de `/metrics/<run>` (schema sigue en `doe_valida
   indicador (comprobado con un archivo generado por el backend nuevo con 2 indicadores: corridas vistas = las 2, 15 figuras de validación).
   `pairwise_test` y `gray_bounds` lanzan `ValueError` sin datos y el visor lo muestra como error (ya lo hacía).
 - Green: `doe_indicators.py` ahora guarda `meta_upper_log` etc.; el visor ya dibuja su límite (10**meta_upper_log) — hay que re-correr Indicators.
+
+## 13. Selector del SLD de *New experiment*: botón "n at the intersection"
+Solo `launcher.py` (`SldPicker`): botón nuevo que pone la `n` en la intersección de los lóbulos de dos modos (`sld_model.intersections`, la misma
+que marca el visor; si hay varias, la más cercana a la `n` actual; en `2DOF_150_250` desde 12098 rpm → 9989.1 rpm, límite 15.557 mm). Se activa
+solo con un modelo de dos o más modos; con uno queda desactivado y, si se fuerza, avisa. Es solo el cálculo: no dibuja nada nuevo en el selector.
+No cambia ningún argumento ni script de etapa. `check_app_dialogs.py` lo comprueba (valores, 1 modo desactivado, que el botón cabe en la ventana).

@@ -422,10 +422,28 @@ try:
     pk.scope.set(sc[2])
     pk.set_min_n()
     assert pk.n.get() == f"{per[0]:.1f}", (pk.n.get(), per)
+    # the intersection of the two modes: enabled for a model with 2 modes, n goes to the one nearest to the current n
+    assert pk.btn_x.instate(["!disabled"]) and len(pk._intersections()) >= 2
+    pk.win.update()
+    right = pk.btn_x.winfo_rootx() + pk.btn_x.winfo_width()
+    assert right <= pk.win.winfo_rootx() + pk.win.winfo_width(), ("the button does not fit in the picker window", right,
+                                                                  pk.win.winfo_rootx() + pk.win.winfo_width())
+    pk.n.set("12098.28")
+    pk.set_intersection_n()
+    assert pk.n.get() == "9989.1" and abs(pk.limit() - 15.557) < 0.02, (pk.n.get(), pk.limit())   # the usual crossing
+    pk.n.set("3500")
+    assert abs(pk.intersection_rpm()[0] - 3666.3) < 0.2          # 3666 is nearer to 3500 than 3324
+    pk.set_intersection_n()
+    assert pk.n.get() == "3666.3"
     pk.scope.set(sc[3])                                       # the 250 Hz mode: not a mode of the 1-mode model
     pk.model.set("1DOF_150")
     pk.draw()
     assert pk.scope.get() == pk.LOBE, pk.scope.get()          # the scope is reset when it does not exist in the model
+    assert pk.btn_x.instate(["disabled"]) and pk._intersections() == []   # one mode: its lobes do not cross
+    n_err = len(errors)
+    pk.set_intersection_n()
+    assert errors[n_err][2] == "warn" and "one mode" in errors[n_err][1], errors[n_err:]
+    del errors[n_err:]
     pk.n.set("12098.28")
     pk.draw()
     lim = pk.limit()

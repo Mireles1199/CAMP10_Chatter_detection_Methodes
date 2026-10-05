@@ -1987,6 +1987,8 @@ class SldPicker:
         self.scope_cb = ttk.Combobox(top, textvariable=self.scope, values=self.scopes(), state="readonly", width=34)
         self.scope_cb.pack(side=tk.LEFT, padx=(4, 0))
         ttk.Button(top, text="n at the minimum limit", command=self.set_min_n).pack(side=tk.LEFT, padx=4)
+        self.btn_x = ttk.Button(top, text="n at the intersection", command=self.set_intersection_n)
+        self.btn_x.pack(side=tk.LEFT, padx=(0, 4))   # only for a model with two or more modes (their lobes cross)
         self.model.trace_add("write", lambda *_: self.new_view())
         self.hint = tk.StringVar()
         ttk.Label(top, textvariable=self.hint, foreground="#555").pack(side=tk.LEFT, padx=6)
@@ -2186,6 +2188,35 @@ class SldPicker:
         self.n.set(f"{rpm:.1f}")
         self.new_view()
 
+    def _intersections(self) -> list:
+        """[(rpm, Ap mm)] where the lobes of two modes cross (sld_model.intersections: the ones the viewer marks);
+        [] for a model with one mode."""
+        try:
+            return list(ex._sld().intersections(self.model.get()))
+        except Exception:
+            return []
+
+    def intersection_rpm(self) -> tuple:
+        """(rpm, Ap mm) of the intersection nearest to the n now in the box: a model with several modes has several
+        crossings, and the one you are working near is the one meant."""
+        pts = self._intersections()
+        if not pts:
+            raise ValueError("this model has one mode: its lobes do not cross")
+        n = self._n()
+        return min(pts, key=lambda p: abs(p[0] - n))
+
+    def set_intersection_n(self):
+        """n goes to the intersection of two modes (nearest to the current n): the corrected spin where both lobes
+        give the same limit (the same crossing the viewer draws; only the calculation, nothing is added to the plot)."""
+        try:
+            rpm, ap = self.intersection_rpm()
+        except Exception as exc:
+            self.app._msg("SLD", f"cannot find the intersection: {exc}", "warn")
+            return
+        self.n.set(f"{rpm:.1f}")
+        self.new_view()
+        self.hint.set(f"intersection of the modes: {rpm:.1f} rpm, limit {ap:.3f} mm")
+
     def limit(self):
         try:
             return ex._sld().ap_lim(self.model.get(), self._n())
@@ -2200,6 +2231,8 @@ class SldPicker:
             self.scope_cb["values"] = vals
             if self.scope.get() not in vals:
                 self.scope.set(self.LOBE)
+        if hasattr(self, "btn_x"):   # the intersection button only makes sense when the modes' lobes cross
+            self.btn_x.state(["!disabled"] if self._intersections() else ["disabled"])
         keep = getattr(self, "_keep_view", False)   # zoom/pan survive adding or removing points
         if keep:
             view = (ax.get_xlim(), ax.get_ylim())
