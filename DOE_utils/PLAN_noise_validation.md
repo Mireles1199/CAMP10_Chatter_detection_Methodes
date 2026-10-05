@@ -1,6 +1,6 @@
 # PLAN — Validación con ruido blanco (Ap constante)
 
-**Estado (2026-10-05):** plan escrito, nada implementado. Rama de los scripts: `wt-validacion`. Rama de la interfaz: `wt-interfaz`. Coordina: sesión `DOE_utils/PLAN_app_v2.md` (manager).
+**Estado (2026-10-05):** N1–N4 ✅ hechos en `wt-validacion` (a57c847 doe_noise, 4cabb64 + 5036ca0 doe_indicators, b80745c refactor, cbb3296 validate_noise, 86df0a2 figuras; selftests OK). N5 en curso (n12000 por CLI). wt-interfaz: I1–I2 en paralelo, I3 desbloqueado tras N4. Rama de la interfaz: `wt-interfaz`. Coordina: sesión `DOE_utils/PLAN_app_v2.md` (manager).
 **Cómo retomar:** leer §0 y la tabla de fases (§9); la última fase marcada ✅ es donde se quedó.
 
 Estilo de trabajo: **ponytail** (reusar lo que ya existe, el cambio más corto que funcione, un selftest por lógica nueva) y figuras con **article-plot-style** (`DOE_plots/plot_style.py`: `FIGSIZE_SIMPLE`/`FIGSIZE_WIDE` × `FIGSCALE`, `figsize_grid`, `lang_text`, paleta Okabe-Ito, `fig._keep_size`).
@@ -160,10 +160,10 @@ Todas con `lang_text` (EN/FR/both), `constrained_layout`, leyendas fuera de los 
 
 | Fase | Quién | Qué | Commit / señal |
 |---|---|---|---|
-| N1 | wt-validacion | `doe_noise.py` multi-caso + selftest | `feat(noise): multi-case absolute-SNR noise with realizations` |
-| N2 | wt-validacion | `doe_indicators.py --no-signals` + selftest | `feat(noise): --no-signals for noisy indicator results` |
-| N3 | wt-validacion | `effective_truth` compartida + `validate_noise.py` + selftest | `feat(validation): validate_noise.py (metrics per SNR x realization)` |
-| N4 | wt-validacion | `NOISE_FIGURES` + `figs_dir` + selftest | `feat(validation): noise validation figures` |
+| N1 ✅ | wt-validacion | `doe_noise.py` multi-caso + selftest | `feat(noise): multi-case absolute-SNR noise with realizations` |
+| N2 ✅ | wt-validacion | `doe_indicators.py --no-signals` + selftest | `feat(noise): --no-signals for noisy indicator results` |
+| N3 ✅ | wt-validacion | `effective_truth` compartida + `validate_noise.py` + selftest | `feat(validation): validate_noise.py (metrics per SNR x realization)` |
+| N4 ✅ | wt-validacion | `NOISE_FIGURES` + `figs_dir` + selftest | `feat(validation): noise validation figures` |
 | N5 | wt-validacion | E2E por CLI en n12000 con 12 casos (~2 GB en disco: **confirmar con el usuario antes**): tamaños y tiempos reales, revisión a ojo de las figuras | ajustes + `docs(validation)` GUIA/INFORME |
 | N6 | wt-validacion → manager + wt-interfaz | Mensaje de entrega: hash, contrato (§4), comandos (§5), resultados E2E | — |
 | I1 | wt-interfaz | YAML + `experiment.py` (stages `noise` ampliado, `noise_indicators --no-signals`, `noise_validate`) | su rama |
@@ -188,6 +188,13 @@ Todas con `lang_text` (EN/FR/both), `constrained_layout`, leyendas fuera de los 
 2. CLI en n12000 (12 casos, 6 niveles, 3 realizaciones): `doe_noise.py --experiment ...` → `doe_indicators.py --doe_results <ruido> --no-signals` → `validate_noise.py --noise_ind ... --clean <validación limpia>` → `validation_figures.py --results <validación con ruido>`; tamaños y tiempos anotados en §8.
 3. Comprobaciones de sentido: a 80 dB las métricas ≈ limpias; el sigma de un nivel es el mismo para todos los casos; misma semilla → mismo archivo; las tres realizaciones difieren.
 4. Desde la app (J1): añadir las etapas al YAML de n12000, correr, abrir el visor, guardar figuras.
+
+## 11b. Notas de implementación (aditivas al contrato)
+
+- `doe_indicators.py` copia al archivo de indicadores los attrs **raíz** del archivo multi (`noise_layout`, `snr_mode`, `snr_ref_case`, `snr_levels`, `realizations`, `seed`, `cases`, `snr_ref_power_*`), y `validate_noise.py` los pasa a su salida.
+- `doe_noise.py` en modo multi sin `--out` escribe `doe_noise_multi_results.h5` **junto a `doe_results.h5`**; la etapa de la app debe pasar `--out` en `out_dir` (§7.1).
+- `validate_noise.py` sin `--out` escribe `doe_noise_validation_results{gray_suffix}.h5` junto a `--noise_ind` y siempre `<out>_by_snr.csv`.
+- `doe_noise.py` mantiene sus finales de línea CRLF (así estaba en el repo).
 
 ## 12. Fuera de alcance (anotado)
 
