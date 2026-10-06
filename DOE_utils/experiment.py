@@ -1453,7 +1453,7 @@ def stage_summary(exp: Exp, key: str) -> list:
             for v, sp in exp.indicators["specs"].items():
                 used.setdefault(CODE_PKG.get(sp.get("indicator")), []).append(v)
             out = [("indicator code changed since this run: " + "; ".join(f"{pkg} ({', '.join(used.get(pkg, []))})" for pkg in changed)
-                    + " - rerun the stage, or 'Run only…' for those variants", "warn")] + out
+                    + " - rerun the stage, 'Run only…' for those variants, or 'Mark up to date' to dismiss this notice", "warn")] + out
     return out
 
 
@@ -2759,8 +2759,22 @@ def accept(exp: Exp, keys=None) -> list:
         st = stages(exp)[k]
         rec.update(hash=st.hash, accepted=max([time.time()] + [_mtime(p) for p in st.inputs if p]))
         write_record(exp, k, rec)
+        if k in PARTIAL_STAGES:   # accepting the stage as it is also accepts the indicator code it was run with
+            dismiss_code_notice(exp, k)
         done.append(k)
     return done
+
+
+def dismiss_code_notice(exp: Exp, key: str, root: str = "") -> list:
+    """'Mark up to date' on a stage whose indicator code changed after its run: the record takes the current modification
+    time of the packages' code, so the notice goes away (nothing is rerun, no fingerprint or state changes). A later run, full
+    or partial, stamps it again as always. Returns the packages dismissed."""
+    changed = indicator_code_changed(exp, key, root)
+    if changed:
+        rec = read_record(exp, key)
+        rec["code"] = {**(rec.get("code") or {}), **indicator_code_mtimes(exp, root=root)}
+        write_record(exp, key, rec)
+    return changed
 
 
 def dry_run(exp: Exp) -> list:
@@ -3471,6 +3485,11 @@ def _selftest_run(e: Exp) -> None:
     assert indicator_code_changed(e, "indicators", root=croot) == []              # accepted after the edit
     write_record(e, "indicators", {"status": "done", "start": now - 20, "end": now - 10, "hash": h0})   # an old record: the date
     assert indicator_code_changed(e, "indicators", root=croot) == [pk[0]]
+    assert dismiss_code_notice(e, "indicators", croot) == [pk[0]] and indicator_code_changed(e, "indicators", root=croot) == []
+    assert sorted(read_record(e, "indicators")["code"]) == pk and dismiss_code_notice(e, "indicators", croot) == []   # nothing left
+    os.utime(os.path.join(croot, pk[0], "src", pk[0], "mod.py"), (now + 50, now + 50))
+    assert indicator_code_changed(e, "indicators", root=croot) == [pk[0]]               # a later edit: the notice comes back
+    write_record(e, "indicators", {"status": "done", "start": now - 20, "end": now - 10, "hash": h0})   # an old record again
     assert indicator_code_changed(e, "label_build", root=croot) == [] and stages(e)["indicators"].hash == h0   # no fingerprint involved
     shutil.rmtree(croot, ignore_errors=True)
     assert run_stage(e.name, "indicators", yes=True, cmds=[[ok, out]]) == 0 and sorted(read_record(e, "indicators")["code"]) == pk
