@@ -36,6 +36,7 @@ import h5py
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # DOE_utils/: noise_origins
 import noise_origins  # noqa: E402
+import eta_compat  # noqa: E402  (kappa -> eta: lee ambos nombres)
 
 # ==============================================================================
 # CONFIG — editar aquí
@@ -78,8 +79,8 @@ def build_snr_list(snr_fixed, snr_range=None):
 def auto_ref_case(info: dict) -> str:
     """Caso de referencia del SNR absoluto: el etiquetado 'unstable' (constante) de menor kappa, de un
     {case: {label, kappa, ramp}} de experiment.label_info (las etiquetas PROPIAS del experimento)."""
-    cand = [(d["kappa"], c) for c, d in info.items()
-            if d.get("label") == "unstable" and not d.get("ramp") and np.isfinite(d.get("kappa", np.nan))]
+    cand = [(eta_compat.get(d, "eta"), c) for c, d in info.items()
+            if d.get("label") == "unstable" and not d.get("ramp") and np.isfinite(eta_compat.get(d, "eta"))]
     if not cand:
         raise ValueError("snr_ref_case 'auto': no hay casos constantes etiquetados 'unstable'; indica snr_ref_case")
     return min(cand)[1]
@@ -362,6 +363,8 @@ def _selftest():
     info = {"case_000": dict(label="stable", kappa=0.5, ramp=False), "case_002": dict(label="unstable", kappa=1.3, ramp=False),
             "case_003": dict(label="unstable", kappa=1.7, ramp=False), "case_009": dict(label="unstable", kappa=1.1, ramp=True)}
     assert auto_ref_case(info) == "case_002"
+    assert auto_ref_case({"case_000": dict(label="stable", eta=0.5, ramp=False), "case_002": dict(label="unstable", eta=1.3, ramp=False),
+                          "case_003": dict(label="unstable", kappa=1.7, ramp=False)}) == "case_002"   # eta or kappa (label_info of either age)
     try:
         auto_ref_case({"case_000": dict(label="stable", kappa=0.5, ramp=False)})
         raise SystemExit("sin inestables debería fallar")

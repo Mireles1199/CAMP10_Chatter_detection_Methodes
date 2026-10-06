@@ -251,7 +251,7 @@ def write_training(out, ref_h5: str) -> None:
                 if piece is None:
                     continue
                 a = piece.attrs
-                r = rows.setdefault(case, dict(kappa=_attr_float(a, "kappa"), ap=_attr_float(a, "$Ap_start$") * 1e3,
+                r = rows.setdefault(case, dict(kappa=_attr_float(a, "eta", "kappa"), ap=_attr_float(a, "$Ap_start$") * 1e3,
                                                spin=_attr_float(a, "$spin_rate$"), labels=set()))
                 r["labels"].add(label)
     g = out.create_group("training")
@@ -303,8 +303,8 @@ def write_validation(out, cases: dict, intervals: dict, gray: str, onset_of, sig
         # onset of the rule: constant cases (and ramps whose truth does not change) as before, the first sample
         # over the limit; a ramp that crosses, the start of its first unstable window (no theoretical time)
         onset = t_start if group == "ramp" else t_on
-        kappa = np.nan if ramp else _attr_float(sg.attrs, "kappa")
-        k0, k1 = (_attr_float(sg.attrs, "kappa_start"), _attr_float(sg.attrs, "kappa_end")) if ramp else (kappa, kappa)
+        kappa = np.nan if ramp else _attr_float(sg.attrs, "eta", "kappa")
+        k0, k1 = (_attr_float(sg.attrs, "eta_start", "kappa_start"), _attr_float(sg.attrs, "eta_end", "kappa_end")) if ramp else (kappa, kappa)
         ap_mm, spin = _attr_float(sg.attrs, "$Ap_start$", "Ap_start") * 1e3, _attr_float(sg.attrs, "$spin_rate$", "spin_rate")
         ap_end = _attr_float(sg.attrs, "$Ap_end$") * 1e3 if ramp else ap_mm
         cg.attrs.update({"$kappa$": kappa, "$truth$": truth, "$gray$": int(is_gray), "$t_onset_amp$": t_on, "$group$": group,
@@ -829,6 +829,21 @@ def _selftest():
         assert f["case_001/fake_run"].attrs["persistence"] > 0 and f["case_000/fake_run"].attrs["alarm_fraction"] == 0.0
     csv_rows = open(os.path.splitext(out)[0] + "_metrics.csv", encoding="utf-8").read().splitlines()
     assert csv_rows[0].startswith("rank,run,") and csv_rows[1].startswith("1,fake_run,") and len(csv_rows) == 2
+    # kappa -> eta: a "new" file (attrs eta / eta_start / eta_end, no kappa) gives the same case kappas as the "old" one
+    ind_new, out_new = os.path.join(d, "ind_eta.h5"), os.path.join(d, "out_eta.h5")
+    with h5py.File(ind, "r") as a, h5py.File(ind_new, "w") as b:
+        for c in a:
+            a.copy(a[c], b, name=c)
+            for k in ("kappa", "kappa_start", "kappa_end"):
+                if k in b[c].attrs:
+                    b[c].attrs["eta" + k[5:]] = b[c].attrs[k]
+                    del b[c].attrs[k]
+    validate(ind_new, lab, out_new)
+    with h5py.File(out, "r") as fo, h5py.File(out_new, "r") as fn:
+        same = lambda x, y: (np.isnan(x) and np.isnan(y)) or x == y   # noqa: E731
+        assert all(same(fo[c].attrs["$kappa$"], fn[c].attrs["$kappa$"]) for c in fo if c.startswith("case_"))
+        assert np.allclose(fo["summary/fake_run/kappa"][()], fn["summary/fake_run/kappa"][()], equal_nan=True)
+        assert fn["case_002"].attrs["$kappa_end$"] == 1.74 and fn["case_001"].attrs["$kappa$"] == 1.5
     print("selftest OK")
 
 
