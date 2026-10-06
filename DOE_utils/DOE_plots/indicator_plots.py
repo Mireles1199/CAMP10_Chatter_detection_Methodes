@@ -42,32 +42,23 @@ def say(msg: str) -> None:
 
 
 def prepare(exp, case: str, variant: str, t_end: float = 0.0):
-    """(ind_id, runner, sig, config, info) of a variant on a case of the experiment data.
-    TODO: this is the part of doe_indicators._run_one before the runner call, copied; replace by the function that
-    doe_indicators will export (agreed with wt-validacion) when they extract it."""
+    """(ind_id, runner, sig, config, info) of a variant on a case of the experiment data: what doe_indicators.prepare_run
+    prepares before calling the runner (same cut, spin of the case, trained reference), so the figures come from exactly the
+    run of the stage. t_end > 0 analyses only up to that time (quick tests)."""
     import doe_indicators as di
     import experiment as ex
-    spec = exp.indicators["specs"][variant]
-    ind_id, signal = spec["indicator"], spec["signal"]
-    green = ind_id == "Green_Integral"
-    c = di._load_case(exp.data_h5, case, [signal, "Axial_vel"] if green else [signal])
-    if signal not in c["signals"]:
-        raise ValueError(f"signal '{signal}' not in {case} of {exp.data_h5}")
-    t_raw, y_raw = c["signals"][signal]
     start, end = ex.analysis_cut()
     end = float("inf") if end is None else end
-    end = min(end, t_end) if t_end else end   # --t-end: a shorter analysis (quick tests)
-    t_cut, y_cut = di._cut_signal(t_raw, y_raw, start, end)
-    meta = {"label_key": "kappa", "label_val": float(c["attrs"].get("kappa", float("nan"))), "signal": signal}
-    if green and "Axial_vel" in c["signals"]:
-        meta["velocity"] = di._cut_signal(t_raw, c["signals"]["Axial_vel"][1], start, end)[1]
-    runner, sig_cls = di._INDICATORS[ind_id]
-    sig = sig_cls(t_analysis=t_cut, signal_analysis=y_cut, path=exp.data_h5, fs=1.0 / float(t_raw[1] - t_raw[0]), meta=meta)
-    cfg = ex.indicator_config(spec, c["attrs"].get("$spin_rate$"), exp.indicators.get("f_modal"))
-    config = dict(cfg)
-    for key, label in di._REFERENCE_KEYS[ind_id].items():
-        config[key] = di._reference_pieces(ind_id, exp.reference, label, signal)
-    return ind_id, runner, sig, config, {"spin": c["attrs"].get("$spin_rate$"), "cfg": cfg}
+    run = next((r for r in ex.indicator_runs(exp) if r["name"] == variant), None)
+    if run is None:
+        raise ValueError(f"variant '{variant}' is not in experiment {exp.name}")
+    settings = {"label_key": "kappa", "cut": (start, min(end, t_end) if t_end else end), "reference_h5": exp.reference,
+                "spin_fallback": None}
+    prep = di.prepare_run(exp.data_h5, case, run, settings)
+    if isinstance(prep, dict):   # the stage would have left an empty result here too
+        raise ValueError(f"cannot prepare {variant} on {case}: {prep.get('error') or prep.get('reason') or prep}")
+    ind_id, runner, sig, config = prep
+    return ind_id, runner, sig, config, {"cfg": config}
 
 
 def config_mismatch(info: dict, ind_h5: str, case: str, variant: str) -> list:
