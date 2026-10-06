@@ -734,25 +734,26 @@ class _FloorFilter(io.TextIOBase):
         self.buf = ""
 
 
-def _run_one(
-    h5_path: str,
-    grp_name: str,
-    run: Dict[str, Any],
-    settings: Dict[str, Any],
-    dry_run: bool = False,
-) -> Dict[str, Any]:
-    """Corre un indicador sobre un caso. Retorna dict con resultados."""
+def _label_val(h5_path: str, grp_name: str, label_key: Optional[str]) -> float:
+    """Valor de label_key en los attrs del grupo (NaN si falta o no es numérico)."""
+    try:
+        with h5py.File(h5_path, "r") as f:
+            return float(f[grp_name].attrs[label_key])
+    except (KeyError, TypeError, ValueError):
+        return float("nan")
+
+
+def prepare_run(h5_path: str, grp_name: str, run: Dict[str, Any], settings: Dict[str, Any]):
+    """Todo lo que _run_one prepara antes de llamar al runner, para reusarlo sin duplicar (p. ej. las figuras propias
+    de cada indicador): carga y corta la señal del caso, arma el SignalData, resuelve la config de la variante
+    (con el spin del caso si hace falta) y le agrega las piezas de la referencia.
+
+    Retorna (ind_id, runner, sig, config), o un _empty(...) (dict) si falta la señal o falla la config."""
     cfg = run.get("indicator_config")   # None con --experiment: se arma más abajo con el spin del caso
     ind_id = cfg["id"] if cfg is not None else run["variant"]["indicator"]
     signal = run["signal"]
     run_name = _run_name(run)
     label_key = settings["label_key"]
-
-    if dry_run:
-        log.info("  [%s / %s] DRY-RUN — omitido", grp_name, run_name)
-        return _empty(grp_name, run_name, label_key, dry_run=True)
-
-    log.info("  [%s / %s] INICIO", grp_name, run_name)
 
     # Green recibe la velocidad medida en meta["velocity"] (si no, usa np.gradient)
     is_green = ind_id == "Green_Integral"
@@ -787,6 +788,31 @@ def _run_one(
     if settings["reference_h5"]:
         for key, label in _REFERENCE_KEYS[ind_id].items():
             config[key] = _reference_pieces(ind_id, settings["reference_h5"], label, signal)
+    return ind_id, runner, sig, config
+
+
+def _run_one(
+    h5_path: str,
+    grp_name: str,
+    run: Dict[str, Any],
+    settings: Dict[str, Any],
+    dry_run: bool = False,
+) -> Dict[str, Any]:
+    """Corre un indicador sobre un caso. Retorna dict con resultados."""
+    signal = run["signal"]
+    run_name = _run_name(run)
+    label_key = settings["label_key"]
+
+    if dry_run:
+        log.info("  [%s / %s] DRY-RUN — omitido", grp_name, run_name)
+        return _empty(grp_name, run_name, label_key, dry_run=True)
+
+    log.info("  [%s / %s] INICIO", grp_name, run_name)
+    prep = prepare_run(h5_path, grp_name, run, settings)
+    if isinstance(prep, dict):   # falta la señal o falla la config: ya viene como resultado vacío
+        return prep
+    ind_id, runner, sig, config = prep
+    label_val = _label_val(h5_path, grp_name, label_key)
 
     floor = _FloorFilter(sys.stdout)
     try:
@@ -803,7 +829,7 @@ def _run_one(
         k: v for k, v in dict(getattr(result, "meta", {})).items()
         if not callable(v) and k not in ("raw_result", "signal")
     }
-    meta.update(_threshold_scalars(dict(getattr(result, "meta", {})).get("raw_result"), cfg["params_physical"]))
+    meta.update(_threshold_scalars(dict(getattr(result, "meta", {})).get("raw_result"), config["params_physical"]))
     if floor.n:
         meta["variance_floor_count"] = floor.n
 
@@ -821,13 +847,13 @@ def _run_one(
         "t_d": t_d,
         "meta": meta,
         "attrs": {
-            "indicator": _PREFIX[(ind_id, cfg.get("func", "Default"))],
+            "indicator": _PREFIX[(ind_id, config.get("func", "Default"))],
             "id": ind_id,
-            "func": cfg.get("func", "Default"),
-            "mode": cfg["param_mode"],
+            "func": config.get("func", "Default"),
+            "mode": config["param_mode"],
             "signal": signal,
             "reference_h5": os.path.basename(settings["reference_h5"] or ""),
-            **{f"pp_{k}": v for k, v in cfg["params_physical"].items()},
+            **{f"pp_{k}": v for k, v in config["params_physical"].items()},
         },
         "label_key": label_key,
         "label_val": label_val,
