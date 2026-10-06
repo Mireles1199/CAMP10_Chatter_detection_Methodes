@@ -19,10 +19,12 @@ import contextlib
 import io
 import logging
 import os
+import re
 import sys
+from collections import Counter
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from functools import lru_cache
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 import h5py
 import numpy as np
@@ -398,6 +400,22 @@ def main() -> None:
         os.path.dirname(h5_in), _OUT_NAME[layout])
     workers = args.workers if args.workers is not None else NB_WORKERS
     runs = [r for r in RUNS if r["enabled"]]
+    if args.only:   # solo estas variantes; las demás quedan intactas en el archivo de salida
+        kept, unmatched = select_runs(runs, args.only)
+        if unmatched:
+            log.error("--only: %s no coincide con ninguna variante. Variantes del experimento: %s",
+                      unmatched, [_run_name(r) for r in runs])
+            sys.exit(1)
+        log.info("--only %s: se ejecutan %s; sin tocar %s", args.only, [_run_name(r) for r in kept],
+                 [_run_name(r) for r in runs if r not in kept] or "(nada)")
+        runs = kept
+    if args.realizations is not None:   # solo las copias ruidosas de estas realizaciones (sufijo __rKK)
+        groups = select_realizations(groups, args.realizations)
+        if not groups:
+            log.error("--realizations %s: ningún grupo con sufijo __rKK de esas realizaciones "
+                      "(¿es un archivo de ruido multi-caso?)", args.realizations)
+            sys.exit(1)
+    skip = done_tasks(out_path, groups, runs) if args.resume else set()
 
     log.info("doe_indicators")
     log.info("  Entrada     : %s  (%s)", h5_in, layout)
@@ -410,6 +428,8 @@ def main() -> None:
     log.info("  Configs activas: %d", len(runs))
     for r in runs:
         log.info("    %-38s  signal=%s", _run_name(r), r["signal"])
+    if args.resume:
+        log.info("  Resume      : se saltan %d de %d tareas ya hechas en %s", len(skip), len(groups) * len(runs), out_path)
 
     n_done = run_all(
         h5_path=h5_in,
@@ -427,6 +447,7 @@ def main() -> None:
         dry_run=args.dry_run,
         out_path=None if args.dry_run else out_path,
         save_meta_arrays=SAVE_META_ARRAYS,
+        skip=skip,
     )
 
     if args.dry_run:
@@ -469,6 +490,13 @@ Recetas
     python doe_indicators.py --doe_results D:\...\doe_noise_results.h5
   Solo algunos casos
     python doe_indicators.py --cases case_000 case_003
+  Solo algunos indicadores (el resto del archivo de salida no se toca)
+    python doe_indicators.py --only green rms_cv            (prefijo o nombre completo de la variante)
+  Retomar tras un corte, sin rehacer lo ya calculado
+    python doe_indicators.py --resume
+  Archivo de ruido multi-caso: solo la realización 0 (y luego ampliar a 1 y 2 sin repetir la 0)
+    python doe_indicators.py --doe_results ruido.h5 --no-signals --realizations 0
+    python doe_indicators.py --doe_results ruido.h5 --no-signals --realizations 0 1 2 --resume
   Secuencial, para depurar un error (traceback completo en el log)
     python doe_indicators.py --workers 1 --cases case_000
   Cambiar un parámetro de un indicador
@@ -514,6 +542,17 @@ def parse_args(defaults: Dict[str, Any]) -> argparse.Namespace:
     p.add_argument("--no-signals", dest="no_signals", action="store_true",
                    help="No copiar Axial_* al HDF5 de salida (solo t, I_t, t_d y attrs): para los archivos de ruido "
                         "multi-caso, que si no ocuparían GB")
+    p.add_argument("--only", nargs="+", default=None, metavar="X",
+                   help="Solo las variantes cuyo nombre empieza por X (maxent, rms_cv, ssq, green, o un nombre completo "
+                        "como maxent_revo_dec7_1step); el resto del archivo de salida queda intacto. Error si algún X "
+                        "no coincide con ninguna variante")
+    p.add_argument("--realizations", nargs="+", type=int, default=None, metavar="K",
+                   help="Archivos de ruido multi-caso: solo las realizaciones K (índices; sufijo __rKK del grupo). "
+                        "Se combina con --cases (intersección)")
+    p.add_argument("--resume", action="store_true",
+                   help="Saltar las tareas (grupo x variante) que ya están completas en el HDF5 de salida y calcular "
+                        "el resto sin tocar lo hecho. Con --only, solo cuenta lo pedido. No lo uses si cambiaste la "
+                        "configuración de las variantes: mezclaría resultados")
     p.add_argument("--dry_run", action="store_true",
                    help="Imprime el plan de tareas sin correr los indicadores.")
     p.add_argument("--list", action="store_true",
@@ -1032,6 +1071,35 @@ def _case_summary(h5_path: str, case: str, results: list, true_label: str, strat
     log.info("\n".join(lines))
 
 
+def select_runs(runs: List[Dict[str, Any]], only: Iterable[str]) -> Tuple[List[Dict[str, Any]], List[str]]:
+    """(variantes cuyo nombre empieza por algún X de `only`, los X sin ninguna coincidencia)."""
+    if not only:
+        return runs, []
+    only = list(only)
+    names = [_run_name(r) for r in runs]
+    return ([r for r, n in zip(runs, names) if any(n.startswith(x) for x in only)],
+            [x for x in only if not any(n.startswith(x) for n in names)])
+
+
+_REALIZATION = re.compile(r"__r(\d+)$")
+
+
+def select_realizations(groups: List[str], realizations: Iterable[int]) -> List[str]:
+    """Los grupos de ruido multi-caso (snr_..__case_NNN__rKK) cuya realización K está en `realizations`."""
+    ks = {int(k) for k in realizations}
+    return [g for g in groups if (m := _REALIZATION.search(g)) and int(m.group(1)) in ks]
+
+
+def done_tasks(out_path: str, groups: List[str], runs: List[Dict[str, Any]]) -> Set[Tuple[str, str]]:
+    """{(grupo, variante)} ya completos en el HDF5 de salida (la variante tiene attr 'id', que se escribe al final:
+    un resultado vacío o una escritura cortada no cuentan y se recalculan)."""
+    if not os.path.isfile(out_path):
+        return set()
+    names = [_run_name(r) for r in runs]
+    with h5py.File(out_path, "r") as f:
+        return {(g, n) for g in groups if g in f for n in names if n in f[g] and "id" in f[g][n].attrs}
+
+
 def run_all(
     h5_path: str,
     groups: List[str],
@@ -1041,15 +1109,19 @@ def run_all(
     dry_run: bool,
     out_path: Optional[str],
     save_meta_arrays: bool,
+    skip: Optional[Set[Tuple[str, str]]] = None,
 ) -> int:
     """Corre cada config de *runs* sobre cada caso de *groups*.
 
     Cada resultado se escribe al HDF5 en cuanto llega (no se acumulan en
     memoria). Retorna el número de tareas terminadas.
     """
-    tasks = [(grp, run) for grp in groups for run in runs]
+    skip = skip or set()   # --resume: (grupo, variante) ya hechos
+    tasks = [(grp, run) for grp in groups for run in runs if (grp, _run_name(run)) not in skip]
     total = len(tasks)
-    log.info("Total tareas: %d casos × %d configs = %d", len(groups), len(runs), total)
+    pending = Counter(grp for grp, _ in tasks)
+    log.info("Total tareas: %d casos × %d configs = %d%s", len(groups), len(runs), total,
+             f" (+{len(skip)} ya hechas, saltadas)" if skip else "")
     n_done = 0
     per_case: Dict[str, list] = {}
     truth = settings.get("truth") or {}
@@ -1065,7 +1137,7 @@ def run_all(
         if out_path:
             write_results(out_path, res, h5_path, save_meta_arrays, settings.get("copy_signals", True))
         per_case.setdefault(res["case"], []).append(res)
-        if len(per_case[res["case"]]) == len(runs) and not dry_run:
+        if len(per_case[res["case"]]) == pending[res["case"]] and not dry_run:
             _case_summary(h5_path, res["case"], per_case.pop(res["case"]), res["true_label"], res["strategy"],
                           res["t_onset"])
 
@@ -1192,6 +1264,48 @@ def _selftest() -> None:
     assert _threshold_scalars(NS(mu_log=-1.0, sigma_log=float("nan"), upper_log=float("nan")), {}) == {"mu_log": -1.0}
     assert _threshold_scalars(None, {"z_sigma": 3.0}) == {} and _threshold_scalars(NS(), None) == {}
     assert _threshold_scalars(NS(upper_log=-1.0, z_sigma=2.0), {"z_sigma": 3.0}) == {"upper_log": -1.0, "z_sigma": 2.0}
+    # --only / --resume / --realizations: run_all with a fake _run_one (generation number as the value)
+    gen, calls = [1], []
+
+    def fake(h5, grp, run, st, dry=False):
+        calls.append((grp, _run_name(run)))
+        return dict(res, case=grp, run_name=_run_name(run), I_t=np.array([float(gen[0])]), t=np.array([0.0]), meta={},
+                    attrs={"id": "fake"})
+    real_run_one = globals()["_run_one"]
+    globals()["_run_one"] = fake
+    try:
+        runs = [{"name": n, "enabled": True, "signal": "Axial_disp"} for n in ("maxent_a", "green_fixed_b", "green_fixed_c")]
+        grps = ["snr_010.00__case_000__r00", "snr_010.00__case_000__r01", "snr_010.00__case_000__r02"]
+        out3, st = os.path.join(tmp, "only.h5"), {"label_key": "kappa", "truth": {}, "copy_signals": False}
+        with h5py.File(src, "a") as f:
+            for g in grps:
+                f.copy(f["case_000"], g)
+        run_all(src, grps, runs, st, 1, False, out3, False)
+        def val(g, n):
+            with h5py.File(out3, "r") as f:
+                return f[g][n]["I_t"][0]
+        assert len(calls) == 9 and all(val(g, r["name"]) == 1 for g in grps for r in runs)
+        kept, bad = select_runs(runs, ["green", "nope"])      # prefix; a name that matches nothing is reported
+        assert [r["name"] for r in kept] == ["green_fixed_b", "green_fixed_c"] and bad == ["nope"]
+        assert select_runs(runs, ["maxent_a"])[0] == runs[:1] and select_runs(runs, None) == (runs, [])
+        gen[0], calls[:] = 2, []
+        run_all(src, grps, kept, st, 1, False, out3, False)    # --only green: maxent untouched
+        assert len(calls) == 6 and all(val(g, "maxent_a") == 1 and val(g, "green_fixed_b") == 2 for g in grps)
+        with h5py.File(out3, "a") as f:                         # a cut run: one task missing, one half written
+            del f[grps[1]]["green_fixed_c"]
+            del f[grps[2]]["maxent_a"].attrs["id"]
+        gen[0], calls[:] = 3, []
+        skip = done_tasks(out3, grps, runs)
+        assert len(skip) == 7 and (grps[1], "green_fixed_c") not in skip and (grps[2], "maxent_a") not in skip
+        run_all(src, grps, runs, st, 1, False, out3, False, skip=skip)   # --resume: only the 2 missing tasks
+        assert sorted(calls) == sorted([(grps[1], "green_fixed_c"), (grps[2], "maxent_a")]), calls
+        assert val(grps[0], "maxent_a") == 1 and val(grps[1], "green_fixed_c") == 3 and val(grps[2], "green_fixed_b") == 2
+        assert done_tasks(out3, grps, runs) == {(g, r["name"]) for g in grps for r in runs}
+        assert done_tasks(os.path.join(tmp, "missing.h5"), grps, runs) == set()
+        assert select_realizations(grps + ["control", "case_000"], [0, 2]) == [grps[0], grps[2]]
+        assert select_realizations(grps, []) == []
+    finally:
+        globals()["_run_one"] = real_run_one
     print("doe_indicators selftest OK")
 
 
