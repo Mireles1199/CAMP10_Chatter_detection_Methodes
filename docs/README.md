@@ -9,6 +9,7 @@ Estados: **activo** (se sigue editando), **vigente** (terminado, sirve como refe
 | `planes/` | `PLAN_app_v2.md` | Plan v2 de la app de experimentos (bitácora y punto donde retomar, §0) | activo |
 | `planes/` | `PLAN_noise_validation.md` | Validación con ruido blanco: decisiones, contrato de formatos (§4), fases N/I/J | vigente (hecho; §4 es el contrato) |
 | `planes/` | `PLAN_eta_rename.md` | Renombrar κ (kappa) → η (eta): contrato de nombres, helper `eta_compat.py`, fases, reparto | activo |
+| `planes/` | `PLAN_plot_style.md` | Estilo de figuras unificado (skill `article-plot-style`): inventario, escala del texto, fases; pendiente del OK del usuario | propuesta |
 | `guias/` | `GUIA_metricas_validacion.md` | Métricas y gráficas de la validación, para no especialistas | vigente |
 | `guias/` | `GUIA_validacion_ruido.md` | Validación con ruido paso a paso, para no especialistas | vigente |
 | `guias/` | `indicadores_modos_explicacion.md` | Derivación de los modos de parametrización física de los indicadores | vigente |

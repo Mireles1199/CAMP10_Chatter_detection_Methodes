@@ -19,6 +19,22 @@ import plot_style as ps
 
 LANGUAGE = "EN"   # "EN" | "FR" | "both"
 FIGSCALE = 1.5    # multiplicador de FIGSIZE_SIMPLE (mismo criterio que los plots de indicadores)
+TEXT_FOLLOWS = True   # True: letra, marcadores y grosores acompañan a FIGSCALE (como un zoom) | False: puntos fijos del skill
+
+
+def _k(v):
+    """Un tamaño a mano (pt) a la escala actual."""
+    return v * ps.zoom(FIGSCALE, TEXT_FOLLOWS)
+
+
+def _rc():
+    return ps.rc_scaled(FIGSCALE, TEXT_FOLLOWS)
+
+
+def set_style(language, scale, follow_text=True):
+    """Lo que llama la ventana de exportar antes de dibujar: idioma, escala y si el texto la sigue."""
+    global LANGUAGE, FIGSCALE, TEXT_FOLLOWS
+    LANGUAGE, FIGSCALE, TEXT_FOLLOWS = language, scale, follow_text
 Y_AXIS = "Ap"     # "Ap" | "kappa": con "kappa" plot_sld añade un eje derecho en kappa (casilla del visor); los lóbulos siguen en Ap
 DEFAULT_XLIM = (7000.0, 15000.0)   # rpm, si ningún caso trae spin_rate
 COLORS = ["#0072B2", "#D55E00", "#009E73", "#CC79A7"]   # Okabe-Ito: un color por modo
@@ -192,7 +208,7 @@ def plot_sld(cases, preset: str, seg=None, out_dir=None, language: str | None = 
     lb, f_peaks = lobes(preset)
     pts = case_points(cases, outcome_run)
 
-    with plt.rc_context(ps.ARTICLE_RCPARAMS):
+    with plt.rc_context(_rc()):
         fig, ax = plt.subplots(figsize=ps.figsize_from_scale(ps.FIGSIZE_SIMPLE, FIGSCALE),
                                constrained_layout=True)
         fig._keep_size = tuple(fig.get_size_inches())   # el visor no la fuerza a 4.5x4.5 y la guarda a este tamaño
@@ -218,10 +234,10 @@ def plot_sld(cases, preset: str, seg=None, out_dir=None, language: str | None = 
         # Los límites se fijan abajo según los casos; los cruces fuera de vista aparecen al hacer zoom out.
         if seg is None and len(lb) > 1:
             for n, (xi, yi) in enumerate(intersections(preset)):
-                ax.scatter([xi], [yi], marker="D", s=45, facecolor="white", edgecolor="k", linewidths=0.9,
+                ax.scatter([xi], [yi], marker="D", s=45 * _k(1) ** 2, facecolor="white", edgecolor="k", linewidths=0.9,
                            zorder=6, label=ps.lang_text("Intersection", "Intersection", lang) if n == 0 else None)
                 ax.annotate(f"{xi:.0f} rpm\n{yi:.3f} mm", (xi, yi), xytext=(14, 14 if n % 2 == 0 else -34),
-                            textcoords="offset points", fontsize=9, zorder=7,
+                            textcoords="offset points", fontsize="small", zorder=7,
                             arrowprops=dict(arrowstyle="-", linewidth=0.6))
 
         if pts:
@@ -235,11 +251,11 @@ def plot_sld(cases, preset: str, seg=None, out_dir=None, language: str | None = 
                         continue
                     col, mk, txt = OUTCOMES.get(oc, ("crimson", "o", "no result"))
                     ax.scatter([p[0] for p in sel for _ in (0, 1)], [a for p in sel for a in p[1:3]],
-                               color=col, marker=mk, s=45, edgecolor="k", linewidths=0.8, zorder=5,
+                               color=col, marker=mk, s=45 * _k(1) ** 2, edgecolor="k", linewidths=0.8, zorder=5,
                                label=f"{txt}  [{len(sel)}]")
             else:
                 ax.scatter([p[0] for p in pts for _ in (0, 1)], [a for p in pts for a in p[1:3]],
-                           color="crimson", s=30, edgecolor="k", linewidths=0.6, zorder=5,
+                           color="crimson", s=30 * _k(1) ** 2, edgecolor="k", linewidths=0.6, zorder=5,
                            label=ps.lang_text("DOE cases", "Cas du DOE", lang, sep=" / "))
 
         ax.set_xlim(x0, x1)
