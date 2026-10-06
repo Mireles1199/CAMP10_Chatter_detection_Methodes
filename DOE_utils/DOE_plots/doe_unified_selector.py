@@ -48,6 +48,9 @@ from tkinter import ttk, messagebox, filedialog
 # ── Import de plotters existentes ─────────────────────────────────────────────
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPT_DIR)
+if os.path.dirname(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, os.path.dirname(SCRIPT_DIR))
+import eta_compat as _eta   # kappa -> eta (docs/planes/PLAN_eta_rename.md): files with either name are read; inside, names stay kappa
 
 # doe_plotter convergence functions (return Figure)
 from doe_plotter import (
@@ -607,7 +610,7 @@ def _add_clean_rows(h5_path: str, with_runs: bool, cases: List[Dict]) -> None:
                 absent.append(case)
                 continue
             grp = g[case]
-            kappa = grp.attrs.get("kappa")
+            kappa = _eta.get(grp.attrs, "eta", None)
             vv = {"snr_db": float("inf"), "kind": "clean", "case_source": case, "realization": -1}
             if kappa is not None:
                 vv["kappa"] = float(kappa)
@@ -637,8 +640,8 @@ def _load_noise(h5_path: str, with_runs: bool) -> List[Dict]:
             if multi:
                 vv.update(case_source=_str_attr(attrs.get("case_source", "?")), realization=int(attrs["realization"]),
                           kind="noisy")
-                if attrs.get("kappa") is not None:
-                    vv["kappa"] = float(attrs["kappa"])
+                if _eta.get(attrs, "eta", None) is not None:
+                    vv["kappa"] = float(_eta.get(attrs, "eta"))
             cases.append({
                 "group":       grp_name,
                 "label_key":   "snr_db",
@@ -683,7 +686,7 @@ def load_noise_validation(h5_path: str) -> List[Dict]:
             for i, name in enumerate(copy):
                 vv = rows.setdefault(str(name), {"snr_db": float(col["snr_db"][i]), "case_source": str(case[i]),
                                                  "realization": int(col["realization"][i]), "truth": str(col["truth"][i]),
-                                                 "kappa": float(col["kappa"][i])})
+                                                 "kappa": float(_eta.get(col, "eta")[i])})
                 vv["outcome_" + run] = str(col["outcome"][i])
     cases = [{"group": name, "label_key": "snr_db", "label_val": vv["snr_db"], "var_val": vv, "signals": {}, "forces": {},
               "runs": {}, "snr": {}, "dt_us": None, "wall_time_s": None, "Axial_disp": None, "Axial_vel": None}
@@ -713,8 +716,8 @@ def load_doe_indicator_unified(h5_path: str) -> List[Dict]:
             if grp is not None:
                 for k in ("kappa", "Ap_mm", "true_label", "label_strategy", "kappa_start", "kappa_end", "t_onset",
                           "Ap_end_mm"):
-                    if k in grp.attrs:
-                        v = grp.attrs[k]
+                    if _eta.has(grp.attrs, _eta.canon(k)):
+                        v = _eta.get(grp.attrs, _eta.canon(k))
                         c["var_val"][k] = v.decode() if isinstance(v, bytes) else (v.item() if hasattr(v, "item") else v)
                 sigs = _read_signals(grp)
                 c["signals"] = sigs
@@ -775,6 +778,12 @@ def load_h5_unified(h5_path: str, h5_type: str) -> List[Dict]:
         TYPE_NOISE_VAL    : load_noise_validation,
     }
     cases = loaders[h5_type](h5_path)
+    for c in cases:   # files written with eta: the same values under the names the viewer works with
+        vv = c.get("var_val", {})
+        for k in [k for k in vv if _eta.canon(k.strip("$")) == k.strip("$") and k.strip("$").startswith("eta")]:
+            vv.setdefault(_eta.old_name(k.strip("$")), vv[k])
+        if str(c.get("label_key", "")).startswith("eta"):
+            c["label_key"] = _eta.old_name(c["label_key"])
     _apply_ramps(cases, h5_path)
     _assign_case_colors(cases, qualitative=False)
     for c in cases:
@@ -3741,7 +3750,7 @@ def _index_reference_dataset(h5_path: str) -> List[Dict[str, Any]]:
                     attrs = dict(case_grp[piece_name].attrs)
                     channel = attrs.get("channel") or piece_name.rsplit("__", 1)[0]
                     idx_str = piece_name.rsplit("__", 1)[-1]
-                    kappa = attrs.get("kappa")
+                    kappa = _eta.get(attrs, "eta", None)
                     ap = attrs.get("$Ap_start$")
                     row = {
                         "label": label, "case": case_name, "channel": str(channel),
@@ -3754,7 +3763,7 @@ def _index_reference_dataset(h5_path: str) -> List[Dict[str, Any]]:
                     }
                     if _is_ramp_vv({"Ap_start": ap, "Ap_end": attrs.get("$Ap_end$")}):
                         # a piece of a ramp: kappa and Ap at its two ends (its single 'kappa' is ignored)
-                        k0, k1 = attrs.get("kappa_t0"), attrs.get("kappa_t1")
+                        k0, k1 = _eta.get(attrs, "eta_t0", None), _eta.get(attrs, "eta_t1", None)
                         a0, a1 = attrs.get("Ap_start_mm"), attrs.get("Ap_end_mm")
                         row["kappa"] = float(k0) if k0 is not None else None
                         row["kappa_txt"] = f"{float(k0):.3f}->{float(k1):.3f}" if k0 is not None and k1 is not None else "ramp"
@@ -5008,6 +5017,30 @@ def _selftest() -> None:
     cs = load_h5_unified(ind, detect_h5_type(ind))
     assert all(c["label_key"] == "kappa" for c in cs), [c["label_key"] for c in cs]
     assert [c["group"] for c in cs] == ["case_001", "case_000", "case_002"] and cs[0]["label_val"] == 0.58
+    # kappa -> eta: a copy of each file with every kappa attribute renamed (kappa, kappa_start, kappa_end, kappa_t0, $kappa$…)
+    # loads like the original
+    import shutil
+
+    def to_eta(src):
+        dst = src[:-3] + "_eta.h5"
+        shutil.copy(src, dst)
+
+        def ren(_n, obj):
+            for k in list(obj.attrs):
+                if _eta.canon(k) != k:
+                    obj.attrs[_eta.canon(k)] = obj.attrs[k]
+                    del obj.attrs[k]
+        with h5py.File(dst, "a") as f:
+            f.visititems(ren)
+            ren("", f)
+        return dst
+    for path in (doe, ind, val):
+        a, b = (load_h5_unified(q, detect_h5_type(q)) for q in (path, to_eta(path)))
+        key = lambda cs: [(c["group"], c["label_key"], c["label_val"] if np.isfinite(c["label_val"]) else None,   # noqa: E731
+                           c["var_val"].get("kappa") if np.isfinite(c["var_val"].get("kappa", 0.0)) else None,
+                           c["var_val"].get("kappa_start"), c.get("ramp")) for cs_ in [cs] for c in cs_]
+        assert key(a) == key(b), (path, key(a), key(b))
+    assert [(r["kappa"], r.get("kappa_txt")) for r in _index_reference_dataset(to_eta(lab))] == [(r["kappa"], r.get("kappa_txt")) for r in _index_reference_dataset(lab)]
     _selftest_noise(d, t)
     _selftest_variants(d, t)
     _selftest_indicator_plots(d)
