@@ -21,6 +21,8 @@ import random
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.dirname(HERE))   # DOE_utils/
+import eta_compat  # noqa: E402  (kappa -> eta: reads both names)
 CONFIGS = os.path.join(HERE, "configs")
 # (name, kappa_min, kappa_max, n_cases). Where the real transition is shows in the colours of the figure.
 ZONES = [("far stable", 0.50, 0.90, 4), ("transition", 0.90, 1.10, 6),
@@ -47,7 +49,7 @@ def read_training(path: str) -> dict:
                 a = pieces[0].attrs
                 if abs(float(a.get("$Ap_end$", a["$Ap_start$"])) - float(a["$Ap_start$"])) > 1e-9:
                     continue   # a ramp has no single kappa (training is made of constant cases)
-                c = cases.setdefault(case, dict(kappa=float(a["kappa"]), ap=float(a["$Ap_start$"]), labels=set()))
+                c = cases.setdefault(case, dict(kappa=float(eta_compat.col(a, "eta")), ap=float(a["$Ap_start$"]), labels=set()))
                 c["labels"].add(lab)
                 for k in SCALARS:
                     v = float(a[k])
@@ -295,6 +297,19 @@ def _selftest():
         pass
     assert extends_ref(CONFIGS) == "base"
     assert extends_ref(os.path.join(HERE, "other")) == "../configs/base.yaml"
+    import h5py
+    import tempfile
+    d = tempfile.mkdtemp()
+    trained = {}
+    for key in ("kappa", "eta"):   # kappa -> eta: a training dataset of either age gives the same cases
+        p = os.path.join(d, key, "ds", "reference_dataset.h5")
+        os.makedirs(os.path.dirname(p))
+        with h5py.File(p, "w") as f:
+            for lab, case, e in (("stable", "case_000", 0.5), ("unstable", "case_001", 1.5)):
+                pc = f.create_group(f"{lab}/{case}").create_dataset("Axial_disp__000", data=[0.0])
+                pc.attrs.update({key: e, "$Ap_start$": 0.005 * e, "$spin_rate$": 1.0, "$f_tooth$": 0.05, "$dxl_size$": 1e-4, "$nb_dt_rev$": 200.0})
+        trained[key] = read_training(p)
+    assert {c: v["kappa"] for c, v in trained["kappa"]["cases"].items()} == {c: v["kappa"] for c, v in trained["eta"]["cases"].items()} ==         {"case_000": 0.5, "case_001": 1.5} and trained["kappa"]["ap_ref"] == trained["eta"]["ap_ref"] == 0.005
     print("selftest OK")
 
 
