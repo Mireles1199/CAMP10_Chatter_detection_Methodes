@@ -8,6 +8,9 @@ stages:
 - label_build
 - indicators
 - validate
+- noise
+- noise_indicators
+- noise_validate
 reference: DOE_Training_Tube_dxl_20e-5_RUN_10_0.5-2.0
 runs:
 - simulation:
@@ -254,3 +257,14 @@ indicators:
         cycle_area_norm: none
 validate:
   channel: Axial_disp
+noise:
+  cases: all
+  snr_list:
+  - 80
+  - 60
+  - 40
+  - 30
+  - 20
+  - 10
+  realizations: 5
+  seed: 42
