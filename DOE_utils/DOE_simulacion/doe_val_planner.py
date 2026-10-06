@@ -3,13 +3,13 @@
 """doe_val_planner.py — Build the YAML of a VALIDATION DOE from the training dataset.
 
 Open a labelled reference_dataset*.h5; it provides what must stay IDENTICAL (spin_rate, dxl_size, f_tooth,
-nb_dt_rev, ap_ref = Ap/kappa) and the kappa values already used for training. Define zones of kappa and how many
+nb_dt_rev, ap_ref = Ap/eta) and the eta values already used for training. Define zones of eta and how many
 new cases each one gets. Each zone is split into N equal strata with one case per stratum, placed with a jitter
-and kept away from the training kappa values. Nothing is simulated: the tool writes a YAML (mode: sweep, only Ap
+and kept away from the training eta values. Nothing is simulated: the tool writes a YAML (mode: sweep, only Ap
 changes) to open with doe_planner.py and launch with doe_runner.py.
 
-The ground-truth label of the new cases does NOT come from kappa: it is obtained afterwards with
-reference_dataset.py using the same labeling_* settings as the training dataset (the kappa zones only decide
+The ground-truth label of the new cases does NOT come from eta: it is obtained afterwards with
+reference_dataset.py using the same labeling_* settings as the training dataset (the eta zones only decide
 WHAT to simulate).
 
 Usage (with the entorno_CAMP10 Python):
@@ -24,11 +24,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))   # DOE_utils/
 import eta_compat  # noqa: E402  (kappa -> eta: reads both names)
 CONFIGS = os.path.join(HERE, "configs")
-# (name, kappa_min, kappa_max, n_cases). Where the real transition is shows in the colours of the figure.
+# (name, eta_min, eta_max, n_cases). Where the real transition is shows in the colours of the figure.
 ZONES = [("far stable", 0.50, 0.90, 4), ("transition", 0.90, 1.10, 6),
          ("near unstable", 1.10, 1.30, 3), ("far unstable", 1.30, 2.00, 4)]
 # Note: training may already cover the transition densely (e.g. every 0.01); there a new case is almost an
-# interpolation (it falls between two training kappa, at >= tol from both).
+# interpolation (it falls between two training eta, at >= tol from both).
 SCALARS = ("$spin_rate$", "$f_tooth$", "$dxl_size$", "$nb_dt_rev$")   # must match the training dataset
 JITTER_HELP = ("Jitter (0-1): how far a case may move from the centre of its stratum.\n"
                "0 = exactly at the centre (regular spacing); 1 = anywhere inside the stratum.\n"
@@ -37,7 +37,7 @@ JITTER_HELP = ("Jitter (0-1): how far a case may move from the centre of its str
 
 # ============================================================================== logic (no GUI)
 def read_training(path: str) -> dict:
-    """{'cases': {group: {kappa, ap, labels:set}}, 'scalars': {...}, 'ap_ref': m, 'base_dir': folder}."""
+    """{'cases': {group: {eta, ap, labels:set}}, 'scalars': {...}, 'ap_ref': m, 'base_dir': folder}."""
     import h5py
     cases, scal = {}, {}
     with h5py.File(path, "r") as f:
@@ -48,8 +48,8 @@ def read_training(path: str) -> dict:
                     continue
                 a = pieces[0].attrs
                 if abs(float(a.get("$Ap_end$", a["$Ap_start$"])) - float(a["$Ap_start$"])) > 1e-9:
-                    continue   # a ramp has no single kappa (training is made of constant cases)
-                c = cases.setdefault(case, dict(kappa=float(eta_compat.col(a, "eta")), ap=float(a["$Ap_start$"]), labels=set()))
+                    continue   # a ramp has no single eta (training is made of constant cases)
+                c = cases.setdefault(case, dict(eta=float(eta_compat.col(a, "eta")), ap=float(a["$Ap_start$"]), labels=set()))
                 c["labels"].add(lab)
                 for k in SCALARS:
                     v = float(a[k])
@@ -57,13 +57,13 @@ def read_training(path: str) -> dict:
                         raise ValueError(f"{k} is not the same in every case of the dataset ({scal[k]} vs {v})")
     if not cases:
         raise ValueError("the .h5 has no constant-Ap cases")
-    refs = sorted(c["ap"] / c["kappa"] for c in cases.values() if c["kappa"] > 0)
+    refs = sorted(c["ap"] / c["eta"] for c in cases.values() if c["eta"] > 0)
     return dict(cases=cases, scalars=scal, ap_ref=refs[len(refs) // 2],
                 base_dir=os.path.dirname(os.path.dirname(os.path.abspath(path))).replace("\\", "/"))
 
 
 def sample_zones(zones, used, tol, jitter, seed) -> list:
-    """[(zone, kappa)]. One case per stratum (centre + jitter*half-width), at >= tol from `used` and from the
+    """[(zone, eta)]. One case per stratum (centre + jitter*half-width), at >= tol from `used` and from the
     ones already chosen. If a stratum has no room, raises ValueError."""
     rng, taken, out = random.Random(seed), list(used), []
     for name, k0, k1, n in zones:
@@ -75,7 +75,7 @@ def sample_zones(zones, used, tol, jitter, seed) -> list:
                 if all(abs(k - t) >= tol for t in taken):
                     break
             else:
-                raise ValueError(f"zone '{name}': stratum {i + 1}/{n} has no room at {tol} from other kappa "
+                raise ValueError(f"zone '{name}': stratum {i + 1}/{n} has no room at {tol} from other eta "
                                  f"(lower the tolerance or N, or widen the zone)")
             taken.append(k)
             out.append((name, k))
@@ -93,10 +93,10 @@ def extends_ref(dest_dir: str) -> str:
         return base.replace("\\", "/")
 
 
-def yaml_text(name: str, tr: dict, kappas: list, base_dir: str, case: str, src: str, extends: str = "base") -> str:
+def yaml_text(name: str, tr: dict, etas: list, base_dir: str, case: str, src: str, extends: str = "base") -> str:
     ap_ref, s = tr["ap_ref"], tr["scalars"]
-    aps = [round(k * ap_ref, 7) for k in kappas]
-    lst = "\n".join(f"    - {a:.7g}".replace("e-0", "e-") + f"     # kappa {k:.3f}" for a, k in zip(aps, kappas))
+    aps = [round(k * ap_ref, 7) for k in etas]
+    lst = "\n".join(f"    - {a:.7g}".replace("e-0", "e-") + f"     # eta {k:.3f}" for a, k in zip(aps, etas))
     return f"""# VALIDATION DOE generated by doe_val_planner.py from:
 #   {src}
 # Only Ap changes (fixed depth per case); spin and discretisation = training dataset.
@@ -116,7 +116,7 @@ sweep:
   $dxl_size$: {s['$dxl_size$']!r}
   $nb_dt_rev$: {int(s['$nb_dt_rev$'])}
 
-ap_ref:                        # same as training: kappa = Ap / ap_ref
+ap_ref:                        # same as training: eta = Ap / ap_ref
   mode: manual
   manual: {ap_ref:.6g}
 """
@@ -147,7 +147,7 @@ def run_gui(h5_path: str, doe_name: str = ""):
         load(filedialog.askopenfilename(title="Training dataset (.h5)", filetypes=[("HDF5", "*.h5")]))
     ttk.Button(left, text="Open dataset .h5…", command=ask).pack(anchor="w", pady=4)
 
-    zf = ttk.LabelFrame(left, text="Zones  (name · kappa min · kappa max · N)", padding=4)
+    zf = ttk.LabelFrame(left, text="Zones  (name · η min · η max · N)", padding=4)
     zf.pack(fill=tk.X, pady=4)
     rows = []
 
@@ -171,7 +171,7 @@ def run_gui(h5_path: str, doe_name: str = ""):
     pf.pack(fill=tk.X, pady=4)
     jit, tol, seed = tk.StringVar(value="0.6"), tk.StringVar(value="0.004"), tk.StringVar(value="1")
     name, case = tk.StringVar(value=doe_name), tk.StringVar(value="1DOF_150Hz")
-    for i, (lbl, v) in enumerate((("jitter (0-1)", jit), ("min kappa gap to training", tol), ("seed", seed),
+    for i, (lbl, v) in enumerate((("jitter (0-1)", jit), ("min η gap to training", tol), ("seed", seed),
                                   ("doe_name", name), ("case", case))):
         ttk.Label(pf, text=lbl).grid(row=i, column=0, sticky="w")
         ttk.Entry(pf, textvariable=v, width=30 if lbl in ("doe_name", "case") else 8).grid(row=i, column=1, sticky="w")
@@ -184,7 +184,7 @@ def run_gui(h5_path: str, doe_name: str = ""):
     def export():   # Export… (DOE_plots/figures_window.py): the figure on screen, as a copy
         sys.path.insert(0, os.path.join(HERE, "..", "DOE_plots"))
         from figures_window import FiguresWindow, Item
-        FiguresWindow(root, "Export — doe_val_planner", [Item("val_planner_kappa", lambda: fig, live=True)],
+        FiguresWindow(root, "Export — doe_val_planner", [Item("val_planner_eta", lambda: fig, live=True)],
                       out_dir=os.path.dirname(st["path"]) if st["path"] else "")
     ttk.Button(right, text="💾  Export…", command=export).pack(side=tk.TOP, anchor="e")
     cv = FigureCanvasTkAgg(fig, master=right)
@@ -200,7 +200,7 @@ def run_gui(h5_path: str, doe_name: str = ""):
         tr = st["tr"]
         if tr:
             for lab in COL:
-                ks = [c["kappa"] for c in tr["cases"].values() if lab in c["labels"]]
+                ks = [c["eta"] for c in tr["cases"].values() if lab in c["labels"]]
                 ax.plot(ks, [1] * len(ks), "o", color=COL[lab], label=f"training: {lab}")
         try:
             for i, (nm, k0, k1, _) in enumerate(zones()):
@@ -211,7 +211,7 @@ def run_gui(h5_path: str, doe_name: str = ""):
             ax.plot([k for _, k in st["pick"]], [0] * len(st["pick"]), "s", color="#2e7d32", label="validation (new)")
         ax.set_yticks([])
         ax.set_ylim(-1, 2)
-        ax.set_xlabel("kappa = Ap / ap_ref")
+        ax.set_xlabel("η = Ap / ap_ref")
         if ax.get_legend_handles_labels()[0]:
             ax.legend(loc="upper right", fontsize=8)
         cv.draw_idle()
@@ -242,13 +242,13 @@ def run_gui(h5_path: str, doe_name: str = ""):
         if not st["tr"]:
             return
         try:
-            st["pick"] = sample_zones(zones(), [c["kappa"] for c in st["tr"]["cases"].values()],
+            st["pick"] = sample_zones(zones(), [c["eta"] for c in st["tr"]["cases"].values()],
                                       float(tol.get()), float(jit.get()), int(seed.get()))
         except Exception as exc:
             messagebox.showerror("generate", str(exc))
             return
         ref = st["tr"]["ap_ref"]
-        say("\n".join(f"{n[:16]:16s} kappa {k:.3f}  Ap {k * ref * 1e3:7.3f} mm" for n, k in st["pick"]) +
+        say("\n".join(f"{n[:16]:16s} eta {k:.3f}  Ap {k * ref * 1e3:7.3f} mm" for n, k in st["pick"]) +
             f"\n\nTotal: {len(st['pick'])} cases")
         draw()
 
@@ -309,7 +309,7 @@ def _selftest():
                 pc = f.create_group(f"{lab}/{case}").create_dataset("Axial_disp__000", data=[0.0])
                 pc.attrs.update({key: e, "$Ap_start$": 0.005 * e, "$spin_rate$": 1.0, "$f_tooth$": 0.05, "$dxl_size$": 1e-4, "$nb_dt_rev$": 200.0})
         trained[key] = read_training(p)
-    assert {c: v["kappa"] for c, v in trained["kappa"]["cases"].items()} == {c: v["kappa"] for c, v in trained["eta"]["cases"].items()} ==         {"case_000": 0.5, "case_001": 1.5} and trained["kappa"]["ap_ref"] == trained["eta"]["ap_ref"] == 0.005
+    assert {c: v["eta"] for c, v in trained["kappa"]["cases"].items()} == {c: v["eta"] for c, v in trained["eta"]["cases"].items()} ==         {"case_000": 0.5, "case_001": 1.5} and trained["kappa"]["ap_ref"] == trained["eta"]["ap_ref"] == 0.005
     print("selftest OK")
 
 

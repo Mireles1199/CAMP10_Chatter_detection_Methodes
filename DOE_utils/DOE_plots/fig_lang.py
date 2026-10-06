@@ -17,7 +17,7 @@ import yaml
 HERE = os.path.dirname(os.path.abspath(__file__))
 TABLE_FILE = os.path.join(HERE, "figure_texts.yaml")
 # words that need no translation (acronyms are kept anyway: any word in capitals)
-KEEP = {"vs", "kappa", "rpm", "log", "max", "min", "rms", "dB", "mod", "ref", "per", "sld", "doe",
+KEEP = {"vs", "eta", "kappa", "rpm", "log", "max", "min", "rms", "dB", "mod", "ref", "per", "sld", "doe",
         "maxent", "sst", "svd", "ssq", "plot"}   # indicator names and the Plot button are names, not words
 _table = None
 

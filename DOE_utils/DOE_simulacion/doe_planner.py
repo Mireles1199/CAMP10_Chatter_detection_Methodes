@@ -106,7 +106,7 @@ def plan(path: str) -> dict:
         lst, val = dr.build_doe_cases(dr.DOE_MODE)
         doe_dir = os.path.join(dr.SCRIPT_DIR, dr.DOE_NAME)
         case = cfg.get("case") or "1DOF_150Hz"
-        refs = []   # AP_REF [m] de cada caso segun el ap_ref del YAML (None: sin kappa o spin fuera de los lobulos)
+        refs = []   # AP_REF [m] de cada caso segun el ap_ref del YAML (None: sin eta o spin fuera de los lobulos)
         for row in val:
             spin = row[lst.index("$spin_rate$")] if "$spin_rate$" in lst else None
             try:
@@ -137,17 +137,20 @@ def zone(a0: float, a1: float, lim) -> str:
     return "cruza el limite"
 
 
-def kappa_txt(a0: float, a1: float, ref) -> str:
-    """kappa tal como lo guarda el extract: Ap/AP_REF (mm) truncado a 3 decimales (rampa: inicio -> fin)."""
+def eta_txt(a0: float, a1: float, ref) -> str:
+    """eta tal como lo guarda el extract: Ap/AP_REF (mm) truncado a 3 decimales (rampa: inicio -> fin)."""
     if ref is None or ref <= 0:
         return "—"
-    k = lambda a: f"{math.trunc(a / ref * 1000) / 1000:g}"   # ref en mm; ref = inf -> kappa 0
+    k = lambda a: f"{math.trunc(a / ref * 1000) / 1000:g}"   # ref en mm; ref = inf -> eta 0
     return k(a0) if a0 == a1 else f"{k(a0)} → {k(a1)}"
 
 
+kappa_txt = eta_txt   # alias (antes kappa)
+
+
 def plan_rows(plans: list, preset: str) -> list:
-    """Una fila por caso: (config, n, spin, Ap ini, Ap fin, AP_REF del YAML [mm], kappa del YAML,
-    limite SLD del modelo elegido [mm], Ap/limite, zona). AP_REF/kappa son los reales; limite/zona, informativos."""
+    """Una fila por caso: (config, n, spin, Ap ini, Ap fin, AP_REF del YAML [mm], eta del YAML,
+    limite SLD del modelo elegido [mm], Ap/limite, zona). AP_REF/eta son los reales; limite/zona, informativos."""
     sm = dr._sld_model()
     rows = []
     for p in plans:
@@ -165,7 +168,7 @@ def plan_rows(plans: list, preset: str) -> list:
                 except ValueError:
                     lim = None
             ratio = (max(a0, a1) / lim) if lim not in (None, float("inf")) and lim > 0 else None
-            rows.append((p["name"], n, spin, a0, a1, ref, kappa_txt(a0, a1, ref),
+            rows.append((p["name"], n, spin, a0, a1, ref, eta_txt(a0, a1, ref),
                          lim, ratio, zone(a0, a1, lim)))
     return rows
 
@@ -227,12 +230,12 @@ class PlannerApp:
         tab = ttk.Frame(mid)
         mid.add(self.fig_frame, minsize=300, width=400)
         mid.add(tab, minsize=420)
-        cols = ("cfg", "n", "spin", "ap", "ref", "kappa", "lim", "ratio", "zona")
+        cols = ("cfg", "n", "spin", "ap", "ref", "eta", "lim", "ratio", "zona")
         self.table = ttk.Treeview(tab, columns=cols, show="headings")
-        # AP_REF y kappa: lo REAL (ap_ref del YAML, lo que guardará el extract). límite/Ap-límite/zona: informativo,
+        # AP_REF y eta: lo REAL (ap_ref del YAML, lo que guardará el extract). límite/Ap-límite/zona: informativo,
         # con el modelo del desplegable "Modelo SLD".
         for c, h, w in (("cfg", "config", 70), ("n", "#", 26), ("spin", "spin [rpm]", 62), ("ap", "Ap [mm]", 72),
-                        ("ref", "AP_REF [mm] (YAML)", 122), ("kappa", "kappa (YAML)", 92),
+                        ("ref", "AP_REF [mm] (YAML)", 122), ("eta", "η (YAML)", 92),
                         ("lim", "límite SLD [mm] (info)", 135), ("ratio", "Ap/límite (info)", 100),
                         ("zona", "zona (info)", 125)):
             self.table.heading(c, text=h)

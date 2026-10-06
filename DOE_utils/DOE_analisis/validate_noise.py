@@ -12,7 +12,7 @@ Inputs
 Output  doe_noise_validation_results[_gray-<mode>].h5 (+ <out>_by_snr.csv)
   attrs           schema doe_noise_validation_results/1, gray_mode, clean_results, noise_indicator_results,
                   breakdown_drop, and the root attrs of the noise file
-  /summary/<run>  one row per noisy copy: copy, case, snr_db, realization, truth, is_gray, outcome, kappa,
+  /summary/<run>  one row per noisy copy: copy, case, snr_db, realization, truth, is_gray, outcome, eta,
                   first_detection_t, t_ratio, delay_det_s, score_max, alarm_fraction
   /metrics/<run>  1-D datasets aligned, one row per (snr_db, realization): METRICS  (the clean file keeps the same
                   names as attrs: same names, another format)
@@ -61,7 +61,7 @@ NAN = float("nan")
 
 
 def load_clean(path: str) -> tuple:
-    """(gray_mode, {case: {intervals, t_onset_amp, kappa, ramp}}, {run: clean metrics}) of a clean validation file."""
+    """(gray_mode, {case: {intervals, t_onset_amp, eta, ramp}}, {run: clean metrics}) of a clean validation file."""
     with h5py.File(path, "r") as f:
         cases = {}
         for c, g in f.items():

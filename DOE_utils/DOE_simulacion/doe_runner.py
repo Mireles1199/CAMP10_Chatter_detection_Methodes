@@ -82,7 +82,7 @@ def _sld_model():
 
 
 def resolve_ap_ref(spin: float | None = None) -> float | None:
-    """AP_REF [m] segun AP_REF_MODE (None o "none": sin kappa). `spin` [rpm] solo lo usa model_at_spin."""
+    """AP_REF [m] segun AP_REF_MODE (None o "none": sin eta). `spin` [rpm] solo lo usa model_at_spin."""
     mode = AP_REF_MODE or "none"
     if mode == "none":
         return None
@@ -128,7 +128,7 @@ CLAVES                                                                         o
   case             subcarpeta del caso Nessy2m                                       no           1DOF_150Hz
   n2m_bat          ruta del n2m.bat                                                  no           DEFAULT_N2M_BAT
   nb_proc          procesos en paralelo (entero >= 1)                                no           1
-  ap_ref           referencia de kappa (ver abajo)                                   no           mode: none
+  ap_ref           referencia de eta (ver abajo)                                     no           mode: none
   extract_signals  senales a extraer de sens_out.hdf5                                no           [Axial_disp, Axial_vel, Axial_acc]
   force_signal     senal de fuerza de out.hdf5                                       no           res_R_p
   extends          otro YAML del que hereda (ver abajo)                              no
@@ -143,13 +143,13 @@ TABLAS DE VARIABLES
   manual     variables: [$a$, $b$]  y  values: [[1, 2], [3, 4]]  (una fila por caso).
 
 AP_REF  (eta = Ap / AP_REF; Ap fijo -> attr eta, rampa -> eta_start y eta_end)
-  ap_ref: {mode: none}                                 sin kappa
+  ap_ref: {mode: none}                                 sin eta
   ap_ref: {mode: manual, manual: 8.605e-3}             Ap de referencia en metros, igual para todo el DOE
   ap_ref: {mode: model, model: 1DOF_150}               Ap critico MINIMO del SLD del preset (un valor, sin rpm)
   ap_ref: {mode: model_at_spin, model: 2DOF_150_250}   limite del SLD A LAS RPM de cada caso ($spin_rate$):
                                                        cambia con el spin; en un bolsillo entre lobulos el
-                                                       limite es infinito (kappa 0); fuera de los lobulos
-                                                       calculados el caso queda sin kappa (con aviso)
+                                                       limite es infinito (eta 0); fuera de los lobulos
+                                                       calculados el caso queda sin eta (con aviso)
   Los presets (modos, k, zeta, theta, Kf) se declaran en DOE_plots/sld_model.py (MODELS). Se guarda ap_ref_m
   (por caso) y ap_ref_mode / ap_ref_model en el doe_results.h5.
 
@@ -663,7 +663,7 @@ def extract_doe_results(doe_dir: str, case_name: str, signals: list, dry_run: bo
     ap_ref = None if per_case else resolve_ap_ref()
     log.info("AP_REF (%s): %s", AP_REF_MODE or "none",
              f"segun el spin de cada caso (modelo {AP_REF_MODEL})" if per_case
-             else f"{ap_ref * 1e3:.4f} mm" if ap_ref else "sin kappa")
+             else f"{ap_ref * 1e3:.4f} mm" if ap_ref else "sin eta")
 
     results = []
     out_path = os.path.join(doe_dir, "doe_results.h5")
@@ -701,7 +701,7 @@ def extract_doe_results(doe_dir: str, case_name: str, signals: list, dry_run: bo
                 except Exception:
                     grp.attrs[k] = str(v)
 
-            # -- kappa = Ap / AP_REF (AP_REF fijo, o el limite del lobulo a las rpm de este caso) --
+            # -- eta = Ap / AP_REF (AP_REF fijo, o el limite del lobulo a las rpm de este caso) --
             ap_ref_c = ap_ref
             if per_case:
                 spin = var_val.get("$spin_rate$")
@@ -709,9 +709,9 @@ def extract_doe_results(doe_dir: str, case_name: str, signals: list, dry_run: bo
                     ap_ref_c = resolve_ap_ref(float(spin)) if spin is not None else None
                 except ValueError as exc:
                     ap_ref_c = None
-                    log.warning("Caso %s: %s -> sin kappa", group_name, exc)
+                    log.warning("Caso %s: %s -> sin eta", group_name, exc)
                 if spin is None:
-                    log.warning("Caso %s sin $spin_rate$: no se calcula kappa", group_name)
+                    log.warning("Caso %s sin $spin_rate$: no se calcula eta", group_name)
             if ap_ref_c:
                 ap_start = var_val.get("$Ap_start$")
                 ap_end   = var_val.get("$Ap_end$")

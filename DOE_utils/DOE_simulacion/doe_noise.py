@@ -5,7 +5,7 @@ Dos modos:
     SNR relativo a la potencia de esa señal.
   * multi-caso (CASES = lista o "all"; docs/planes/PLAN_noise_validation.md §4.1): doe_noise_multi_results.h5 con
     un grupo por copia ruidosa 'snr_{SNR:06.2f}__{case}__r{K:02d}'. SNR ABSOLUTO: sigma = sqrt(P_ref / 10^(SNR/10)),
-    P_ref = varianza de la señal del caso de referencia (SNR_REF_CASE; 'auto' = el caso inestable de menor kappa,
+    P_ref = varianza de la señal del caso de referencia (SNR_REF_CASE; 'auto' = el caso inestable de menor eta,
     de las etiquetas PROPIAS del experimento) -> el mismo sigma para todos los casos de un nivel. REALIZATIONS
     semillas independientes (np.random.default_rng([SEED, K, n_caso, n_señal])); dentro de una realización el
     mismo ruido unitario reescalado en todos los niveles. 'time' guardado una vez por caso (enlaces duros HDF5).
@@ -49,7 +49,7 @@ SEED             = 42                   # semilla para np.random (reproducibilid
 SIGNALS          = ["Axial_disp", "Axial_vel"]
 CASES            = None                 # None: modo antiguo (un caso de control) | "all" | ["case_000", ...]
 REALIZATIONS     = 3                    # modo multi-caso: realizaciones de ruido por caso y nivel
-SNR_REF_CASE     = "auto"               # modo multi-caso: "auto" (inestable de menor kappa) | "case_NNN"
+SNR_REF_CASE     = "auto"               # modo multi-caso: "auto" (inestable de menor eta) | "case_NNN"
 
 # ==============================================================================
 # Logging
@@ -77,8 +77,8 @@ def build_snr_list(snr_fixed, snr_range=None):
 
 
 def auto_ref_case(info: dict) -> str:
-    """Caso de referencia del SNR absoluto: el etiquetado 'unstable' (constante) de menor kappa, de un
-    {case: {label, kappa, ramp}} de experiment.label_info (las etiquetas PROPIAS del experimento)."""
+    """Caso de referencia del SNR absoluto: el etiquetado 'unstable' (constante) de menor eta, de un
+    {case: {label, eta, ramp}} de experiment.label_info (las etiquetas PROPIAS del experimento)."""
     cand = [(eta_compat.get(d, "eta"), c) for c, d in info.items()
             if d.get("label") == "unstable" and not d.get("ramp") and np.isfinite(eta_compat.get(d, "eta"))]
     if not cand:
@@ -359,7 +359,7 @@ def _selftest():
         raise SystemExit("SNR_LIST vacía debería fallar")
     except ValueError:
         pass
-    # referencia 'auto': el inestable constante de menor kappa
+    # referencia 'auto': el inestable constante de menor eta
     info = {"case_000": dict(label="stable", kappa=0.5, ramp=False), "case_002": dict(label="unstable", kappa=1.3, ramp=False),
             "case_003": dict(label="unstable", kappa=1.7, ramp=False), "case_009": dict(label="unstable", kappa=1.1, ramp=True)}
     assert auto_ref_case(info) == "case_002"

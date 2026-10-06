@@ -48,9 +48,11 @@
 - [no result, no result, sans résultat]
 - [Sin casos que mostrar, No cases to show, Aucun cas à afficher]
 # doe_val_planner
-- [kappa = Ap / ap_ref, kappa = Ap / ap_ref, kappa = Ap / ap_ref]
+- [η = Ap / ap_ref, η = Ap / ap_ref, η = Ap / ap_ref]
+- [kappa = Ap / ap_ref, kappa = Ap / ap_ref, kappa = Ap / ap_ref]   # old text (kappa was eta's name)
 - [training:, training:, entraînement :]
-- [Detection Time vs Kappa, Detection time vs kappa, Temps de détection vs kappa]
+- [Detection Time vs eta, Detection time vs η, Temps de détection vs η]
+- [Detection Time vs Kappa, Detection time vs kappa, Temps de détection vs kappa]   # old text
 - [Amplitud máx, Max amplitude, Amplitude max.]
 - [Green Integral, Green integral, Intégrale de Green]
 - [Select cases and press  Plot ▶, Select cases and press  Plot ▶, Sélectionnez des cas et appuyez sur  Plot ▶]

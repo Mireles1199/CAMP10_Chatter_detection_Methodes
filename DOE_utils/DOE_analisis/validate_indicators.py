@@ -11,21 +11,21 @@ Inputs
 
 Output  doe_validation_results.h5  — same layout as doe_indicator_results.h5 (case_NNN/<run_name>/{t, I_t, t_d}),
 so doe_unified_selector.py opens it as-is (table columns, SLD, I_t curves), plus the validation data:
-  case_NNN attrs : (copy of the case attrs) + $kappa$ $truth$ $t_onset_amp$ and one $outcome_<run>$ per indicator
+  case_NNN attrs : (copy of the case attrs) + $eta$ $truth$ $t_onset_amp$ and one $outcome_<run>$ per indicator
                    (only attrs written as $name$ become columns of the viewer table)
   case_NNN       : datasets truth_t0, truth_t1, truth_label (datasets, not a group: the viewer reads every
                    sub-group of a case as an indicator run)
   case_NNN/<run> : pred, truth_w (per window: 0 stable, 1 unstable, -1 gray/unlabelled) + attrs outcome,
                    first_detection_t, delay_start_s, delay_onset_s and the window counts TP FP TN FN tpr tnr
   schema 4 (was 3): no early_tol (no TP_early outcome, no early_alarm/anticipated metrics, no early_tol_s attr)
-  /summary/<run> : one row per case (case, kappa, ap_mm, spin_rpm, truth, outcome, first_detection_t,
+  /summary/<run> : one row per case (case, eta, ap_mm, spin_rpm, truth, outcome, first_detection_t,
                    delay_start_s, t_onset_amp, delay_onset_s, tpr, tnr)
   /metrics/<run> : attrs with the per-case metrics below (+ alarm quality and ROC/AUC)
   /ranking       : the runs ordered by balanced accuracy, then MCC, then AUC (+ <out>_metrics.csv with every metric)
   /pairwise      : exact McNemar test between every pair of indicators over the scored cases (run_a, run_b, a_only, b_only,
                    p_value); written when there are two or more indicators
   /roc/<run>/{high,low} : fpr, tpr, thr of the case-level ROC for each orientation of I_t
-  /training      : case, kappa, ap_mm, spin_rpm, label of the training dataset
+  /training      : case, eta, ap_mm, spin_rpm, label of the training dataset
 
 Labels are per CASE (the amplitude labelling gives each constant case one interval over the whole signal), so the
 headline metrics are per case and there is NO time tolerance: an unstable case is TP if the indicator flags anything
@@ -44,7 +44,7 @@ stretch, nothing is tolerated); no detection -> FN. These ramps do NOT enter the
 Detection times, over the hits (TP; median, with p25 / p75 of the signed delay):
   delay_start_s = first flagged window inside the unstable part - its start (time since the signal starts)
   delay_onset_s = first detection - t_onset, signed (negative: the alarm came before the amplitude of the truth reached the limit)
-  t_ratio = t_det / t_onset (per hit, median_t_ratio): < 1 = alarm before the amplitude limit is reached, independent of kappa
+  t_ratio = t_det / t_onset (per hit, median_t_ratio): < 1 = alarm before the amplitude limit is reached, independent of eta
   t_onset_amp = first time |labeling_signal| exceeds labeling_lim_sup_pct % of the base (labeling_base_attr *
   labeling_base_scale): the same threshold that makes the amplitude labelling call a case unstable. NaN if the signal
   or the base is not in the validation file.
@@ -829,7 +829,7 @@ def _selftest():
         assert f["case_001/fake_run"].attrs["persistence"] > 0 and f["case_000/fake_run"].attrs["alarm_fraction"] == 0.0
     csv_rows = open(os.path.splitext(out)[0] + "_metrics.csv", encoding="utf-8").read().splitlines()
     assert csv_rows[0].startswith("rank,run,") and csv_rows[1].startswith("1,fake_run,") and len(csv_rows) == 2
-    # kappa -> eta: a "new" file (attrs eta / eta_start / eta_end, no kappa) gives the same case kappas as the "old" one
+    # kappa -> eta: a "new" file (attrs eta / eta_start / eta_end, no kappa) gives the same case etas as the "old" one
     ind_new, out_new = os.path.join(d, "ind_eta.h5"), os.path.join(d, "out_eta.h5")
     with h5py.File(ind, "r") as a, h5py.File(ind_new, "w") as b:
         for c in a:
