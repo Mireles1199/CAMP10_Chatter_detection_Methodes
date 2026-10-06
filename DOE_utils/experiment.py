@@ -78,7 +78,7 @@ LABEL_PARAMS = ("strategy", "amp_signal", "base_attr", "base_scale", "lim_inf_pc
                 "kappa_threshold", "t_start", "t_end", "channels", "window_mode", "window_N", "window_step", "f_modal")
 LABEL_FLAGS = {"amp_signal": "--amp-signal", "base_attr": "--base-attr", "base_scale": "--base-scale",
                "lim_inf_pct": "--lim-inf-pct", "lim_sup_pct": "--lim-sup-pct", "warmup": "--warmup",
-               "kappa_threshold": "--kappa-threshold", "t_start": "--t-start", "t_end": "--t-end",
+               "kappa_threshold": "--eta-threshold", "t_start": "--t-start", "t_end": "--t-end",
                "window_mode": "--window-mode", "window_N": "--window-N", "window_step": "--window-step",
                "f_modal": "--f-modal"}
 # the window of the amplitude rule on RAMP cases (PLAN_ramps.md): resolved per case like an indicator's window
@@ -2608,7 +2608,7 @@ def experiments_using(h5: str) -> list:
 
 def add_case_attrs(path: str, values: dict) -> list:
     """Write attributes to every case of an .h5: {attr: value or [value per case]}; signals are not touched.
-    With 'ap_ref' (an ap_ref section) also kappa = Ap / ap_ref of each case. Returns what was written.
+    With 'ap_ref' (an ap_ref section) also eta = Ap / ap_ref of each case. Returns what was written.
     Only metadata (sim_case, sim_model): the file keeps its date, so the stages that read it do not turn stale."""
     import h5py
     values = dict(values)
@@ -2641,14 +2641,14 @@ def _write_case_attrs(path: str, values: dict, ap_ref, done: list) -> None:
                 done.append(f"{c}.{k} = {v}")
             if ap_ref and "$Ap_start$" in a:
                 ref = ap_ref_value(ap_ref, a.get("$spin_rate$"))
-                if ref and is_ramp(a):   # a ramp: kappa at both ends (an old 'kappa' is left as it is, ignored)
-                    a["kappa_start"], a["kappa_end"] = float(a["$Ap_start$"]) / ref, float(a["$Ap_end$"]) / ref
+                if ref and is_ramp(a):   # a ramp: eta at both ends (an old 'kappa' is left as it is, ignored)
+                    a["eta_start"], a["eta_end"] = float(a["$Ap_start$"]) / ref, float(a["$Ap_end$"]) / ref
                     a["ap_ref_m"] = ref
-                    done.append(f"{c}.kappa_start = {a['kappa_start']:.4g}, kappa_end = {a['kappa_end']:.4g}")
+                    done.append(f"{c}.eta_start = {a['eta_start']:.4g}, eta_end = {a['eta_end']:.4g}")
                 elif ref:
-                    a["kappa"] = float(a["$Ap_start$"]) / ref
+                    a["eta"] = float(a["$Ap_start$"]) / ref
                     a["ap_ref_m"] = ref
-                    done.append(f"{c}.kappa = {a['kappa']:.4g}")
+                    done.append(f"{c}.eta = {a['eta']:.4g}")
         if ap_ref:
             f.attrs["ap_ref_mode"] = ap_ref.get("mode", "none")
             if ap_ref.get("model"):
@@ -3846,8 +3846,8 @@ def _selftest():
         add_case_attrs(rh5, {"ap_ref": {"mode": "manual", "manual": 0.01}})
         with h5py.File(rh5, "r") as f:
             a2 = f["case_002"].attrs
-            assert abs(a2["kappa_start"] - 1.2) < 1e-12 and abs(a2["kappa_end"] - 0.6) < 1e-12 and "kappa" not in a2
-            assert abs(f["case_001"].attrs["kappa"] - 0.8) < 1e-12
+            assert abs(a2["eta_start"] - 1.2) < 1e-12 and abs(a2["eta_end"] - 0.6) < 1e-12 and "eta" not in a2 and "kappa" not in a2
+            assert abs(f["case_001"].attrs["eta"] - 0.8) < 1e-12 and "kappa" in f["case_001"].attrs   # the old one is left as it is
         assert not inspect_h5(rh5)["missing"]["kappa"]
         os.remove(rh5)
         # labelling of the ramps: the window comes from the variants (only when the data have ramps: the constant

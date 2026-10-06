@@ -413,7 +413,7 @@ def check_ramps():
     sd._ok()
     with h5py.File(os.path.join(rd, "doe_results.h5"), "r") as h:
         a = h["case_001"].attrs
-        assert abs(a["kappa_start"] - 5 / 8.6) < 1e-9 and abs(a["kappa_end"] - 15 / 8.6) < 1e-9 and "kappa" not in a
+        assert abs(a["eta_start"] - 5 / 8.6) < 1e-9 and abs(a["eta_end"] - 15 / 8.6) < 1e-9 and "eta" not in a and "kappa" not in a
     print("ramps OK: new (mm, kappa, mixed), SLD picker ramps mode, form, copy, decreasing refused, import, standardize")
 
 

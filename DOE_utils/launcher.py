@@ -1530,7 +1530,7 @@ class LogViewer:
 
 class LabelForm(_Dialog):
     FIELDS = ("strategy", "amp_signal", "base_attr", "base_scale", "lim_inf_pct", "lim_sup_pct", "warmup",
-              "kappa_threshold", "t_start", "t_end", "window_mode", "window_N", "window_step", "f_modal")
+              "eta_threshold", "t_start", "t_end", "window_mode", "window_N", "window_step", "f_modal")
     TEXT = ("strategy", "amp_signal", "base_attr", "window_mode")
 
     def __init__(self, app, e):
@@ -1542,15 +1542,18 @@ class LabelForm(_Dialog):
                       "the dataset the indicators learn from (read-only here; edit it in the reference).", "#b26a00")
         self.vars = {}
         for k in self.FIELDS:
-            v = self.tk.StringVar(value="" if e.label.get(k) is None else str(e.label.get(k)))
-            vals = ["amplitude", "kappa", "manual"] if k == "strategy" else (
+            cur = e.label.get("kappa_threshold" if k == "eta_threshold" else k)   # inside, eta_threshold keeps its old name
+            if k == "strategy" and cur == "kappa":   # an old experiment: the same strategy under its new name
+                cur = "eta"
+            v = self.tk.StringVar(value="" if cur is None else str(cur))
+            vals = ["amplitude", "eta", "manual"] if k == "strategy" else (
                 ["Axial_disp", "Axial_vel", "Axial_acc", "Axial_disp_out_deflex"] if k == "amp_signal" else (
                     ["by_revolution", "by_modal"] if k == "window_mode" else None))
             note = {"amp_signal": "channel the labels are computed from",
                     "base_attr": "attribute the limits are a % of (feed per tooth)",
                     "lim_inf_pct": "max|signal| below this % of the base → stable",
                     "lim_sup_pct": "above this % → unstable (in between: gray)",
-                    "kappa_threshold": "strategy kappa: stable below it",
+                    "eta_threshold": "strategy eta: stable below it",
                     "t_start": "[s] start of the cut pieces (empty = auto)",
                     "window_mode": "RAMP cases only: the same rule window by window (T = 60/n of the case, or 1/f_modal)",
                     "window_N": "window length in T (as an indicator's window)" + (
