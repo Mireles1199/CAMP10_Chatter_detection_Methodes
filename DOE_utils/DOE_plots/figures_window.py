@@ -7,7 +7,9 @@ It knows nothing about the figures. Each element is an `Item(name, render, nativ
   - native: the figure draws its own text in the chosen language (validation_figures, sld_model: `style(language, scale)`
     sets their LANGUAGE / FIGSCALE); the others are translated on the exported copy by fig_lang.translate_figure;
   - live: render() gives the figure of a panel on screen; an independent copy is exported (selection and zoom kept, the
-    panel is not touched).
+    panel is not touched);
+  - folder: where this item is saved (absolute), instead of the folder of the window (Save and Save all);
+  - note: a text shown under the figure (e.g. a limitation of the language options for it).
 Read-only apart from the saved figures.
 
     python figures_window.py --selftest
@@ -38,6 +40,8 @@ class Item(NamedTuple):
     render: Callable
     native: bool = False
     live: bool = False
+    folder: str = ""
+    note: str = ""
 
 
 def copy_figure(fig):
@@ -234,7 +238,8 @@ class FiguresWindow:
         self.fit()
         w, h = self.fig._keep_size
         self.status.set(f"{item.name}   ·   exported at {w:.2f} x {h:.2f} in, {self.dpi.get()} dpi"
-                        + (f"   ·   no translation for: {'; '.join(self.missing[:8])}" if self.missing else ""))
+                        + (f"   ·   no translation for: {'; '.join(self.missing[:8])}" if self.missing else "")
+                        + (f"\n{item.note}" if item.note else ""))
 
     def fit(self):
         """Place the canvas in the free space: with 'article proportions' at the aspect of the export, else filling it."""
@@ -253,8 +258,8 @@ class FiguresWindow:
         self.canvas.draw_idle()
 
     # ------------------------------------------------------------------ saving
-    def save_fig(self, fig, name: str) -> str:
-        folder = self.folder.get().strip()
+    def save_fig(self, fig, name: str, folder: str = "") -> str:
+        folder = folder or self.folder.get().strip()
         if not folder:
             raise ValueError("choose a folder")
         os.makedirs(folder, exist_ok=True)
@@ -274,22 +279,22 @@ class FiguresWindow:
             messagebox.showinfo("Save", "There is no figure to save.", parent=self.win)
             return
         try:
-            path = self.save_fig(self.fig, self.name.get() or self.current().name)
+            path = self.save_fig(self.fig, self.name.get() or self.current().name, self.current().folder)
         except Exception as exc:
             messagebox.showerror("Error saving", str(exc), parent=self.win)
             return
         self.status.set(f"saved {path}")
 
     def save_all(self):
-        done, failed, missing = 0, [], set()
+        done, failed, missing, saved = 0, [], set(), set()
         for it in self.items:
             try:
-                self.save_fig(self.make(it), it.name)
+                saved.add(os.path.dirname(self.save_fig(self.make(it), it.name, it.folder)))
                 done += 1
                 missing.update(self.missing)
             except Exception as exc:   # e.g. a figure without data: reported, the others are saved
                 failed.append(f"{it.name}: {type(exc).__name__}: {exc}")
-        messagebox.showinfo("Save all", f"{done} figures saved in\n{self.folder.get()}"
+        messagebox.showinfo("Save all", f"{done} figures saved in\n" + "\n".join(sorted(saved) or [self.folder.get()])
                             + ("\n\nNot saved:\n" + "\n".join(failed) if failed else "")
                             + ("\n\nTexts with no translation (fig_lang table):\n" + "\n".join(sorted(missing)[:40])
                                if missing else ""), parent=self.win)
@@ -363,6 +368,12 @@ def _selftest():
     w.lb.selection_set(2)
     w.draw()
     assert w.fig is None and "no data" in w.status.get()
+    d2 = tempfile.mkdtemp(prefix="figwin2_")   # an item with its own folder and note (the indicator figures)
+    w2 = FiguresWindow(root, "test2", [Item("fixed", gen, native=True, folder=d2, note="English only")], out_dir=d)
+    w2.draw()
+    assert "English only" in w2.status.get()
+    w2.save_all()
+    assert os.listdir(d2) == ["fixed.png"] and "fixed.png" not in os.listdir(d) and d2 in msgs[-1]
     root.destroy()
     print("figures_window selftest OK")
 
