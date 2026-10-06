@@ -36,6 +36,20 @@ class IndicatorResult:
 
 Guardar siempre con `if result.t_d.size > 0: ... else: ...` antes de indexar `t_d[0]`. (El campo `t_d_no_FAR` ya no existe en ningún indicador.)
 
+### Convención de tiempo (obligatoria)
+
+`t[k]` (y por tanto `t_d`, que es un subconjunto de `t`) es el **instante de la última muestra de datos que usó el
+valor `I_t[k]`**: el final de su ventana, el momento en que el valor ya se pudo calcular. No es el inicio ni el centro
+de la ventana. Con esta regla los 4 indicadores son comparables (retrasos de detección, rampas: alarma antes / después
+del inicio) y coinciden con el instante en que cada valor sale online.
+
+Se comprueba con `indicators/check_time_convention.py`: a una señal con y sin un pulso en un instante conocido se le
+corre cada indicador (configuración `by_revolution`, `N_rev_window=4`, `step_rev=1`), y la primera salida cuyo cambio
+es significativo (≥ 5 % del máximo) debe quedar entre el pulso y un paso (`step`) después. Todo indicador nuevo o
+cambiado debe pasar ese chequeo (añadirlo a `RUNNERS`). (SST etiquetaba el marco con `centro + ventana` en vez de
+`centro + ventana/2`, +9.9 ms de más con 4 rev; corregido en `ssq_chatter/lib/pipeline_chatter.py`. Resultados
+guardados antes de la corrección tienen esa etiqueta desplazada media ventana.)
+
 ## 3. Contrato de `INDICATOR_CONFIG`
 
 Consumido por `run_<indicador>(signal: SignalData, INDICATOR_CONFIG: dict) -> IndicatorResult`.
