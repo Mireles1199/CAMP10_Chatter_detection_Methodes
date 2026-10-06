@@ -415,7 +415,9 @@ class _LazySignals(Mapping):
         return len(self._names)
 
 
-LAZY_MAX_CURVES = 12     # lazy (multi-case noise) copies drawn at once; more are thinned to an even sample
+_VARIANT_CHOICE: Dict[str, set] = {}   # indicator prefix -> variants chosen last in the "variants" window (whole session)
+
+LAZY_MAX_CURVES = 12    # lazy (multi-case noise) copies drawn at once; more are thinned to an even sample
 LAZY_BINS = 4000         # min/max pairs per curve (8 000 points instead of ~600 000)
 
 
@@ -1694,11 +1696,16 @@ class DoeSelectorUnifiedApp:
         self._ind_check_vars: Dict[str, tk.BooleanVar] = {}
         for ind in indicators:
             var = tk.BooleanVar(value=True)
+            row = ttk.Frame(frm)
+            row.pack(fill=tk.X, padx=(12, 0))
             chk = ttk.Checkbutton(
-                frm, text=ind, variable=var,
-                command=self._on_ind_check_toggle,
+                row, text=ind, variable=var,
+                command=lambda ind=ind: self._on_ind_check_toggle(ind),
             )
-            chk.pack(anchor=tk.W, padx=(12, 0))
+            chk.pack(side=tk.LEFT)
+            if len(self._variants_of(ind)) > 1:   # several variants of the indicator in the file: choose which to draw
+                ttk.Button(row, text="variants…", width=9,
+                           command=lambda ind=ind: self._ask_variants(ind)).pack(side=tk.LEFT, padx=6)
             self._ind_check_vars[ind] = var
 
         ttk.Separator(frm).pack(fill=tk.X, pady=3)
@@ -1725,10 +1732,58 @@ class DoeSelectorUnifiedApp:
         for v in self._ind_check_vars.values():
             v.set(val)
 
-    def _on_ind_check_toggle(self) -> None:
-        """Sincroniza el checkbox 'todos' según el estado individual."""
+    def _on_ind_check_toggle(self, ind: Optional[str] = None) -> None:
+        """Sincroniza el checkbox 'todos' según el estado individual. Ticking an indicator that has several variants in
+        the file asks which of them to draw."""
         all_on = all(v.get() for v in self._ind_check_vars.values())
         self._ind_all_var.set(all_on)
+        if ind and self._ind_check_vars[ind].get() and len(self._variants_of(ind)) > 1:
+            self._ask_variants(ind, untick_on_cancel=True)
+
+    def _variants_of(self, ind: str) -> List[str]:
+        return [r for r in self._all_runs if r.startswith(ind)]
+
+    def _chosen_variants(self, ind: str) -> List[str]:
+        """Variants of `ind` to draw: the last choice of the session (those that exist in this file), else all."""
+        vs = self._variants_of(ind)
+        return [v for v in vs if v in _VARIANT_CHOICE.get(ind, vs)] or vs
+
+    def _ask_variants(self, ind: str, untick_on_cancel: bool = False) -> None:
+        """Small window with one box per variant (full name) of the indicator; OK keeps the choice for the whole session
+        (nothing ticked = the indicator is unticked), Cancel leaves it as it was (a fresh tick is undone)."""
+        vs, cur = self._variants_of(ind), set(self._chosen_variants(ind))
+        win = tk.Toplevel(self.root)
+        win.title(f"Variants of {ind}")
+        win.transient(self.root)
+        ttk.Label(win, text=f"Which variants of '{ind}' to draw?").pack(anchor=tk.W, padx=10, pady=(10, 4))
+        boxes = {v: tk.BooleanVar(value=v in cur) for v in vs}
+        for v in vs:
+            ttk.Checkbutton(win, text=v, variable=boxes[v]).pack(anchor=tk.W, padx=18)
+
+        def untick():
+            self._ind_check_vars[ind].set(False)
+            self._on_ind_check_toggle()
+
+        def ok():
+            sel = {v for v, b in boxes.items() if b.get()}
+            if sel:
+                _VARIANT_CHOICE[ind] = sel
+            else:
+                untick()
+            win.destroy()
+
+        def cancel():
+            if untick_on_cancel:
+                untick()
+            win.destroy()
+        bf = ttk.Frame(win)
+        bf.pack(fill=tk.X, padx=10, pady=10)
+        ttk.Button(bf, text="OK", command=ok).pack(side=tk.RIGHT)
+        ttk.Button(bf, text="Cancel", command=cancel).pack(side=tk.RIGHT, padx=6)
+        ttk.Button(bf, text="All", command=lambda: [b.set(True) for b in boxes.values()]).pack(side=tk.LEFT)
+        ttk.Button(bf, text="None", command=lambda: [b.set(False) for b in boxes.values()]).pack(side=tk.LEFT, padx=6)
+        win.protocol("WM_DELETE_WINDOW", cancel)
+        self._variants_win, self._variants_boxes, self._variants_ok, self._variants_cancel = win, boxes, ok, cancel   # selftest
 
     def _indicator_attrs(self, rn: str) -> dict:
         """Attributes of the run `rn` with the law and thresholds of the indicator (meta_* / pp_*): the same in every case.
@@ -1770,7 +1825,8 @@ class DoeSelectorUnifiedApp:
         selected_inds = [ind for ind, v in self._ind_check_vars.items() if v.get()]
         if not selected_inds:
             return self._all_runs  # ninguno marcado → todos
-        return [r for r in self._all_runs if any(r.startswith(ind) for ind in selected_inds)]
+        keep = {v for ind in selected_inds for v in self._chosen_variants(ind)}
+        return [r for r in self._all_runs if r in keep]
 
     # ── TREEVIEW ──────────────────────────────────────────────────────────────
     def _build_tree(self) -> None:
@@ -4467,6 +4523,61 @@ def _selftest() -> None:
     assert [c["group"] for c in cs] == ["case_001", "case_000", "case_002"] and cs[0]["label_val"] == 0.58
     _selftest_noise(d, t)
     print("doe_unified_selector selftest OK")
+
+
+def _selftest_variants(d: str, t) -> None:
+    """Indicators with several variants in the file: ticking one asks which to draw (window with one box per variant,
+    the choice is remembered, Cancel undoes the tick); with one variant nothing is asked."""
+    f_ind = os.path.join(d, "variants_ind.h5")
+    runs = ("green_default_revo", "green_fixed_revo", "green_fixed_modal", "maxent_revo")
+    with h5py.File(f_ind, "w") as f:
+        for i in range(2):
+            g = f.create_group(f"case_{i:03d}")
+            g.attrs.update({"kappa": 1.0 + i, "label_key": "kappa", "label_val": 1.0 + i})
+            for rn in runs:
+                q = g.create_group(rn)
+                q["t"], q["I_t"], q["t_d"] = t, np.cos(t), [5.0]
+    try:
+        root = tk.Tk()
+    except tk.TclError:   # no display
+        print("  [skip] variants window: no display")
+        return
+    root.withdraw()
+    _VARIANT_CHOICE.clear()
+    try:
+        app = DoeSelectorUnifiedApp(root, f_ind)
+        assert app._extract_indicators() == ["green", "maxent"] and app._get_runs_to_show() == sorted(runs)
+        app._ind_check_vars["maxent"].set(False)
+        app._ind_check_vars["green"].set(False)
+        app._on_ind_check_toggle("green")
+        app._ind_check_vars["green"].set(True)        # tick 'green' (3 variants): the window opens, one box per variant
+        app._on_ind_check_toggle("green")
+        assert set(app._variants_boxes) == {"green_default_revo", "green_fixed_revo", "green_fixed_modal"}
+        assert all(b.get() for b in app._variants_boxes.values())
+        app._variants_boxes["green_default_revo"].set(False)
+        app._variants_ok()
+        assert app._get_runs_to_show() == ["green_fixed_modal", "green_fixed_revo"] and not app._variants_win.winfo_exists()
+        app._ind_check_vars["green"].set(False)       # tick again: the last choice is remembered
+        app._on_ind_check_toggle("green")
+        assert {v for v, b in app._variants_boxes.items() if b.get()} == {"green_fixed_modal", "green_fixed_revo"}
+        app._variants_cancel()                        # Cancel on a fresh tick: unticked again
+        assert not app._ind_check_vars["green"].get() and app._get_runs_to_show() == list(app._all_runs)   # none ticked = all
+        app._ind_check_vars["maxent"].set(True)       # one variant: nothing is asked
+        app._variants_win = None
+        app._on_ind_check_toggle("maxent")
+        assert app._variants_win is None and app._get_runs_to_show() == ["maxent_revo"]
+        app._ind_check_vars["green"].set(True)        # the 'variants…' button path: Cancel leaves the choice
+        app._ask_variants("green")
+        app._variants_cancel()
+        assert app._get_runs_to_show() == ["green_fixed_modal", "green_fixed_revo", "maxent_revo"]
+        app._ask_variants("green")                    # nothing ticked: the indicator is unticked
+        for b in app._variants_boxes.values():
+            b.set(False)
+        app._variants_ok()
+        assert not app._ind_check_vars["green"].get() and app._get_runs_to_show() == ["maxent_revo"]
+    finally:
+        _VARIANT_CHOICE.clear()
+        root.destroy()
 
 
 def _selftest_noise(d: str, t) -> None:
