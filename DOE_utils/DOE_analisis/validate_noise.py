@@ -48,6 +48,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate_indicators as vi  # noqa: E402
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))   # DOE_utils/
 import noise_origins  # noqa: E402
+import eta_compat  # noqa: E402  (kappa -> eta: readers accept both)
 
 METRICS = ("TP", "FN", "TN", "FP", "TPR", "TNR", "balanced_accuracy", "MCC", "AUC", "mean_alarm_fraction_stable",
            "median_t_ratio", "n_gray")
@@ -67,7 +68,7 @@ def load_clean(path: str) -> tuple:
             if c.startswith("case_") and "truth_t0" in g:
                 iv = sorted(zip(map(float, g["truth_t0"][()]), map(float, g["truth_t1"][()]), g["truth_label"].asstr()[()]))
                 cases[c] = dict(intervals=iv, t_onset_amp=float(g.attrs.get("$t_onset_amp$", NAN)),
-                                kappa=float(g.attrs.get("$kappa$", NAN)), ramp=str(g.attrs.get("$group$", "global")) == "ramp")
+                                kappa=float(eta_compat.get(g.attrs, "$eta$", NAN)), ramp=str(g.attrs.get("$group$", "global")) == "ramp")
         metrics = {r: dict(g.attrs) for r, g in f["metrics"].items()} if "metrics" in f else {}
         return str(f.attrs.get("gray_mode", "ignore")), cases, metrics
 
@@ -341,6 +342,19 @@ def _selftest():
         assert set(ma) == set(mb) and all(eq(ma[c], mb[c]) for c in ma), [c for c in ma if not eq(ma[c], mb[c])]
         assert list(f["snr_040.00/ranking/run"].asstr()[()]) == list(fc["ranking/run"].asstr()[()])
         assert set(f["snr_040.00/roc/ind_a"]) == set(fc["roc/ind_a"]) and "pairwise" in fc or "pairwise" not in f["snr_040.00"]
+    # kappa -> eta: a clean validation whose case attrs are $eta$ (no $kappa$) scores the noisy copies the same way
+    clean_eta, out_eta = os.path.join(d, "clean_eta.h5"), os.path.join(d, "nv_eta.h5")
+    with h5py.File(clean, "r") as a, h5py.File(clean_eta, "w") as b:
+        b.attrs.update(dict(a.attrs))
+        for k in a:
+            a.copy(a[k], b, name=k)
+        for c in (k for k in b if k.startswith("case_")):
+            b[c].attrs["$eta$"] = b[c].attrs["$kappa$"]
+            del b[c].attrs["$kappa$"]
+    r_eta = validate_noise(nind, clean_eta, out_eta)
+    assert [(s_, k, d_["TP"], d_["FP"], d_["FN"], d_["TN"]) for s_, k, d_ in r_eta["ind_a"][0]] ==         [(s_, k, d_["TP"], d_["FP"], d_["FN"], d_["TN"]) for s_, k, d_ in res["ind_a"][0]]
+    with h5py.File(out, "r") as fo, h5py.File(out_eta, "r") as fe:
+        assert np.allclose(fo["summary/ind_a/kappa"][()], fe["summary/ind_a/kappa"][()], equal_nan=True) and not np.isnan(fe["summary/ind_a/kappa"][()]).all()
     # --realizations 0: only r00 scored, the rest of the file ignored; the attr says which
     out0 = os.path.join(d, "nv0.h5")
     r0 = validate_noise(nind, clean, out0, realizations=[0])

@@ -62,6 +62,7 @@ import plot_style as ps  # noqa: E402
 from sld_model import OUTCOMES  # noqa: E402  (same TP/TN/FN/FP colors as the SLD of the viewer)
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))   # DOE_utils/
 import noise_origins  # noqa: E402
+import eta_compat  # noqa: E402  (kappa -> eta: a validation file of either age)
 
 LANGUAGE = "EN"   # "EN" | "FR" | "both"
 FIGSCALE = 1.5    # multiplier of the plot_style presets (same criterion as sld_model.py)
@@ -203,7 +204,7 @@ def _gray(s):
 
 
 def _kappa(s):
-    return s["kappa"]
+    return eta_compat.col(s, "eta")
 
 
 # ============================================================================== figures
@@ -285,7 +286,7 @@ def fig_case_matrix(D):
     ax.imshow(grid, cmap=ListedColormap(colors), vmin=-0.5, vmax=4.5, aspect="auto")
     tr = {"stable": "S", "unstable": "U"}
     g0 = _gray(s0)
-    ax.set_xticks(range(len(idx)), [f"{s0['kappa'][i]:.2f} {'g' if g0[i] else tr.get(s0['truth'][i], 'g')}" for i in idx], rotation=90)
+    ax.set_xticks(range(len(idx)), [f"{_kappa(s0)[i]:.2f} {'g' if g0[i] else tr.get(s0['truth'][i], 'g')}" for i in idx], rotation=90)
     ax.set_yticks(range(len(D.order)), [short(r) for r in D.order])
     ax.set_xlabel(T(r"case: $\kappa$ and truth (S stable, U unstable, g gray)",
                     r"cas : $\kappa$ et vérité (S stable, U instable, g gris)"))
@@ -352,7 +353,7 @@ def fig_detection_amp(D):
                 t, y = sig
                 msk = (t <= td) & (t > td - 0.1)
                 if msk.any() and base_attr in f[case].attrs:
-                    xs.append(s0["kappa"][k]); ys.append(100 * np.abs(y[msk]).max() / (float(f[case].attrs[base_attr]) * scale))
+                    xs.append(_kappa(s0)[k]); ys.append(100 * np.abs(y[msk]).max() / (float(f[case].attrs[base_attr]) * scale))
             ax.plot(xs, ys, "o-", ms=4, color=RUN_COLOR[i], label=short(r))
     ax.axhline(float(D.attrs.get("labeling_lim_sup_pct", 40)), color="k", ls="--", label="lim_sup")
     ax.axhline(float(D.attrs.get("labeling_lim_inf_pct", 10)), color="grey", ls=":", label="lim_inf")
@@ -488,7 +489,7 @@ def fig_training_coverage(D):
         if "training" not in f:
             raise ValueError("no /training in this file (run validate with --reference)")
         g = f["training"]
-        k, rpm, lab = g["kappa"][()], g["spin_rpm"][()], g["label"].asstr()[()]
+        k, rpm, lab = eta_compat.col(g, "eta")[()], g["spin_rpm"][()], g["label"].asstr()[()]
     col = {"stable": ps.COLOR_STABLE, "unstable": ps.COLOR_UNSTABLE}
     for name in ("stable", "unstable", "gray"):
         m = np.array([name in str(x).split(",") for x in lab])
@@ -590,7 +591,7 @@ def fig_noise_case_matrix(D):
     for ax, r in zip(axs, D.order):
         s = D.summ[r]
         levels = sorted(set(s["snr_db"]), reverse=True)
-        cases = sorted(set(s["case"]), key=lambda c: (float(np.nanmax(np.where(s["case"] == c, s["kappa"], np.nan))), c))
+        cases = sorted(set(s["case"]), key=lambda c: (float(np.nanmax(np.where(s["case"] == c, _kappa(s), np.nan))), c))
         grid = np.full((len(cases), len(levels)), np.nan)
         for i, c in enumerate(cases):
             for j, lv in enumerate(levels):
@@ -602,7 +603,7 @@ def fig_noise_case_matrix(D):
         for c in cases:
             m = s["case"] == c
             tag[c] = "g" if np.any(s["is_gray"][m] == 1) else {"stable": "S", "unstable": "U"}.get(s["truth"][m][0], "?")
-        kap = {c: float(np.nanmax(np.where(s["case"] == c, s["kappa"], np.nan))) for c in cases}
+        kap = {c: float(np.nanmax(np.where(s["case"] == c, _kappa(s), np.nan))) for c in cases}
         ax.set_yticks(range(len(cases)), [f"{kap[c]:.2f} {tag[c]}" for c in cases], fontsize=8)
         ax.set_xticks(range(len(levels)), [f"{v:g}" for v in levels])
         ax.set(title=short(r), xlabel=T("SNR [dB]", "SNR [dB]"))
@@ -725,6 +726,18 @@ def _selftest():
         assert sorted(os.listdir(os.path.join(d, f"f_{mode}"))) == sorted(n + ".png" for n in FIGURES)
         assert FIGURES["ranking"](o)._supxlabel.get_text().startswith("gray cases counted as")
     assert FIGURES["ranking"](out)._supxlabel is None   # the default mode carries no note
+    # kappa -> eta: a validation file whose /summary and /training say eta (no kappa) draws the same figures
+    import shutil
+    out_eta = os.path.join(d, "out_eta.h5")
+    shutil.copy(out, out_eta)
+    with h5py.File(out_eta, "a") as f:
+        for r in f["summary"]:
+            f[f"summary/{r}/eta"] = f[f"summary/{r}/kappa"][()]
+            del f[f"summary/{r}/kappa"]
+        f["training/eta"] = f["training/kappa"][()]
+        del f["training/kappa"]
+    for name in ("score_vs_kappa", "case_matrix", "detection_time", "training_coverage", "anticipation"):
+        assert FIGURES[name](out_eta)._keep_size
     fig = FIGURES["roc"](out)
     assert fig._keep_size == tuple(fig.get_size_inches()) and np.allclose(fig._keep_size, ps.figsize_from_scale(ps.FIGSIZE_SIMPLE, FIGSCALE))
     fc = fig_compare(out, out, figs)

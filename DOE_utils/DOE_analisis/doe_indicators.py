@@ -45,6 +45,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from validate_indicators import OUTCOME_TEXT, detection_outcome  # noqa: E402  (rule of the ramps)
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))   # DOE_utils/
 import noise_origins  # noqa: E402
+import eta_compat  # noqa: E402  (kappa -> eta: readers accept both)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -777,11 +778,28 @@ class _FloorFilter(io.TextIOBase):
         self.buf = ""
 
 
+def _attr_value(attrs, key: str):
+    """attrs[key]; la etiqueta eta se lee con cualquiera de sus dos nombres (eta / kappa: eta_compat)."""
+    if key in ("eta", "kappa"):
+        v = eta_compat.get(attrs, "eta", None)
+        if v is None:
+            raise KeyError(key)
+        return v
+    return attrs[key]
+
+
+def _attr_or_none(attrs, key: Optional[str]):
+    try:
+        return _attr_value(attrs, key) if key else None
+    except KeyError:
+        return None
+
+
 def _label_val(h5_path: str, grp_name: str, label_key: Optional[str]) -> float:
     """Valor de label_key en los attrs del grupo (NaN si falta o no es numérico)."""
     try:
         with h5py.File(h5_path, "r") as f:
-            return float(f[grp_name].attrs[label_key])
+            return float(_attr_value(f[grp_name].attrs, label_key))
     except (KeyError, TypeError, ValueError):
         return float("nan")
 
@@ -806,7 +824,7 @@ def prepare_run(h5_path: str, grp_name: str, run: Dict[str, Any], settings: Dict
         return _empty(grp_name, run_name, label_key, skipped=True, reason=f"signal_{signal}_missing")
 
     try:
-        label_val = float(case["attrs"][label_key])
+        label_val = float(_attr_value(case["attrs"], label_key))
     except (KeyError, TypeError, ValueError):
         label_val = float("nan")
 
@@ -1042,10 +1060,10 @@ def _case_summary(h5_path: str, case: str, results: list, true_label: str, strat
     ex = _experiment_module()
     head = f"-- {case}"
     if ex.is_ramp(a):
-        head += f"  rampa Ap {ex.ap_text(a, '.3f')}  kappa {ex.kappa_text(a)}"
+        head += f"  rampa Ap {ex.ap_text(a, '.3f')}  kappa {(getattr(ex, 'eta_text', None) or ex.kappa_text)(a)}"
     else:
-        if a.get("kappa") is not None:
-            head += f"  kappa {float(a['kappa']):.3f}"
+        if eta_compat.get(a, "eta", None) is not None:
+            head += f"  kappa {float(eta_compat.get(a, 'eta')):.3f}"
         if a.get("$Ap_start$") is not None:
             head += f"  Ap {float(a['$Ap_start$']) * 1e3:.3f} mm"
     head += f"  verdad: {true_label} ({strategy})" if true_label else "  verdad: sin etiqueta"
@@ -1183,7 +1201,7 @@ def list_cases(h5_path: str, groups: List[str], label_key: Optional[str]) -> Non
     """Tabla: grupo | valor de label_key | señales."""
     with h5py.File(h5_path, "r") as f:
         rows = [
-            (g, f[g].attrs.get(label_key) if label_key else None,
+            (g, _attr_or_none(f[g].attrs, label_key),
              [k for k in f[g].keys() if isinstance(f[g][k], h5py.Group)])
             for g in groups
         ]
@@ -1333,6 +1351,22 @@ def _selftest() -> None:
     write_origins(nout, nsrc)
     o = noise_origins.origins(nout)
     assert o["noise_results"] == os.path.abspath(nsrc) and o["source_signals"] == os.path.abspath(src) and o["clean_validation"] is None
+    # kappa -> eta: a group with attr eta (no kappa) is read as the label, under either name of label_key
+    with h5py.File(src, "a") as f:
+        g = f.create_group("case_eta")
+        g.attrs.update({"$Ap_start$": 0.0088, "eta": 1.25})
+    assert _label_val(src, "case_eta", "kappa") == 1.25 and _label_val(src, "case_eta", "eta") == 1.25
+    assert _label_val(src, "case_000", "kappa") == 1.03 and np.isnan(_label_val(src, "case_eta", "no_such_key"))
+    assert _attr_or_none({"kappa": 2.0}, "eta") == 2.0 and _attr_or_none({}, "kappa") is None and _attr_or_none({"x": 1}, "x") == 1
+    seen2 = []
+    h2 = logging.Handler()
+    h2.emit = lambda rec: seen2.append(rec.getMessage())
+    log.addHandler(h2)
+    try:
+        _case_summary(src, "case_eta", [dict(res, case="case_eta", run_name="r", meta={})], "unstable", "amplitude")
+    finally:
+        log.removeHandler(h2)
+    assert any("kappa 1.250" in m_ for m_ in seen2), seen2
     print("doe_indicators selftest OK")
 
 
