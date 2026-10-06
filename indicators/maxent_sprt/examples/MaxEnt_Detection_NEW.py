@@ -302,7 +302,7 @@ def main() -> None:
         "tubo_stable_8_605e_5" : (
             r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
             r"\Chatter-Criteria\CAMP10_Chatter_detection_Methodes"
-            r"\Convergency_Simulation\1_Detection_Limite_Lobes"
+            r"\Convergency_Simulation\1_Detectionz_Limite_Lobes"
             r"\DOE_Detection_Limite_Lobes_dxl_20e-5_RUN_10"
             r"\6\1DOF_150Hz\sens_out.hdf5"
         ),
