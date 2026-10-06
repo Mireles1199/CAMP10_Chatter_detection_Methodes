@@ -161,7 +161,9 @@ Si nunca cae, no tiene valor. Si el indicador ya falla sin ruido y con ruido que
 
 ## 6. Las gráficas, una por una
 
-Se generan con `validation_figures.py`. En el visor aparecen con el mismo nombre; en disco, en `figs_noise_validation/`. Eje horizontal siempre = SNR **de limpio (izquierda) a ruidoso (derecha)**, con el valor "clean" como primer punto.
+Se generan con `validation_figures.py`. En el visor aparecen con el mismo nombre; en disco, en `figs_noise_validation/`.
+
+**Las 15 figuras de la validación de siempre, para un nivel de ruido:** el archivo de validación con ruido guarda, por cada nivel de SNR, la misma validación que la limpia (ranking, ROC, matriz de casos, McNemar...) sobre las copias de ese nivel. Con `validation_figures.py --results <archivo> --snr 40` (o `--snr 40 20`, o `--snr all`) se dibujan en `figs_noise_validation/snr_040/`. Con 1 realización cada nivel equivale a una validación limpia de los 22 casos (intervalos de Wilson, McNemar y ROC válidos); a 80 y 40 dB las métricas de green coinciden con las de la limpia. Las señales de esas figuras no se guardan dentro del archivo: se leen del archivo de ruido (anotado en los attrs `noise_results_*` del archivo de validación). Eje horizontal siempre = SNR **de limpio (izquierda) a ruidoso (derecha)**, con el valor "clean" como primer punto.
 
 ### `noise_metrics` (4 paneles)
 - **Qué muestra:** balanced accuracy, TPR, TNR y fracción de alarma en casos estables, contra SNR. Línea = media entre realizaciones; banda = mínimo–máximo; rombo hueco = sin ruido; línea vertical discontinua (panel de balanced accuracy) = SNR de quiebre.

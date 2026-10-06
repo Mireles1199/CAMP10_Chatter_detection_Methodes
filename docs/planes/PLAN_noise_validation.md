@@ -207,7 +207,7 @@ Todas con `lang_text` (EN/FR/both), `constrained_layout`, leyendas fuera de los 
 | I2 ✅ | wt-interfaz | Formularios y tarjetas | su rama |
 | I3 ✅ | wt-interfaz | Visor: tipo nuevo, `NOISE_FIGURES`, columnas multi, ocultar figuras antiguas, `figs_dir` | su rama |
 | J1 | ambos | E2E desde la app sobre n12000 (12 casos): crear etapas, configurar, correr, ver y exportar | lista de problemas por mensaje |
-| J4 | wt-validacion | A) `noise_all22_r1` (solo r00, 132 copias, bit a bit = r00 de r5) + archivo de indicadores con solo r00; B) orígenes §4.4 + `noise_origins.py`; C) subárboles por nivel §4.5 + figuras por nivel §6.1 | hashes por hito |
+| J4 ✅ | wt-validacion | A) `noise_all22_r1` (solo r00, 132 copias, bit a bit = r00 de r5) + archivo de indicadores con solo r00; B) orígenes §4.4 + `noise_origins.py`; C) subárboles por nivel §4.5 + figuras por nivel §6.1 | 767a43d, 3e253bb (A+B); d815c7d, 766d866, fb8d605 (C) |
 | J2 ✅ | wt-validacion | `cases: all` (22) con 5 realizaciones de ruido; indicadores y validación de r00; `--only`, `--resume`, `--realizations` (doe_indicators y validate_noise), `prepare_run`, fuga de memoria; líneas de quiebre de `noise_metrics` | 298ca86, 0394156, 7146aa0, 66d0b2a, 409123b |
 | J3 | wt-interfaz | Probar los flags reales desde la app; ampliar a r01–r02 con `--resume` si hace falta | — |
 
@@ -234,6 +234,7 @@ Todas con `lang_text` (EN/FR/both), `constrained_layout`, leyendas fuera de los 
 - `doe_noise.py` en modo multi sin `--out` escribe `doe_noise_multi_results.h5` **junto a `doe_results.h5`**; la etapa de la app debe pasar `--out` en `out_dir` (§7.1).
 - `validate_noise.py` sin `--out` escribe `doe_noise_validation_results{gray_suffix}.h5` junto a `--noise_ind` y siempre `<out>_by_snr.csv`.
 - `doe_noise.py` mantiene sus finales de línea CRLF (así estaba en el repo).
+- J4 (2026-10-06): `validate_indicators.write_validation()` (núcleo reutilizable de `validate()`); `validate_noise.write_levels()` escribe los subárboles de nivel (§4.5); validación con ruido en schema `/2`; `noise_all22_r1` = r00 de 22 casos, ruido verificado bit a bit contra r00 de `noise_all22_r5` (132 copias, 528 datasets), indicadores 38 MB (solo r00), validación 43 MB.
 - `validate_noise.py --realizations K [K …]` puntúa solo esas realizaciones (índice del attr `realization` de cada copia); attr raíz **aditivo** `realizations_scored` = las puntuadas, mientras `realizations` sigue siendo las del archivo de ruido.
 - `doe_indicators.py`: `--only X [X …]` (prefijo o nombre de variante; error si algún X no coincide), `--resume` (salta tareas grupo × variante con attr `id` ya escrito), `--realizations K [K …]` (sufijo `__rKK`, se interseca con `--cases`).
 
