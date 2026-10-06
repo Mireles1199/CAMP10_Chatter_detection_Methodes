@@ -1177,7 +1177,9 @@ class App:
             SimulationForm(self, e)
         elif k in ("label_template", "label_build"):
             LabelForm(self, e)
-        elif k in ("indicators", "noise_indicators"):
+        elif k == "noise_indicators":
+            NoiseIndicatorsForm(self, e)
+        elif k == "indicators":
             IndicatorsForm(self, e)
         elif k == "validate":
             ValidateForm(self, e)
@@ -1590,6 +1592,24 @@ def _words_text(v) -> str:
     return ", ".join(v) if isinstance(v, (list, tuple)) else (v or "")
 
 
+def _realizations_text(v) -> str:
+    return "" if v in (None, "all") else " ".join(str(k) for k in v)
+
+
+def _parse_realizations(text):
+    """'0 1' -> [0, 1]; empty / 'all' -> None (every realization of the noise file)."""
+    w = _words(text)
+    if not w or w == ["all"]:
+        return None
+    try:
+        v = sorted({int(x) for x in w})
+    except ValueError:
+        v = [-1]
+    if any(k < 0 for k in v):
+        raise ValueError("realizations_run: give realization indices like 0 or 0 1 (empty = all of them)")
+    return v
+
+
 class NoiseForm(_Dialog):
     """Edit config of Noise. With 'cases' it adds noise to validation cases: noisy copies = cases x absolute SNR levels x
     realizations (PLAN_noise_validation.md); without it the old mode (one control case at several levels: its other keys
@@ -1728,13 +1748,54 @@ class NoiseForm(_Dialog):
         ex.save_section(self.e.name, "noise", d or None)
 
 
+class NoiseIndicatorsForm(_Dialog):
+    """Edit config of Noise indicators: which realizations of the noise file to compute (realizations_run), resuming an
+    interrupted run and the out file. The variants are those of the Indicators stage (button)."""
+
+    def __init__(self, app, e):
+        super().__init__(app, f"Noise indicators — {e.name}")
+        tk, ttk = self.tk, self.ttk
+        self.e, sec = e, e.section("noise_indicators")
+        self.rr = self.field("realizations_run", tk.StringVar(value=_realizations_text(sec.get("realizations_run"))), width=14,
+                             note="indices to compute, e.g. 0 or 0 1; empty = every realization of the noise file. It "
+                                  "changes which results exist: it is part of the fingerprint")
+        self.resume = tk.BooleanVar(value=bool(sec.get("resume")))
+        ttk.Checkbutton(self.body, text="resume: skip the groups that are already complete in the out file",
+                        variable=self.resume).grid(row=self.row, column=0, columnspan=3, sticky="w", pady=2)
+        self.row += 1
+        self.note("Resuming mixes old and new results: if the variants changed since the file was written, do not use it "
+                  "(run everything again). It does not change the fingerprint. The scripts take --realizations and --resume.",
+                  "#a15c00")
+        self.out = self.field("out file", tk.StringVar(value=sec.get("out", "")), width=90)
+        self.note(f"empty = {ex._all_stages(e)['noise_indicators'].outputs[0]}")
+        ttk.Button(self.body, text="Indicator variants…", command=lambda: IndicatorsForm(app, e)).grid(
+            row=self.row, column=0, columnspan=2, sticky="w", pady=6)
+        self.row += 1
+        self.buttons()
+
+    def save(self):
+        d = dict(ex.own_yaml(self.e.name).get("noise_indicators") or {})
+        run = _parse_realizations(self.rr.get())
+        for k, v in (("realizations_run", run), ("resume", True if self.resume.get() else None),
+                     ("out", os.path.normpath(self.out.get().strip()).replace("\\", "/") if self.out.get().strip() else None)):
+            if v is None:
+                d.pop(k, None)
+            else:
+                d[k] = v
+        ex.save_section(self.e.name, "noise_indicators", d or None)
+
+
 class NoiseValidateForm(_Dialog):
-    """Edit config of Noise validation: only the out file. Truth, onsets and the gray mode come from the clean validation."""
+    """Edit config of Noise validation: the realizations to score and the out file. Truth, onsets and the gray mode come
+    from the clean validation."""
 
     def __init__(self, app, e):
         super().__init__(app, f"Noise validation — {e.name}")
         self.e = e
         default = ex._all_stages(e)["noise_validate"].outputs[0]
+        self.rr = self.field("realizations_run", self.tk.StringVar(
+            value=_realizations_text(e.section("noise_validate").get("realizations_run"))), width=14,
+            note="indices to score, e.g. 0; empty = every copy found in the indicator file (use the same as in Noise indicators)")
         self.out = self.field("out file", self.tk.StringVar(value=e.section("noise_validate").get("out", "")), width=90)
         self.note(f"empty = {default}")
         self.note("Every noisy copy is scored against the truth of its CLEAN case, taken from the clean validation (run "
@@ -1743,8 +1804,14 @@ class NoiseValidateForm(_Dialog):
         self.buttons()
 
     def save(self):
-        o = self.out.get().strip()
-        ex.save_section(self.e.name, "noise_validate", {"out": os.path.normpath(o).replace("\\", "/")} if o else None)
+        o, run = self.out.get().strip(), _parse_realizations(self.rr.get())
+        d = dict(ex.own_yaml(self.e.name).get("noise_validate") or {})
+        for k, v in (("out", os.path.normpath(o).replace("\\", "/") if o else None), ("realizations_run", run)):
+            if v is None:
+                d.pop(k, None)
+            else:
+                d[k] = v
+        ex.save_section(self.e.name, "noise_validate", d or None)
 
 
 def _var_keys(spec: dict) -> tuple:

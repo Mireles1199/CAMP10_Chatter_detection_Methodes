@@ -23,6 +23,7 @@ import datetime
 import hashlib
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -158,8 +159,8 @@ def presets() -> dict:
     return variants_library().get("variants") or {}
 
 
-# keys that never change a result (parallelism, launcher, text): left out of the configuration fingerprint
-HASH_IGNORE = {"nb_proc", "n2m_bat", "workers", "description", "timed", "auto_extract"}
+# keys that never change a result (parallelism, launcher, text, resuming an interrupted run): left out of the fingerprint
+HASH_IGNORE = {"nb_proc", "n2m_bat", "workers", "description", "timed", "auto_extract", "resume"}
 # indicator processes in parallel when the experiment does not say: each takes ~1-3 GB (6 once ran out of virtual memory)
 DEFAULT_WORKERS = 3
 
@@ -679,6 +680,31 @@ def noise_multi(exp: "Exp") -> bool:
     return "cases" in exp.section("noise")
 
 
+def realizations_run(exp: "Exp", section: str):
+    """Realization indices a noise stage works on (the 'realizations_run' key of its section, e.g. [0]); None = every
+    realization of the noise file (key absent, 'all' or not valid: check() reports the last)."""
+    v = exp.section(section).get("realizations_run")
+    if isinstance(v, (list, tuple)) and v and all(isinstance(k, int) and not isinstance(k, bool) and k >= 0 for k in v):
+        return sorted(set(v))
+    return None
+
+
+def _noise_flags(exp: "Exp", section: str, resume: bool = False) -> list:
+    """--realizations K ... (multi-case noise) and --resume (noise_indicators) of a noise stage, only when written."""
+    run, out = realizations_run(exp, section), []
+    if run is not None and noise_multi(exp):
+        out += ["--realizations", *map(str, run)]
+    if resume and exp.section(section).get("resume") is True:
+        out.append("--resume")
+    return out
+
+
+def realization_of(group: str):
+    """k of a noisy copy 'snr_<dB>__<case>__r<k>' (None for other groups)."""
+    m = re.search(r"__r(\d+)$", group)
+    return int(m.group(1)) if m else None
+
+
 def stages(exp: Exp) -> dict:
     """{key: Stage} for the stages the experiment turned on (plus the ones they need), in topological order."""
     S = _all_stages(exp)
@@ -794,7 +820,8 @@ def _all_stages(exp: Exp) -> dict:
                                   [noise_out, exp.reference], [ni_out],
                                   [_py(os.path.join(ANA, "doe_indicators.py"), "--experiment", exp.path,
                                        "--doe_results", noise_out, "--out", ni_out)
-                                   + (["--no-signals"] if multi else [])],   # the copies are many: no signals again
+                                   + (["--no-signals"] if multi else [])   # the copies are many: no signals again
+                                   + _noise_flags(exp, "noise_indicators", resume=True)],
                                   {**ind_section, **exp.section("noise_indicators")},
                                   roles=(["noisy signals", f"labelled dataset (experiment {ref_exp.name})"],
                                          ["indicator results on the noisy signals"]))
@@ -802,7 +829,8 @@ def _all_stages(exp: Exp) -> dict:
     nv_out = exp.out("noise_validate", "out", "doe_noise_validation_results" + gray_suffix(gray) + ".h5")
     S["noise_validate"] = Stage(
         exp, "noise_validate", [(exp, "noise_indicators"), (exp, "validate")], [ni_out, val_out], [nv_out],
-        [_py(os.path.join(ANA, "validate_noise.py"), "--noise_ind", ni_out, "--clean", val_out, "--out", nv_out)],
+        [_py(os.path.join(ANA, "validate_noise.py"), "--noise_ind", ni_out, "--clean", val_out, "--out", nv_out)
+         + _noise_flags(exp, "noise_validate")],
         {**exp.section("noise_validate"), "out": nv_out}, runnable=multi,
         why_not="the noise is the old one-control-case mode: set 'cases' in Edit config of Noise to validate it",
         roles=(["indicator results on the noisy copies", "clean validation (truth, onsets, gray mode, reference metrics)"],
@@ -1067,6 +1095,26 @@ def _noise_problems(exp: Exp, warns: list) -> list:
     if "noise_validate" in exp.enabled and not noise_multi(exp):
         errs.append("noise_validate needs 'cases' in the noise section (Edit config of Noise): the old mode "
                     "(one control case) has no truth to score against")
+    for sec in ("noise_indicators", "noise_validate"):   # which realizations the stage works on, and resuming
+        s_ = exp.section(sec)
+        rr = s_.get("realizations_run")
+        nr = nz.get("realizations")
+        if rr is not None and rr != "all":
+            if not (isinstance(rr, list) and rr and all(isinstance(k, int) and not isinstance(k, bool) and k >= 0 for k in rr)):
+                errs.append(f"{sec}.realizations_run must be 'all' or a list of realization indices (0, 1, ...)")
+            elif isinstance(nr, int) and [k for k in rr if k >= nr]:
+                errs.append(f"{sec}.realizations_run {[k for k in rr if k >= nr]} is not among the noise realizations "
+                            f"(0..{nr - 1})")
+            elif not noise_multi(exp):
+                warns.append(f"{sec}.realizations_run is ignored: the old one-control-case noise has no realizations")
+        if "resume" in s_ and (not isinstance(s_["resume"], bool) or sec != "noise_indicators"):
+            errs.append(f"{sec}.resume must be true / false and exists only in noise_indicators")
+    ir, vr = realizations_run(exp, "noise_indicators"), realizations_run(exp, "noise_validate")
+    if ir is not None and vr is not None and set(vr) - set(ir):
+        warns.append(f"noise_validate scores realizations {sorted(set(vr) - set(ir))} that noise_indicators does not compute")
+    elif ir is not None and vr is None and "noise_validate" in exp.enabled:
+        warns.append("noise_validate has no realizations_run: it scores every copy found in the indicator file, also the "
+                     f"ones outside noise_indicators.realizations_run {ir}")
     if not noise_multi(exp):
         return errs
     if "snr_range" in nz:
@@ -1504,13 +1552,30 @@ def _stage_summary(exp: Exp, key: str) -> list:
         truth = {c: lab for c, (lab, _) in _label_cases(exp.label["out"]).items()} if key == "indicators" else {}
         with h5py.File(path, "r") as f:
             groups = [g for g in f if isinstance(f[g], h5py.Group) and g not in ("summary", "metrics", "training")]
+            # realizations_run: only those copies are expected; the others in the file are counted apart and ignored
+            run, expected, outside = (realizations_run(exp, key) if key == "noise_indicators" else None), None, 0
+            if run is not None:
+                outside = sum(realization_of(g) not in run for g in groups)
+                groups = [g for g in groups if realization_of(g) in run]
+                nz_path = S["noise"].outputs[0] if "noise" in S else ""
+                if os.path.isfile(nz_path):
+                    try:
+                        with h5py.File(nz_path, "r") as nf:
+                            expected = sum(realization_of(g) in run for g in nf)
+                    except OSError:
+                        pass
             variants = sorted({v for g in groups for v in f[g] if isinstance(f[g][v], h5py.Group) and "t" in f[g][v]})
-            out.append((f"{len(variants)} variants x {len(groups)} {'cases' if key == 'indicators' else 'groups'}", "ok"))
+            total = len(groups) if expected is None else expected
+            out.append((f"{len(variants)} variants x {total} {'cases' if key == 'indicators' else 'groups'}", "ok"))
+            if run is not None:
+                nr = int(f.attrs.get("realizations", 0)) or "?"
+                out.append((f"realizations computed: {run} of {nr}" + (f"; {outside} groups of other realizations in the "
+                                                                       "file are ignored" if outside else ""), "warn" if outside else None))
             for v in variants:
                 done = [g for g in groups if v in f[g]]
                 errs = [g for g in done if "meta_error" in f[g][v].attrs]
                 flag = [g for g in done if "t_d" in f[g][v] and f[g][v]["t_d"].size > 0]
-                txt = f"  {v}: {len(done)}/{len(groups)} done"
+                txt = f"  {v}: {len(done)}/{total} done"
                 if errs:
                     txt += f", {len(errs)} errors"
                 if truth:
@@ -1591,6 +1656,12 @@ def _stage_summary(exp: Exp, key: str) -> list:
         f2 = lambda x: "-" if x is None or x != x else f"{x:.2f}"   # noqa: E731
         out = [(f"{len(rows)} variants; balanced accuracy: clean -> noisiest level (mean over the realizations), "
                 "and the highest SNR at which it falls more than 0.05 below the clean one", "ok")]
+        got, total = noise_validation_realizations(p)
+        want = realizations_run(exp, "noise_validate")
+        if got:
+            out.append((f"realizations scored: {got} of {total if total else '?'}"
+                        + (f"; the YAML asks for {want}: run the stage again" if want is not None and want != got else ""),
+                        "warn" if want is not None and want != got else None))
         for r in sorted(rows, key=lambda r: -(rows[r]["ba"] if rows[r]["ba"] == rows[r]["ba"] else -1)):
             d = rows[r]
             bd = d["breakdown"]
@@ -2166,6 +2237,19 @@ def noise_validation_rows(path: str) -> dict:
             out[run] = dict(clean=None if clean is None else float(clean), snr=float(snr[i]), ba=float(ba[i]),
                             breakdown=g.attrs.get("snr_breakdown_db"))
     return out
+
+
+def noise_validation_realizations(path: str):
+    """(realizations scored, realizations of the noise file) of a doe_noise_validation_results.h5: the indices present in
+    /metrics and the root attr 'realizations' (None where the file lacks it)."""
+    import h5py
+    got, total = set(), None
+    with h5py.File(path, "r") as f:
+        total = int(f.attrs["realizations"]) if "realizations" in f.attrs else None
+        for g in (f["metrics"].values() if "metrics" in f else []):
+            if "realization" in g:
+                got |= {int(k) for k in g["realization"][()]}
+    return sorted(got), total
 
 
 def dependents(name: str) -> list:
@@ -3158,6 +3242,55 @@ def _selftest_noise(v2: Exp) -> None:
         g["snr_db"], g["balanced_accuracy_mean"] = np.array([80.0, 10.0]), np.array([0.95, 0.94])
         f.create_group("clean/runA").attrs["balanced_accuracy"] = 0.96
     assert "breakdown none" in " | ".join(t for t, _ in stage_summary(vn, "noise_validate"))
+    # realizations_run / resume (agreed with wt-validacion; the flags of the scripts come with their delivery): the
+    # command is built, realizations_run is in the fingerprint only when written, resume never is
+    S0 = stages(vn)
+    assert "--realizations" not in S0["noise_indicators"].cmds[0] and "--resume" not in S0["noise_indicators"].cmds[0]
+    save_section("vn", "noise_indicators", {"resume": True})
+    S1 = stages(load("vn"))
+    assert S1["noise_indicators"].hash == S0["noise_indicators"].hash and S1["noise_indicators"].cmds[0][-1] == "--resume"
+    save_section("vn", "noise_indicators", {"realizations_run": [0], "resume": True})
+    save_section("vn", "noise_validate", {"realizations_run": [0]})
+    vn = load("vn")
+    S2 = stages(vn)
+    c = S2["noise_indicators"].cmds[0]
+    assert c[-4:] == ["--no-signals", "--realizations", "0", "--resume"], c
+    assert S2["noise_validate"].cmds[0][-2:] == ["--realizations", "0"]
+    assert S2["noise_indicators"].hash != S0["noise_indicators"].hash and S2["noise_validate"].hash != S0["noise_validate"].hash
+    assert all(S2[k].hash == h for k, h in clean.items()) and not _noise_problems(vn, [])
+    for bad in ({"realizations_run": [2]}, {"realizations_run": ["x"]}, {"realizations_run": []}, {"resume": "yes"}):
+        save_section("vn", "noise_indicators", bad)
+        assert len(_noise_problems(load("vn"), [])) == 1, bad
+    save_section("vn", "noise_indicators", {"realizations_run": [0]})
+    save_section("vn", "noise_validate", {"realizations_run": [0, 1]})
+    warns = []
+    assert not _noise_problems(load("vn"), warns) and any("[1] that noise_indicators does not compute" in w for w in warns), warns
+    save_section("vn", "noise_validate", {"realizations_run": [0]})
+    vn = load("vn")
+    S3 = stages(vn)
+    # the cards compare with the copies expected (cases x levels x realizations_run), not with every group of the file
+    names = [f"snr_{snr:06.2f}__case_000__r{k:02d}" for snr in (20, 10) for k in (0, 1)]
+    with h5py.File(S3["noise"].outputs[0], "w") as f:
+        f.attrs.update(noise_layout="multi", realizations=2, snr_levels=[20.0, 10.0], cases=["case_000"], snr_ref_case="case_000")
+        for g in names:
+            f.create_group(g)
+    with h5py.File(S3["noise_indicators"].outputs[0], "w") as f:
+        f.attrs["realizations"] = 2
+        for g in names:
+            q = f.create_group(f"{g}/v")
+            q["t"], q["I_t"], q["t_d"] = np.arange(3.0), np.arange(3.0), np.array([1.0])
+    card = [t for t, _ in stage_summary(vn, "noise_indicators")]
+    assert card[0] == "1 variants x 2 groups" and "realizations computed: [0] of 2; 2 groups of other realizations" in card[1], card
+    assert card[2].startswith("  v: 2/2 done"), card
+    with h5py.File(S3["noise_validate"].outputs[0], "w") as f:
+        f.attrs["realizations"] = 2
+        f.create_dataset("metrics/runA/realization", data=np.array([0.0, 0.0]))
+        g = f.create_group("by_snr/runA")
+        g["snr_db"], g["balanced_accuracy_mean"] = np.array([20.0, 10.0]), np.array([0.9, 0.8])
+    card = [t for t, _ in stage_summary(vn, "noise_validate")]
+    assert card[1] == "realizations scored: [0] of 2", card
+    save_section("vn", "noise_validate", {"realizations_run": [1]})
+    assert "the YAML asks for [1]" in " | ".join(t for t, _ in stage_summary(load("vn"), "noise_validate"))
     os.remove(exp_path("vn"))
     reload()
 
