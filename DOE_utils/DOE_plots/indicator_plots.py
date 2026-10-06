@@ -94,7 +94,8 @@ def config_mismatch(info: dict, ind_h5: str, case: str, variant: str) -> list:
     return bad
 
 
-def draw(ind_id: str, sig, result, config, case: str, scale: float, t_gt):
+def draw(ind_id: str, sig, result, config, case: str, scale: float, t_gt, spectrograms: bool = False,
+         waterfall: str = "time"):
     """Calls the plotting function of the package; the figures stay open in pyplot."""
     kw = dict(scale=scale, figsize_simple=_presets()[0], figsize_wide=_presets()[1], show=False)
     sig.meta["signal_id"] = case   # the package tags its figures with it
@@ -107,7 +108,7 @@ def draw(ind_id: str, sig, result, config, case: str, scale: float, t_gt):
     elif ind_id == "SST_SVD":
         from ssq_chatter import plots_sst_svd
         plots_sst_svd(signal=sig, result=result, show_signal=True, reference_signal=config.get("reference_signal"),
-                      show_spectrograms=False, **kw)
+                      show_spectrograms=spectrograms, waterfall_lines=waterfall, **kw)
     elif ind_id == "Green_Integral":
         from green_integral import SignalData as GreenSignal, plots_green_integral, plots_lyapunov
         raw = result.meta["raw_result"]
@@ -180,6 +181,10 @@ def main(argv=None) -> int:
     ap.add_argument("--save-dir", default="", help="save the figures as PNG here")
     ap.add_argument("--dpi", type=int, default=300)
     ap.add_argument("--show", action="store_true", help="open the figures in windows")
+    ap.add_argument("--spectrograms", action="store_true",
+                    help="SST_SVD only: also the STFT / SST spectrograms, slices and 3D waterfalls (F1-F2c; heavy)")
+    ap.add_argument("--waterfall", default="time", choices=("time", "freq", "both", "surface", "wire"),
+                    help="SST_SVD only: lines of the 3D waterfalls (with --spectrograms)")
     ap.add_argument("--t-end", type=float, default=0.0, help="analyse the signal only up to this time [s] (quick tests; 0 = all)")
     if "--selftest" in (argv if argv is not None else sys.argv):
         return _selftest() or 0
@@ -200,7 +205,7 @@ def main(argv=None) -> int:
     t_gt = float(onset) if onset is not None and np.isfinite(onset) else None
     say("drawing")
     plt.close("all")
-    draw(ind_id, sig, result, config, a.case, a.scale, t_gt)
+    draw(ind_id, sig, result, config, a.case, a.scale, t_gt, a.spectrograms, a.waterfall)
     figs = collect(a.case)
     say(f"{len(figs)} figures")
     names = []
