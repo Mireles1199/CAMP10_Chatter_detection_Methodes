@@ -187,6 +187,11 @@ class ChatterPipeline:
         A_i, t_i = WindowExtractor.extract_local_windows(S1, K=self._config.Ai_length, time_vector=t, mode=self._config.mode)
         t_i = np.asarray(t_i)
         t_i = t_i + signal_time[0]  # Adjust window time indices to match original signal time
+        # Time convention (indicators/COMMON_TEMPLATE.md): t_i = time of the LAST sample the output used. The STFT
+        # frame j is centred on sample j*hop (padsignal pads n_fft/2 each side), so its data ends at centre +
+        # win/2; `t` carries centre + win, hence win/2 too much (+9.9 ms with 4 rev). Only t_i is corrected: `t` (the
+        # time axis of the spectrogram, only exposed as meta["tt"]) is left as it was.
+        t_i = t_i - 0.5 * self._transformer.win_length / fs
         # SVD per window and first singular value
         U, D, Vh = WindowExtractor.compute_svd(A_i, ensure_real=True)
         d1 = D[:, 0]
