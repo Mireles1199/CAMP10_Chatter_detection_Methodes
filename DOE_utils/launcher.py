@@ -509,7 +509,8 @@ class App:
         bar = ttk.Frame(panel)
         bar.pack(fill=tk.X, pady=(6, 0))
         self.stage_btns = {}
-        for key, txt, fn in (("run", "▶ Run in console", self.run_stage), ("copy", "Copy command", self.copy_cmd),
+        for key, txt, fn in (("run", "▶ Run in console", self.run_stage), ("only", "Run only…", self.run_only),
+                             ("copy", "Copy command", self.copy_cmd),
                              ("log", "Log", self.open_log), ("view", "Viewer", self.open_output),
                              ("edit", "Edit config", self.edit_stage), ("labels", "Labels YAML", self.open_labels),
                              ("grid", "Label grid", self.open_grid),
@@ -984,6 +985,7 @@ class App:
                                and ex.status(de).get(dk, ("missing",))[0] != "done"), None)
         btn = self.stage_btns
         self._enable(btn["run"], not blockers and bool(s.cmds))
+        self._enable(btn["only"], k in ex.PARTIAL_STAGES and state == "done" and not blockers and bool(s.cmds))
         self._enable(btn["copy"], bool(s.cmds))
         self._enable(btn["log"], bool(rec and rec.get("log") and os.path.isfile(rec["log"])))
         self._enable(btn["view"], state != "running" and any(p.endswith(".h5") and os.path.isfile(p) for p in s.outputs))
@@ -1038,6 +1040,10 @@ class App:
         self.status_msg.set(f"{ex.TITLES[k]} started in a new console"
                             + (" (it closes by itself at the end; the log stays: 'Log')" if self.close_console.get() else ""))
         self.root.after(1500, lambda: self.refresh(True))
+
+    def run_only(self):
+        """'Run only…' (indicators / noise_indicators): rerun some variants inside the existing results."""
+        RunOnlyForm(self, self.exp(), self.sel_stage)
 
     def run_to_goal(self):
         """One console runs everything the goal needs, one stage after the other: first the stages of the
@@ -1746,6 +1752,48 @@ class NoiseForm(_Dialog):
         else:
             d.pop("signals", None)
         ex.save_section(self.e.name, "noise", d or None)
+
+
+class RunOnlyForm(_Dialog):
+    """'Run only…' of Indicators / Noise indicators: reruns the ticked variants inside the existing results file (the others
+    stay). For a change in the CODE of an indicator: a change of the variant makes the stage stale and is run in full."""
+
+    def __init__(self, app, e, key):
+        super().__init__(app, f"Run only — {ex.TITLES[key]} — {e.name}")
+        tk, ttk = self.tk, self.ttk
+        self.e, self.key = e, key
+        dep = [ex.TITLES[k] for k in ex.dependent_stages(e, key)]
+        self.note("Reruns only the ticked variants inside the existing results; the other variants stay as they are. Use it "
+                  "when the CODE of an indicator changed (a changed variant makes the stage stale: run it in full)."
+                  + (f" Afterwards repeat {', '.join(dep)}: they read these results and will be out of date." if dep else ""),
+                  "#a15c00")
+        self.vars = {}
+        for v, spec in e.indicators["specs"].items():
+            self.vars[v] = tk.BooleanVar(value=False)
+            ttk.Checkbutton(self.body, text=f"{v}   ({spec['indicator']}/{spec.get('func', 'Default')})",
+                            variable=self.vars[v]).grid(row=self.row, column=0, columnspan=3, sticky="w")
+            self.row += 1
+        bar = ttk.Frame(self.body)
+        bar.grid(row=self.row, column=0, columnspan=3, sticky="w", pady=4)
+        self.row += 1
+        ttk.Button(bar, text="All", command=lambda: [b.set(True) for b in self.vars.values()]).pack(side="left")
+        ttk.Button(bar, text="None", command=lambda: [b.set(False) for b in self.vars.values()]).pack(side="left", padx=4)
+        self.buttons("Run in console")
+
+    def save(self):
+        only = [v for v, b in self.vars.items() if b.get()]
+        blockers = ex.run_blockers(self.e, self.key) + ex.partial_blockers(self.e, self.key, only)
+        if blockers:
+            self.app._msg("Cannot run", "; ".join(blockers), "error")
+            return False
+        py, warn = stage_python()
+        if warn:
+            self.app._msg("Python", warn, "warn")
+        app = self.app
+        open_console(ex.run_command(self.e.name, self.key, py, yes=True, only=only)
+                     + (["--pause-on-error"] if app.close_console.get() else []), close=app.close_console.get())
+        app.status_msg.set(f"{ex.TITLES[self.key]}: only {len(only)} variant(s) started in a new console")
+        app.root.after(1500, lambda: app.refresh(True))
 
 
 class NoiseIndicatorsForm(_Dialog):

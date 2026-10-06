@@ -956,7 +956,8 @@ def _stage_state(exp, st, S, own, memo):
         return "done", f"outputs exist; earlier step missing: {missing}"
     if rec is None:
         return "done", "outputs exist (no run record: made outside the app)"
-    return "done", ("imported " if rec.get("status") == "imported" else "") + _fmt_time(rec.get("end") or rec.get("start"))
+    part = f" · partial: only {len(rec['partial'])} variant(s) rerun" if rec.get("partial") else ""
+    return "done", ("imported " if rec.get("status") == "imported" else "") + _fmt_time(rec.get("end") or rec.get("start")) + part
 
 
 # ============================================================================== goals
@@ -1434,9 +1435,15 @@ def stage_summary(exp: Exp, key: str) -> list:
     if key != "simulate" and rec and rec.get("status") == "running" and pid_alive(rec.get("pid")):
         return [("being written by the running stage: its content appears when it ends (progress below)", None)]
     try:
-        return _stage_summary(exp, key)
+        out = _stage_summary(exp, key)
     except Exception as exc:   # an unreadable / half-written file must not break the panel
         return [(f"could not read the outputs: {exc}", "warn")]
+    if rec and rec.get("partial") and rec.get("status") == "done" and key in PARTIAL_STAGES:
+        dep = dependent_stages(exp, key)
+        out = [(f"PARTIAL run ({_fmt_time(rec.get('end'))}): only {', '.join(rec['partial'])} rerun; the rest of the file is "
+                f"from the earlier run." + (f" Repeat {', '.join(TITLES[k] for k in dep)}: they read these results." if dep else ""),
+                "warn")] + out
+    return out
 
 
 def _stage_summary(exp: Exp, key: str) -> list:
@@ -2650,6 +2657,46 @@ def run_blockers(exp: Exp, key: str) -> list:
     return out
 
 
+PARTIAL_STAGES = ("indicators", "noise_indicators")   # doe_indicators.py --only X ...: only those variants are rerun
+
+
+def dependent_stages(exp: Exp, key: str) -> list:
+    """Stages of this experiment that read (directly or not) the results of `key`, in run order."""
+    S, out, todo = stages(exp), set(), [key]
+    while todo:
+        k = todo.pop()
+        for dk, st in S.items():
+            if dk not in out and any(de is exp and d == k for de, d in st.deps):
+                out.add(dk)
+                todo.append(dk)
+    return [k for k in S if k in out]
+
+
+def partial_cmds(st: "Stage", only) -> list:
+    """The commands of a stage with --only X ... (doe_indicators.py: only those variants are rerun)."""
+    return [[*c, "--only", *only] for c in st.cmds]
+
+
+def partial_blockers(exp: Exp, key: str, only) -> list:
+    """Reasons why 'Run only' cannot start: it updates variants inside an existing results file of a stage that is up to
+    date (on a stale or missing file the rest would not match the configuration)."""
+    S = stages(exp)
+    if key not in PARTIAL_STAGES or key not in S:
+        return [f"'{key}' has no partial run (only {', '.join(PARTIAL_STAGES)})"]
+    out = []
+    bad = [v for v in (only or []) if v not in exp.indicators["variants"]]
+    if not only:
+        out.append("choose at least one variant")
+    if bad:
+        out.append(f"not variants of this experiment: {bad}")
+    if not S[key].present():
+        out.append("there is no results file yet: run the stage in full first")
+    elif status(exp)[key][0] != "done":
+        out.append(f"the stage is {status(exp)[key][0]} ({status(exp)[key][1]}): run it in full; a partial run only "
+                   "updates variants inside a file that is up to date")
+    return out
+
+
 def existing_outputs(exp: Exp, key: str) -> list:
     """Outputs that a run would replace (asked before running)."""
     st = stages(exp)[key]
@@ -2758,17 +2805,23 @@ def stamp_outputs(exp: Exp, st: Stage) -> None:
                 print(f"[experiment] could not stamp {p}: {exc}")
 
 
-def run_stage(name: str, key: str, yes: bool = False, cmds=None, notify_end: bool = True) -> int:
+def run_stage(name: str, key: str, yes: bool = False, cmds=None, notify_end: bool = True, only=None) -> int:
     """Run one stage: checks, record 'running', tee output to the console and the log, record the result.
-    cmds overrides the stage commands (selftest only). Returns the exit code."""
+    cmds overrides the stage commands (selftest only). only = variants to rerun (indicators / noise_indicators: the command
+    gets --only and the rest of the results file stays; the record says it was partial). Returns the exit code."""
     import subprocess
     exp = load(name)
-    blockers = run_blockers(exp, key)
+    blockers = run_blockers(exp, key) + (partial_blockers(exp, key, only) if only else [])
     if blockers:
         print("[experiment] cannot run:\n  - " + "\n  - ".join(blockers))
         return 2
     st = stages(exp)[key]
-    old = existing_outputs(exp, key)
+    old = [] if only else existing_outputs(exp, key)   # a partial run updates the file in place
+    if only and not yes:
+        ans = input(f"[experiment] this run reruns only {only} inside the existing results; the others stay. Continue? [y/N] ")
+        if ans.strip().lower() not in ("y", "yes", "s", "si"):
+            print("[experiment] cancelled")
+            return 1
     if old and not yes:
         ans = input(f"[experiment] this run replaces {[os.path.basename(p) for p in old]}. Continue? [y/N] ")
         if ans.strip().lower() not in ("y", "yes", "s", "si"):
@@ -2783,9 +2836,11 @@ def run_stage(name: str, key: str, yes: bool = False, cmds=None, notify_end: boo
             os.makedirs(os.path.dirname(p), exist_ok=True)
     os.makedirs(exp.runs_dir(), exist_ok=True)
     log_path = os.path.join(exp.runs_dir(), f"{key}.log")
-    cmds = cmds if cmds is not None else st.cmds
+    cmds = cmds if cmds is not None else (partial_cmds(st, only) if only else st.cmds)
     rec = {"stage": key, "status": "running", "start": time.time(), "pid": os.getpid(), "hash": st.hash,
            "cmds": [[sys.executable, *c] for c in cmds], "log": log_path}
+    if only:
+        rec["partial"] = list(only)
     write_record(exp, key, rec)
     code = 0
     with open(log_path, "w", encoding="utf-8") as log:
@@ -2826,6 +2881,11 @@ def run_stage(name: str, key: str, yes: bool = False, cmds=None, notify_end: boo
             except OSError as exc:
                 print(f"[experiment] could not write the true labels into the indicator results: {exc}")
     print(f"[experiment] {key}: {'done' if code == 0 else f'FAILED (exit {code})'} - log: {log_path}")
+    if only and code == 0:
+        dep = dependent_stages(exp, key)
+        print(f"[experiment] PARTIAL run: only {', '.join(only)} were rerun; the rest of the file is from the earlier run.")
+        if dep:
+            print(f"[experiment] repeat {', '.join(TITLES[k] for k in dep)}: they read these results and are now out of date.")
     return code
 
 
@@ -3173,9 +3233,10 @@ def chain_command(name: str, goal: str, python: str | None = None) -> list:
     return [python or sys.executable, os.path.abspath(__file__), "chain", name, "--goal", goal]
 
 
-def run_command(name: str, key: str, python: str | None = None, yes: bool = True) -> list:
-    """argv the app uses to open a console with the wrapper."""
-    return [python or sys.executable, os.path.abspath(__file__), "run", name, key] + (["--yes"] if yes else [])
+def run_command(name: str, key: str, python: str | None = None, yes: bool = True, only=None) -> list:
+    """argv the app uses to open a console with the wrapper (only: variants of a partial run)."""
+    return ([python or sys.executable, os.path.abspath(__file__), "run", name, key] + (["--yes"] if yes else [])
+            + (["--only", *only] if only else []))
 
 
 def _selftest_noise(v2: Exp) -> None:
@@ -3258,6 +3319,7 @@ def _selftest_noise(v2: Exp) -> None:
     assert S2["noise_validate"].cmds[0][-2:] == ["--realizations", "0"]
     assert S2["noise_indicators"].hash != S0["noise_indicators"].hash and S2["noise_validate"].hash != S0["noise_validate"].hash
     assert all(S2[k].hash == h for k, h in clean.items()) and not _noise_problems(vn, [])
+    assert dependent_stages(vn, "noise_indicators") == ["noise_validate"] and dependent_stages(vn, "indicators") == ["validate", "noise_validate"]
     for bad in ({"realizations_run": [2]}, {"realizations_run": ["x"]}, {"realizations_run": []}, {"resume": "yes"}):
         save_section("vn", "noise_indicators", bad)
         assert len(_noise_problems(load("vn"), [])) == 1, bad
@@ -3332,6 +3394,18 @@ def _selftest_run(e: Exp) -> None:
     assert link_truth(e) == 1 and os.path.getmtime(out) == mt and status(e)["indicators"][0] == "done"
     with h5py.File(out, "r") as f:
         assert f["case_000"].attrs["true_label"] == "stable" and abs(f["case_000"].attrs["Ap_mm"] - 4.0) < 1e-9
+    # partial run (--only): only for a stage that is up to date and variants of the experiment; the record says so
+    names = list(e.indicators["variants"])
+    assert names and partial_blockers(e, "indicators", names[:1]) == []
+    assert partial_blockers(e, "indicators", ["nope"]) and partial_blockers(e, "indicators", []) and partial_blockers(e, "label_build", names[:1])
+    assert partial_cmds(stages(e)["indicators"], ["a", "b"])[0][-3:] == ["--only", "a", "b"]
+    assert run_command(e.name, "indicators", only=names[:1])[-2:] == ["--only", names[0]]
+    assert run_stage(e.name, "indicators", yes=True, cmds=[[ok, out]], only=names[:1]) == 0
+    assert read_record(e, "indicators")["partial"] == names[:1] and "partial: only 1 variant(s)" in status(e)["indicators"][1]
+    card = [t for t, _ in stage_summary(e, "indicators")]
+    assert card[0].startswith("PARTIAL run") and names[0] in card[0], card
+    assert run_stage(e.name, "indicators", yes=True, cmds=[[ok, out]]) == 0 and "partial" not in read_record(e, "indicators")
+    assert not stage_summary(e, "indicators")[0][0].startswith("PARTIAL")      # a full run clears it
     assert run_stage(e.name, "indicators", yes=True, cmds=[[bad]]) == 3
     assert status(e)["indicators"][0] == "failed" and "exit code 3" in status(e)["indicators"][1]
     # label_template keeps the old file as .bak-<time> (its script refuses to overwrite)
@@ -3665,6 +3739,8 @@ def main():
     r.add_argument("exp")
     r.add_argument("stage", choices=STAGES)
     r.add_argument("--yes", action="store_true", help="do not ask before replacing existing outputs")
+    r.add_argument("--only", nargs="+", metavar="VARIANT", help="indicators / noise_indicators: rerun only these variants "
+                   "(full names of the table); the rest of the results file stays")
     r.add_argument("--pause-on-error", action="store_true", help="wait for Enter if the stage fails (console closes otherwise)")
     ch = sub.add_parser("chain", help="run the next steps of the goal one after the other (what 'Run to goal' opens)")
     ch.add_argument("exp")
@@ -3681,7 +3757,7 @@ def main():
             input("\n[experiment] the chain stopped: read the messages above, then press Enter to close ")
         sys.exit(code)
     if a.cmd == "run":
-        code = run_stage(a.exp, a.stage, a.yes)
+        code = run_stage(a.exp, a.stage, a.yes, only=a.only)
         if code and a.pause_on_error:
             input("\n[experiment] the stage failed: read the messages above, then press Enter to close ")
         sys.exit(code)
