@@ -442,7 +442,8 @@ def _str_attr(v) -> str:
 # Origins of a multi-case noise file: the clean files its noisy copies come from (the 'clean' rows are read from there, never
 # copied). The root attrs <key>_rel / <key>_abs and their resolution are those of DOE_utils/noise_origins.py (contract of
 # docs/planes/PLAN_noise_validation.md §4.4); an older file without them is guessed in its own folder and the parent.
-ORIGIN_FILES = {"source_signals": "doe_results.h5", "clean_indicators": "doe_indicator_results.h5"}
+ORIGIN_FILES = {"source_signals": "doe_results.h5", "clean_indicators": "doe_indicator_results.h5",
+                "clean_validation": "doe_validation_results.h5"}   # (the noise files do not record this one: always guessed)
 ORIGIN_TEXT = {"source_signals": "clean signals of the source cases (doe_results.h5)",
                "clean_indicators": "I(t) of the clean cases (doe_indicator_results.h5)",
                "noise_results": "signals with noise (doe_noise_multi_results.h5)",
@@ -543,6 +544,34 @@ def _add_clean_rows(h5_path: str, with_runs: bool, cases: List[Dict]) -> None:
         notes.append(f"{len(absent)} source case(s) are not in {os.path.basename(path)} (no 'clean' row): {', '.join(absent[:4])}")
 
 
+def _attach_truth(h5_path: str, cases: List[Dict]) -> None:
+    """Column 'truth' and the truth intervals ('truth_iv', for 'Shade truth') of every row of a multi-case noise file: those of
+    its clean source case in the clean validation (the noise does not change the truth; a 'truth' already there is kept).
+    What is not found is said in _LOAD_NOTES."""
+    path, how = _noise_origin(h5_path, "clean_validation")
+    notes = _LOAD_NOTES.setdefault(h5_path, [])
+    if path is None:
+        notes.append(f"I cannot find {ORIGIN_TEXT['clean_validation']}: no truth column ({how})")
+        return
+    if "guessed" in how:
+        notes.append(f"{ORIGIN_TEXT['clean_validation']} was guessed: {path}")
+    truth = {}
+    with h5py.File(path, "r") as f:
+        for case in {c["var_val"]["case_source"] for c in cases}:
+            g = f.get(case)
+            if isinstance(g, h5py.Group) and "truth_t0" in g:
+                truth[case] = (_str_attr(g.attrs.get("$truth$", "?")), list(zip(
+                    g["truth_t0"][()].tolist(), g["truth_t1"][()].tolist(), g["truth_label"].asstr()[()].tolist())))
+    for c in cases:
+        t = truth.get(c["var_val"]["case_source"])
+        if t:
+            c["var_val"].setdefault("truth", t[0])
+            c["truth_iv"] = t[1]
+    absent = sorted({c["var_val"]["case_source"] for c in cases} - set(truth))
+    if absent:
+        notes.append(f"{len(absent)} source case(s) are not in {os.path.basename(path)} (no truth): {', '.join(absent[:4])}")
+
+
 def _load_noise(h5_path: str, with_runs: bool) -> List[Dict]:
     """Casos de doe_noise_results.h5 / doe_noise_indicator_results.h5. Old mode: control + snr_<dB> with their signals.
     Multi-case mode (attr 'realization' in the groups, PLAN_noise_validation.md): one group per noisy copy
@@ -581,6 +610,7 @@ def _load_noise(h5_path: str, with_runs: bool) -> List[Dict]:
     _LOAD_NOTES.pop(h5_path, None)
     if any("realization" in c["var_val"] for c in cases):   # multi-case mode: the clean cases come from the origin files
         _add_clean_rows(h5_path, with_runs, cases)
+        _attach_truth(h5_path, cases)
     cases.sort(key=lambda c: (c["var_val"].get("case_source", ""),
                               c["label_val"] if np.isfinite(c["label_val"]) else float("inf"),
                               c["var_val"].get("realization", 0)))
@@ -611,6 +641,7 @@ def load_noise_validation(h5_path: str) -> List[Dict]:
               "runs": {}, "snr": {}, "dt_us": None, "wall_time_s": None, "Axial_disp": None, "Axial_vel": None}
              for name, vv in rows.items()]
     _attach_origin_data(h5_path, cases)
+    _attach_truth(h5_path, cases)   # (the truth is in /summary already: this adds its intervals)
     cases.sort(key=lambda c: (c["var_val"]["kappa"], c["var_val"]["snr_db"], c["var_val"]["realization"]))
     return cases
 
@@ -864,14 +895,23 @@ def _case_onset(c: dict):
     return v if np.isfinite(v) else None
 
 
+def _shade_iv(ax, iv, labelled: bool = False) -> None:
+    """The stable / gray / unstable intervals [(t0, t1, label)] of a ground truth shaded behind the curves (TRUTH_SHADE);
+    labelled: one legend entry 'truth: <label>' per label."""
+    seen = set()
+    for t0, t1, lab in iv:
+        ax.axvspan(t0, t1, color=TRUTH_SHADE.get(lab, "#999999"), alpha=0.08, lw=0, zorder=0,
+                   label=f"truth: {lab}" if labelled and lab not in seen else None)
+        seen.add(lab)
+
+
 def _draw_truth_marks(axes, c: dict, color, shade: bool) -> None:
     """Vertical line where the ground truth of a case turns unstable (t_onset) and, for a ramp with one case shown, the
     stable / gray / unstable intervals of the truth shaded. Nothing for a case with no t_onset (a stable one)."""
     t_on = _case_onset(c)
     for ax in axes:
         if shade and c.get("ramp"):
-            for t0, t1, lab in c.get("truth_iv", []):
-                ax.axvspan(t0, t1, color=TRUTH_SHADE.get(lab, "#999999"), alpha=0.08, lw=0, zorder=0)
+            _shade_iv(ax, c.get("truth_iv", []))
         if t_on is not None:
             ax.axvline(t_on, color=color, ls=":", lw=1.8, zorder=8,
                        label=f"truth turns unstable ({t_on:.2f} s)" if shade else None)
@@ -1520,6 +1560,11 @@ class DoeSelectorUnifiedApp:
         self._margins_var = tk.BooleanVar(value=False)   # the 10 % / 40 % limits of the labelling rule on the signal
         ttk.Checkbutton(bar, text="Labelling margins", variable=self._margins_var,
                         command=self._replot_active_tab).pack(side=tk.LEFT, padx=4)
+        # noise viewers: the truth intervals of the clean source case behind the curves (_attach_truth)
+        self._truth_var = tk.BooleanVar(value=False) if any(c.get("truth_iv") and _noise_tag(c) for c in self.cases) else None
+        if self._truth_var is not None:
+            ttk.Checkbutton(bar, text="Shade truth", variable=self._truth_var,
+                            command=self._replot_active_tab).pack(side=tk.LEFT, padx=4)
 
         ttk.Separator(bar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6, pady=2)
         ttk.Label(bar, text="X axis:", font=("Arial", 8)).pack(side=tk.LEFT)
@@ -2815,6 +2860,19 @@ class DoeSelectorUnifiedApp:
                         seen.add(rn)
         return ""
 
+    def _shade_truth(self, axes, selected: list) -> str:
+        """'Shade truth' of the noise viewers: the truth intervals of the clean source case of the drawn rows, shaded on
+        `axes`. One source case at a time; returns a note when nothing can be shaded ('' = fine or off)."""
+        var = getattr(self, "_truth_var", None)
+        if var is None or not var.get():
+            return ""
+        ivs = {c["var_val"].get("case_source"): c["truth_iv"] for c in selected if c.get("truth_iv")}
+        if len(ivs) != 1:
+            return "truth: " + ("rows of several source cases, not shaded" if ivs else "no truth for these rows (see the file note)")
+        for ax in axes:
+            _shade_iv(ax, next(iter(ivs.values())), labelled=True)
+        return ""
+
     def _signal_figure(self, names: list):
         """Independent copy of the Signals panel with only the axes of `names` (the export of one signal or of a selection)."""
         from figures_window import copy_figure
@@ -2927,7 +2985,8 @@ class DoeSelectorUnifiedApp:
                 ax.set_xlabel("Time (s)", fontsize=14)
                 ax.xaxis.set_major_formatter(mticker.FormatStrFormatter("%.3g"))
 
-        margins_note = self._draw_margins(selected)
+        margins_note = "; ".join(x for x in (self._draw_margins(selected),
+                                             self._shade_truth([ax for _, ax, _n in axes_sig], selected)) if x)
         n = len(selected)
         lk_disp = _col_header(selected[0]["label_key"]) if selected else ""
         if n <= 12:
@@ -3344,7 +3403,9 @@ class DoeSelectorUnifiedApp:
 
         run_txt = run_filter or "(all)"
         self.ax_It.set_title(f"I_t(t)  —  run: {run_txt}", fontsize=13)
-        self.It_fig.suptitle(f"{lk_disp}  —  {len(selected)} case(s)")   # as the signals panels (replaces the start-up text)
+        truth_note = self._shade_truth([self.ax_It], selected)
+        self.It_fig.suptitle(f"{lk_disp}  —  {len(selected)} case(s)"   # as the signals panels (replaces the start-up text)
+                             + (f"\n[{truth_note}]" if truth_note else ""))
 
         # what the vertical lines are (same colour as the curve they belong to): dashed + dot = first detection t_d of
         # that indicator; dotted = t_onset, where the ground truth of a ramp turns unstable (only when several cases are
@@ -5337,6 +5398,14 @@ def _selftest_noise(d: str, t) -> None:
     assert len(tm) == len(ym) == 100 and ym.max() == yy[:100_000].max() and ym.min() == yy[:100_000].min() and np.all(np.diff(tm) >= 0)
     assert _minmax(t, np.cos(t))[1].shape == t.shape
     assert _make_summary_entries(TYPE_DOE_NOISE, cn, nz) == [] and _make_summary_entries(TYPE_NOISE_IND, ci, nzi) == []
+    # the truth of the clean source case (clean validation, not recorded in the noise files: guessed next to them, here not
+    # found -> a note and no column), then recorded: column 'truth' + intervals on the copies and the clean rows
+    assert "truth" not in cn[0]["var_val"] and any("no truth column" in n for n in _LOAD_NOTES[nzi]), _LOAD_NOTES[nzi]
+    val = os.path.join(d, "val.h5")
+    _origins_module().set_origins(nz, clean_validation=val)
+    rows = load_h5_unified(nz, TYPE_DOE_NOISE)
+    assert len(rows) == 10 and all(c["var_val"]["truth"] == "mixed" and c["truth_iv"] == [(0.0, 6.0, "stable"), (6.0, 10.0, "unstable")]
+                                   for c in rows), [(c["group"], c["var_val"].get("truth"), c.get("truth_iv")) for c in rows]
     # noise validation file: its own type, one row per copy with the outcome of every indicator, figures from NOISE_FIGURES
     nv = os.path.join(d, "doe_noise_validation_results.h5")
     with h5py.File(nv, "w") as f:
@@ -5369,14 +5438,15 @@ def _selftest_noise(d: str, t) -> None:
     # from the origins of the file; an origin that is not there is a note and the rest works
     no = _origins_module()
     doe, ind_clean = os.path.join(d, "doe_results.h5"), os.path.join(d, "ind.h5")
-    no.set_origins(nv, noise_results=nz, source_signals=doe, noise_indicators=nzi, clean_indicators=ind_clean)
+    no.set_origins(nv, noise_results=nz, source_signals=doe, noise_indicators=nzi, clean_indicators=ind_clean, clean_validation=val)
     rows = load_h5_unified(nv, TYPE_NOISE_VAL)
     cleans = [c for c in rows if _is_clean(c)]
     assert [c["group"] for c in cleans] == ["clean__case_000", "clean__case_001"] and len(rows) == 10, [c["group"] for c in rows]
     c0 = next(c for c in rows if c["group"] == "snr_010.00__case_000__r00")
     assert isinstance(c0["signals"], _LazySignals) and "Axial_disp" in c0["signals"] and "maxent_x" in c0["runs"]
     assert c0["var_val"]["kind"] == "noisy" and "maxent_x" in cleans[0]["runs"] and isinstance(cleans[0]["signals"], _LazySignals)
-    assert cleans[0]["var_val"]["truth"] == c0["var_val"]["truth"] and not _LOAD_NOTES[nv]
+    assert cleans[0]["var_val"]["truth"] == c0["var_val"]["truth"] == "unstable" and not _LOAD_NOTES[nv]   # /summary's truth kept
+    assert c0["truth_iv"] == cleans[0]["truth_iv"] == [(0.0, 6.0, "stable"), (6.0, 10.0, "unstable")]
     try:   # drawn in the central panel (Signals / I(t) tabs) from the rows of the table, as the other steps: no buttons
         root = tk.Tk()
     except tk.TclError:
@@ -5392,6 +5462,15 @@ def _selftest_noise(d: str, t) -> None:
             names = lambda ax: [l.get_label() for l in ax.get_lines() if not l.get_label().startswith("_")]   # noqa: E731
             assert names(app.ax_disp) == ["10 dB · case_000 · r00", "clean · case_000"], names(app.ax_disp)
             assert names(app.ax_It) == ["10 dB · case_000 · r00 | maxent_x", "clean · case_000 | maxent_x"], names(app.ax_It)
+            assert not app.ax_disp.patches and not app.ax_It.patches                   # 'Shade truth': off by default
+            app._truth_var.set(True)
+            app._plot_signals()
+            app._plot_It()
+            assert len(app.ax_disp.patches) == len(app.ax_vel.patches) == len(app.ax_It.patches) == 2
+            assert {"truth: stable", "truth: unstable"} <= set(app.ax_It.get_legend_handles_labels()[1])
+            app.tree.selection_set([iid["snr_010.00__case_000__r00"], iid["snr_010.00__case_001__r00"]])   # two source cases
+            app._plot_signals()
+            assert not app.ax_disp.patches and "several source cases" in app.sig_fig._suptitle.get_text()
         finally:
             root.destroy()
     with h5py.File(nv, "a") as f:   # an origin that is not there: said, and the rest is there
