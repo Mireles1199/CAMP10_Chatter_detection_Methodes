@@ -64,7 +64,8 @@ DEFAULT_LABELS_PATH     = "label_amp.yaml"   # None -> "<carpeta de h5_path>/ref
 DEFAULT_OUT_H5          = None   # None -> "<carpeta de h5_path>/reference_dataset.h5"
 DEFAULT_CHANNELS        = None   # None -> autodetecta todos los canales de cada caso
 DEFAULT_STRATEGY        = "amplitude" #manual, kappa, amplitude
-DEFAULT_KAPPA_THRESHOLD = 1.0
+DEFAULT_ETA_THRESHOLD = 1.0
+DEFAULT_KAPPA_THRESHOLD = DEFAULT_ETA_THRESHOLD   # alias (antes kappa)
 DEFAULT_WARMUP          = 0.0
 # --strategy amplitude: max|y| de DEFAULT_AMP_SIGNAL vs % de la base (attr del caso x escala)
 DEFAULT_BASE_ATTR       = "$f_tooth$"   # avance por diente, en mm en var_val.py
@@ -184,7 +185,7 @@ def _piece_depth(sig: "ReferenceSignal", t0: float, t1: float) -> dict:
     if is_ramp(a) and eta_compat.has(a, "eta_start") and eta_compat.has(a, "eta_end"):   # kappa = Ap / limit at the case's n: linear too
         k0, k1 = (float(eta_compat.get(a, k)) for k in ("eta_start", "eta_end"))
         a0, a1 = (float(a[k]) for k in ("$Ap_start$", "$Ap_end$"))
-        out.update({f"kappa_{w}": k0 + (k1 - k0) * (ap - a0) / (a1 - a0) for w, ap in (("t0", ap0), ("t1", ap1))})
+        out.update({f"eta_{w}": k0 + (k1 - k0) * (ap - a0) / (a1 - a0) for w, ap in (("t0", ap0), ("t1", ap1))})
     return out
 
 
@@ -197,7 +198,7 @@ def _label_manual(grp_name: str, attrs: dict, t_range: Tuple[float, float], grp)
     return []
 
 
-def _label_by_kappa(
+def _label_by_eta(
     grp_name: str, attrs: dict, t_range: Tuple[float, float], grp,
     threshold: float = 1.0, warmup: float = 0.0,
 ) -> List[Tuple[float, float, str]]:
@@ -333,7 +334,8 @@ def _label_by_amplitude(
 # Firma: (grp_name, attrs, t_range, grp, **kwargs) -> [(t0, t1, label), ...]
 LABEL_STRATEGIES = {
     "manual":    _label_manual,
-    "kappa":     _label_by_kappa,
+    "eta":       _label_by_eta,
+    "kappa":     _label_by_eta,   # alias: eta se llamaba kappa
     "amplitude": _label_by_amplitude,
 }
 
@@ -424,6 +426,7 @@ def make_label_template(
         raise FileExistsError(
             f"{out_yaml} ya existe — no se sobrescribe (podrías perder etiquetas hechas a mano)."
         )
+    strategy = "eta" if strategy == "kappa" else strategy   # alias: el YAML escribe eta
     label_fn = LABEL_STRATEGIES[strategy]
 
     # Parámetros efectivos de la estrategia (defaults de la función + los pasados) ->
@@ -750,7 +753,8 @@ def _self_test() -> None:
                 sub.create_dataset("time", data=t)
                 sub.create_dataset("values", data=t)
 
-        make_label_template(kappa_h5, kappa_yaml, strategy="kappa", threshold=1.0, warmup=0.5)
+        make_label_template(kappa_h5, kappa_yaml, strategy="kappa", threshold=1.0, warmup=0.5)   # alias of "eta"
+        assert "strategy: eta" in open(kappa_yaml, encoding="utf-8").read()
         kappa_cases = _parse_labels_file(kappa_yaml)
         assert kappa_cases["case_low"] == [(0.5, 10.0, "stable")], kappa_cases["case_low"]
         assert kappa_cases["case_high"] == [(0.5, 10.0, "unstable")], kappa_cases["case_high"]
@@ -864,13 +868,13 @@ def _self_test() -> None:
         with h5py.File(ramp_out, "r") as f:
             un = f["unstable/case_up/Axial_disp__000"].attrs
             assert abs(un["Ap_end_mm"] - 15.0) < 1e-9 and abs(un["Ap_start_mm"] - (5 + 10 * un["t0"] / 10)) < 1e-9
-            assert abs(un["kappa_t1"] - 0.015 / 0.0086) < 1e-9 and un["signal_t0"] == 0.0
+            assert abs(un["eta_t1"] - 0.015 / 0.0086) < 1e-9 and un["signal_t0"] == 0.0
             st0 = f["stable/case_up/Axial_disp__000"].attrs
             assert abs(st0["Ap_start_mm"] - 6.0) < 1e-9 and st0["t0"] == 1.0          # cropped at 1 s: Ap(1 s) = 6 mm
             dn = f["unstable/case_down/Axial_disp__000"].attrs
             assert abs(dn["Ap_start_mm"] - 14.0) < 1e-9 and dn["Ap_end_mm"] < dn["Ap_start_mm"]
             c = f["unstable/case_const/Axial_disp__000"].attrs
-            assert c["Ap_start_mm"] == c["Ap_end_mm"] == 5.0 and "kappa_t0" not in c
+            assert c["Ap_start_mm"] == c["Ap_end_mm"] == 5.0 and "eta_t0" not in c
 
         # 3. completar el YAML programáticamente
         labels = {
@@ -1165,12 +1169,12 @@ def _main() -> None:
     p_template.add_argument(
         "--strategy", choices=sorted(LABEL_STRATEGIES), default=DEFAULT_STRATEGY,
         help=f"cómo pre-llenar el YAML por caso (default: {DEFAULT_STRATEGY!r}); "
-             "'manual' deja todo vacío para completar a mano, 'kappa' etiqueta por umbral de kappa, "
+             "'manual' deja todo vacío para completar a mano, 'eta' (alias 'kappa') etiqueta por umbral de eta, "
              "'amplitude' por max|señal| vs %% de una variable base del caso (stable/gray/unstable)",
     )
     p_template.add_argument(
-        "--kappa-threshold", type=float, default=DEFAULT_KAPPA_THRESHOLD,
-        help=f"umbral de kappa para --strategy kappa (default: {DEFAULT_KAPPA_THRESHOLD})",
+        "--eta-threshold", "--kappa-threshold", dest="eta_threshold", type=float, default=DEFAULT_ETA_THRESHOLD,
+        help=f"umbral de eta para --strategy eta (default: {DEFAULT_ETA_THRESHOLD}; --kappa-threshold sigue valiendo)",
     )
     p_template.add_argument(
         "--warmup", type=float, default=DEFAULT_WARMUP,
@@ -1306,8 +1310,8 @@ def _main() -> None:
     if args.cmd == "template":
         out_yaml = args.out_yaml or os.path.join(h5_dir, "reference_labels.yaml")
         kwargs = {}
-        if args.strategy == "kappa":
-            kwargs = {"threshold": args.kappa_threshold, "warmup": args.warmup}
+        if args.strategy in ("eta", "kappa"):
+            kwargs = {"threshold": args.eta_threshold, "warmup": args.warmup}
         elif args.strategy == "amplitude":
             kwargs = {
                 "base_attr": args.base_attr, "base_scale": args.base_scale, "signal": args.amp_signal,

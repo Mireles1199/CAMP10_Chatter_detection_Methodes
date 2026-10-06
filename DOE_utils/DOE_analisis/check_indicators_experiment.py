@@ -47,7 +47,7 @@ print(f"(a) OK: {len(cap['RUNS'])} variants == CONFIG dicts (rpm {rpm:g}, f_moda
 # ---- (b) real case: CONFIG path (T_rev of the case) vs experiment path -------------------------------------
 with h5py.File(H5, "r") as f:
     spin = float(f[CASE].attrs["$spin_rate$"])
-settings_cfg = {"cut": tuple(cap["_CUT_START"] for _ in (0,)) + (cap["_CUT_END"],), "label_key": "kappa",
+settings_cfg = {"cut": tuple(cap["_CUT_START"] for _ in (0,)) + (cap["_CUT_END"],), "label_key": "eta",
                 "reference_h5": e.reference, "spin_fallback": None}
 settings_exp = dict(settings_cfg, cut=(ex.analysis_cut()[0], float("inf")))
 results_b = {}

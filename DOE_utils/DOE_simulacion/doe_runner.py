@@ -67,9 +67,9 @@ DOE_MANUAL_VAL = None   # <- manual.values
 DOE_EXTRACT_SIGNALS = ["Axial_disp", "Axial_vel", "Axial_acc"]   # <- extract_signals
 DOE_FORCE_SIGNAL = "res_R_p"                                      # <- force_signal
 
-# kappa = Ap / AP_REF (adimensional).
-# Ap_start == Ap_end (profundidad fija)  -> attr 'kappa'
-# Ap_start != Ap_end (barrido en el caso) -> attrs 'kappa_start' / 'kappa_end'
+# eta (antes kappa; los .h5 viejos llevan 'kappa') = Ap / AP_REF (adimensional).
+# Ap_start == Ap_end (profundidad fija)  -> attr 'eta'
+# Ap_start != Ap_end (barrido en el caso) -> attrs 'eta_start' / 'eta_end'
 AP_REF_MODE = "none"    # <- ap_ref.mode: none | manual | model | model_at_spin
 AP_REF_MANUAL = None    # <- ap_ref.manual [m]
 AP_REF_MODEL = None     # <- ap_ref.model: preset de DOE_plots/sld_model.py (necesita sld_tools)
@@ -142,7 +142,7 @@ TABLAS DE VARIABLES
   factorial  producto cartesiano de todas las listas (una variable con 1 valor queda fija).
   manual     variables: [$a$, $b$]  y  values: [[1, 2], [3, 4]]  (una fila por caso).
 
-AP_REF  (kappa = Ap / AP_REF; Ap fijo -> attr kappa, rampa -> kappa_start y kappa_end)
+AP_REF  (eta = Ap / AP_REF; Ap fijo -> attr eta, rampa -> eta_start y eta_end)
   ap_ref: {mode: none}                                 sin kappa
   ap_ref: {mode: manual, manual: 8.605e-3}             Ap de referencia en metros, igual para todo el DOE
   ap_ref: {mode: model, model: 1DOF_150}               Ap critico MINIMO del SLD del preset (un valor, sin rpm)
@@ -718,10 +718,10 @@ def extract_doe_results(doe_dir: str, case_name: str, signals: list, dry_run: bo
                 if ap_start is not None and ap_end is not None:
                     grp.attrs["ap_ref_m"] = ap_ref_c   # el AP_REF realmente usado en este caso
                     if ap_start == ap_end:
-                        grp.attrs["kappa"] = math.trunc(ap_start / ap_ref_c * 1000) / 1000
+                        grp.attrs["eta"] = math.trunc(ap_start / ap_ref_c * 1000) / 1000
                     else:
-                        grp.attrs["kappa_start"] = math.trunc(ap_start / ap_ref_c * 1000) / 1000
-                        grp.attrs["kappa_end"]   = math.trunc(ap_end / ap_ref_c * 1000) / 1000
+                        grp.attrs["eta_start"] = math.trunc(ap_start / ap_ref_c * 1000) / 1000
+                        grp.attrs["eta_end"]   = math.trunc(ap_end / ap_ref_c * 1000) / 1000
 
             # -- wall_time_s (guardado por --timed dentro de la carpeta del caso) --
             wt_file = os.path.join(os.path.dirname(case_path), "wall_time_s.txt")

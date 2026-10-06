@@ -376,9 +376,9 @@ def main() -> None:
         try:
             label_key = _detect_label_key(h5_in)
         except ValueError as exc:
-            if args.experiment:   # solo etiqueta los casos para las figuras: kappa sirve siempre
-                label_key = "kappa"
-                log.info("LABEL_KEY: varias variables cambian; con --experiment se usa 'kappa'")
+            if args.experiment:   # solo etiqueta los casos para las figuras: eta (o kappa en .h5 viejos) sirve siempre
+                label_key = "eta"
+                log.info("LABEL_KEY: varias variables cambian; con --experiment se usa 'eta'")
             elif not args.list:
                 log.error("No se pudo auto-detectar LABEL_KEY:\n  %s", exc)
                 sys.exit(1)
