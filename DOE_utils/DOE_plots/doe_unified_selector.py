@@ -480,89 +480,6 @@ def _noise_origin(h5_path: str, key: str):
     return None, "looked for " + (" | ".join(tried) if tried else "nothing recorded in the file")
 
 
-def _copy_figure(h5_path: str, vvs: List[dict], copies: List[str], kind: str, runs: List[str]):
-    """(Figure, notes) of noisy copies of a file of the noise validation against their clean source case: kind 'signals' =
-    Axial_disp and Axial_vel (clean in black), 'It' = I(t) of each indicator run with its decision limits and detection (the
-    clean run in black). Everything is read lazily from the origins of the file (noise_origins); an origin that is not
-    there is a note ('I cannot find ...') and what can be drawn is drawn."""
-    no = _origins_module()
-    notes: List[str] = []
-    cmap = matplotlib.colormaps["tab10"]
-
-    def thin(t, y):
-        return _minmax(t, y) if len(y) > 2 * LAZY_BINS else (t, y)
-
-    def note(exc):
-        msg = f"I cannot find {ORIGIN_TEXT.get(getattr(exc, 'key', ''), getattr(exc, 'key', '?'))}: {exc}"
-        if msg not in notes:
-            notes.append(msg)
-    if kind == "signals":
-        names = ["Axial_disp", "Axial_vel"]
-        fig, axes = plt.subplots(len(names), 1, sharex=True, figsize=(9, 6.5), constrained_layout=True)
-        for ax, name in zip(axes, names):
-            drawn_clean = set()
-            for i, (vv, copy) in enumerate(zip(vvs, copies)):
-                case = vv.get("case_source")
-                try:
-                    t, y = thin(*no.signal_of(h5_path, copy, name))
-                    ax.plot(t, y, color=cmap(i), lw=0.7, alpha=0.8, label=_noise_tag({"var_val": dict(vv, kind="noisy")}))
-                except (no.OriginMissing, KeyError, OSError) as exc:
-                    if not (isinstance(exc, KeyError) and not isinstance(exc, no.OriginMissing)):   # a signal not in that file: skipped
-                        note(exc)
-                if case not in drawn_clean:
-                    drawn_clean.add(case)
-                    try:
-                        t, y = thin(*no.signal_of(h5_path, case, name))
-                        ax.plot(t, y, color="0.1", lw=0.8, alpha=0.9, label=f"clean · {case}", zorder=1)
-                    except (no.OriginMissing, KeyError, OSError) as exc:
-                        if not (isinstance(exc, KeyError) and not isinstance(exc, no.OriginMissing)):
-                            note(exc)
-            ax.set_ylabel(SIGNAL_YLABELS.get(name) or name)
-            ax.ticklabel_format(style="sci", axis="y", scilimits=(0, 0))
-            if ax.get_legend_handles_labels()[0]:
-                ax.legend(fontsize=8, framealpha=0.7, loc="upper left")
-        axes[-1].set_xlabel("Time (s)")
-        return fig, notes
-    runs = list(runs)
-    ncol = 2 if len(runs) > 1 else 1
-    fig, axes = plt.subplots(max(1, -(-len(runs) // ncol)), ncol, sharex=True, figsize=(5.5 * ncol, 3.2 * max(1, -(-len(runs) // ncol))),
-                             constrained_layout=True, squeeze=False)
-    axes = axes.ravel()
-    for ax, run in zip(axes, runs):
-        ax.set_title(run, fontsize=8)
-        limits_done = False
-        for i, (vv, copy) in enumerate(zip(vvs, copies)):
-            case = vv.get("case_source")
-            for tag, key, group, color, lw in ((_noise_tag({"var_val": dict(vv, kind="noisy")}), "noise_indicators", copy, cmap(i), 1.0),
-                                               (f"clean · {case}", "clean_indicators", case, "0.1", 1.1)):
-                if tag.startswith("clean") and any(l.get_label() == tag for l in ax.get_lines()):
-                    continue
-                try:
-                    r = no.read_indicator(_noise_origin(h5_path, key)[0] or no._origin(h5_path, key), group, run)
-                except (no.OriginMissing, KeyError, OSError) as exc:
-                    if isinstance(exc, KeyError) and not isinstance(exc, no.OriginMissing):
-                        continue   # this indicator is not in that file
-                    note(exc)
-                    continue
-                t, y = thin(r["t"], r["I_t"])
-                ax.plot(t, y, color=color, lw=lw, label=tag, zorder=2)
-                if r["t_d"].size:
-                    ax.axvline(float(r["t_d"][0]), color=color, ls="--", lw=1.2, alpha=0.8)
-                if not limits_done:
-                    for v in _indicator_limits(run, r["attrs"]):
-                        ax.axhline(v, color="0.3", ls="-.", lw=1.0, alpha=0.9)
-                    limits_done = True
-        if ax.get_legend_handles_labels()[0]:
-            ax.legend(fontsize=7, framealpha=0.7)
-        ax.set_yscale(_it_plot_yscale([run]))
-    for ax in axes[len(runs):]:
-        ax.set_visible(False)
-    for ax in axes[:len(runs)]:
-        ax.set_xlabel(r"$t$ (s)")
-        ax.set_ylabel(r"$I(t)$")
-    return fig, notes
-
-
 def _is_clean(c: dict) -> bool:
     """True for a 'clean' row of a noise viewer: the original (no noise) case a noisy copy comes from."""
     return c.get("var_val", {}).get("kind") == "clean"
@@ -574,8 +491,9 @@ NOISE_FILE_NOTES = {
                     "draw: a clean one, several copies, or a clean one plus a copy to compare.",
     TYPE_NOISE_IND: "I(t) of the indicators ON the noisy copies (thresholds and detections included). The 'clean' rows are the "
                     "I(t) of the same case without noise, read from the clean indicator run. Select the rows to compare.",
-    TYPE_NOISE_VAL: "Scoring of each noisy copy against the truth of its clean case (outcome per indicator); the figures are "
-                    "in the right panel. The clean case is the original, noise-free case a copy comes from (source case).",
+    TYPE_NOISE_VAL: "Scoring of each noisy copy against the truth of its clean case (outcome per indicator). Select copies and "
+                    "their 'clean' case (the original, noise-free case a copy comes from) to see their signals and I(t) in the "
+                    "Signals / I(t) tabs, read from the origins; the figures of the validation are in the right panel.",
 }
 
 
@@ -676,8 +594,9 @@ def load_doe_noise(h5_path: str) -> List[Dict]:
 
 def load_noise_validation(h5_path: str) -> List[Dict]:
     """Loader for doe_noise_validation_results.h5 (validate_noise.py): one row per noisy copy (/summary of every
-    indicator): snr_db, case_source, realization, truth, η and the outcome of each indicator. No signals: the
-    figures of the file are in the summary panel (validation_figures.NOISE_FIGURES)."""
+    indicator): snr_db, case_source, realization, truth, η and the outcome of each indicator, plus one 'clean' row per
+    source case; signals and I(t) come from the origins (_attach_origin_data), the figures of the file are in the summary
+    panel (validation_figures.NOISE_FIGURES)."""
     rows: Dict[str, Dict[str, Any]] = {}
     with h5py.File(h5_path, "r") as f:
         for run, g in f["summary"].items():
@@ -686,13 +605,64 @@ def load_noise_validation(h5_path: str) -> List[Dict]:
             for i, name in enumerate(copy):
                 vv = rows.setdefault(str(name), {"snr_db": float(col["snr_db"][i]), "case_source": str(case[i]),
                                                  "realization": int(col["realization"][i]), "truth": str(col["truth"][i]),
-                                                 "kappa": float(_eta.get(col, "eta")[i])})
+                                                 "kappa": float(_eta.get(col, "eta")[i]), "kind": "noisy"})
                 vv["outcome_" + run] = str(col["outcome"][i])
     cases = [{"group": name, "label_key": "snr_db", "label_val": vv["snr_db"], "var_val": vv, "signals": {}, "forces": {},
               "runs": {}, "snr": {}, "dt_us": None, "wall_time_s": None, "Axial_disp": None, "Axial_vel": None}
              for name, vv in rows.items()]
+    _attach_origin_data(h5_path, cases)
     cases.sort(key=lambda c: (c["var_val"]["kappa"], c["var_val"]["snr_db"], c["var_val"]["realization"]))
     return cases
+
+
+def _attach_origin_data(h5_path: str, cases: List[Dict]) -> None:
+    """The rows of a noise validation file get what the panels draw, read lazily from the origins of the file: the signals of
+    the noisy copy (noise_results) and its I(t) (noise_indicators); and one 'clean' row per source case with its signals
+    (source_signals) and I(t) (clean_indicators). An origin that is not found is a note (_LOAD_NOTES) and the rest works."""
+    _LOAD_NOTES.pop(h5_path, None)
+    notes = _LOAD_NOTES.setdefault(h5_path, [])
+    P = {}
+    for key in ("noise_results", "noise_indicators", "source_signals", "clean_indicators"):
+        P[key], how = _noise_origin(h5_path, key)
+        if P[key] is None:
+            notes.append(f"I cannot find {ORIGIN_TEXT[key]} ({how})")
+
+    def signals_of(path, group):
+        if path is None:
+            return {}
+        try:
+            with h5py.File(path, "r") as f:
+                if group in f:
+                    return _LazySignals(path, group, [s_ for s_ in ("Axial_disp", "Axial_vel") if s_ in f[group]
+                                                      and isinstance(f[group][s_], h5py.Group) and "values" in f[group][s_]])
+        except OSError:
+            pass
+        return {}
+
+    def runs_of(f, group):
+        return _read_runs(f[group]) if f is not None and group in f else {}
+    ind_n = h5py.File(P["noise_indicators"], "r") if P["noise_indicators"] else None
+    ind_c = h5py.File(P["clean_indicators"], "r") if P["clean_indicators"] else None
+    try:
+        for c in cases:   # the noisy copies
+            c["signals"], c["runs"] = signals_of(P["noise_results"], c["group"]), runs_of(ind_n, c["group"])
+            c["_attr_src"] = (P["noise_results"], c["group"]) if P["noise_results"] else None
+        done = {}
+        for c in list(cases):   # the clean case of each copy
+            case = c["var_val"]["case_source"]
+            if case in done or (P["source_signals"] is None and P["clean_indicators"] is None):
+                continue
+            vv = {"snr_db": float("inf"), "kind": "clean", "case_source": case, "realization": -1,
+                  "kappa": c["var_val"]["kappa"], "truth": c["var_val"]["truth"]}
+            done[case] = {"group": f"clean__{case}", "label_key": "snr_db", "label_val": float("inf"), "var_val": vv,
+                          "signals": signals_of(P["source_signals"], case), "forces": {}, "runs": runs_of(ind_c, case), "snr": {},
+                          "dt_us": None, "wall_time_s": None, "Axial_disp": None, "Axial_vel": None,
+                          "_attr_src": (P["source_signals"], case) if P["source_signals"] else None}
+        cases.extend(done.values())
+    finally:
+        for f in (ind_n, ind_c):
+            if f is not None:
+                f.close()
 
 
 def load_doe_indicator_unified(h5_path: str) -> List[Dict]:
@@ -1809,11 +1779,6 @@ class DoeSelectorUnifiedApp:
         btns = ttk.Frame(top)
         btns.pack(fill=tk.X, pady=(4, 0))
         ttk.Button(btns, text="▶ Preview", command=self._refresh_summary).pack(side=tk.LEFT)
-        if self.h5_type == TYPE_NOISE_VAL:   # the signals and the I(t) of the selected copies (noisy and clean, from the origins)
-            cb = ttk.Frame(top)
-            cb.pack(fill=tk.X, pady=(4, 0))
-            ttk.Button(cb, text="Signals of copy…", command=lambda: self._open_copy_view("signals")).pack(side=tk.LEFT)
-            ttk.Button(cb, text="I(t) of copy…", command=lambda: self._open_copy_view("It")).pack(side=tk.LEFT, padx=4)
         ttk.Button(btns, text="Save…", command=lambda: self._open_export(self._sum_combo.get())).pack(side=tk.LEFT, padx=4)
         ttk.Button(btns, text="Figures…", command=lambda: self._open_export(
             next((e[0] for e in self._summary_entries if not e[0].startswith("SLD")), None))).pack(side=tk.LEFT)
@@ -1861,7 +1826,7 @@ class DoeSelectorUnifiedApp:
                    command=self._show_columns_dialog).pack(side=tk.LEFT, padx=(6, 0))
 
         # Filtro de run (solo para tipos indicador)
-        if self.h5_type in (TYPE_DOE_INDICATOR, TYPE_NOISE_IND):
+        if self.h5_type in (TYPE_DOE_INDICATOR, TYPE_NOISE_IND, TYPE_NOISE_VAL):
             self._build_run_filter(lf)
 
         # Treeview container
@@ -2302,7 +2267,7 @@ class DoeSelectorUnifiedApp:
 
         # Arma columnas: "case" + claves visibles de var_val + t_d por run (indicadores)
         cols = ["case"] + self._visible_keys
-        if self.h5_type in (TYPE_DOE_INDICATOR, TYPE_NOISE_IND) and self._all_runs:
+        if self.h5_type in (TYPE_DOE_INDICATOR, TYPE_NOISE_IND, TYPE_NOISE_VAL) and self._all_runs:
             with_td = [rn for rn in self._all_runs
                        if any(c.get("runs", {}).get(rn, {}).get("t_d", np.array([])).size for c in self.cases)]
             for rn in (with_td or self._all_runs)[:4]:   # runs that detected something first
@@ -2484,11 +2449,11 @@ class DoeSelectorUnifiedApp:
         cf = self.center_frame
 
         has_signals = self.h5_type in (TYPE_DOE_RESULTS, TYPE_DOE_NOISE,
-                                        TYPE_DOE_INDICATOR, TYPE_NOISE_IND)
+                                        TYPE_DOE_INDICATOR, TYPE_NOISE_IND, TYPE_NOISE_VAL)
         has_forces  = self.h5_type == TYPE_DOE_RESULTS
-        has_runs    = self.h5_type in (TYPE_DOE_INDICATOR, TYPE_NOISE_IND)
+        has_runs    = self.h5_type in (TYPE_DOE_INDICATOR, TYPE_NOISE_IND, TYPE_NOISE_VAL)
         has_deflex  = self._has_deflex
-        has_snr_only = self.h5_type in (TYPE_MODEL_SNR, TYPE_NOISE_VAL)
+        has_snr_only = self.h5_type == TYPE_MODEL_SNR
 
         if has_signals and has_forces and has_runs:
             self._nb = ttk.Notebook(cf)
@@ -2882,7 +2847,7 @@ class DoeSelectorUnifiedApp:
             return
         # multi-case noise files: each curve is read from the file and has ~600 000 points (~90 MB drawn), so an even
         # sample of at most LAZY_MAX_CURVES copies is drawn (the title says so) and each curve is thinned (min / max)
-        lazy = isinstance(selected[0].get("signals"), _LazySignals)
+        lazy = any(isinstance(c.get("signals"), _LazySignals) for c in selected)   # (a row whose origin is missing has none)
         n_sel = len(selected)
         if lazy and n_sel > LAZY_MAX_CURVES:
             selected = [selected[i] for i in np.linspace(0, n_sel - 1, LAZY_MAX_CURVES).round().astype(int)]
@@ -3338,7 +3303,7 @@ class DoeSelectorUnifiedApp:
                 self.ax_It.plot(t[::_IND_DECIMATE], I_t[::_IND_DECIMATE],
                                 color=color, lw=lw,
                                 alpha=_it_ctrl_alp if is_ctrl else case_alpha,
-                                label=(f"{_case_legend(c, c.get('label_key', ''), pv)} | {rn}" if c.get("ramp")
+                                label=(f"{_case_legend(c, c.get('label_key', ''), pv)} | {rn}" if c.get("ramp") or _noise_tag(c)
                                        else f"{lk_disp}={lv_str} | {rn}")
                                       + ("" if delay is None else f"   Δ = {delay:+.2f} s"),
                                 zorder=_it_ctrl_zo if is_ctrl else (3 + ci),
@@ -3573,29 +3538,6 @@ class DoeSelectorUnifiedApp:
         import doe_plotter as _dp
         if self.cases:
             _dp.LABEL_KEY = self.cases[0].get("label_key", _dp.LABEL_KEY)
-
-    def _open_copy_view(self, kind: str) -> None:
-        """'Signals of copy…' / 'I(t) of copy…' of a noise validation file: the selected copies (up to 4), each against its clean
-        source case, read from the origin files (what is not found is said)."""
-        sel = [self._iid_to_case[i] for i in self.tree.selection() if i in self._iid_to_case]
-        if not sel:
-            messagebox.showinfo("Copy", "Select one or more copies in the table (up to 4).", parent=self.root)
-            return
-        fig, notes = _copy_figure(self.h5_path, [c["var_val"] for c in sel[:4]], [c["group"] for c in sel[:4]], kind,
-                                  [r for r in self._all_runs] or sorted({k[len("outcome_"):] for c in sel for k in c["var_val"]
-                                                                        if k.startswith("outcome_")}))
-        win = tk.Toplevel(self.root)
-        win.title(("Signals" if kind == "signals" else "I(t)") + " — " + ", ".join(_noise_tag(c) for c in sel[:4]))
-        win.geometry("1100x780")
-        if notes:
-            ttk.Label(win, text="\n".join(notes), foreground="#a15c00", wraplength=1050, justify=tk.LEFT).pack(
-                anchor=tk.W, padx=8, pady=4)
-        canvas = FigureCanvasTkAgg(fig, master=win)
-        tb = NavigationToolbar2Tk(canvas, win, pack_toolbar=False)
-        tb.pack(side=tk.TOP, fill=tk.X)
-        canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
-        canvas.draw()
-        self._copy_win = win   # for the selftest
 
     def _make_summary_figure(self, entry) -> Optional[Figure]:
         """Figure of a summary entry (label, func, extra); None if there is none, raises if it cannot be made."""
@@ -5409,7 +5351,7 @@ def _selftest_noise(d: str, t) -> None:
             for k in ("snr_db", "realization", "kappa"):
                 g.create_dataset(k, data=[float(c["var_val"][k]) for c in cn])
     assert detect_h5_type(nv) == TYPE_NOISE_VAL
-    cv = load_h5_unified(nv, TYPE_NOISE_VAL)
+    cv = [c for c in load_h5_unified(nv, TYPE_NOISE_VAL) if not _is_clean(c)]   # (the 'clean' rows: below)
     assert len(cv) == 8 and cv[0]["var_val"]["outcome_ind_a"] == "TP" and cv[0]["var_val"]["outcome_ind_b"] == "FN"
     assert cv[0]["var_val"]["case_source"] == "case_000" and cv[0]["var_val"]["realization"] == 0 and cv[0]["signals"] == {}
     assert [e[0] for e in _make_summary_entries(TYPE_NOISE_VAL, cv, nv)] == [f"Noise validation — {n}" for n in vf.NOISE_FIGURES]
@@ -5423,20 +5365,41 @@ def _selftest_noise(d: str, t) -> None:
         except ValueError as exc:
             assert "multi-case" in str(exc)
     assert set(dnp.load_noise_results(old)) == {"control", "snr_040.00"}
-    # the signals and the I(t) of a noisy copy against its clean case, read from the origins of the validation file
+    # the rows of the noise validation have the signals and the I(t) of the copy and of its clean case (central panel): lazily,
+    # from the origins of the file; an origin that is not there is a note and the rest works
     no = _origins_module()
     doe, ind_clean = os.path.join(d, "doe_results.h5"), os.path.join(d, "ind.h5")
     no.set_origins(nv, noise_results=nz, source_signals=doe, noise_indicators=nzi, clean_indicators=ind_clean)
-    g0, vv0 = cv[0]["group"], dict(cv[0]["var_val"])
-    names = lambda ax: [l.get_label() for l in ax.get_lines() if not l.get_label().startswith("_")]   # noqa: E731
-    fig, notes = _copy_figure(nv, [vv0], [g0], "signals", [])
-    assert names(fig.axes[0]) == ["10 dB · case_000 · r00", "clean · case_000"] and notes == [], (names(fig.axes[0]), notes)
-    fig, notes = _copy_figure(nv, [vv0], [g0], "It", ["maxent_x"])
-    assert names(fig.axes[0]) == ["10 dB · case_000 · r00", "clean · case_000"] and notes == [], (names(fig.axes[0]), notes)
-    with h5py.File(nv, "a") as f:   # an origin that is not there: said, and the rest is drawn
+    rows = load_h5_unified(nv, TYPE_NOISE_VAL)
+    cleans = [c for c in rows if _is_clean(c)]
+    assert [c["group"] for c in cleans] == ["clean__case_000", "clean__case_001"] and len(rows) == 10, [c["group"] for c in rows]
+    c0 = next(c for c in rows if c["group"] == "snr_010.00__case_000__r00")
+    assert isinstance(c0["signals"], _LazySignals) and "Axial_disp" in c0["signals"] and "maxent_x" in c0["runs"]
+    assert c0["var_val"]["kind"] == "noisy" and "maxent_x" in cleans[0]["runs"] and isinstance(cleans[0]["signals"], _LazySignals)
+    assert cleans[0]["var_val"]["truth"] == c0["var_val"]["truth"] and not _LOAD_NOTES[nv]
+    try:   # drawn in the central panel (Signals / I(t) tabs) from the rows of the table, as the other steps: no buttons
+        root = tk.Tk()
+    except tk.TclError:
+        root = None
+    if root is not None:
+        root.withdraw()
+        try:
+            app = DoeSelectorUnifiedApp(root, nv)
+            iid = {app._iid_to_case[i]["group"]: i for i in app.tree.get_children()}
+            app.tree.selection_set([iid["snr_010.00__case_000__r00"], iid["clean__case_000"]])
+            app._plot_signals()
+            app._plot_It()
+            names = lambda ax: [l.get_label() for l in ax.get_lines() if not l.get_label().startswith("_")]   # noqa: E731
+            assert names(app.ax_disp) == ["10 dB · case_000 · r00", "clean · case_000"], names(app.ax_disp)
+            assert names(app.ax_It) == ["10 dB · case_000 · r00 | maxent_x", "clean · case_000 | maxent_x"], names(app.ax_It)
+        finally:
+            root.destroy()
+    with h5py.File(nv, "a") as f:   # an origin that is not there: said, and the rest is there
         f.attrs["source_signals_rel"], f.attrs["source_signals_abs"] = "nope.h5", os.path.join(d, "nope.h5")
-    fig, notes = _copy_figure(nv, [vv0], [g0], "signals", [])
-    assert names(fig.axes[0]) == ["10 dB · case_000 · r00"] and any("I cannot find" in n and "nope.h5" in n for n in notes), notes
+    rows = load_h5_unified(nv, TYPE_NOISE_VAL)
+    assert any("I cannot find" in n and "nope.h5" in n for n in _LOAD_NOTES[nv]), _LOAD_NOTES[nv]
+    cl = [c for c in rows if _is_clean(c)]
+    assert cl and all(c["signals"] == {} and "maxent_x" in c["runs"] for c in cl)   # no clean signals, its I(t) is there
     plt.close("all")
 
 
