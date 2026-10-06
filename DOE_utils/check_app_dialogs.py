@@ -176,6 +176,53 @@ def check_noise():
     print("noise forms OK")
 
 
+def check_run_only():
+    """'Run only…' (indicators / noise_indicators): the button follows the state of the stage, the form asks for variants, a
+    partial run needs an up-to-date stage and starts the console with --only."""
+    import time
+    e = ex.load(N9)
+    st = ex.stages(e)["indicators"]
+    out = st.outputs[0]
+    made = []                                                                         # inputs the stage needs: fake, removed at the end
+    for p in [x for x in st.inputs if x and not os.path.exists(x)]:
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        h5py.File(p, "w").close()
+        made.append(p)
+    time.sleep(1.2)
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    h5py.File(out, "w").close()
+    ex.write_record(e, "indicators", {"stage": "indicators", "status": "done", "start": time.time(), "end": time.time(),
+                                      "hash": st.hash})
+    ex.reload()
+    app.select(N9, "indicators")
+    app.root.update()
+    assert not app.stage_btns["only"].instate(["disabled"]), ex.status(ex.load(N9))["indicators"]
+    app.select(N9, "label_build")
+    app.root.update()
+    assert app.stage_btns["only"].instate(["disabled"])                                # only for the indicator stages
+    f = L.RunOnlyForm(app, ex.load(N9), "indicators")
+    assert list(f.vars) == list(ex.load(N9).indicators["variants"])
+    shot(f.win, "run_only_form.png")
+    n = len(launched)
+    f._ok()                                                                           # nothing ticked: refused, says why
+    assert errors.pop()[2] == "error" and len(launched) == n
+    first = next(iter(f.vars))
+    f.vars[first].set(True)
+    f._ok()
+    argv = launched[-1][1]
+    assert launched[-1][0] == "console" and argv[argv.index("--only") + 1] == first and argv[3:5] == [N9, "indicators"], argv
+    ex.write_record(ex.load(N9), "indicators", {"stage": "indicators", "status": "failed", "start": time.time(), "exit_code": 1})
+    f = L.RunOnlyForm(app, ex.load(N9), "indicators")                                 # not up to date: refused
+    f.vars[first].set(True)
+    n = len(launched)
+    f._ok()
+    assert errors.pop()[2] == "error" and len(launched) == n
+    os.remove(ex.record_path(ex.load(N9), "indicators"))
+    for p in [out] + made:
+        os.remove(p)
+    print("run only OK")
+
+
 def check_ramps():
     """Ramps of Ap (PLAN_ramps.md): create (mm, kappa, mixed with constant cases), SLD picker in ramps mode, edit,
     copy, dry-run, a decreasing ramp on a one-way workpiece, import / standardize of an .h5 with ramps."""
@@ -671,6 +718,7 @@ try:
     print("standardize of a file that has its experiment: only attributes, no new experiment OK")
     check_ramps()
     check_noise()
+    check_run_only()
     # ---- compare: two validations with fabricated metrics
     for n, ba in ((VA, 0.9), ("val_from_dialog", 0.7)):
         out = os.path.join(tmp, f"{n}_val.h5")
