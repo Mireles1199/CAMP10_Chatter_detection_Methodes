@@ -726,18 +726,18 @@ def _selftest():
         assert sorted(os.listdir(os.path.join(d, f"f_{mode}"))) == sorted(n + ".png" for n in FIGURES)
         assert FIGURES["ranking"](o)._supxlabel.get_text().startswith("gray cases counted as")
     assert FIGURES["ranking"](out)._supxlabel is None   # the default mode carries no note
-    # kappa -> eta: a validation file whose /summary and /training say eta (no kappa) draws the same figures
+    # kappa -> eta: an OLD validation file (/summary and /training with kappa, no eta) draws the same figures
     import shutil
-    out_eta = os.path.join(d, "out_eta.h5")
-    shutil.copy(out, out_eta)
-    with h5py.File(out_eta, "a") as f:
+    out_old = os.path.join(d, "out_old.h5")
+    shutil.copy(out, out_old)
+    with h5py.File(out_old, "a") as f:
         for r in f["summary"]:
-            f[f"summary/{r}/eta"] = f[f"summary/{r}/kappa"][()]
-            del f[f"summary/{r}/kappa"]
-        f["training/eta"] = f["training/kappa"][()]
-        del f["training/kappa"]
+            f[f"summary/{r}/kappa"] = f[f"summary/{r}/eta"][()]
+            del f[f"summary/{r}/eta"]
+        f["training/kappa"] = f["training/eta"][()]
+        del f["training/eta"]
     for name in ("score_vs_kappa", "case_matrix", "detection_time", "training_coverage", "anticipation"):
-        assert FIGURES[name](out_eta)._keep_size
+        assert FIGURES[name](out_old)._keep_size
     fig = FIGURES["roc"](out)
     assert fig._keep_size == tuple(fig.get_size_inches()) and np.allclose(fig._keep_size, ps.figsize_from_scale(ps.FIGSIZE_SIMPLE, FIGSCALE))
     fc = fig_compare(out, out, figs)
