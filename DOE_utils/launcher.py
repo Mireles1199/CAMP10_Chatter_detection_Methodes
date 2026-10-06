@@ -219,6 +219,8 @@ is), the channel it uses, its last run and, if it cannot run, why and what to do
 Buttons: Run in console · Copy command · Log (everything the stage printed, kept after the console closes) ·
 Viewer · Edit config (the settings of THIS stage; Simulate/Extract = the simulation) · Labels YAML · Folder ·
 Go to blocker · Mark up to date (a stale stage whose configuration change does not alter its result).
+Run missing (Indicators / Noise indicators): only the tasks (case x variant) not yet in the results file, when the
+configuration only GREW since the run (more cases, realizations, levels or variants); the card says 'missing: N of M'.
 "close the console when it ends": the console closes by itself (the log stays).
 
 LEFT: New experiment (from scratch; 'load values from' only pre-fills) · Import folder (already simulated) ·
@@ -529,6 +531,7 @@ class App:
         bar.pack(fill=tk.X, pady=(6, 0))
         self.stage_btns = {}
         for key, txt, fn in (("run", "▶ Run in console", self.run_stage), ("only", "Run only…", self.run_only),
+                             ("missing", "Run missing", self.run_missing),
                              ("copy", "Copy command", self.copy_cmd),
                              ("log", "Log", self.open_log), ("view", "Viewer", self.open_output),
                              ("edit", "Edit config", self.edit_stage), ("labels", "Labels YAML", self.open_labels),
@@ -1016,6 +1019,8 @@ class App:
         btn = self.stage_btns
         self._enable(btn["run"], not blockers and bool(s.cmds))
         self._enable(btn["only"], k in ex.PARTIAL_STAGES and state == "done" and not blockers and bool(s.cmds))
+        self._enable(btn["missing"], k in ex.PARTIAL_STAGES and state in ("done", "stale") and not blockers
+                     and not ex.resume_blockers(e, k))
         self._enable(btn["copy"], bool(s.cmds))
         self._enable(btn["log"], bool(rec and rec.get("log") and os.path.isfile(rec["log"])))
         self._enable(btn["view"], state != "running" and any(p.endswith(".h5") and os.path.isfile(p) for p in s.outputs))
@@ -1075,6 +1080,32 @@ class App:
     def run_only(self):
         """'Run only…' (indicators / noise_indicators): rerun some variants inside the existing results."""
         RunOnlyForm(self, self.exp(), self.sel_stage)
+
+    def run_missing(self):
+        """'Run missing' (indicators / noise_indicators): --resume, only the tasks not in the results file, for a
+        configuration that only grew since the run (more cases, realizations, levels or variants)."""
+        from tkinter import messagebox
+        e, k = self.exp(), self.sel_stage
+        blockers = ex.run_blockers(e, k) + ex.resume_blockers(e, k)
+        if blockers:
+            messagebox.showerror("Cannot run missing", "\n".join(blockers))
+            return
+        m, unknown = ex.missing_tasks(e, k), ex.extension_problems(e, k) is None
+        msg = (f"Compute only the {m[0]} of {m[1]} tasks (group x variant) missing in the results file; the others stay."
+               + ("\n\nThe run was recorded before this check: the app cannot tell whether the configuration only GREW since "
+                  "(more cases, realizations, levels or variants: safe) or CHANGED (parameters of a variant, seed or reference "
+                  "case of the noise, labels: the results on disk would be kept although they no longer hold). Continue only "
+                  "if it only grew." if unknown else "")
+               + "\n\nThe stages that read these results stay stale: run them after. Continue?")
+        if not messagebox.askyesno("Run missing", msg, icon="warning" if unknown else "question"):
+            return
+        py, warn = stage_python()
+        if warn:
+            messagebox.showwarning("Python", warn)
+        open_console(ex.run_command(e.name, k, py, yes=True, resume=True)
+                     + (["--pause-on-error"] if self.close_console.get() else []), close=self.close_console.get())
+        self.status_msg.set(f"{ex.TITLES[k]}: the {m[0]} missing tasks started in a new console")
+        self.root.after(1500, lambda: self.refresh(True))
 
     def run_to_goal(self):
         """One console runs everything the goal needs, one stage after the other: first the stages of the

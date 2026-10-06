@@ -655,6 +655,7 @@ class Stage:
         self.inputs, self.outputs = inputs, outputs
         self.cmds = cmds                    # [[argv...]] run in order, cwd = folder of the script
         self.hash = _hash(section)
+        self.cfg = section                  # what the fingerprint is made of (kept in the run record: run_cfg)
         self.runnable, self.why_not = runnable, why_not
         self.present = present or (lambda: bool(outputs) and all(os.path.exists(p) for p in outputs))
         self.writes = writes if writes is not None else list(outputs)
@@ -1461,6 +1462,18 @@ def stage_summary(exp: Exp, key: str) -> list:
         out = [(f"PARTIAL run ({_fmt_time(rec.get('end'))}): only {', '.join(rec['partial'])} rerun; the rest of the file is "
                 f"from the earlier run." + (f" Repeat {', '.join(TITLES[k] for k in dep)}: they read these results." if dep else ""),
                 "warn")] + out
+    if key in PARTIAL_STAGES and key in stages(exp) and stages(exp)[key].present():   # 'Run missing' (--resume)
+        try:
+            m = missing_tasks(exp, key)
+        except OSError:
+            m = None
+        if m and m[0]:
+            probs = extension_problems(exp, key)
+            out = out + [(f"missing: {m[0]} of {m[1]} tasks (group x variant) for the current configuration - " + (
+                "the change only adds work: 'Run missing' computes them without redoing the rest" if probs == [] else
+                "cannot tell whether the change only adds work (run recorded before this check): 'Run missing' asks"
+                if probs is None else "changed, not only grown (run in full): " + "; ".join(probs)),
+                None if probs == [] else "warn" if probs is None else "bad")]
     if key in PARTIAL_STAGES:
         try:
             changed = indicator_code_changed(exp, key)
@@ -2556,7 +2569,7 @@ def import_dir(name: str, doe_dir: str, reference: str | None = None, label_out:
     for key, st in stages(exp).items():
         if st.present():
             write_record(exp, key, {"stage": key, "status": "imported", "start": now, "end": now,
-                                    "exit_code": 0, "hash": st.hash})
+                                    "exit_code": 0, "hash": st.hash, **run_cfg(exp, st)})
     return path
 
 
@@ -2784,6 +2797,92 @@ def partial_blockers(exp: Exp, key: str, only) -> list:
     return out
 
 
+def run_cfg(exp: Exp, st: "Stage") -> dict:
+    """{'cfg', 'up'} for the run record: the configuration the stage runs with and that of each stage it reads, so a later
+    change can be told apart as an extension (extension_problems)."""
+    js = lambda o: json.loads(json.dumps(_canon(o), sort_keys=True, default=str))   # noqa: E731
+    return {"cfg": js(st.cfg), "up": {f"{de.name}/{dk}": js(stages(de)[dk].cfg) for de, dk in st.deps if dk in stages(de)}}
+
+
+GROWING = ("cases", "snr_list", "realizations_run")   # lists that may grow (None / 'all' = every one)
+
+
+def _not_extension(old: dict, new: dict) -> list:
+    """Why `new` is not `old` plus more work: [] when it only adds cases, levels, realizations or variants (so the results
+    of `old` stay valid and --resume computes the rest); else one text per changed key."""
+    if not (isinstance(old, dict) and isinstance(new, dict)):   # e.g. the run signatures of Extract
+        return [] if old == new else ["its configuration changed"]
+    out = []
+    for k in sorted(set(old) | set(new)):
+        o, n = old.get(k), new.get(k)
+        if o == n or k in ("resume", "out"):
+            continue
+        if k == "specs" and isinstance(o, dict) and isinstance(n, dict):
+            changed = [v for v in o if o[v] != n.get(v)]
+            if changed:
+                out.append("variant(s) changed or removed: " + ", ".join(changed))
+        elif k in GROWING and (n in (None, "all") or isinstance(o, list) and isinstance(n, list) and set(map(str, o)) <= set(map(str, n))):
+            continue
+        elif k == "realizations" and isinstance(o, int) and isinstance(n, int) and n >= o:
+            continue
+        else:
+            out.append(f"{k}: {o!r} -> {n!r}")
+    return out
+
+
+def extension_problems(exp: Exp, key: str):
+    """Why the results already in the output of `key` may not hold for the current configuration: [] = the change since its
+    run only adds work (Run missing is safe), [texts] = something changed, None = unknown (record without its configuration:
+    run before this check, or imported)."""
+    rec, S = read_record(exp, key), stages(exp)
+    if not rec or "cfg" not in rec:
+        return None
+    now = run_cfg(exp, S[key])
+    out = [f"{TITLES[key]}: {p}" for p in _not_extension(rec["cfg"], now["cfg"])]
+    for dep, cfg in now["up"].items():
+        if dep not in (rec.get("up") or {}):
+            return None
+        out += [f"{TITLES[dep.split('/')[1]]} ({dep.split('/')[0]}): {p}" for p in _not_extension(rec["up"][dep], cfg)]
+    return out
+
+
+def missing_tasks(exp: Exp, key: str):
+    """(missing, total) tasks (group x variant) of indicators / noise_indicators for the current configuration: the groups
+    of its input (cases of the experiment; noisy copies of realizations_run) x the variants, those complete in the output
+    not counted (same rule as doe_indicators.done_tasks: the variant has attr 'id'). What --resume --dry_run reports.
+    None when it cannot be counted (no input)."""
+    import h5py
+    st = stages(exp)[key]
+    inp, out = st.inputs[0], st.outputs[0]
+    if not os.path.isfile(inp):
+        return None
+    with h5py.File(inp, "r") as f:
+        groups = sorted(f.keys())
+    if key == "indicators":
+        cases = exp.indicators.get("cases") or "all"
+        groups = [g for g in groups if g.startswith("case_") and (cases == "all" or g in cases)]
+    elif realizations_run(exp, key) is not None:
+        groups = [g for g in groups if realization_of(g) in realizations_run(exp, key)]
+    names, done = exp.indicators["variants"], 0
+    if os.path.isfile(out):
+        with h5py.File(out, "r") as f:
+            done = sum(1 for g in groups if g in f for n in names if n in f[g] and "id" in f[g][n].attrs)
+    return len(groups) * len(names) - done, len(groups) * len(names)
+
+
+def resume_blockers(exp: Exp, key: str) -> list:
+    """Reasons why 'Run missing' (--resume: only the tasks not in the results file) cannot start."""
+    if key not in PARTIAL_STAGES:
+        return [f"'{key}' cannot resume (only {', '.join(PARTIAL_STAGES)})"]
+    if not stages(exp)[key].present():
+        return ["there is no results file yet: run the stage in full"]
+    probs, m = extension_problems(exp, key), missing_tasks(exp, key)
+    out = [] if not probs else ["the configuration changed, not only grew (run in full): " + "; ".join(probs)]
+    if m is not None and m[0] == 0:
+        out.append("nothing missing")
+    return out
+
+
 def existing_outputs(exp: Exp, key: str) -> list:
     """Outputs that a run would replace (asked before running)."""
     st = stages(exp)[key]
@@ -2802,7 +2901,7 @@ def accept(exp: Exp, keys=None) -> list:
             continue
         rec = read_record(exp, k) or {"stage": k, "status": "imported", "start": time.time(), "exit_code": 0}
         st = stages(exp)[k]
-        rec.update(hash=st.hash, accepted=max([time.time()] + [_mtime(p) for p in st.inputs if p]))
+        rec.update(hash=st.hash, accepted=max([time.time()] + [_mtime(p) for p in st.inputs if p]), **run_cfg(exp, st))
         write_record(exp, k, rec)
         if k in PARTIAL_STAGES:   # accepting the stage as it is also accepts the indicator code it was run with
             dismiss_code_notice(exp, k)
@@ -2906,18 +3005,21 @@ def stamp_outputs(exp: Exp, st: Stage) -> None:
                 print(f"[experiment] could not stamp {p}: {exc}")
 
 
-def run_stage(name: str, key: str, yes: bool = False, cmds=None, notify_end: bool = True, only=None) -> int:
+def run_stage(name: str, key: str, yes: bool = False, cmds=None, notify_end: bool = True, only=None,
+              resume: bool = False) -> int:
     """Run one stage: checks, record 'running', tee output to the console and the log, record the result.
     cmds overrides the stage commands (selftest only). only = variants to rerun (indicators / noise_indicators: the command
-    gets --only and the rest of the results file stays; the record says it was partial). Returns the exit code."""
+    gets --only and the rest of the results file stays; the record says it was partial). resume = 'Run missing': --resume,
+    only the tasks not in the results file (the configuration only grew: resume_blockers). Returns the exit code."""
     import subprocess
     exp = load(name)
-    blockers = run_blockers(exp, key) + (partial_blockers(exp, key, only) if only else [])
+    blockers = (run_blockers(exp, key) + (partial_blockers(exp, key, only) if only else [])
+                + (resume_blockers(exp, key) if resume else []))
     if blockers:
         print("[experiment] cannot run:\n  - " + "\n  - ".join(blockers))
         return 2
     st = stages(exp)[key]
-    old = [] if only else existing_outputs(exp, key)   # a partial run updates the file in place
+    old = [] if only or resume else existing_outputs(exp, key)   # a partial / resumed run updates the file in place
     if only and not yes:
         ans = input(f"[experiment] this run reruns only {only} inside the existing results; the others stay. Continue? [y/N] ")
         if ans.strip().lower() not in ("y", "yes", "s", "si"):
@@ -2938,8 +3040,10 @@ def run_stage(name: str, key: str, yes: bool = False, cmds=None, notify_end: boo
     os.makedirs(exp.runs_dir(), exist_ok=True)
     log_path = os.path.join(exp.runs_dir(), f"{key}.log")
     cmds = cmds if cmds is not None else (partial_cmds(st, only) if only else st.cmds)
+    if resume:
+        cmds = [c if "--resume" in c else [*c, "--resume"] for c in cmds]
     rec = {"stage": key, "status": "running", "start": time.time(), "pid": os.getpid(), "hash": st.hash,
-           "cmds": [[sys.executable, *c] for c in cmds], "log": log_path}
+           "cmds": [[sys.executable, *c] for c in cmds], "log": log_path, **run_cfg(exp, st)}
     if key in PARTIAL_STAGES:   # modification time of the indicator code used (information; a partial run renews only its packages)
         before = (read_record(exp, key) or {}).get("code") or {}
         rec["code"] = {**(before if only else {}), **indicator_code_mtimes(exp, only)}
@@ -3337,10 +3441,10 @@ def chain_command(name: str, goal: str, python: str | None = None) -> list:
     return [python or sys.executable, os.path.abspath(__file__), "chain", name, "--goal", goal]
 
 
-def run_command(name: str, key: str, python: str | None = None, yes: bool = True, only=None) -> list:
-    """argv the app uses to open a console with the wrapper (only: variants of a partial run)."""
+def run_command(name: str, key: str, python: str | None = None, yes: bool = True, only=None, resume: bool = False) -> list:
+    """argv the app uses to open a console with the wrapper (only: variants of a partial run; resume: 'Run missing')."""
     return ([python or sys.executable, os.path.abspath(__file__), "run", name, key] + (["--yes"] if yes else [])
-            + (["--only", *only] if only else []))
+            + (["--only", *only] if only else []) + (["--resume"] if resume else []))
 
 
 def _selftest_label_params(v2: Exp) -> None:
@@ -3511,6 +3615,36 @@ def _selftest_noise(v2: Exp) -> None:
     assert card[1] == "realizations scored: [0] of 2", card
     save_section("vn", "noise_validate", {"realizations_run": [1]})
     assert "the YAML asks for [1]" in " | ".join(t for t, _ in stage_summary(load("vn"), "noise_validate"))
+    # 'Run missing' (PLAN_ronda3 T5): tasks missing for the current configuration, and whether the change since the run only
+    # adds work (more realizations / levels / variants: --resume is safe) or changes something (the seed: run in full)
+    save_section("vn", "noise_validate", {"realizations_run": [0]})
+    vn = load("vn")
+    ni, nv_ = stages(vn)["noise_indicators"], vn.indicators["variants"]
+    with h5py.File(ni.outputs[0], "a") as f:   # realization 0 (realizations_run [0]) complete for every variant
+        for g in [g for g in names if g.endswith("r00")]:
+            for v in nv_:
+                f.require_group(f"{g}/{v}").attrs["id"] = "X"
+    write_record(vn, "noise_indicators", {"status": "done", "start": time.time(), "end": time.time(), "hash": ni.hash,
+                                          **run_cfg(vn, ni)})
+    assert missing_tasks(vn, "noise_indicators") == (0, 2 * len(nv_)) and extension_problems(vn, "noise_indicators") == []
+    assert resume_blockers(vn, "noise_indicators") == ["nothing missing"]
+    save_section("vn", "noise_indicators", {})   # realizations_run [0] -> every realization: it grows
+    vn = load("vn")
+    assert missing_tasks(vn, "noise_indicators") == (2 * len(nv_), 4 * len(nv_)) and not resume_blockers(vn, "noise_indicators")
+    card = " | ".join(t for t, _ in stage_summary(vn, "noise_indicators"))
+    assert f"missing: {2 * len(nv_)} of {4 * len(nv_)} tasks" in card and "only adds work" in card, card
+    assert run_command(vn.name, "noise_indicators", resume=True)[-1] == "--resume"
+    save_section("vn", "noise", dict(cfg, realizations=3, snr_list=[20, 10, 5]))   # more realizations and levels: grows
+    assert extension_problems(load("vn"), "noise_indicators") == []
+    save_section("vn", "noise", dict(cfg, seed=7))   # other seed: other copies -> the results on disk do not hold
+    vn = load("vn")
+    assert any(p.startswith("Noise") and "seed" in p for p in extension_problems(vn, "noise_indicators"))
+    assert "changed, not only grew" in resume_blockers(vn, "noise_indicators")[0], resume_blockers(vn, "noise_indicators")
+    write_record(vn, "noise_indicators", {"status": "done", "hash": ni.hash})   # a record of before this check: unknown
+    assert extension_problems(vn, "noise_indicators") is None
+    assert _not_extension({"specs": {"a": {"p": 1}}, "cases": ["c0"]}, {"specs": {"a": {"p": 1}, "b": {}}, "cases": "all"}) == []
+    assert _not_extension({"specs": {"a": {"p": 1}}}, {"specs": {"a": {"p": 2}}}) == ["variant(s) changed or removed: a"]
+    assert _not_extension({"cases": ["c0", "c1"]}, {"cases": ["c0"]}) and _not_extension({"realizations": 3}, {"realizations": 2})
     os.remove(exp_path("vn"))
     reload()
 
@@ -3563,6 +3697,7 @@ def _selftest_run(e: Exp) -> None:
     card = [t for t, _ in stage_summary(e, "indicators")]
     assert card[0].startswith("PARTIAL run") and names[0] in card[0], card
     assert run_stage(e.name, "indicators", yes=True, cmds=[[ok, out]]) == 0 and "partial" not in read_record(e, "indicators")
+    assert read_record(e, "indicators")["cfg"]["specs"] == json.loads(json.dumps(_canon(stages(e)["indicators"].cfg["specs"]), default=str))
     assert not stage_summary(e, "indicators")[0][0].startswith("PARTIAL")      # a full run clears it
     # indicator code changed since the run (information only: no fingerprint, no state): the record stamps the modification
     # time of each package's src; a later edit is reported, 'mark up to date' counts as a run
@@ -3929,6 +4064,8 @@ def main():
     r.add_argument("--yes", action="store_true", help="do not ask before replacing existing outputs")
     r.add_argument("--only", nargs="+", metavar="VARIANT", help="indicators / noise_indicators: rerun only these variants "
                    "(full names of the table); the rest of the results file stays")
+    r.add_argument("--resume", action="store_true", help="indicators / noise_indicators: compute only the tasks missing in "
+                   "the results file (the configuration only grew: more cases, realizations, levels or variants)")
     r.add_argument("--pause-on-error", action="store_true", help="wait for Enter if the stage fails (console closes otherwise)")
     ch = sub.add_parser("chain", help="run the next steps of the goal one after the other (what 'Run to goal' opens)")
     ch.add_argument("exp")
@@ -3945,7 +4082,7 @@ def main():
             input("\n[experiment] the chain stopped: read the messages above, then press Enter to close ")
         sys.exit(code)
     if a.cmd == "run":
-        code = run_stage(a.exp, a.stage, a.yes, only=a.only)
+        code = run_stage(a.exp, a.stage, a.yes, only=a.only, resume=a.resume)
         if code and a.pause_on_error:
             input("\n[experiment] the stage failed: read the messages above, then press Enter to close ")
         sys.exit(code)

@@ -197,7 +197,9 @@ def check_run_only():
     made = []                                                                         # inputs the stage needs: fake, removed at the end
     for p in [x for x in st.inputs if x and not os.path.exists(x)]:
         os.makedirs(os.path.dirname(p), exist_ok=True)
-        h5py.File(p, "w").close()
+        with h5py.File(p, "w") as fh:
+            if p == st.inputs[0]:
+                fh.create_group("case_000")                                           # one case: 'Run missing' has work
         made.append(p)
     time.sleep(1.2)
     os.makedirs(os.path.dirname(out), exist_ok=True)
@@ -208,9 +210,18 @@ def check_run_only():
     app.select(N9, "indicators")
     app.root.update()
     assert not app.stage_btns["only"].instate(["disabled"]), ex.status(ex.load(N9))["indicators"]
+    # 'Run missing' (PLAN_ronda3 T5): the tasks not in the results file; a record without its configuration -> it asks
+    if st.inputs[0] in made:
+        nv = len(ex.load(N9).indicators["variants"])
+        assert ex.missing_tasks(ex.load(N9), "indicators") == (nv, nv) and ex.extension_problems(ex.load(N9), "indicators") is None
+        assert not app.stage_btns["missing"].instate(["disabled"])
+        app.run_missing()
+        assert launched[-1][0] == "console" and launched[-1][1][3:5] == [N9, "indicators"] and "--resume" in launched[-1][1]
+        assert any(t.startswith(f"missing: {nv} of {nv} tasks") for t, _ in ex.stage_summary(ex.load(N9), "indicators"))
+        print("run missing OK")
     app.select(N9, "label_build")
     app.root.update()
-    assert app.stage_btns["only"].instate(["disabled"])                                # only for the indicator stages
+    assert app.stage_btns["only"].instate(["disabled"]) and app.stage_btns["missing"].instate(["disabled"])   # indicator stages only
     f = L.RunOnlyForm(app, ex.load(N9), "indicators")
     assert list(f.vars) == list(ex.load(N9).indicators["variants"])
     shot(f.win, "run_only_form.png")
