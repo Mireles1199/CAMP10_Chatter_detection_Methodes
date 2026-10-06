@@ -79,6 +79,35 @@ Igual que hoy (`<grupo>/<run>/{t, I_t, t_d}` + attrs `pp_*`, `meta_*`), con los 
 - **CSV:** `<out>_by_snr.csv` (una fila por indicador y nivel).
 - **Sin** grupos por caso con señales ni ROC por nivel (ponytail; añadir si se pide).
 
+### 4.4 Orígenes de los datos (attrs raíz; sin duplicar señales) — contrato 2026-10-06
+Cada archivo de resultados dice de dónde vienen sus datos. Para cada origen `K` hay **dos attrs raíz**: `K_rel` (ruta **relativa a la carpeta de este .h5**; ausente si no se puede relativizar, p. ej. otra unidad) y `K_abs` (absoluta, de respaldo). Resolución: primero `K_rel`, luego `K_abs`; si ninguna existe, el origen falta.
+
+| Clave `K` | Qué es | `doe_noise_multi_results.h5` | `doe_noise_indicator_results.h5` | `doe_noise_validation_results.h5` |
+|---|---|---|---|---|
+| `source_signals` | `doe_results.h5` limpio (señales de los casos) | ✔ | ✔ | ✔ |
+| `clean_indicators` | `doe_indicator_results.h5` limpio (I(t) de los casos) | ✔ solo si se genera con `--experiment` | ✔ (heredado) | ✔ |
+| `noise_results` | `doe_noise_multi_results.h5` (señales ruidosas) | — | ✔ | ✔ |
+| `noise_indicators` | `doe_noise_indicator_results.h5` (I(t) ruidosos) | — | — | ✔ |
+| `clean_validation` | `doe_validation_results*.h5` limpio (verdad, métricas) | — | — | ✔ |
+
+- Los archivos **limpios** también los llevan, aditivos: `doe_indicator_results.h5` → `source_signals`; `doe_validation_results*.h5` → `clean_indicators` (y `source_signals` si el de indicadores lo trae). Los archivos viejos no los tienen: el lector devuelve "origen ausente", no falla.
+- Los attrs de nombre-solo existentes (`clean_results`, `noise_indicator_results`, `indicator_results_file`...) se **conservan**.
+- **Vínculo copia → original:** el attr de grupo `case_source` de cada copia ruidosa (caso limpio, p. ej. `case_011`); `realization` y `snr_db` como hoy. Nombre de grupo de la copia **sin cambios** (`snr_040.00__case_011__r00`), igual en el archivo de ruido, el de indicadores y los subárboles. En modo multi **no hay grupo `control`**: los casos limpios no son grupos de ningún archivo de ruido; se leen del origen.
+- **Helper** (solo h5py + numpy + os, sin matplotlib ni paquetes de indicadores): `DOE_utils/noise_origins.py`
+  - `origins(h5_path) -> {clave: ruta | None}` (las cinco claves; `None` = ausente o no encontrada).
+  - `OriginMissing(KeyError)` con `.key` y `.tried` (rutas probadas).
+  - `read_signal(origin_path, case, name) -> (t, y)` (origin = `doe_results.h5` o `doe_noise_multi_results.h5`; `case` = `case_NNN` o nombre de copia).
+  - `read_indicator(origin_path, case, variant) -> {"t", "I_t", "t_d", "attrs"}` (origin = archivo de indicadores, limpio o ruidoso).
+  - `signal_of(h5_path, group, name) -> (t, y)`: desde cualquiera de los tres archivos de ruido o un subárbol de nivel; `group` = copia (→ `noise_results`), caso limpio (→ `source_signals`) o caso de un subárbol (usa su attr `copy`). Lanza `OriginMissing` si falta el origen.
+  - Escritura (la usan los scripts): `set_origins(h5_path, **{clave: ruta})`, `inherit_origins(dst_h5, src_h5)` (copia los orígenes de otro archivo y recalcula las rutas relativas).
+
+### 4.5 `doe_noise_validation_results.h5`: subárbol por nivel (schema `doe_noise_validation_results/2`)
+Además de `/summary`, `/metrics`, `/by_snr`, `/clean` (sin cambios), **un grupo de primer nivel por nivel de SNR** con **exactamente la estructura de `doe_validation_results.h5`** (schema `doe_validation_results/4`): `/<sub>/{summary, metrics, ranking, roc, pairwise, training, case_NNN/...}` y los mismos attrs raíz de la validación limpia (`channel`, `gray_mode`, `labeling_*`...) más `snr_db` y `realization`.
+- **Nombre del subárbol:** `snr_{SNR:06.2f}` (ej. `snr_040.00`) si se puntuó **una** realización; con varias, `snr_{SNR:06.2f}__r{K:02d}`. El orden y los nombres están en el attr raíz **`snr_subtrees`** (array de str, de limpio a ruidoso; dentro de un nivel por realización) — no hay que adivinarlos. Raíz, además: `snr_levels`, `realizations_scored`, `source_signals_*`... (§4.4).
+- **Dentro de `case_NNN`:** attrs `$kappa$ $truth$ $gray$ $t_onset_amp$ $group$ $t_onset$ $outcome_<run>$` (como la limpia), `copy` (nombre de la copia ruidosa) y `case_source`; `truth_t0/t1/label`; subgrupos de indicador con `t, I_t, t_d, pred, truth_w` + métricas. **Sin `Axial_*`**: las señales se leen del origen (`noise_origins.signal_of`; la ruidosa vía `copy` → `noise_results`).
+- `/training` va una sola vez en la raíz y los subárboles lo enlazan (enlace duro **interno**, no externo).
+- Un nivel con los mismos datos que la limpia da las mismas métricas (selftest). Con 1 realización cada nivel es una validación limpia de 22 casos: Wilson, McNemar y ROC válidos.
+
 ## 5. Cambios en los scripts — rama `wt-validacion` (yo)
 
 ### 5.1 `DOE_simulacion/doe_noise.py`
@@ -127,6 +156,11 @@ python validate_noise.py --noise_ind X/doe_noise_indicator_results.h5 --clean X/
 
 Todas con `lang_text` (EN/FR/both), `constrained_layout`, leyendas fuera de los ejes si tapan datos, y la nota de modo de grises cuando no es `ignore`.
 
+### 6.1 API de figuras con nivel (2026-10-06)
+- `FIGURES[<nombre>](h5_path, out_dir=None, snr=None, realization=None)` (las 15): con un archivo de validación **con ruido** y `snr=40` dibuja ese nivel (subárbol §4.5; `realization` por defecto = la primera puntuada); sin `snr` en un archivo con ruido, error claro. En un archivo limpio, `snr` se rechaza. `NOISE_FIGURES[...](h5_path, out_dir=None, snr=None)` ignora `snr` (resumen entre niveles).
+- `figs_dir(h5, snr=None)`: `.../figs_noise_validation[_gray-<modo>]` sin `snr`; con él `.../figs_noise_validation[_gray-<modo>]/snr_040`. `make_all(h5, out_dir=None, snr=None)`: en un archivo con ruido, `NOISE_FIGURES` siempre + las 15 de cada nivel de `snr` (número, lista o `"all"`).
+- CLI: `validation_figures.py --results <h5> [--snr 40 [20 ...] | --snr all]`.
+
 ## 7. Parte de `wt-interfaz` (la gestiona wt-interfaz; yo entrego contrato, scripts y selftests)
 
 ### 7.1 Creación y configuración (YAML + `experiment.py`)
@@ -173,6 +207,7 @@ Todas con `lang_text` (EN/FR/both), `constrained_layout`, leyendas fuera de los 
 | I2 ✅ | wt-interfaz | Formularios y tarjetas | su rama |
 | I3 ✅ | wt-interfaz | Visor: tipo nuevo, `NOISE_FIGURES`, columnas multi, ocultar figuras antiguas, `figs_dir` | su rama |
 | J1 | ambos | E2E desde la app sobre n12000 (12 casos): crear etapas, configurar, correr, ver y exportar | lista de problemas por mensaje |
+| J4 ✅ | wt-validacion | A) `noise_all22_r1` (solo r00, 132 copias, bit a bit = r00 de r5) + archivo de indicadores con solo r00; B) orígenes §4.4 + `noise_origins.py`; C) subárboles por nivel §4.5 + figuras por nivel §6.1 | 767a43d, 3e253bb (A+B); d815c7d, 766d866, fb8d605 (C) |
 | J2 ✅ | wt-validacion | `cases: all` (22) con 5 realizaciones de ruido; indicadores y validación de r00; `--only`, `--resume`, `--realizations` (doe_indicators y validate_noise), `prepare_run`, fuga de memoria; líneas de quiebre de `noise_metrics` | 298ca86, 0394156, 7146aa0, 66d0b2a, 409123b |
 | J3 | wt-interfaz | Probar los flags reales desde la app; ampliar a r01–r02 con `--resume` si hace falta | — |
 
@@ -199,6 +234,7 @@ Todas con `lang_text` (EN/FR/both), `constrained_layout`, leyendas fuera de los 
 - `doe_noise.py` en modo multi sin `--out` escribe `doe_noise_multi_results.h5` **junto a `doe_results.h5`**; la etapa de la app debe pasar `--out` en `out_dir` (§7.1).
 - `validate_noise.py` sin `--out` escribe `doe_noise_validation_results{gray_suffix}.h5` junto a `--noise_ind` y siempre `<out>_by_snr.csv`.
 - `doe_noise.py` mantiene sus finales de línea CRLF (así estaba en el repo).
+- J4 (2026-10-06): `validate_indicators.write_validation()` (núcleo reutilizable de `validate()`); `validate_noise.write_levels()` escribe los subárboles de nivel (§4.5); validación con ruido en schema `/2`; `noise_all22_r1` = r00 de 22 casos, ruido verificado bit a bit contra r00 de `noise_all22_r5` (132 copias, 528 datasets), indicadores 38 MB (solo r00), validación 43 MB.
 - `validate_noise.py --realizations K [K …]` puntúa solo esas realizaciones (índice del attr `realization` de cada copia); attr raíz **aditivo** `realizations_scored` = las puntuadas, mientras `realizations` sigue siendo las del archivo de ruido.
 - `doe_indicators.py`: `--only X [X …]` (prefijo o nombre de variante; error si algún X no coincide), `--resume` (salta tareas grupo × variante con attr `id` ya escrito), `--realizations K [K …]` (sufijo `__rKK`, se interseca con `--cases`).
 

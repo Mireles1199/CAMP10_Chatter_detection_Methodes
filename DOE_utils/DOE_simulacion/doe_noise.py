@@ -34,6 +34,10 @@ import logging
 import numpy as np
 import h5py
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # DOE_utils/: noise_origins
+import noise_origins  # noqa: E402
+import eta_compat  # noqa: E402  (kappa -> eta: lee ambos nombres)
+
 # ==============================================================================
 # CONFIG — editar aquí
 # ==============================================================================
@@ -75,16 +79,17 @@ def build_snr_list(snr_fixed, snr_range=None):
 def auto_ref_case(info: dict) -> str:
     """Caso de referencia del SNR absoluto: el etiquetado 'unstable' (constante) de menor kappa, de un
     {case: {label, kappa, ramp}} de experiment.label_info (las etiquetas PROPIAS del experimento)."""
-    cand = [(d["kappa"], c) for c, d in info.items()
-            if d.get("label") == "unstable" and not d.get("ramp") and np.isfinite(d.get("kappa", np.nan))]
+    cand = [(eta_compat.get(d, "eta"), c) for c, d in info.items()
+            if d.get("label") == "unstable" and not d.get("ramp") and np.isfinite(eta_compat.get(d, "eta"))]
     if not cand:
         raise ValueError("snr_ref_case 'auto': no hay casos constantes etiquetados 'unstable'; indica snr_ref_case")
     return min(cand)[1]
 
 
 def write_multi_noise(doe_results: str, out_path: str, cases, snr_list: list, realizations: int, seed: int,
-                      ref_case: str, signals: list) -> list:
-    """Modo multi-caso (PLAN_noise_validation.md §4.1). Devuelve los nombres de grupo escritos."""
+                      ref_case: str, signals: list, clean_indicators: str = None) -> list:
+    """Modo multi-caso (PLAN_noise_validation.md §4.1). Devuelve los nombres de grupo escritos. Anota en attrs raíz el
+    origen de las señales (source_signals, y clean_indicators si se da: §4.4)."""
     with h5py.File(doe_results, "r") as src:
         all_cases = sorted(k for k in src if k.startswith("case_"))
         cases = all_cases if cases == "all" else list(cases)
@@ -126,6 +131,7 @@ def write_multi_noise(doe_results: str, out_path: str, cases, snr_list: list, re
                         written.append(name)
             log.info("%d copias ruidosas (%d casos x %d niveles x %d realizaciones), referencia %s -> %s",
                      len(written), len(cases), len(snr_list), realizations, ref_case, out_path)
+    noise_origins.set_origins(out_path, source_signals=doe_results, clean_indicators=clean_indicators)
     return written
 
 
@@ -357,6 +363,8 @@ def _selftest():
     info = {"case_000": dict(label="stable", kappa=0.5, ramp=False), "case_002": dict(label="unstable", kappa=1.3, ramp=False),
             "case_003": dict(label="unstable", kappa=1.7, ramp=False), "case_009": dict(label="unstable", kappa=1.1, ramp=True)}
     assert auto_ref_case(info) == "case_002"
+    assert auto_ref_case({"case_000": dict(label="stable", eta=0.5, ramp=False), "case_002": dict(label="unstable", eta=1.3, ramp=False),
+                          "case_003": dict(label="unstable", kappa=1.7, ramp=False)}) == "case_002"   # eta or kappa (label_info of either age)
     try:
         auto_ref_case({"case_000": dict(label="stable", kappa=0.5, ramp=False)})
         raise SystemExit("sin inestables debería fallar")
@@ -368,6 +376,8 @@ def _selftest():
         assert f.attrs["noise_layout"] == "multi" and f.attrs["snr_mode"] == "absolute" and f.attrs["snr_ref_case"] == "case_002"
         assert list(f.attrs["snr_levels"]) == [40.0, 20.0] and f.attrs["realizations"] == 2
         assert list(f.attrs["cases"]) == ["case_000", "case_003"] and not any(k.startswith("case_") for k in f)   # se lee como ruido
+        assert f.attrs["source_signals_abs"] == os.path.abspath(src) and "clean_indicators_abs" not in f.attrs   # §4.4
+        assert noise_origins.origins(out)["source_signals"] == os.path.abspath(src)
         p_ref = float(np.var(fs["case_002/Axial_disp/values"][()]))
         assert abs(f.attrs["snr_ref_power_Axial_disp"] - p_ref) < 1e-30
         a, b = f["snr_040.00__case_000__r00"], f["snr_040.00__case_003__r00"]
@@ -458,7 +468,8 @@ def main():
                          "o indica --snr_ref_case case_NNN")
             ref = auto_ref_case(_experiment().label_info(labels))
         log.info("Caso de referencia del SNR: %s", ref)
-        write_multi_noise(doe_results, out_path, cases, snr_list, int(REALIZATIONS), int(SEED), ref, list(SIGNALS))
+        write_multi_noise(doe_results, out_path, cases, snr_list, int(REALIZATIONS), int(SEED), ref, list(SIGNALS),
+                          clean_indicators=exp.indicators.get("out") if args.experiment else None)
         return
 
     # Cargar caso de control

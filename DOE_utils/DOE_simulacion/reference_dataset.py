@@ -34,12 +34,16 @@ from __future__ import annotations
 import inspect
 import logging
 import os
+import sys
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 import h5py
 import numpy as np
 import yaml
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # DOE_utils/
+import eta_compat  # noqa: E402  (kappa -> eta: los lectores aceptan ambos nombres)
 
 log = logging.getLogger(__name__)
 
@@ -177,8 +181,9 @@ def _piece_depth(sig: "ReferenceSignal", t0: float, t1: float) -> dict:
     span = (float(a.get("signal_t0", sig.t[0])), float(a.get("signal_t1", sig.t[-1])))
     ap0, ap1 = (_experiment().ap_of_t(a, t, span) for t in (t0, t1))
     out = {"Ap_start_mm": ap0 * 1e3, "Ap_end_mm": ap1 * 1e3}
-    if is_ramp(a) and "kappa_start" in a and "kappa_end" in a:   # kappa = Ap / limit at the case's n: linear too
-        k0, k1, a0, a1 = (float(a[k]) for k in ("kappa_start", "kappa_end", "$Ap_start$", "$Ap_end$"))
+    if is_ramp(a) and eta_compat.has(a, "eta_start") and eta_compat.has(a, "eta_end"):   # kappa = Ap / limit at the case's n: linear too
+        k0, k1 = (float(eta_compat.get(a, k)) for k in ("eta_start", "eta_end"))
+        a0, a1 = (float(a[k]) for k in ("$Ap_start$", "$Ap_end$"))
         out.update({f"kappa_{w}": k0 + (k1 - k0) * (ap - a0) / (a1 - a0) for w, ap in (("t0", ap0), ("t1", ap1))})
     return out
 
@@ -197,10 +202,10 @@ def _label_by_kappa(
     threshold: float = 1.0, warmup: float = 0.0,
 ) -> List[Tuple[float, float, str]]:
     """Etiqueta la señal entera (menos `warmup` al inicio) por umbral de kappa."""
-    if "kappa" not in attrs:
-        log.warning("Grupo '%s' sin attr 'kappa' — se deja sin etiquetar", grp_name)
+    if not eta_compat.has(attrs, "eta"):
+        log.warning("Grupo '%s' sin attr 'kappa' (ni 'eta') — se deja sin etiquetar", grp_name)
         return []
-    label = "stable" if attrs["kappa"] < threshold else "unstable"
+    label = "stable" if eta_compat.get(attrs, "eta") < threshold else "unstable"
     return [(t_range[0] + warmup, t_range[1], label)]
 
 
@@ -441,7 +446,7 @@ def make_label_template(
             grp = f[grp_name]
             attrs = dict(grp.attrs)
             ramp = is_ramp(attrs)   # una rampa: su 'kappa' (= el de inicio, si existe) no se muestra
-            kappa_bits = {k: v for k, v in attrs.items() if str(k).startswith("kappa") and not (ramp and k == "kappa")}
+            kappa_bits = {k: v for k, v in attrs.items() if str(k).startswith(("kappa", "eta")) and not (ramp and k in ("kappa", "eta"))}
             if ramp:
                 kappa_bits = {"ramp Ap_mm": f"{float(attrs['$Ap_start$']) * 1e3:g}->{float(attrs['$Ap_end$']) * 1e3:g}",
                               **kappa_bits}
@@ -738,11 +743,20 @@ def _self_test() -> None:
             sub.create_dataset("time", data=t)
             sub.create_dataset("values", data=t)
 
+            for name, e in (("case_eta_low", 0.5), ("case_eta_high", 1.5)):   # kappa -> eta: attr eta, no kappa
+                grp = f.create_group(name)
+                grp.attrs["eta"] = e
+                sub = grp.create_group("Axial_vel")
+                sub.create_dataset("time", data=t)
+                sub.create_dataset("values", data=t)
+
         make_label_template(kappa_h5, kappa_yaml, strategy="kappa", threshold=1.0, warmup=0.5)
         kappa_cases = _parse_labels_file(kappa_yaml)
         assert kappa_cases["case_low"] == [(0.5, 10.0, "stable")], kappa_cases["case_low"]
         assert kappa_cases["case_high"] == [(0.5, 10.0, "unstable")], kappa_cases["case_high"]
         assert kappa_cases["case_no_kappa"] == [], kappa_cases["case_no_kappa"]
+        assert kappa_cases["case_eta_low"] == [(0.5, 10.0, "stable")] and kappa_cases["case_eta_high"] == [(0.5, 10.0, "unstable")], kappa_cases
+        assert "eta=1.5" in open(kappa_yaml, encoding="utf-8").read()
 
         # 2c. estrategia "amplitude": max|y| vs % de $f_tooth$ (0.05 mm -> 5e-5 m):
         # 10% = 5e-6 m, 40% = 2e-5 m -> stable / gray / unstable / sin base (-> [])

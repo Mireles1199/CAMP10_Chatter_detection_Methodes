@@ -21,6 +21,10 @@ Output  doe_noise_validation_results[_gray-<mode>].h5 (+ <out>_by_snr.csv)
   /clean/<run>    attrs: the clean metrics of that indicator over the SAME cases as the noisy copies (their clean
                   runs rescored with the same rules and gray mode: the comparable "no noise" baseline), and <m>_all =
                   the clean metric over every case of the clean file (NaN when the indicator is not in it)
+  /snr_<SNR:06.2f>[__rKK]/  one subtree per level (per realization when several were scored) with the structure of a
+                  clean doe_validation_results.h5 (summary, metrics, ranking, roc, pairwise, training, case_NNN with attr
+                  'copy', no signals): the same analysis as the clean validation for the copies of that level; root attr
+                  snr_subtrees lists them, clean to noisy
 The truth is the clean case's (the noise does not change it), with the gray mode of the clean validation. Ramps are
 left out (deferred). Each realization is a full validation of the cases at one level: the realizations are summarised
 (mean / min / max), never pooled as cases. snr_breakdown_db = highest SNR whose mean balanced accuracy falls more than
@@ -42,6 +46,9 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate_indicators as vi  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))   # DOE_utils/
+import noise_origins  # noqa: E402
+import eta_compat  # noqa: E402  (kappa -> eta: readers accept both)
 
 METRICS = ("TP", "FN", "TN", "FP", "TPR", "TNR", "balanced_accuracy", "MCC", "AUC", "mean_alarm_fraction_stable",
            "median_t_ratio", "n_gray")
@@ -61,7 +68,7 @@ def load_clean(path: str) -> tuple:
             if c.startswith("case_") and "truth_t0" in g:
                 iv = sorted(zip(map(float, g["truth_t0"][()]), map(float, g["truth_t1"][()]), g["truth_label"].asstr()[()]))
                 cases[c] = dict(intervals=iv, t_onset_amp=float(g.attrs.get("$t_onset_amp$", NAN)),
-                                kappa=float(g.attrs.get("$kappa$", NAN)), ramp=str(g.attrs.get("$group$", "global")) == "ramp")
+                                kappa=float(eta_compat.get(g.attrs, "$eta$", NAN)), ramp=str(g.attrs.get("$group$", "global")) == "ramp")
         metrics = {r: dict(g.attrs) for r, g in f["metrics"].items()} if "metrics" in f else {}
         return str(f.attrs.get("gray_mode", "ignore")), cases, metrics
 
@@ -115,6 +122,46 @@ def score_noise(noise_ind: str, gray: str, cases: dict, realizations=None) -> tu
     return nattrs, rows
 
 
+def level_name(snr: float, k: int, one_realization: bool) -> str:
+    """Name of the validation subtree of a level (PLAN_noise_validation.md §4.5)."""
+    return f"snr_{snr:06.2f}" if one_realization else f"snr_{snr:06.2f}__r{k:02d}"
+
+
+def write_levels(out, noise_ind: str, clean: str, gray: str, cases: dict, realizations=None) -> list:
+    """One subtree per level (and realization) with EXACTLY the structure of a clean validation (summary, metrics,
+    ranking, roc, pairwise, training, case_*): vi.write_validation over the copies of that level, truth / onset from
+    the clean file. No signals (they are read from the origins). Returns the subtree names, clean to noisy."""
+    with h5py.File(noise_ind, "r") as f, h5py.File(clean, "r") as fc:
+        copies = {}
+        for name in sorted(f):
+            g = f[name]
+            case = str(g.attrs.get("case_source", ""))
+            if case in cases and not cases[case]["ramp"] and "snr_db" in g.attrs:
+                k = int(g.attrs.get("realization", 0))
+                if realizations is None or k in realizations:
+                    copies.setdefault((float(g.attrs["snr_db"]), k), {})[case] = name
+        keys = sorted(copies, key=lambda x: (-x[0], x[1]))
+        one = len({k for _, k in keys}) == 1
+        base = {k: v for k, v in fc.attrs.items() if k not in ("created", "schema")}
+        if "training" in fc:
+            fc.copy("training", out)
+        names = []
+        for snr, k in keys:
+            name = level_name(snr, k, one)
+            sub = out.create_group(name)
+            sub.attrs.update(base)
+            sub.attrs.update(schema="doe_validation_results/4", created=datetime.datetime.now().isoformat(timespec="seconds"),
+                             indicator_results_file=os.path.basename(noise_ind), snr_db=float(snr), realization=int(k))
+            if "training" in out:
+                sub["training"] = out["training"]   # internal hard link: stored once
+            vi.write_validation(sub, {c: f[n] for c, n in copies[snr, k].items()}, {c: cases[c]["intervals"] for c in copies[snr, k]},
+                                gray, lambda case, sg, t0: cases[case]["t_onset_amp"], signals=False,
+                                case_attrs={c: {"copy": n, "case_source": c} for c, n in copies[snr, k].items()})
+            names.append(name)
+    out.attrs.create("snr_subtrees", np.array(names, dtype=object), dtype=h5py.string_dtype())
+    return names
+
+
 def level_table(rows: list) -> list:
     """[(snr_db, realization, {metric: value})], clean to noisy: vi.run_metrics over the rows of each level x realization."""
     keys = sorted({(r["snr_db"], r["realization"]) for r in rows}, key=lambda x: (-x[0], x[1]))
@@ -155,7 +202,7 @@ def validate_noise(noise_ind: str, clean: str, out_h5: str = None, realizations=
     os.makedirs(os.path.dirname(os.path.abspath(out_h5)), exist_ok=True)
     result = {}
     with h5py.File(out_h5, "w") as out:
-        out.attrs.update(schema="doe_noise_validation_results/1", created=datetime.datetime.now().isoformat(timespec="seconds"),
+        out.attrs.update(schema="doe_noise_validation_results/2", created=datetime.datetime.now().isoformat(timespec="seconds"),
                          gray_mode=gray, clean_results=os.path.basename(clean),
                          noise_indicator_results=os.path.basename(noise_ind), breakdown_drop=BREAKDOWN_DROP,
                          realizations_scored=np.array(scored), **nattrs)
@@ -180,6 +227,8 @@ def validate_noise(noise_ind: str, clean: str, out_h5: str = None, realizations=
             bg.attrs["snr_breakdown_db"] = brk
             out.create_group(f"clean/{run}").attrs.update(cm)
             result[run] = (table, bs, brk, float(cm.get("balanced_accuracy", NAN)))
+        write_levels(out, noise_ind, clean, gray, cases, None if realizations is None else {int(k) for k in realizations})
+    write_origins(out_h5, noise_ind, clean)
     with open(os.path.splitext(out_h5)[0] + "_by_snr.csv", "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         cols = [k for k in next(iter(result.values()))[1] if k != "snr_db"]
@@ -188,6 +237,17 @@ def validate_noise(noise_ind: str, clean: str, out_h5: str = None, realizations=
             for i, lv in enumerate(bs["snr_db"]):
                 w.writerow([run, lv, *[bs[c][i] for c in cols], brk])
     return result
+
+
+def write_origins(out_h5: str, noise_ind: str, clean: str) -> None:
+    """Root attrs with where the data come from (PLAN_noise_validation.md §4.4): everything the noise indicator file
+    records, plus itself (noise_indicators) and the clean validation; clean_indicators from the latter if missing."""
+    noise_origins.inherit_origins(out_h5, noise_ind)
+    noise_origins.set_origins(out_h5, noise_indicators=noise_ind, clean_validation=clean)
+    c = noise_origins.origins(clean)
+    with h5py.File(out_h5, "r") as f:
+        have = {k: (k + "_abs") in f.attrs for k in ("clean_indicators", "source_signals")}
+    noise_origins.set_origins(out_h5, **{k: c[k] for k, ok in have.items() if not ok})
 
 
 def print_summary(result: dict) -> None:
@@ -246,6 +306,55 @@ def _selftest():
     assert (bs["TPR_mean"][1], bs["TPR_min"][1], bs["TPR_max"][1]) == (0.5, 0.0, 1.0)   # realizations summarised, not pooled
     with h5py.File(out, "r") as f:
         assert list(f.attrs["realizations_scored"]) == [0, 1] and f.attrs["realizations"] == 2
+    # origins: the noise indicator file's (source_signals, noise_results) + itself + the clean validation; clean_indicators
+    # taken from the clean validation when the noise file does not record it
+    with h5py.File(nind, "a") as f:
+        pass
+    noise_origins.set_origins(nind, source_signals=ind, noise_results=os.path.join(d, "noise_src.h5"))
+    validate_noise(nind, clean, out)
+    oo = noise_origins.origins(out)
+    assert oo["noise_indicators"] == nind and oo["clean_validation"] == clean and oo["source_signals"] == ind
+    assert oo["noise_results"] is None and oo["clean_indicators"] == ind   # noise_src.h5 was never written; ind came from clean
+    # a level subtree is a validation: its metrics equal those of the rows of that level, and with the SAME data as the clean
+    # validation (every case copied once at one level) they equal the clean validation's metrics
+    with h5py.File(out, "r") as f:
+        assert list(f.attrs["snr_subtrees"].astype(str)) == ["snr_040.00__r00", "snr_040.00__r01", "snr_010.00__r00", "snr_010.00__r01"]
+        for (s_, k_), dd in m.items():
+            k_ = int(k_)
+            sub = f[f"snr_{s_:06.2f}__r{k_:02d}"]
+            assert sub.attrs["snr_db"] == s_ and sub.attrs["realization"] == k_ and sub.attrs["schema"] == "doe_validation_results/4"
+            assert all(sub["metrics/ind_a"].attrs[c] == dd[c] for c in ("TP", "FN", "TN", "FP")), (s_, k_)
+            assert set(f"case_{i:03d}" for i in range(3)) == {c for c in sub if c.startswith("case_")}   # case_009 not in the clean
+            assert "Axial_disp" not in sub["case_000"] and sub["case_000"].attrs["copy"] == f"snr_{s_:06.2f}__case_000__r{k_:02d}"
+            assert sub["training"] is not None if "training" in sub else True
+    same = os.path.join(d, "same.h5")
+    with h5py.File(ind, "r") as fi, h5py.File(same, "w") as fs:
+        fs.attrs.update(noise_layout="multi", realizations=1)
+        for c in fi:
+            fi.copy(fi[c], fs, name=f"snr_040.00__{c}__r00")
+            fs[f"snr_040.00__{c}__r00"].attrs.update(snr_db=40.0, case_source=c, realization=0)
+    vsame = os.path.join(d, "vsame.h5")
+    validate_noise(same, clean, vsame)
+    with h5py.File(vsame, "r") as f, h5py.File(clean, "r") as fc:
+        assert list(f.attrs["snr_subtrees"].astype(str)) == ["snr_040.00"]
+        ma, mb = dict(f["snr_040.00/metrics/ind_a"].attrs), dict(fc["metrics/ind_a"].attrs)
+        eq = lambda x, y: bool(np.all(x == y)) or (np.issubdtype(type(x), np.floating) and np.isnan(x) and np.isnan(y))  # noqa: E731
+        assert set(ma) == set(mb) and all(eq(ma[c], mb[c]) for c in ma), [c for c in ma if not eq(ma[c], mb[c])]
+        assert list(f["snr_040.00/ranking/run"].asstr()[()]) == list(fc["ranking/run"].asstr()[()])
+        assert set(f["snr_040.00/roc/ind_a"]) == set(fc["roc/ind_a"]) and "pairwise" in fc or "pairwise" not in f["snr_040.00"]
+    # kappa -> eta: a clean validation whose case attrs are $eta$ (no $kappa$) scores the noisy copies the same way
+    clean_eta, out_eta = os.path.join(d, "clean_eta.h5"), os.path.join(d, "nv_eta.h5")
+    with h5py.File(clean, "r") as a, h5py.File(clean_eta, "w") as b:
+        b.attrs.update(dict(a.attrs))
+        for k in a:
+            a.copy(a[k], b, name=k)
+        for c in (k for k in b if k.startswith("case_")):
+            b[c].attrs["$eta$"] = b[c].attrs["$kappa$"]
+            del b[c].attrs["$kappa$"]
+    r_eta = validate_noise(nind, clean_eta, out_eta)
+    assert [(s_, k, d_["TP"], d_["FP"], d_["FN"], d_["TN"]) for s_, k, d_ in r_eta["ind_a"][0]] ==         [(s_, k, d_["TP"], d_["FP"], d_["FN"], d_["TN"]) for s_, k, d_ in res["ind_a"][0]]
+    with h5py.File(out, "r") as fo, h5py.File(out_eta, "r") as fe:
+        assert np.allclose(fo["summary/ind_a/kappa"][()], fe["summary/ind_a/kappa"][()], equal_nan=True) and not np.isnan(fe["summary/ind_a/kappa"][()]).all()
     # --realizations 0: only r00 scored, the rest of the file ignored; the attr says which
     out0 = os.path.join(d, "nv0.h5")
     r0 = validate_noise(nind, clean, out0, realizations=[0])
@@ -261,7 +370,7 @@ def _selftest():
     assert b0 == 0.5 and np.isnan(brk)
     assert np.isnan(res["ind_b"][2])                    # no clean value -> no breakdown
     with h5py.File(out, "r") as f:
-        assert f.attrs["schema"] == "doe_noise_validation_results/1" and f.attrs["gray_mode"] == "ignore"
+        assert f.attrs["schema"] == "doe_noise_validation_results/2" and f.attrs["gray_mode"] == "ignore"
         assert f.attrs["snr_ref_case"] == "case_001" and f.attrs["clean_results"] == "clean.h5"
         s = f["summary/ind_a"]
         assert len(s["copy"]) == 12 and "case_009" not in set(s["case"].asstr()[()])

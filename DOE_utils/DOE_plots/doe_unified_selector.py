@@ -48,6 +48,9 @@ from tkinter import ttk, messagebox, filedialog
 # ── Import de plotters existentes ─────────────────────────────────────────────
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPT_DIR)
+if os.path.dirname(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, os.path.dirname(SCRIPT_DIR))
+import eta_compat as _eta   # kappa -> eta (docs/planes/PLAN_eta_rename.md): files with either name are read; inside, names stay kappa
 
 # doe_plotter convergence functions (return Figure)
 from doe_plotter import (
@@ -436,6 +439,192 @@ def _str_attr(v) -> str:
     return v.decode() if isinstance(v, bytes) else str(v)
 
 
+# Origins of a multi-case noise file: the clean files its noisy copies come from (the 'clean' rows are read from there, never
+# copied). The root attrs <key>_rel / <key>_abs and their resolution are those of DOE_utils/noise_origins.py (contract of
+# docs/planes/PLAN_noise_validation.md §4.4); an older file without them is guessed in its own folder and the parent.
+ORIGIN_FILES = {"source_signals": "doe_results.h5", "clean_indicators": "doe_indicator_results.h5"}
+ORIGIN_TEXT = {"source_signals": "clean signals of the source cases (doe_results.h5)",
+               "clean_indicators": "I(t) of the clean cases (doe_indicator_results.h5)",
+               "noise_results": "signals with noise (doe_noise_multi_results.h5)",
+               "noise_indicators": "I(t) on the noisy copies (doe_noise_indicator_results.h5)",
+               "clean_validation": "clean validation (doe_validation_results.h5)"}
+_LOAD_NOTES: Dict[str, List[str]] = {}   # h5 path -> what could not be found while loading (shown in the file note)
+
+
+def _origins_module():
+    """DOE_utils/noise_origins.py (light: h5py + numpy + os)."""
+    utils = os.path.dirname(SCRIPT_DIR)
+    if utils not in sys.path:
+        sys.path.insert(0, utils)
+    import noise_origins
+    return noise_origins
+
+
+def _noise_origin(h5_path: str, key: str):
+    """(path or None, how): the origin `key` of a result file of the noise validation; a file without origin attrs
+    (older) is guessed in its own folder and the parent, with the usual file name."""
+    no = _origins_module()
+    try:
+        return no._origin(h5_path, key), "from the attributes of the file"
+    except no.OriginMissing as exc:
+        tried = exc.tried
+    except OSError:
+        tried = []
+    if not tried and key in ORIGIN_FILES:
+        d = os.path.dirname(os.path.abspath(h5_path))
+        for base in (d, os.path.dirname(d)):
+            c = os.path.join(base, ORIGIN_FILES[key])
+            tried.append(c)
+            if os.path.isfile(c):
+                return c, "guessed: the file has no origin attributes"
+    return None, "looked for " + (" | ".join(tried) if tried else "nothing recorded in the file")
+
+
+def _copy_figure(h5_path: str, vvs: List[dict], copies: List[str], kind: str, runs: List[str]):
+    """(Figure, notes) of noisy copies of a file of the noise validation against their clean source case: kind 'signals' =
+    Axial_disp and Axial_vel (clean in black), 'It' = I(t) of each indicator run with its decision limits and detection (the
+    clean run in black). Everything is read lazily from the origins of the file (noise_origins); an origin that is not
+    there is a note ('I cannot find ...') and what can be drawn is drawn."""
+    no = _origins_module()
+    notes: List[str] = []
+    cmap = matplotlib.colormaps["tab10"]
+
+    def thin(t, y):
+        return _minmax(t, y) if len(y) > 2 * LAZY_BINS else (t, y)
+
+    def note(exc):
+        msg = f"I cannot find {ORIGIN_TEXT.get(getattr(exc, 'key', ''), getattr(exc, 'key', '?'))}: {exc}"
+        if msg not in notes:
+            notes.append(msg)
+    if kind == "signals":
+        names = ["Axial_disp", "Axial_vel"]
+        fig, axes = plt.subplots(len(names), 1, sharex=True, figsize=(9, 6.5), constrained_layout=True)
+        for ax, name in zip(axes, names):
+            drawn_clean = set()
+            for i, (vv, copy) in enumerate(zip(vvs, copies)):
+                case = vv.get("case_source")
+                try:
+                    t, y = thin(*no.signal_of(h5_path, copy, name))
+                    ax.plot(t, y, color=cmap(i), lw=0.7, alpha=0.8, label=_noise_tag({"var_val": dict(vv, kind="noisy")}))
+                except (no.OriginMissing, KeyError, OSError) as exc:
+                    if not (isinstance(exc, KeyError) and not isinstance(exc, no.OriginMissing)):   # a signal not in that file: skipped
+                        note(exc)
+                if case not in drawn_clean:
+                    drawn_clean.add(case)
+                    try:
+                        t, y = thin(*no.signal_of(h5_path, case, name))
+                        ax.plot(t, y, color="0.1", lw=0.8, alpha=0.9, label=f"clean · {case}", zorder=1)
+                    except (no.OriginMissing, KeyError, OSError) as exc:
+                        if not (isinstance(exc, KeyError) and not isinstance(exc, no.OriginMissing)):
+                            note(exc)
+            ax.set_ylabel(SIGNAL_YLABELS.get(name) or name)
+            ax.ticklabel_format(style="sci", axis="y", scilimits=(0, 0))
+            if ax.get_legend_handles_labels()[0]:
+                ax.legend(fontsize=8, framealpha=0.7, loc="upper left")
+        axes[-1].set_xlabel("Time (s)")
+        return fig, notes
+    runs = list(runs)
+    ncol = 2 if len(runs) > 1 else 1
+    fig, axes = plt.subplots(max(1, -(-len(runs) // ncol)), ncol, sharex=True, figsize=(5.5 * ncol, 3.2 * max(1, -(-len(runs) // ncol))),
+                             constrained_layout=True, squeeze=False)
+    axes = axes.ravel()
+    for ax, run in zip(axes, runs):
+        ax.set_title(run, fontsize=8)
+        limits_done = False
+        for i, (vv, copy) in enumerate(zip(vvs, copies)):
+            case = vv.get("case_source")
+            for tag, key, group, color, lw in ((_noise_tag({"var_val": dict(vv, kind="noisy")}), "noise_indicators", copy, cmap(i), 1.0),
+                                               (f"clean · {case}", "clean_indicators", case, "0.1", 1.1)):
+                if tag.startswith("clean") and any(l.get_label() == tag for l in ax.get_lines()):
+                    continue
+                try:
+                    r = no.read_indicator(_noise_origin(h5_path, key)[0] or no._origin(h5_path, key), group, run)
+                except (no.OriginMissing, KeyError, OSError) as exc:
+                    if isinstance(exc, KeyError) and not isinstance(exc, no.OriginMissing):
+                        continue   # this indicator is not in that file
+                    note(exc)
+                    continue
+                t, y = thin(r["t"], r["I_t"])
+                ax.plot(t, y, color=color, lw=lw, label=tag, zorder=2)
+                if r["t_d"].size:
+                    ax.axvline(float(r["t_d"][0]), color=color, ls="--", lw=1.2, alpha=0.8)
+                if not limits_done:
+                    for v in _indicator_limits(run, r["attrs"]):
+                        ax.axhline(v, color="0.3", ls="-.", lw=1.0, alpha=0.9)
+                    limits_done = True
+        if ax.get_legend_handles_labels()[0]:
+            ax.legend(fontsize=7, framealpha=0.7)
+        ax.set_yscale(_it_plot_yscale([run]))
+    for ax in axes[len(runs):]:
+        ax.set_visible(False)
+    for ax in axes[:len(runs)]:
+        ax.set_xlabel(r"$t$ (s)")
+        ax.set_ylabel(r"$I(t)$")
+    return fig, notes
+
+
+def _is_clean(c: dict) -> bool:
+    """True for a 'clean' row of a noise viewer: the original (no noise) case a noisy copy comes from."""
+    return c.get("var_val", {}).get("kind") == "clean"
+
+
+NOISE_FILE_NOTES = {
+    TYPE_DOE_NOISE: "Signals WITH noise: one row per noisy copy (SNR, realization, source case). The 'clean' rows are the "
+                    "original signals of each source case, read from the clean file (not copied here). Select the rows to "
+                    "draw: a clean one, several copies, or a clean one plus a copy to compare.",
+    TYPE_NOISE_IND: "I(t) of the indicators ON the noisy copies (thresholds and detections included). The 'clean' rows are the "
+                    "I(t) of the same case without noise, read from the clean indicator run. Select the rows to compare.",
+    TYPE_NOISE_VAL: "Scoring of each noisy copy against the truth of its clean case (outcome per indicator); the figures are "
+                    "in the right panel. The clean case is the original, noise-free case a copy comes from (source case).",
+}
+
+
+def _noise_tag(c: dict, with_case: bool = True) -> str:
+    """'clean · case_011' / '40 dB · case_011 · r00' (a noisy copy of the multi-case mode); '' for anything else."""
+    vv = c.get("var_val", {})
+    if "realization" not in vv:
+        return ""
+    case = f" · {vv.get('case_source', '?')}" if with_case else ""
+    if _is_clean(c):
+        return f"clean{case}"
+    return f"{float(vv['snr_db']):g} dB{case} · r{int(vv['realization']):02d}"
+
+
+def _add_clean_rows(h5_path: str, with_runs: bool, cases: List[Dict]) -> None:
+    """Adds one 'clean' row per source case of a multi-case noise file (signals of doe_results.h5, or the I(t) of the clean
+    indicator run), lazily and from the origin files. What is missing is said in _LOAD_NOTES; the rest keeps working."""
+    names = sorted({c["var_val"]["case_source"] for c in cases})
+    key = "clean_indicators" if with_runs else "source_signals"
+    path, how = _noise_origin(h5_path, key)
+    notes = _LOAD_NOTES.setdefault(h5_path, [])
+    if path is None:
+        notes.append(f"I cannot find {ORIGIN_TEXT[key]}: the 'clean' rows are missing ({how})")
+        return
+    if "guessed" in how:
+        notes.append(f"{ORIGIN_TEXT[key]} was guessed: {path}")
+    absent = []
+    keep = set(cases[0]["signals"]) if cases and not with_runs else set(_SIGNAL_NAMES)   # the signals of the noisy copies
+    with h5py.File(path, "r") as g:
+        for case in names:
+            if case not in g or not isinstance(g[case], h5py.Group):
+                absent.append(case)
+                continue
+            grp = g[case]
+            kappa = _eta.get(grp.attrs, "eta", None)
+            vv = {"snr_db": float("inf"), "kind": "clean", "case_source": case, "realization": -1}
+            if kappa is not None:
+                vv["kappa"] = float(kappa)
+            cases.append({
+                "group": f"clean__{case}", "label_key": "snr_db", "label_val": float("inf"), "var_val": vv,
+                "signals": _LazySignals(path, case, [s_ for s_ in _SIGNAL_NAMES if s_ in keep and s_ in grp
+                                                     and isinstance(grp[s_], h5py.Group) and "values" in grp[s_]])
+                           if not with_runs else {},
+                "forces": {}, "runs": _read_runs(grp) if with_runs else {}, "snr": {}, "dt_us": None, "wall_time_s": None,
+                "Axial_disp": None, "Axial_vel": None})
+    if absent:
+        notes.append(f"{len(absent)} source case(s) are not in {os.path.basename(path)} (no 'clean' row): {', '.join(absent[:4])}")
+
+
 def _load_noise(h5_path: str, with_runs: bool) -> List[Dict]:
     """Casos de doe_noise_results.h5 / doe_noise_indicator_results.h5. Old mode: control + snr_<dB> with their signals.
     Multi-case mode (attr 'realization' in the groups, PLAN_noise_validation.md): one group per noisy copy
@@ -449,9 +638,10 @@ def _load_noise(h5_path: str, with_runs: bool) -> List[Dict]:
             snr   = float(attrs.get("snr_db", 0.0)) if grp_name != "control" else float("inf")
             vv    = {"snr_db": snr}
             if multi:
-                vv.update(case_source=_str_attr(attrs.get("case_source", "?")), realization=int(attrs["realization"]))
-                if attrs.get("kappa") is not None:
-                    vv["kappa"] = float(attrs["kappa"])
+                vv.update(case_source=_str_attr(attrs.get("case_source", "?")), realization=int(attrs["realization"]),
+                          kind="noisy")
+                if _eta.get(attrs, "eta", None) is not None:
+                    vv["kappa"] = float(_eta.get(attrs, "eta"))
             cases.append({
                 "group":       grp_name,
                 "label_key":   "snr_db",
@@ -470,6 +660,9 @@ def _load_noise(h5_path: str, with_runs: bool) -> List[Dict]:
             })
             for sig in _SIGNAL_NAMES:
                 cases[-1][sig] = None if multi else cases[-1]["signals"].get(sig)
+    _LOAD_NOTES.pop(h5_path, None)
+    if any("realization" in c["var_val"] for c in cases):   # multi-case mode: the clean cases come from the origin files
+        _add_clean_rows(h5_path, with_runs, cases)
     cases.sort(key=lambda c: (c["var_val"].get("case_source", ""),
                               c["label_val"] if np.isfinite(c["label_val"]) else float("inf"),
                               c["var_val"].get("realization", 0)))
@@ -493,7 +686,7 @@ def load_noise_validation(h5_path: str) -> List[Dict]:
             for i, name in enumerate(copy):
                 vv = rows.setdefault(str(name), {"snr_db": float(col["snr_db"][i]), "case_source": str(case[i]),
                                                  "realization": int(col["realization"][i]), "truth": str(col["truth"][i]),
-                                                 "kappa": float(col["kappa"][i])})
+                                                 "kappa": float(_eta.get(col, "eta")[i])})
                 vv["outcome_" + run] = str(col["outcome"][i])
     cases = [{"group": name, "label_key": "snr_db", "label_val": vv["snr_db"], "var_val": vv, "signals": {}, "forces": {},
               "runs": {}, "snr": {}, "dt_us": None, "wall_time_s": None, "Axial_disp": None, "Axial_vel": None}
@@ -523,8 +716,8 @@ def load_doe_indicator_unified(h5_path: str) -> List[Dict]:
             if grp is not None:
                 for k in ("kappa", "Ap_mm", "true_label", "label_strategy", "kappa_start", "kappa_end", "t_onset",
                           "Ap_end_mm"):
-                    if k in grp.attrs:
-                        v = grp.attrs[k]
+                    if _eta.has(grp.attrs, _eta.canon(k)):
+                        v = _eta.get(grp.attrs, _eta.canon(k))
                         c["var_val"][k] = v.decode() if isinstance(v, bytes) else (v.item() if hasattr(v, "item") else v)
                 sigs = _read_signals(grp)
                 c["signals"] = sigs
@@ -585,8 +778,17 @@ def load_h5_unified(h5_path: str, h5_type: str) -> List[Dict]:
         TYPE_NOISE_VAL    : load_noise_validation,
     }
     cases = loaders[h5_type](h5_path)
+    for c in cases:   # files written with eta: the same values under the names the viewer works with
+        vv = c.get("var_val", {})
+        for k in [k for k in vv if _eta.canon(k.strip("$")) == k.strip("$") and k.strip("$").startswith("eta")]:
+            vv.setdefault(_eta.old_name(k.strip("$")), vv[k])
+        if str(c.get("label_key", "")).startswith("eta"):
+            c["label_key"] = _eta.old_name(c["label_key"])
     _apply_ramps(cases, h5_path)
     _assign_case_colors(cases, qualitative=False)
+    for c in cases:
+        if _is_clean(c):   # the original signal, in black, to compare the noisy copies with
+            c["_color"], c["_color_hex"] = (0.1, 0.1, 0.1, 1.0), "#1a1a1a"
     return cases
 
 
@@ -669,6 +871,8 @@ def _apply_ramps(cases: List[Dict], h5_path: str) -> None:
 def _case_legend(c: dict, lk: str, lv: float) -> str:
     """Legend text of a case: 'kappa=1.03', a ramp 'kappa 0.58->1.74', else the group."""
     vv = c.get("var_val", {})
+    if "realization" in vv and vv.get("kind") in ("clean", "noisy"):   # a row of a multi-case noise file
+        return _noise_tag(c)
     if c.get("ramp"):
         try:
             return f"kappa {float(vv['kappa_start']):.3g}->{float(vv['kappa_end']):.3g}"
@@ -786,8 +990,11 @@ def _exact(v) -> str:
     return str(v)
 
 
+NOISE_HEADERS = {"snr_db": "SNR [dB]", "case_source": "source case", "realization": "realization", "kind": "kind"}
+
+
 def _col_header(key: str) -> str:
-    return key.replace("$", "")
+    return NOISE_HEADERS.get(key, key.replace("$", ""))
 
 
 def _all_var_keys(cases: List[Dict]) -> List[str]:
@@ -924,6 +1131,13 @@ def _make_summary_entries(h5_type: str, cases: list, h5_path: str):
     elif h5_type == TYPE_NOISE_VAL:
         import validation_figures as vf
         entries = [(f"Noise validation — {n}", fn, {"h5_path": h5_path}) for n, fn in vf.NOISE_FIGURES.items()]
+        try:   # a file with one subtree per SNR level (schema /2): the 15 validation figures of each level
+            for snr, k, many in vf.noise_levels(h5_path):
+                for n, fn in vf.FIGURES.items():
+                    entries.append((f"Noise validation {snr:g} dB{f' r{k:02d}' if many else ''} — {n}", fn,
+                                    {"h5_path": h5_path, "snr": snr, **({"realization": k} if many else {})}))
+        except (OSError, KeyError, ValueError):   # an older file: only the figures between levels
+            pass
 
     elif h5_type == TYPE_DOE_RESULTS:
         for lbl, fn, args in [
@@ -1222,6 +1436,7 @@ class DoeSelectorUnifiedApp:
         self.h5_path  = h5_path
         self.h5_type  = detect_h5_type(h5_path)
         self.cases    = load_h5_unified(h5_path, self.h5_type)  # colors already assigned
+        self._load_notes = list(_LOAD_NOTES.get(h5_path, []))
         self.doe_name = os.path.basename(os.path.dirname(h5_path))
         self._all_keys     = _all_var_keys(self.cases)
         self._visible_keys = list(self._all_keys)
@@ -1559,8 +1774,25 @@ class DoeSelectorUnifiedApp:
         # height: el desplegable de Tk muestra 10 filas por defecto y escondía las últimas (las SLD)
         # solo las SLD cuando las hay; en los demás tipos de archivo, todas las figuras de resumen
         labels = [l for l in self._summary_labels if l.startswith("SLD")] or self._summary_labels
+        self._level_labels = {}
+        if self.h5_type == TYPE_NOISE_VAL and any(" dB" in l for l in labels):   # one SNR level at a time (+ the summary)
+            lv = ["summary between levels"] + sorted({l.split(" — ")[0][len("Noise validation "):] for l in labels if " dB" in l},
+                                                     key=lambda t: -float(t.split(" dB")[0]))
+            self._level_labels = {name: [l for l in labels if (l.startswith("Noise validation —") if i == 0
+                                                               else l.startswith(f"Noise validation {name} —"))]
+                                  for i, name in enumerate(lv)}
+            ttk.Label(top, text="SNR level", foreground="#555555").pack(anchor=tk.W)
+            self._level_combo = ttk.Combobox(top, values=lv, state="readonly")
+            self._level_combo.current(0)
+            self._level_combo.pack(fill=tk.X, pady=(0, 4))
+            labels = self._level_labels[lv[0]]
         self._sum_combo = ttk.Combobox(top, values=labels, state="readonly",
                                        height=max(10, min(len(labels), 30)))
+        if self._level_labels:
+            def pick_level(_e=None):
+                self._sum_combo["values"] = self._level_labels[self._level_combo.get()]
+                self._sum_combo.current(0)
+            self._level_combo.bind("<<ComboboxSelected>>", pick_level)
         if labels:
             self._sum_combo.current(0)
         self._sum_combo.pack(fill=tk.X)
@@ -1571,6 +1803,11 @@ class DoeSelectorUnifiedApp:
         btns = ttk.Frame(top)
         btns.pack(fill=tk.X, pady=(4, 0))
         ttk.Button(btns, text="▶ Preview", command=self._refresh_summary).pack(side=tk.LEFT)
+        if self.h5_type == TYPE_NOISE_VAL:   # the signals and the I(t) of the selected copies (noisy and clean, from the origins)
+            cb = ttk.Frame(top)
+            cb.pack(fill=tk.X, pady=(4, 0))
+            ttk.Button(cb, text="Signals of copy…", command=lambda: self._open_copy_view("signals")).pack(side=tk.LEFT)
+            ttk.Button(cb, text="I(t) of copy…", command=lambda: self._open_copy_view("It")).pack(side=tk.LEFT, padx=4)
         ttk.Button(btns, text="Save…", command=lambda: self._open_export(self._sum_combo.get())).pack(side=tk.LEFT, padx=4)
         ttk.Button(btns, text="Figures…", command=lambda: self._open_export(
             next((e[0] for e in self._summary_entries if not e[0].startswith("SLD")), None))).pack(side=tk.LEFT)
@@ -1596,9 +1833,15 @@ class DoeSelectorUnifiedApp:
                   font=("Arial", 11, "bold")).pack(anchor=tk.W, padx=8, pady=(6, 0))
         ttk.Label(
             lf,
-            text=f"{len(self.cases)} cases  ·  {_TYPE_LABELS.get(self.h5_type, '')}",
+            text=f"{len(self.cases)} rows  ·  {_TYPE_LABELS.get(self.h5_type, '')}",
             font=("Arial", 9), foreground="#555555",
         ).pack(anchor=tk.W, padx=8, pady=(0, 4))
+        if any("realization" in c.get("var_val", {}) for c in self.cases) and self.h5_type in NOISE_FILE_NOTES:
+            ttk.Label(lf, text=NOISE_FILE_NOTES[self.h5_type], font=("Arial", 8), foreground="#555555", wraplength=380,
+                      justify=tk.LEFT).pack(anchor=tk.W, padx=8, pady=(0, 4))
+            for note in self.__dict__.get("_load_notes", []):   # an origin that was not found / was guessed
+                ttk.Label(lf, text=note, font=("Arial", 8), foreground="#a15c00", wraplength=380,
+                          justify=tk.LEFT).pack(anchor=tk.W, padx=8, pady=(0, 2))
 
         # Search bar + Columns button
         bar = ttk.Frame(lf)
@@ -2116,7 +2359,9 @@ class DoeSelectorUnifiedApp:
                     row.append(f"{td[0]:.2e} s" if td.size > 0 else "—")
                 elif col == "snr_db":   # before 'snr_*' (model SNR per signal): this one is the noise level of the group
                     raw_v = c.get("var_val", {}).get("snr_db", float("nan"))
-                    if is_control or not np.isfinite(float(raw_v) if raw_v is not None else float("nan")):
+                    if _is_clean(c):
+                        row.append("clean")
+                    elif is_control or not np.isfinite(float(raw_v) if raw_v is not None else float("nan")):
                         row.append("control")
                     else:   # multi-case noise: 40 dB, not 4.00e+01
                         row.append(f"{float(raw_v):g} dB" if "realization" in c.get("var_val", {}) else f"{float(raw_v):.2e} dB")
@@ -2125,7 +2370,7 @@ class DoeSelectorUnifiedApp:
                     snr  = c.get("snr", {}).get(sig, float("nan"))
                     row.append(f"{snr:.2e} dB" if not np.isnan(snr) else "—")
                 elif col == "realization":
-                    row.append(str(c.get("var_val", {}).get(col, "—")))
+                    row.append("—" if _is_clean(c) else str(c.get("var_val", {}).get(col, "—")))
                 else:
                     raw_v = c.get("var_val", {}).get(col)
                     if col == "snr_db" and is_control:
@@ -2478,6 +2723,8 @@ class DoeSelectorUnifiedApp:
             is_ctrl = (c.get("group", "") == "control")
             if is_ctrl:
                 color = (0.85, 0.05, 0.05)   # rojo siempre para control
+            elif _is_clean(c):
+                color = (0.1, 0.1, 0.1)      # the clean case of the origin
             elif np.isfinite(pv):
                 color = cmap_It(norm_It(pv))
             else:
@@ -2490,7 +2737,8 @@ class DoeSelectorUnifiedApp:
                 I_t = run_data.get("I_t", np.array([]))
                 if t.size == 0 or I_t.size == 0:
                     continue
-                lbl = f"control|{rn}" if is_ctrl else f"{c.get('label_val','?'):.1f}dB|{rn}"
+                lbl = (f"control|{rn}" if is_ctrl else f"{_noise_tag(c)} | {rn}" if _noise_tag(c)
+                       else f"{c.get('label_val','?'):.1f}dB|{rn}")
                 lw  = 2.2 if is_ctrl else 1.6
                 ax.plot(t[::_IND_DECIMATE], I_t[::_IND_DECIMATE], color=color, lw=lw,
                         alpha=1.0 if is_ctrl else 0.9, label=lbl, zorder=5 if is_ctrl else 3)
@@ -2498,6 +2746,13 @@ class DoeSelectorUnifiedApp:
                 if td.size>0:
                     ax.axvline(td[0], color=color, lw=2.0, linestyle="--", zorder=6 if is_ctrl else 2)
 
+        for rn in selected_runs:   # the decision limits of each indicator (learned once: the same for every copy)
+            if not any(rn in c.get("runs", {}) for c in self.cases):
+                continue
+            for v in _indicator_limits(rn, self._indicator_attrs(rn)):
+                if _it_plot_yscale(selected_runs) == "log" and v <= 0:
+                    continue
+                ax.axhline(v, color="0.3", ls="-.", lw=1.2, alpha=0.9, zorder=2)
         ax.set_xlabel(r"$t$ (s)")
         ax.set_ylabel(r"$I(t)$")
         ax.set_yscale(_it_plot_yscale(selected_runs))
@@ -3232,6 +3487,29 @@ class DoeSelectorUnifiedApp:
         if self.cases:
             _dp.LABEL_KEY = self.cases[0].get("label_key", _dp.LABEL_KEY)
 
+    def _open_copy_view(self, kind: str) -> None:
+        """'Signals of copy…' / 'I(t) of copy…' of a noise validation file: the selected copies (up to 4), each against its clean
+        source case, read from the origin files (what is not found is said)."""
+        sel = [self._iid_to_case[i] for i in self.tree.selection() if i in self._iid_to_case]
+        if not sel:
+            messagebox.showinfo("Copy", "Select one or more copies in the table (up to 4).", parent=self.root)
+            return
+        fig, notes = _copy_figure(self.h5_path, [c["var_val"] for c in sel[:4]], [c["group"] for c in sel[:4]], kind,
+                                  [r for r in self._all_runs] or sorted({k[len("outcome_"):] for c in sel for k in c["var_val"]
+                                                                        if k.startswith("outcome_")}))
+        win = tk.Toplevel(self.root)
+        win.title(("Signals" if kind == "signals" else "I(t)") + " — " + ", ".join(_noise_tag(c) for c in sel[:4]))
+        win.geometry("1100x780")
+        if notes:
+            ttk.Label(win, text="\n".join(notes), foreground="#a15c00", wraplength=1050, justify=tk.LEFT).pack(
+                anchor=tk.W, padx=8, pady=4)
+        canvas = FigureCanvasTkAgg(fig, master=win)
+        tb = NavigationToolbar2Tk(canvas, win, pack_toolbar=False)
+        tb.pack(side=tk.TOP, fill=tk.X)
+        canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        canvas.draw()
+        self._copy_win = win   # for the selftest
+
     def _make_summary_figure(self, entry) -> Optional[Figure]:
         """Figure of a summary entry (label, func, extra); None if there is none, raises if it cannot be made."""
         _label, func, extra = entry
@@ -3261,8 +3539,13 @@ class DoeSelectorUnifiedApp:
         def gen(entry):
             self._sync_globals()
             return self._make_summary_figure(entry)
-        items += [Item(e[0], (lambda e=e: gen(e)), native=e[0].startswith(("SLD", "Validation", "Noise validation")))
-                  for e in self._summary_entries]
+        def folder_of(e):   # the 15 figures of a level of a noise validation: next to the file, in figs_noise_validation/snr_XXX
+            if isinstance(e[2], dict) and "snr" in e[2]:
+                import validation_figures as vf
+                return vf.figs_dir(self.h5_path, e[2]["snr"], e[2].get("realization"))
+            return ""
+        items += [Item(e[0], (lambda e=e: gen(e)), native=e[0].startswith(("SLD", "Validation", "Noise validation")),
+                       folder=folder_of(e)) for e in self._summary_entries]
         return items + self._indicator_items()
 
     def _active_panel_name(self) -> Optional[str]:
@@ -3467,7 +3750,7 @@ def _index_reference_dataset(h5_path: str) -> List[Dict[str, Any]]:
                     attrs = dict(case_grp[piece_name].attrs)
                     channel = attrs.get("channel") or piece_name.rsplit("__", 1)[0]
                     idx_str = piece_name.rsplit("__", 1)[-1]
-                    kappa = attrs.get("kappa")
+                    kappa = _eta.get(attrs, "eta", None)
                     ap = attrs.get("$Ap_start$")
                     row = {
                         "label": label, "case": case_name, "channel": str(channel),
@@ -3480,7 +3763,7 @@ def _index_reference_dataset(h5_path: str) -> List[Dict[str, Any]]:
                     }
                     if _is_ramp_vv({"Ap_start": ap, "Ap_end": attrs.get("$Ap_end$")}):
                         # a piece of a ramp: kappa and Ap at its two ends (its single 'kappa' is ignored)
-                        k0, k1 = attrs.get("kappa_t0"), attrs.get("kappa_t1")
+                        k0, k1 = _eta.get(attrs, "eta_t0", None), _eta.get(attrs, "eta_t1", None)
                         a0, a1 = attrs.get("Ap_start_mm"), attrs.get("Ap_end_mm")
                         row["kappa"] = float(k0) if k0 is not None else None
                         row["kappa_txt"] = f"{float(k0):.3f}->{float(k1):.3f}" if k0 is not None and k1 is not None else "ramp"
@@ -4734,6 +5017,30 @@ def _selftest() -> None:
     cs = load_h5_unified(ind, detect_h5_type(ind))
     assert all(c["label_key"] == "kappa" for c in cs), [c["label_key"] for c in cs]
     assert [c["group"] for c in cs] == ["case_001", "case_000", "case_002"] and cs[0]["label_val"] == 0.58
+    # kappa -> eta: a copy of each file with every kappa attribute renamed (kappa, kappa_start, kappa_end, kappa_t0, $kappa$…)
+    # loads like the original
+    import shutil
+
+    def to_eta(src):
+        dst = src[:-3] + "_eta.h5"
+        shutil.copy(src, dst)
+
+        def ren(_n, obj):
+            for k in list(obj.attrs):
+                if _eta.canon(k) != k:
+                    obj.attrs[_eta.canon(k)] = obj.attrs[k]
+                    del obj.attrs[k]
+        with h5py.File(dst, "a") as f:
+            f.visititems(ren)
+            ren("", f)
+        return dst
+    for path in (doe, ind, val):
+        a, b = (load_h5_unified(q, detect_h5_type(q)) for q in (path, to_eta(path)))
+        key = lambda cs: [(c["group"], c["label_key"], c["label_val"] if np.isfinite(c["label_val"]) else None,   # noqa: E731
+                           c["var_val"].get("kappa") if np.isfinite(c["var_val"].get("kappa", 0.0)) else None,
+                           c["var_val"].get("kappa_start"), c.get("ramp")) for cs_ in [cs] for c in cs_]
+        assert key(a) == key(b), (path, key(a), key(b))
+    assert [(r["kappa"], r.get("kappa_txt")) for r in _index_reference_dataset(to_eta(lab))] == [(r["kappa"], r.get("kappa_txt")) for r in _index_reference_dataset(lab)]
     _selftest_noise(d, t)
     _selftest_variants(d, t)
     _selftest_indicator_plots(d)
@@ -4912,7 +5219,26 @@ def _selftest_noise(d: str, t) -> None:
                             q = g.create_group("maxent_x")
                             q["t"], q["I_t"], q["t_d"] = t, np.cos(t), [7.0]
     assert detect_h5_type(nz) == TYPE_DOE_NOISE and detect_h5_type(nzi) == TYPE_NOISE_IND
-    cn, ci = (load_h5_unified(p, detect_h5_type(p)) for p in (nz, nzi))
+    cn_all, ci = (load_h5_unified(p, detect_h5_type(p)) for p in (nz, nzi))
+    # the 'clean' rows: one per source case, read lazily from the origin (here guessed: doe_results.h5 next to the file; the
+    # clean indicators file has not the usual name, so no clean rows and a note)
+    clean = [c for c in cn_all if _is_clean(c)]
+    assert [c["group"] for c in clean] == ["clean__case_000", "clean__case_001"] and len(cn_all) == 10, [c["group"] for c in cn_all]
+    assert all(isinstance(c["signals"], _LazySignals) and c["label_val"] == float("inf") for c in clean)
+    assert _noise_tag(clean[0]) == "clean · case_000" and _noise_tag(cn_all[0]) == "10 dB · case_000 · r00"
+    assert _case_legend(cn_all[0], "snr_db", 10.0) == "10 dB · case_000 · r00" and clean[0]["_color"][0] < 0.2   # black
+    assert any("was guessed" in n for n in _LOAD_NOTES[nz]) and any("cannot find" in n for n in _LOAD_NOTES[nzi])
+    assert not any(_is_clean(c) for c in ci)
+    cn = [c for c in cn_all if not _is_clean(c)]
+    with h5py.File(nz, "a") as f:   # explicit origins (contract: <key>_rel then <key>_abs): found, or said not found
+        f.attrs["source_signals_rel"] = "doe_results.h5"
+        f.attrs["source_signals_abs"] = os.path.join(d, "nowhere.h5")
+    assert len([c for c in load_h5_unified(nz, TYPE_DOE_NOISE) if _is_clean(c)]) == 2 and not any("guessed" in n for n in _LOAD_NOTES[nz])
+    with h5py.File(nz, "a") as f:
+        f.attrs["source_signals_rel"] = "nowhere_either.h5"
+    assert not any(_is_clean(c) for c in load_h5_unified(nz, TYPE_DOE_NOISE)) and "cannot find" in _LOAD_NOTES[nz][0]
+    with h5py.File(nz, "a") as f:
+        del f.attrs["source_signals_rel"], f.attrs["source_signals_abs"]
     assert len(cn) == 8 and [(c["var_val"]["case_source"], c["label_val"], c["var_val"]["realization"]) for c in cn][:3] == [
         ("case_000", 10.0, 0), ("case_000", 10.0, 1), ("case_000", 40.0, 0)]
     s = cn[0]["signals"]
@@ -4953,6 +5279,21 @@ def _selftest_noise(d: str, t) -> None:
         except ValueError as exc:
             assert "multi-case" in str(exc)
     assert set(dnp.load_noise_results(old)) == {"control", "snr_040.00"}
+    # the signals and the I(t) of a noisy copy against its clean case, read from the origins of the validation file
+    no = _origins_module()
+    doe, ind_clean = os.path.join(d, "doe_results.h5"), os.path.join(d, "ind.h5")
+    no.set_origins(nv, noise_results=nz, source_signals=doe, noise_indicators=nzi, clean_indicators=ind_clean)
+    g0, vv0 = cv[0]["group"], dict(cv[0]["var_val"])
+    names = lambda ax: [l.get_label() for l in ax.get_lines() if not l.get_label().startswith("_")]   # noqa: E731
+    fig, notes = _copy_figure(nv, [vv0], [g0], "signals", [])
+    assert names(fig.axes[0]) == ["10 dB · case_000 · r00", "clean · case_000"] and notes == [], (names(fig.axes[0]), notes)
+    fig, notes = _copy_figure(nv, [vv0], [g0], "It", ["maxent_x"])
+    assert names(fig.axes[0]) == ["10 dB · case_000 · r00", "clean · case_000"] and notes == [], (names(fig.axes[0]), notes)
+    with h5py.File(nv, "a") as f:   # an origin that is not there: said, and the rest is drawn
+        f.attrs["source_signals_rel"], f.attrs["source_signals_abs"] = "nope.h5", os.path.join(d, "nope.h5")
+    fig, notes = _copy_figure(nv, [vv0], [g0], "signals", [])
+    assert names(fig.axes[0]) == ["10 dB · case_000 · r00"] and any("I cannot find" in n and "nope.h5" in n for n in notes), notes
+    plt.close("all")
 
 
 if __name__ == "__main__":

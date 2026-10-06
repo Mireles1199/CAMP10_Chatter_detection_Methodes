@@ -31,6 +31,9 @@ import time
 from functools import lru_cache
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
+import eta_compat as eta   # noqa: E402  kappa -> eta (docs/planes/PLAN_eta_rename.md): readers accept both names, eta first
 SIM = os.path.join(HERE, "DOE_simulacion")
 ANA = os.path.join(HERE, "DOE_analisis")
 PLOTS = os.path.join(HERE, "DOE_plots")
@@ -80,7 +83,7 @@ LABEL_FLAGS = {"amp_signal": "--amp-signal", "base_attr": "--base-attr", "base_s
                "f_modal": "--f-modal"}
 # the window of the amplitude rule on RAMP cases (PLAN_ramps.md): resolved per case like an indicator's window
 WINDOW_KEYS = ("window_mode", "window_N", "window_step")
-STRATEGY_SHORT = {"amplitude": "amp", "kappa": "kappa", "manual": "manual"}
+STRATEGY_SHORT = {"amplitude": "amp", "kappa": "kappa", "eta": "eta", "manual": "manual"}
 DISCRETISATION = ("$dxl_size$", "$nb_dt_rev$", "$f_tooth$")
 
 
@@ -166,9 +169,14 @@ DEFAULT_WORKERS = 3
 
 
 def _canon(o):
-    """Fingerprint form: paths compared case- and separator-insensitively, HASH_IGNORE keys dropped."""
+    """Fingerprint form: paths compared case- and separator-insensitively, HASH_IGNORE keys dropped, a key written eta... is
+    the same as its kappa... spelling (eta wins when both are there)."""
     if isinstance(o, dict):
-        return {str(k): _canon(v) for k, v in o.items() if k not in HASH_IGNORE}
+        out = {}
+        for k, v in sorted(o.items(), key=lambda kv: str(kv[0]).startswith(("eta", "$eta"))):   # eta spellings last: they win
+            if k not in HASH_IGNORE:
+                out[eta.old_name(str(k))] = _canon(v)
+        return out
     if isinstance(o, (list, tuple)):
         return [_canon(v) for v in o]
     if isinstance(o, str) and (o[1:3] in (":\\", ":/") or o.startswith(("\\\\", "//"))):
@@ -192,7 +200,8 @@ RAMP_TOL = 1e-9   # [m] |Ap_end - Ap_start| above this = a ramp inside the case
 
 
 def _attr(a, *keys):
-    for k in keys:
+    """First float among the attrs `keys` (a name written kappa... is also read as eta..., which goes first)."""
+    for k in (kk for key in keys for kk in dict.fromkeys((eta.canon(key), key))):
         if k in a and a[k] is not None:
             try:
                 return float(a[k])
@@ -228,13 +237,17 @@ def case_kappa(a) -> tuple:
     return _attr(a, "kappa"), None, None
 
 
-def kappa_text(a, fmt: str = ".3f") -> str:
+def eta_text(a, fmt: str = ".3f") -> str:
     """'1.03' or '0.58 -> 1.74' (ramp; '?' where missing) or '-'."""
     k, k0, k1 = case_kappa(a)
     if is_ramp(a):
         f = lambda v: "?" if v is None else format(v, fmt)   # noqa: E731
         return f"{f(k0)} -> {f(k1)}"
     return "-" if k is None else format(k, fmt)
+
+
+kappa_text = eta_text   # old name (phase 1 of the kappa -> eta rename)
+case_eta = case_kappa
 
 
 def ap_text(a, fmt: str = ".4f") -> str:
@@ -568,6 +581,8 @@ class Exp:
 
     def _label(self) -> dict:
         own = self.section("label")
+        if "eta_threshold" in own:   # the same parameter as kappa_threshold (eta wins); inside it keeps its old name
+            own = {**{k: v for k, v in own.items() if k != "eta_threshold"}, "kappa_threshold": own["eta_threshold"]}
         if self.ref is None:
             lab = {k: own[k] for k in LABEL_PARAMS if k in own}
         else:   # the ground truth is labelled exactly like the reference: parameters come from it
@@ -1367,6 +1382,7 @@ def label_info(path: str) -> dict:
     for d in out.values():
         iv = sorted(set(d.pop("pieces")))
         d.update(intervals=iv, label=case_label(iv), t_onset=t_onset(iv))
+        d["eta"] = d["kappa"]   # the same value under the new name
         d.pop("ch")
     return out
 
@@ -1976,7 +1992,7 @@ def build_simulation(base_dir: str, case: str, doe_name: str, depths, depth_unit
         rows = [[c[i] if len(c) > 1 else c[0] for c in cols] for i in range(n)]
     aps, aps_end = [], []
     for r in rows:
-        if depth_unit == "kappa":
+        if depth_unit in ("kappa", "eta"):
             ref = ap_ref_value(ap_ref, r[1])
             if ref is None:
                 raise ValueError("kappa needs an ap_ref (manual, model or model_at_spin)")
@@ -2539,7 +2555,7 @@ def inspect_h5(path: str) -> dict:
             out["problems"].append(f"{cases[0]} has no <signal>/time + values groups (found: {list(g)[:8]})")
         for a in STD_ATTRS:
             if a == "kappa":   # a ramp needs kappa_start and kappa_end instead (its 'kappa' is ignored)
-                vals = [kappa_text(f[c].attrs, "g") if is_ramp(f[c].attrs) else f[c].attrs.get(a) for c in cases]
+                vals = [eta_text(f[c].attrs, "g") if is_ramp(f[c].attrs) else eta.get(f[c].attrs, "eta", None) for c in cases]
                 out["missing"][a] = [c for c, v in zip(cases, vals) if v is None or "?" in str(v)]
             else:
                 vals = [f[c].attrs.get(a) for c in cases]
@@ -3300,6 +3316,51 @@ def run_command(name: str, key: str, python: str | None = None, yes: bool = True
             + (["--only", *only] if only else []))
 
 
+def _selftest_eta(v2: Exp) -> None:
+    """kappa -> eta, phase 1 (docs/planes/PLAN_eta_rename.md): the readers take both spellings (eta first), the fingerprints do
+    not change with the spelling of a key, and files written with eta are read like the old ones."""
+    import h5py
+    import numpy as np
+    # attrs
+    assert _attr({"eta": 0.8, "kappa": 0.5}, "kappa") == 0.8 and _attr({"kappa": 0.5}, "kappa") == 0.5 and _attr({"eta": 0.7}, "eta") == 0.7
+    ramp_old = {"$Ap_start$": 0.005, "$Ap_end$": 0.015, "kappa_start": 0.5, "kappa_end": 1.5}
+    ramp_new = {"$Ap_start$": 0.005, "$Ap_end$": 0.015, "eta_start": 0.5, "eta_end": 1.5}
+    assert case_kappa(ramp_old) == case_kappa(ramp_new) == (None, 0.5, 1.5) and eta_text(ramp_new) == kappa_text(ramp_old) == "0.500 -> 1.500"
+    assert case_kappa({"$Ap_start$": 0.01, "$Ap_end$": 0.01, "eta": 1.2}) == (1.2, None, None)
+    # fingerprints: the same with either spelling, and the same as before (the old spelling is the canonical one)
+    assert _hash({"kappa_threshold": 1, "x": [{"kappa": 2}]}) == _hash({"eta_threshold": 1, "x": [{"eta": 2}]})
+    assert _hash({"eta_a": 1, "kappa_a": 2}) == _hash({"kappa_a": 1}) and _hash({"meta": 1, "beta": 2}) != _hash({"mkappa": 1})
+    # the label section: eta_threshold is kappa_threshold (and its fingerprint)
+    own = dict(own_yaml(v2.ref.name), name="vk")   # a training experiment: its label section is its own
+    yaml_save(dict(own, label=dict(own.get("label") or {}, kappa_threshold=0.9)), exp_path("vk"))
+    old = load("vk")
+    yaml_save(dict(own, label=dict(own.get("label") or {}, eta_threshold=0.9)), exp_path("vk"))
+    reload()
+    new = load("vk")
+    assert old.label["kappa_threshold"] == new.label["kappa_threshold"] == 0.9 and "eta_threshold" not in new.label
+    assert stages(old)["label_build"].hash == stages(new)["label_build"].hash
+    os.remove(exp_path("vk"))
+    reload()
+    # files written with eta: h5_info, label_info, inspect_h5 read them like the old ones
+    d = tempfile.mkdtemp(prefix="eta_")
+    new_h5, old_h5, lab = (os.path.join(d, n) for n in ("new.h5", "old.h5", "lab.h5"))
+    for path, name in ((new_h5, "eta"), (old_h5, "kappa")):
+        with h5py.File(path, "w") as f:
+            for c, k in (("case_000", 0.8), ("case_001", 1.3)):
+                g = f.create_group(c)
+                g.attrs.update({"$Ap_start$": 0.01, "$Ap_end$": 0.01, "$spin_rate$": 12000.0, "sim_case": "x", "sim_model": "m", name: k})
+                g.create_dataset("Axial_disp/time", data=np.arange(3.0))
+                g.create_dataset("Axial_disp/values", data=np.zeros(3))
+    assert h5_info(new_h5)["kappa"] == h5_info(old_h5)["kappa"] == [0.8, 1.3]
+    assert not inspect_h5(new_h5)["missing"]["kappa"] and not inspect_h5(old_h5)["missing"]["kappa"]
+    with h5py.File(lab, "w") as f:
+        p = f.require_group("stable/case_000").create_dataset("Axial_disp__000", data=[0.0])
+        p.attrs.update({"t0": 0.0, "t1": 5.0, "channel": "Axial_disp", "$Ap_start$": 0.01, "$Ap_end$": 0.01, "eta": 0.8})
+    li = label_info(lab)["case_000"]
+    assert li["kappa"] == li["eta"] == 0.8 and li["label"] == "stable"
+    shutil.rmtree(d, ignore_errors=True)
+
+
 def _selftest_noise(v2: Exp) -> None:
     """Noise validation (PLAN_noise_validation.md): the old one-control-case noise keeps its commands and file, the
     multi-case mode adds label_build, --no-signals and noise_validate, and adding them leaves the fingerprints of
@@ -3635,6 +3696,7 @@ def _selftest():
         assert v2.flow == "Validation against a reference" and default_goal(v2) == "Indicator validation"
         assert list(stages(v2)) == FLOWS["Validation against a reference"] and v2.indicators["variants"] == ["v1"]
         _selftest_noise(v2)
+        _selftest_eta(v2)
         # the training dataset disappears -> the validation indicators say what is missing and where
         os.rename(e.label["out"], e.label["out"] + ".bak")
         st = status(v)
