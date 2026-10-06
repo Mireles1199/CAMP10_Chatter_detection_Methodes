@@ -1443,6 +1443,17 @@ def stage_summary(exp: Exp, key: str) -> list:
         out = [(f"PARTIAL run ({_fmt_time(rec.get('end'))}): only {', '.join(rec['partial'])} rerun; the rest of the file is "
                 f"from the earlier run." + (f" Repeat {', '.join(TITLES[k] for k in dep)}: they read these results." if dep else ""),
                 "warn")] + out
+    if key in PARTIAL_STAGES:
+        try:
+            changed = indicator_code_changed(exp, key)
+        except OSError:
+            changed = []
+        if changed:
+            used = {CODE_PKG[sp["indicator"]]: [] for sp in exp.indicators["specs"].values() if sp.get("indicator") in CODE_PKG}
+            for v, sp in exp.indicators["specs"].items():
+                used.setdefault(CODE_PKG.get(sp.get("indicator")), []).append(v)
+            out = [("indicator code changed since this run: " + "; ".join(f"{pkg} ({', '.join(used.get(pkg, []))})" for pkg in changed)
+                    + " - rerun the stage, or 'Run only…' for those variants", "warn")] + out
     return out
 
 
@@ -2658,6 +2669,37 @@ def run_blockers(exp: Exp, key: str) -> list:
 
 
 PARTIAL_STAGES = ("indicators", "noise_indicators")   # doe_indicators.py --only X ...: only those variants are rerun
+# package folder (indicators/<folder>/src) of each indicator id: its code is what the 'code changed' notice watches
+CODE_PKG = {"MaxEnt_SPRT": "maxent_sprt", "RMS_CV": "rms_cv", "SST_SVD": "ssq_chatter", "Green_Integral": "green_integral"}
+INDICATORS_DIR = os.path.join(os.path.dirname(HERE), "indicators")
+
+
+def indicator_code_mtimes(exp: Exp, variants=None, root: str = "") -> dict:
+    """{package folder: newest modification time of its src/**/*.py} for the packages of the experiment's variants (or of
+    `variants` only). Information for the 'code changed' notice: it is never part of a fingerprint."""
+    root, out = root or INDICATORS_DIR, {}
+    for v, spec in exp.indicators["specs"].items():
+        pkg = CODE_PKG.get(spec.get("indicator"))
+        if pkg is None or pkg in out or (variants is not None and v not in variants):
+            continue
+        t = 0.0
+        for dp, dn, fn in os.walk(os.path.join(root, pkg, "src")):
+            dn[:] = [d for d in dn if d != "__pycache__"]
+            t = max([t] + [_mtime(os.path.join(dp, f)) for f in fn if f.endswith(".py")])
+        out[pkg] = t
+    return out
+
+
+def indicator_code_changed(exp: Exp, key: str, root: str = "") -> list:
+    """Packages whose code was modified after the last run of the stage (its record stamps their modification time; a
+    record without the stamp is compared with the date of the run; 'mark up to date' counts as a run). [] when unknown."""
+    rec = read_record(exp, key)
+    if key not in PARTIAL_STAGES or not rec or rec.get("status") not in ("done", "imported"):
+        return []
+    ran = max(rec.get("end") or rec.get("start") or 0, rec.get("accepted") or 0)
+    stamp = rec.get("code") or {}
+    return [pkg for pkg, t in indicator_code_mtimes(exp, root=root).items()
+            if t > max(stamp.get(pkg, 0) if pkg in stamp else ran, rec.get("accepted") or 0) + 1]
 
 
 def dependent_stages(exp: Exp, key: str) -> list:
@@ -2839,6 +2881,9 @@ def run_stage(name: str, key: str, yes: bool = False, cmds=None, notify_end: boo
     cmds = cmds if cmds is not None else (partial_cmds(st, only) if only else st.cmds)
     rec = {"stage": key, "status": "running", "start": time.time(), "pid": os.getpid(), "hash": st.hash,
            "cmds": [[sys.executable, *c] for c in cmds], "log": log_path}
+    if key in PARTIAL_STAGES:   # modification time of the indicator code used (information; a partial run renews only its packages)
+        before = (read_record(exp, key) or {}).get("code") or {}
+        rec["code"] = {**(before if only else {}), **indicator_code_mtimes(exp, only)}
     if only:
         rec["partial"] = list(only)
     write_record(exp, key, rec)
@@ -3406,6 +3451,29 @@ def _selftest_run(e: Exp) -> None:
     assert card[0].startswith("PARTIAL run") and names[0] in card[0], card
     assert run_stage(e.name, "indicators", yes=True, cmds=[[ok, out]]) == 0 and "partial" not in read_record(e, "indicators")
     assert not stage_summary(e, "indicators")[0][0].startswith("PARTIAL")      # a full run clears it
+    # indicator code changed since the run (information only: no fingerprint, no state): the record stamps the modification
+    # time of each package's src; a later edit is reported, 'mark up to date' counts as a run
+    croot, now = tempfile.mkdtemp(prefix="indcode_"), time.time()
+    pk = sorted({CODE_PKG[sp["indicator"]] for sp in e.indicators["specs"].values()})
+    for pkg in pk:
+        os.makedirs(os.path.join(croot, pkg, "src", pkg), exist_ok=True)
+        mod = os.path.join(croot, pkg, "src", pkg, "mod.py")
+        open(mod, "w").write("x = 1")
+        os.utime(mod, (now - 1000, now - 1000))
+    stamp = indicator_code_mtimes(e, root=croot)
+    assert sorted(stamp) == pk and all(abs(t - (now - 1000)) < 1 for t in stamp.values())
+    h0 = stages(e)["indicators"].hash
+    write_record(e, "indicators", {"status": "done", "start": now - 20, "end": now - 10, "hash": h0, "code": stamp})
+    assert indicator_code_changed(e, "indicators", root=croot) == []
+    os.utime(os.path.join(croot, pk[0], "src", pk[0], "mod.py"), (now, now))
+    assert indicator_code_changed(e, "indicators", root=croot) == [pk[0]]
+    write_record(e, "indicators", {"status": "done", "start": now - 20, "end": now - 10, "hash": h0, "code": stamp, "accepted": now + 5})
+    assert indicator_code_changed(e, "indicators", root=croot) == []              # accepted after the edit
+    write_record(e, "indicators", {"status": "done", "start": now - 20, "end": now - 10, "hash": h0})   # an old record: the date
+    assert indicator_code_changed(e, "indicators", root=croot) == [pk[0]]
+    assert indicator_code_changed(e, "label_build", root=croot) == [] and stages(e)["indicators"].hash == h0   # no fingerprint involved
+    shutil.rmtree(croot, ignore_errors=True)
+    assert run_stage(e.name, "indicators", yes=True, cmds=[[ok, out]]) == 0 and sorted(read_record(e, "indicators")["code"]) == pk
     assert run_stage(e.name, "indicators", yes=True, cmds=[[bad]]) == 3
     assert status(e)["indicators"][0] == "failed" and "exit code 3" in status(e)["indicators"][1]
     # label_template keeps the old file as .bak-<time> (its script refuses to overwrite)
