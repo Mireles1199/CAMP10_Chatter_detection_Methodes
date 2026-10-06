@@ -9,6 +9,10 @@ from .detection_strategies import DetectionRule
 from ..utils.tf_windows import WindowExtractor
 from ..utils.decorators import ensure_1d_array, timeit
 
+# t_i is the time of the last sample each output used (indicators/COMMON_TEMPLATE.md). Absent in older checkouts, where
+# t_i was win/2 later: n2m_online (CAMP12_Integration_Nessy2m) reads this flag to reproduce either label.
+TIME_LABEL_END_OF_DATA = True
+
 @dataclass(frozen=True)
 class PipelineConfig:
     """
