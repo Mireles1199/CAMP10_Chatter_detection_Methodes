@@ -1280,7 +1280,9 @@ STAGE_INFO = {
               "Cases x levels x realizations = the number of copies; each carries two signals (watch the disk: ~2 GB "
               "for 216 copies)."),
     "noise_indicators": ("Runs the indicator variants on the noisy signals (robustness to noise). The thresholds are "
-                         "the ones learned from the clean reference: the noise is only in the validation signals.",
+                         "the ones learned from the clean reference: the noise is only in the validation signals. It uses the "
+                         "variants table of Indicators (config only: changing it makes this stage stale); it does not need "
+                         "the Indicators results.",
                          "Every copy x variant done."),
     "noise_validate": ("Scores every noisy copy against the truth of its CLEAN case (the label does not change with the "
                        "noise): balanced accuracy, MCC, AUC ... per SNR level and realization, summarised as mean / "

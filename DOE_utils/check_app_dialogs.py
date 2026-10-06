@@ -170,6 +170,14 @@ def check_noise():
     app.select(TR, "noise_validate")
     assert ex.stage_summary(ex.load(TR), "noise_validate") == [("no results yet", None)]
     shot(root, "noise_main.png")
+    # the arrows of the noise stages say what travels along them, and the note of noise_indicators is in its card
+    assert L.label_anchor([0, 0, 10, 0, 10, 40]) == (14, 27, "w") and L.label_anchor([0, 0, 30, 0]) == (15, -8, "s")
+    app.redraw(True)
+    texts = [app.canvas.itemcget(i, "text") for i in app.canvas.find_all() if app.canvas.type(i) == "text"]
+    for lab in ("thresholds", "noisy signals", "I(t) on noise", "clean truth"):
+        assert lab in texts, (lab, texts)
+    assert "does not need the Indicators results" in ex.STAGE_INFO["noise_indicators"][0]
+    assert "does not need" in L.BOX_NOTES["noise_indicators"]
     d["stages"] = stages0                                                             # leave the experiment as it was
     ex.yaml_save(d, ex.exp_path(TR))
     ex.save_section(TR, "noise", None)

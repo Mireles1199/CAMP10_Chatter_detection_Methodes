@@ -359,6 +359,25 @@ def diagram_layout(keys: list, has_training: bool, step_x: float = STEP_X) -> di
     return out
 
 
+# what travels along the arrows of the noise stages (the diagram shows them because 'indicators' sits next to the training
+# dataset: without a label the dotted arrow from that box looked like Indicators feeding Noise indicators)
+EDGE_LABELS = {("@training", "noise_indicators"): "thresholds", ("label_build", "noise_indicators"): "thresholds",
+               ("validate", "noise_validate"): "clean truth", ("noise", "noise_indicators"): "noisy signals",
+               ("noise_indicators", "noise_validate"): "I(t) on noise"}
+BOX_NOTES = {"noise_indicators": "Uses the variants table of Indicators (config only: changing it makes this stage stale); "
+                                 "it does not need the Indicators results."}
+TRAINING_COLOR = "#7b1fa2"   # the training dataset box and its arrows: not part of 'indicators'
+
+
+def label_anchor(points: list) -> tuple:
+    """(x, y, anchor) where the label of an arrow goes, at its END (next to the box it feeds, so it is clear what enters
+    that box): above the middle of a horizontal last segment, to the right of a vertical one just above its tip."""
+    x1, y1, x2, y2 = points[-4:]
+    if y1 == y2:   # horizontal: centred above the arrow
+        return (x1 + x2) / 2, y1 - 8, "s"
+    return x2 + 4, y2 - min(abs(y2 - y1), 26) / 2, "w"   # vertical: right of the arrow head
+
+
 def edge_points(a: tuple, b: tuple, box_w: float, slot: float = 0.0) -> list:
     """Orthogonal route from box a to box b (top-left corners): straight when they share a row or a column,
     otherwise down from a, along the free corridor just above b's row, then down into b. slot shifts the
@@ -776,24 +795,30 @@ class App:
         ncols = 1 + max(diagram_layout(keys, e.ref is not None, 1.0)[k][0] - MARGIN for k in keys)
         avail = max(c.winfo_width(), 600)
         step_x = max(110.0, min(STEP_X, (avail - 2 * MARGIN) / max(ncols, 1)))   # fit the panel width
-        box_w = step_x - 26
+        box_w = step_x - (54 if "noise_indicators" in keys else 26)   # a wider gap: the arrows of noise carry a label
         pos = diagram_layout(keys, e.ref is not None, step_x)
         edges = [(dk if de is e else "@training", k, None if de is e else (4, 3))
                  for k, s in S.items() for de, dk in s.deps if (dk in pos if de is e else "@training" in pos)]
-        incoming = {}
+        incoming, labels = {}, []   # labels: drawn after the boxes, on top of them
         for a, b, _ in edges:
             incoming.setdefault(b, []).append(a)
         for a, b, dash in edges:
             n = incoming[b]
             slot = (n.index(a) - (len(n) - 1) / 2) * 12 if len(n) > 1 and pos[a][1] != pos[b][1] else 0.0
-            c.create_line(*edge_points(pos[a], pos[b], box_w, slot), arrow="last", fill="#90a4ae", width=1.5,
-                          dash=dash)
+            pts = edge_points(pos[a], pos[b], box_w, slot)
+            thr = EDGE_LABELS.get((a, b)) == "thresholds"
+            c.create_line(*pts, arrow="last", fill=TRAINING_COLOR if (a == "@training" or thr) else "#90a4ae", width=1.5,
+                          dash=dash or ((4, 3) if thr else None))
+            if (a, b) in EDGE_LABELS:
+                labels.append((pts, EDGE_LABELS[(a, b)], thr or a == "@training"))
         if "@training" in pos:
             x, y = pos["@training"]
             tst = ex.status(e.ref).get("label_build", ("blocked", ""))[0]
-            c.create_rectangle(x, y, x + box_w, y + BOX_H, fill=STATE_FILL[tst], outline="#78909c", dash=(4, 3),
-                               tags=("ext",))
-            c.create_text(x + box_w / 2, y + BOX_H / 2, text=f"reference dataset\n{e.ref.name[:22]}\n({tst})",
+            c.create_rectangle(x, y, x + box_w, y + BOX_H, fill=STATE_FILL[tst], outline=TRAINING_COLOR, width=2,
+                               dash=(4, 3), tags=("ext",))
+            c.create_text(x + box_w / 2, y + 13, text="TRAINING DATASET", font=("Segoe UI", 7, "bold"), fill=TRAINING_COLOR,
+                          tags=("ext",))
+            c.create_text(x + box_w / 2, y + BOX_H / 2 + 6, text=f"{e.ref.name[:22]}\n({tst})",
                           font=("Segoe UI", 7), justify="center", tags=("ext",))
             c.tag_bind("ext", "<Button-1>", lambda _e: self.select(e.ref.name, "label_build"))
             c.tag_bind("ext", "<Enter>", lambda _e: self.hover.set(
@@ -823,8 +848,13 @@ class App:
                               fill="#1565c0" if state == "running" else "#37474f", tags=(tag,))
             c.tag_bind(tag, "<Button-1>", lambda _e, k=k: self.select_stage(k))
             c.tag_bind(tag, "<Enter>", lambda _e, k=k, s=state, r=st[k][1]: self.hover.set(
-                f"{ex.TITLES[k]} — {s}: {r}"))
+                f"{ex.TITLES[k]} — {s}: {r}" + (f"  ·  {BOX_NOTES[k]}" if k in BOX_NOTES else "")))
             c.tag_bind(tag, "<Leave>", lambda _e: self.hover.set(""))
+        for pts, text, thr in labels:   # a short label at the end of the arrow, on a background so it reads over the lines
+            lx, ly, anchor = label_anchor(pts)
+            t = c.create_text(lx, ly, text=text, anchor=anchor, font=("Segoe UI", 7, "italic"),
+                              fill=TRAINING_COLOR if thr else "#455a64")
+            c.tag_lower(c.create_rectangle(c.bbox(t), fill=c.cget("bg"), outline=""), t)
 
     def select_stage(self, key):
         self.sel_stage = key
