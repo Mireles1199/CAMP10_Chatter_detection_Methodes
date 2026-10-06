@@ -26,6 +26,7 @@ Rama: `Aplication-Indicateur-Validacion-Training`, sin push. Commits v2: `00d17e
   escritores y lectores (aceptan ambos nombres; los `.h5` de datos existentes no se reescribieron). Queda sin tocar
   `indicators/*` (a decidir con el usuario) y los comentarios de código. Este plan conserva 'kappa' en lo histórico.
 - **Documentación** reorganizada en `docs/` (índice `docs/README.md`); `DOE_utils/TUTORIAL.md` se queda (la app lo lee).
+- **Siguiente ronda (2026-10-06 noche): `docs/planes/PLAN_ronda3.md`** (3 realizaciones en n12000, panel central en el visor de validación con ruido, verdad en los visores, flujo "extender", estilo unificado con article-plot-style).
 - **Pendientes del usuario**: decidir si `augmented_trajectory_exploration.py` (Green) usa el mismo κ; borrar los respaldos
   de `validacion_figs\`; probar a mano la lista de pruebas dada el 2026-10-06 (ruido, 'Indicator plots…', márgenes, η).
 
