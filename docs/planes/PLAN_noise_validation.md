@@ -31,7 +31,7 @@ La validación con Ap constante ya está cerrada (`validate_indicators.py`, `val
 | # | Decisión | Valor |
 |---|---|---|
 | 1 | Casos con ruido | Los de validación del experimento. Primera pasada: una lista de ~12 casos representativos (4 estables, 2 frontera, 6 inestables); después `all`. |
-| 2 | Definición del SNR | **Absoluto**: `sigma = sqrt(P_ref / 10^(SNR/10))`, un mismo sigma para todos los casos. `P_ref` = varianza de la señal del **caso inestable más débil** (menor kappa etiquetado inestable), por señal. Opción: `snr_ref_case` explícito. |
+| 2 | Definición del SNR | **Absoluto**: `sigma = sqrt(P_ref / 10^(SNR/10))`, un mismo sigma para todos los casos. `P_ref` = varianza de la señal del **caso inestable más débil** (menor η etiquetado inestable), por señal. Opción: `snr_ref_case` explícito. |
 | 3 | Niveles | Lista explícita, primera pasada **80, 60, 40, 30, 20, 10 dB**. El rango antiguo (`SNR_RANGE`, 5–200 dB) **desaparece** (se acepta y se ignora con aviso). |
 | 4 | Realizaciones | **3** en la primera pasada (semillas independientes). Métricas por realización y resumen media / mín / máx entre ellas (no se mezclan como casos). Dentro de una realización, el mismo ruido unitario reescalado en todos los niveles (curvas más limpias). |
 | 5 | Etiqueta | La del caso limpio. Entrenamiento limpio. |
@@ -39,7 +39,7 @@ La validación con Ap constante ya está cerrada (`validate_indicators.py`, `val
 | 7 | Grises | Mismo modo que la validación limpia (`gray_mode` del archivo limpio). |
 | 8 | Tamaño | No copiar señales en los resultados de indicadores y de validación con ruido (§8). |
 
-Referencia en n12000 (medida): caso de referencia kappa 1.082, RMS desplazamiento 1.28e-5 m, velocidad 1.2e-2 m/s → σ_disp = 1.3e-8 m a 60 dB, 1.3e-6 m a 20 dB. Los casos estables vibran 1.3e-8 – 2.4e-8 m (RMS): desde ~60 dB el ruido ya iguala su vibración.
+Referencia en n12000 (medida): caso de referencia η 1.082, RMS desplazamiento 1.28e-5 m, velocidad 1.2e-2 m/s → σ_disp = 1.3e-8 m a 60 dB, 1.3e-6 m a 20 dB. Los casos estables vibran 1.3e-8 – 2.4e-8 m (RMS): desde ~60 dB el ruido ya iguala su vibración.
 
 ## 3. Flujo
 
@@ -63,7 +63,7 @@ Todo es **aditivo**: el modo antiguo de un solo caso de control sigue funcionand
 - **`time` sin duplicar:** el `time` de cada señal se guarda una vez por caso; las demás copias de ese caso (y `Axial_vel/time` si es igual a `Axial_disp/time`) son **enlaces duros de HDF5** al primero. Transparente para quien lee, coste cero.
 - **Grupos de primer nivel:** uno por copia ruidosa, nombre `snr_{SNR:06.2f}__{case}__r{K:02d}` (ej. `snr_040.00__case_011__r02`). Empieza por `snr_` a propósito: el visor y `doe_indicators.py` lo reconocen como archivo de ruido (no hay grupos `case_*` en la raíz).
 - **Dentro:** `Axial_disp/{time,values}`, `Axial_vel/{time,values}` (ruidosas).
-- **Attrs del grupo:** los del caso original (`kappa`, `$Ap_start$`, `$spin_rate$`, ...) + `snr_db`, `case_source`, `realization`, `seed`, `sigma_Axial_disp`, `sigma_Axial_vel`. **Contrato:** `realization` está en cada grupo de este archivo y del de indicadores (doe_indicators copia los attrs de grupo); el visor lo usa para reconocer el modo multi.
+- **Attrs del grupo:** los del caso original (`eta`, `$Ap_start$`, `$spin_rate$`, ...) + `snr_db`, `case_source`, `realization`, `seed`, `sigma_Axial_disp`, `sigma_Axial_vel`. **Contrato:** `realization` está en cada grupo de este archivo y del de indicadores (doe_indicators copia los attrs de grupo); el visor lo usa para reconocer el modo multi.
 - **Attrs raíz:** `noise_layout = "multi"` (ausente = modo antiguo), `snr_mode = "absolute"`, `snr_ref_case`, `snr_ref_power_Axial_disp`, `snr_ref_power_Axial_vel`, `snr_levels` (array), `realizations`, `seed`, `cases` (array).
 - Sin grupo `control` (lo limpio ya está en `doe_results.h5`).
 
@@ -72,7 +72,7 @@ Igual que hoy (`<grupo>/<run>/{t, I_t, t_d}` + attrs `pp_*`, `meta_*`), con los 
 
 ### 4.3 `doe_noise_validation_results.h5` (nuevo)
 - **Attrs raíz:** `schema = "doe_noise_validation_results/1"`, `gray_mode`, `clean_results` (nombre del archivo limpio), los attrs de §4.1 relevantes (`snr_mode`, `snr_ref_case`, `snr_levels`, `realizations`).
-- **`/summary/<run>`:** una fila por copia ruidosa: `copy` (nombre del grupo ruidoso), `case` (el caso limpio, = attr `case_source`), `snr_db`, `realization`, `truth`, `is_gray`, `outcome`, `kappa`, `first_detection_t`, `t_ratio`, `delay_det_s`, `score_max`, `alarm_fraction` (nombres como los escribe `validate_noise.py`).
+- **`/summary/<run>`:** una fila por copia ruidosa: `copy` (nombre del grupo ruidoso), `case` (el caso limpio, = attr `case_source`), `snr_db`, `realization`, `truth`, `is_gray`, `outcome`, `eta`, `first_detection_t`, `t_ratio`, `delay_det_s`, `score_max`, `alarm_fraction` (nombres como los escribe `validate_noise.py`).
 - **`/metrics/<run>`:** grupo de **datasets 1-D alineados** (no attrs: en la validación limpia `/metrics/<run>` son attrs; aquí, mismo nombre y otro formato) con una fila por (`snr_db`, `realization`): `TP FN TN FP TPR TNR balanced_accuracy MCC AUC mean_alarm_fraction_stable median_t_ratio n_gray`.
 - **`/by_snr/<run>`:** grupo de datasets 1-D alineados, una fila por nivel: `snr_db` y, para cada métrica de arriba, `<m>_mean`, `<m>_min`, `<m>_max` entre realizaciones. Attr `snr_breakdown_db` = mayor SNR al que la balanced accuracy media cae más de 0.05 bajo la limpia **de los mismos casos** (`/clean/<run>` balanced_accuracy; NaN si no cae).
 - **`/clean/<run>`:** attrs con las métricas limpias **sobre los mismos casos que tienen copias ruidosas** (las corridas limpias de esos casos, leídas del archivo limpio y puntuadas con las mismas reglas y el mismo modo de grises): es la referencia "sin ruido" comparable. Además, `<m>_all` = la métrica limpia sobre **todos** los casos del archivo limpio (copiada de su `/metrics/<run>`). Si un indicador no está en la validación limpia, `/clean/<run>` existe con NaN y nada falla. *(Cambio de semántica, mismo nombre, tras J1 de wt-interfaz: antes era la métrica de todos los casos y producía quiebres falsos, p. ej. rms_cv 0.56 con 22 casos frente a 0.50 con los 3 casos con ruido.)*
@@ -104,7 +104,7 @@ Cada archivo de resultados dice de dónde vienen sus datos. Para cada origen `K`
 ### 4.5 `doe_noise_validation_results.h5`: subárbol por nivel (schema `doe_noise_validation_results/2`)
 Además de `/summary`, `/metrics`, `/by_snr`, `/clean` (sin cambios), **un grupo de primer nivel por nivel de SNR** con **exactamente la estructura de `doe_validation_results.h5`** (schema `doe_validation_results/4`): `/<sub>/{summary, metrics, ranking, roc, pairwise, training, case_NNN/...}` y los mismos attrs raíz de la validación limpia (`channel`, `gray_mode`, `labeling_*`...) más `snr_db` y `realization`.
 - **Nombre del subárbol:** `snr_{SNR:06.2f}` (ej. `snr_040.00`) si se puntuó **una** realización; con varias, `snr_{SNR:06.2f}__r{K:02d}`. El orden y los nombres están en el attr raíz **`snr_subtrees`** (array de str, de limpio a ruidoso; dentro de un nivel por realización) — no hay que adivinarlos. Raíz, además: `snr_levels`, `realizations_scored`, `source_signals_*`... (§4.4).
-- **Dentro de `case_NNN`:** attrs `$kappa$ $truth$ $gray$ $t_onset_amp$ $group$ $t_onset$ $outcome_<run>$` (como la limpia), `copy` (nombre de la copia ruidosa) y `case_source`; `truth_t0/t1/label`; subgrupos de indicador con `t, I_t, t_d, pred, truth_w` + métricas. **Sin `Axial_*`**: las señales se leen del origen (`noise_origins.signal_of`; la ruidosa vía `copy` → `noise_results`).
+- **Dentro de `case_NNN`:** attrs `$eta$ $truth$ $gray$ $t_onset_amp$ $group$ $t_onset$ $outcome_<run>$` (como la limpia), `copy` (nombre de la copia ruidosa) y `case_source`; `truth_t0/t1/label`; subgrupos de indicador con `t, I_t, t_d, pred, truth_w` + métricas. **Sin `Axial_*`**: las señales se leen del origen (`noise_origins.signal_of`; la ruidosa vía `copy` → `noise_results`).
 - `/training` va una sola vez en la raíz y los subárboles lo enlazan (enlace duro **interno**, no externo).
 - Un nivel con los mismos datos que la limpia da las mismas métricas (selftest). Con 1 realización cada nivel es una validación limpia de 22 casos: Wilson, McNemar y ROC válidos.
 
@@ -113,7 +113,7 @@ Además de `/summary`, `/metrics`, `/by_snr`, `/clean` (sin cambios), **un grupo
 ### 5.1 `DOE_simulacion/doe_noise.py`
 - Modo **multi-caso** cuando la sección `noise` trae `cases` (lista o `all`); sin `cases` = modo antiguo de un caso de control, intacto (mismo comando, misma huella). Sin `--out`, el nombre por defecto en modo multi es `doe_noise_multi_results.h5`.
 - Claves nuevas de la sección `noise` (y CLI equivalente): `cases`, `snr_list` (default `[80, 60, 40, 30, 20, 10]`), `realizations` (default 3), `snr_ref_case` (`auto` por defecto), `seed`, `signals`. `snr_range` se acepta e ignora con un aviso.
-- `snr_ref_case: auto` → el caso etiquetado `unstable` con menor kappa, leído de las etiquetas **propias** del experimento (`exp.label["out"]` con `ex.label_info`, como `doe_indicators.py`), **no** de `exp.reference` (en una validación es el entrenamiento, con otros casos); sin etiquetas → error claro pidiendo `snr_ref_case`.
+- `snr_ref_case: auto` → el caso etiquetado `unstable` con menor η, leído de las etiquetas **propias** del experimento (`exp.label["out"]` con `ex.label_info`, como `doe_indicators.py`), **no** de `exp.reference` (en una validación es el entrenamiento, con otros casos); sin etiquetas → error claro pidiendo `snr_ref_case`.
 - `time` una vez por caso y enlaces duros de HDF5 en las demás copias (§4.1).
 - Ruido: `rng = np.random.default_rng([seed, K, idx_caso, idx_señal])` → `z` unitario por (caso, realización, señal), reescalado por el sigma de cada nivel. Se **reusa** `add_gaussian_noise` cambiando solo de dónde sale sigma (absoluto, de `P_ref`).
 - **Check:** selftest con un `doe_results` sintético: nombres de grupo, attrs, sigma igual para todos los casos de un nivel, reproducibilidad con la misma semilla, realizaciones distintas entre sí, modo antiguo sin cambios.
@@ -151,7 +151,7 @@ python validate_noise.py --noise_ind X/doe_noise_indicator_results.h5 --clean X/
 | Nombre | Preset | Datos | Pregunta |
 |---|---|---|---|
 | `noise_metrics` | grid 2×2 (`figsize_grid(2, 2)` × `FIGSCALE`) | `/by_snr/<run>` + `/clean/<run>` | ¿Cómo caen balanced accuracy, TPR, TNR y la fracción de alarma en estables al bajar el SNR? Línea = media, banda = mín–máx entre realizaciones, marcador a la derecha = limpio, línea vertical discontinua = `snr_breakdown_db`. Eje X de SNR **invertido** (de limpio a ruidoso). |
-| `noise_case_matrix` | grid por indicador | `/summary/<run>` | ¿Qué casos dejan de acertar y a qué SNR? Filas = casos por kappa (S/U/g), columnas = niveles, color = fracción de realizaciones con acierto (0–1, escala secuencial apta para daltónicos). |
+| `noise_case_matrix` | grid por indicador | `/summary/<run>` | ¿Qué casos dejan de acertar y a qué SNR? Filas = casos por η (S/U/g), columnas = niveles, color = fracción de realizaciones con acierto (0–1, escala secuencial apta para daltónicos). |
 | `noise_anticipation` | SIMPLE | `/by_snr/<run>` `median_t_ratio_*` | ¿Se pierde anticipación con el ruido? `t_det/t_onset` mediana contra SNR, banda mín–máx. |
 
 Todas con `lang_text` (EN/FR/both), `constrained_layout`, leyendas fuera de los ejes si tapan datos, y la nota de modo de grises cuando no es `ignore`.

@@ -15,12 +15,12 @@ case: 1DOF_150Hz            # subcarpeta del caso (--case en la CLI tiene priori
 nb_proc: 1                  # procesos en paralelo
 n2m_bat: C:/Users/quiqu/OneDrive-ensam.eu/Desktop/Thesis/03-Code/01-Nessy2m/VP2025.1.0/VP2025.1.0/nessy2m/n2m.bat
 
-# Referencia para kappa = Ap / AP_REF:
-#   none          sin kappa
+# Referencia para eta (antes kappa) = Ap / AP_REF:
+#   none          sin eta
 #   manual        manual: Ap de referencia en metros (un valor para todo el DOE)
 #   model         model: preset de DOE_plots/sld_model.py -> Ap critico MINIMO del SLD (un valor, sin rpm)
 #   model_at_spin model: preset -> limite del SLD A LAS RPM de cada caso (cambia con $spin_rate$; en un
-#                 bolsillo entre lobulos el limite es infinito y kappa = 0)
+#                 bolsillo entre lobulos el limite es infinito y eta = 0)
 ap_ref:
   mode: none
 

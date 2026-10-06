@@ -15,7 +15,7 @@ doe_results.h5 / doe_noise_results.h5 (layout de doe_runner.py).
 
 Secuencia de uso:
     1. make_label_template(doe_results.h5, reference_labels.yaml, strategy=...)
-       "manual" (vacío), "kappa" (umbral teórico kappa) o "amplitude"
+       "manual" (vacío), "eta" (umbral teórico eta; alias "kappa") o "amplitude"
        (práctico/operacional: max|señal| vs % de una variable base del caso)
     2. (a mano) completar/corregir intervalos en reference_labels.yaml
     3. from_doe_h5(doe_results.h5, reference_labels.yaml, channels) -> ReferenceDataset
@@ -63,8 +63,9 @@ DEFAULT_H5_PATH = (
 DEFAULT_LABELS_PATH     = "label_amp.yaml"   # None -> "<carpeta de h5_path>/reference_labels.yaml"
 DEFAULT_OUT_H5          = None   # None -> "<carpeta de h5_path>/reference_dataset.h5"
 DEFAULT_CHANNELS        = None   # None -> autodetecta todos los canales de cada caso
-DEFAULT_STRATEGY        = "amplitude" #manual, kappa, amplitude
-DEFAULT_KAPPA_THRESHOLD = 1.0
+DEFAULT_STRATEGY        = "amplitude" #manual, eta (alias kappa), amplitude
+DEFAULT_ETA_THRESHOLD = 1.0
+DEFAULT_KAPPA_THRESHOLD = DEFAULT_ETA_THRESHOLD   # alias (antes kappa)
 DEFAULT_WARMUP          = 0.0
 # --strategy amplitude: max|y| de DEFAULT_AMP_SIGNAL vs % de la base (attr del caso x escala)
 DEFAULT_BASE_ATTR       = "$f_tooth$"   # avance por diente, en mm en var_val.py
@@ -172,7 +173,7 @@ class ReferenceDataset:
 
 
 def _piece_depth(sig: "ReferenceSignal", t0: float, t1: float) -> dict:
-    """Ap [mm] (y kappa, si el caso lo tiene) al inicio y al fin de una pieza: en una rampa, Ap(t) lineal sobre
+    """Ap [mm] (y eta, si el caso lo tiene) al inicio y al fin de una pieza: en una rampa, Ap(t) lineal sobre
     la señal entera del caso (experiment.ap_of_t; signal_t0/t1 = su intervalo antes del recorte); constante:
     el Ap del caso en los dos extremos. {} si el caso no tiene $Ap_start$."""
     a = sig.attrs
@@ -181,10 +182,10 @@ def _piece_depth(sig: "ReferenceSignal", t0: float, t1: float) -> dict:
     span = (float(a.get("signal_t0", sig.t[0])), float(a.get("signal_t1", sig.t[-1])))
     ap0, ap1 = (_experiment().ap_of_t(a, t, span) for t in (t0, t1))
     out = {"Ap_start_mm": ap0 * 1e3, "Ap_end_mm": ap1 * 1e3}
-    if is_ramp(a) and eta_compat.has(a, "eta_start") and eta_compat.has(a, "eta_end"):   # kappa = Ap / limit at the case's n: linear too
+    if is_ramp(a) and eta_compat.has(a, "eta_start") and eta_compat.has(a, "eta_end"):   # eta = Ap / limit at the case's n: linear too
         k0, k1 = (float(eta_compat.get(a, k)) for k in ("eta_start", "eta_end"))
         a0, a1 = (float(a[k]) for k in ("$Ap_start$", "$Ap_end$"))
-        out.update({f"kappa_{w}": k0 + (k1 - k0) * (ap - a0) / (a1 - a0) for w, ap in (("t0", ap0), ("t1", ap1))})
+        out.update({f"eta_{w}": k0 + (k1 - k0) * (ap - a0) / (a1 - a0) for w, ap in (("t0", ap0), ("t1", ap1))})
     return out
 
 
@@ -197,11 +198,11 @@ def _label_manual(grp_name: str, attrs: dict, t_range: Tuple[float, float], grp)
     return []
 
 
-def _label_by_kappa(
+def _label_by_eta(
     grp_name: str, attrs: dict, t_range: Tuple[float, float], grp,
     threshold: float = 1.0, warmup: float = 0.0,
 ) -> List[Tuple[float, float, str]]:
-    """Etiqueta la señal entera (menos `warmup` al inicio) por umbral de kappa."""
+    """Etiqueta la señal entera (menos `warmup` al inicio) por umbral de eta."""
     if not eta_compat.has(attrs, "eta"):
         log.warning("Grupo '%s' sin attr 'kappa' (ni 'eta') — se deja sin etiquetar", grp_name)
         return []
@@ -333,7 +334,8 @@ def _label_by_amplitude(
 # Firma: (grp_name, attrs, t_range, grp, **kwargs) -> [(t0, t1, label), ...]
 LABEL_STRATEGIES = {
     "manual":    _label_manual,
-    "kappa":     _label_by_kappa,
+    "eta":       _label_by_eta,
+    "kappa":     _label_by_eta,   # alias: eta se llamaba kappa
     "amplitude": _label_by_amplitude,
 }
 
@@ -350,7 +352,7 @@ def _masked_range(
 ) -> Optional[Tuple[float, float]]:
     """Rango [t0, t1] real tras aplicar t_start/t_end, con el mismo criterio de
     máscara que usa `from_doe_h5` (t >= lo) & (t <= hi) -- así lo que la
-    plantilla muestra/etiqueta con la estrategia "kappa" siempre cae dentro
+    plantilla muestra/etiqueta con la estrategia "eta" siempre cae dentro
     de lo que `build` va a aceptar, sin asumir que t_start/t_end caen justo
     en un punto de la grilla de muestreo. None si no queda ninguna muestra.
     """
@@ -424,6 +426,7 @@ def make_label_template(
         raise FileExistsError(
             f"{out_yaml} ya existe — no se sobrescribe (podrías perder etiquetas hechas a mano)."
         )
+    strategy = "eta" if strategy == "kappa" else strategy   # alias: el YAML escribe eta
     label_fn = LABEL_STRATEGIES[strategy]
 
     # Parámetros efectivos de la estrategia (defaults de la función + los pasados) ->
@@ -445,7 +448,7 @@ def make_label_template(
         for grp_name in sorted(f.keys()):
             grp = f[grp_name]
             attrs = dict(grp.attrs)
-            ramp = is_ramp(attrs)   # una rampa: su 'kappa' (= el de inicio, si existe) no se muestra
+            ramp = is_ramp(attrs)   # una rampa: su 'eta' (= el de inicio, si existe) no se muestra
             kappa_bits = {k: v for k, v in attrs.items() if str(k).startswith(("kappa", "eta")) and not (ramp and k in ("kappa", "eta"))}
             if ramp:
                 kappa_bits = {"ramp Ap_mm": f"{float(attrs['$Ap_start$']) * 1e3:g}->{float(attrs['$Ap_end$']) * 1e3:g}",
@@ -700,7 +703,7 @@ def _self_test() -> None:
         h5_path = os.path.join(tmp, "doe_results.h5")
         yaml_path = os.path.join(tmp, "reference_labels.yaml")
 
-        # 1. .h5 sintético con layout DOE (3 grupos, canal Axial_vel, attrs kappa)
+        # 1. .h5 sintético con layout DOE (3 grupos, canal Axial_vel, attrs kappa: un .h5 viejo)
         t = np.linspace(0.0, 10.0, 1001)
         with h5py.File(h5_path, "w") as f:
             for i, kappa in enumerate([0.8, 1.4, 1.1]):
@@ -722,7 +725,7 @@ def _self_test() -> None:
         except FileExistsError:
             pass
 
-        # 2b. estrategia "kappa": stable / unstable / sin kappa (-> [] + warning, no error)
+        # 2b. estrategia "kappa" (alias de eta): stable / unstable / sin eta (-> [] + warning, no error)
         kappa_h5 = os.path.join(tmp, "kappa_doe.h5")
         kappa_yaml = os.path.join(tmp, "kappa_labels.yaml")
         with h5py.File(kappa_h5, "w") as f:
@@ -750,7 +753,8 @@ def _self_test() -> None:
                 sub.create_dataset("time", data=t)
                 sub.create_dataset("values", data=t)
 
-        make_label_template(kappa_h5, kappa_yaml, strategy="kappa", threshold=1.0, warmup=0.5)
+        make_label_template(kappa_h5, kappa_yaml, strategy="kappa", threshold=1.0, warmup=0.5)   # alias of "eta"
+        assert "strategy: eta" in open(kappa_yaml, encoding="utf-8").read()
         kappa_cases = _parse_labels_file(kappa_yaml)
         assert kappa_cases["case_low"] == [(0.5, 10.0, "stable")], kappa_cases["case_low"]
         assert kappa_cases["case_high"] == [(0.5, 10.0, "unstable")], kappa_cases["case_high"]
@@ -864,13 +868,13 @@ def _self_test() -> None:
         with h5py.File(ramp_out, "r") as f:
             un = f["unstable/case_up/Axial_disp__000"].attrs
             assert abs(un["Ap_end_mm"] - 15.0) < 1e-9 and abs(un["Ap_start_mm"] - (5 + 10 * un["t0"] / 10)) < 1e-9
-            assert abs(un["kappa_t1"] - 0.015 / 0.0086) < 1e-9 and un["signal_t0"] == 0.0
+            assert abs(un["eta_t1"] - 0.015 / 0.0086) < 1e-9 and un["signal_t0"] == 0.0
             st0 = f["stable/case_up/Axial_disp__000"].attrs
             assert abs(st0["Ap_start_mm"] - 6.0) < 1e-9 and st0["t0"] == 1.0          # cropped at 1 s: Ap(1 s) = 6 mm
             dn = f["unstable/case_down/Axial_disp__000"].attrs
             assert abs(dn["Ap_start_mm"] - 14.0) < 1e-9 and dn["Ap_end_mm"] < dn["Ap_start_mm"]
             c = f["unstable/case_const/Axial_disp__000"].attrs
-            assert c["Ap_start_mm"] == c["Ap_end_mm"] == 5.0 and "kappa_t0" not in c
+            assert c["Ap_start_mm"] == c["Ap_end_mm"] == 5.0 and "eta_t0" not in c
 
         # 3. completar el YAML programáticamente
         labels = {
@@ -1165,16 +1169,16 @@ def _main() -> None:
     p_template.add_argument(
         "--strategy", choices=sorted(LABEL_STRATEGIES), default=DEFAULT_STRATEGY,
         help=f"cómo pre-llenar el YAML por caso (default: {DEFAULT_STRATEGY!r}); "
-             "'manual' deja todo vacío para completar a mano, 'kappa' etiqueta por umbral de kappa, "
+             "'manual' deja todo vacío para completar a mano, 'eta' (alias 'kappa') etiqueta por umbral de eta, "
              "'amplitude' por max|señal| vs %% de una variable base del caso (stable/gray/unstable)",
     )
     p_template.add_argument(
-        "--kappa-threshold", type=float, default=DEFAULT_KAPPA_THRESHOLD,
-        help=f"umbral de kappa para --strategy kappa (default: {DEFAULT_KAPPA_THRESHOLD})",
+        "--eta-threshold", "--kappa-threshold", dest="eta_threshold", type=float, default=DEFAULT_ETA_THRESHOLD,
+        help=f"umbral de eta para --strategy eta (default: {DEFAULT_ETA_THRESHOLD}; --kappa-threshold sigue valiendo)",
     )
     p_template.add_argument(
         "--warmup", type=float, default=DEFAULT_WARMUP,
-        help=f"segundos a excluir al inicio de la señal en --strategy kappa/amplitude (default: {DEFAULT_WARMUP})",
+        help=f"segundos a excluir al inicio de la señal en --strategy eta/amplitude (default: {DEFAULT_WARMUP})",
     )
     p_template.add_argument(
         "--base-attr", default=DEFAULT_BASE_ATTR,
@@ -1306,8 +1310,8 @@ def _main() -> None:
     if args.cmd == "template":
         out_yaml = args.out_yaml or os.path.join(h5_dir, "reference_labels.yaml")
         kwargs = {}
-        if args.strategy == "kappa":
-            kwargs = {"threshold": args.kappa_threshold, "warmup": args.warmup}
+        if args.strategy in ("eta", "kappa"):
+            kwargs = {"threshold": args.eta_threshold, "warmup": args.warmup}
         elif args.strategy == "amplitude":
             kwargs = {
                 "base_attr": args.base_attr, "base_scale": args.base_scale, "signal": args.amp_signal,

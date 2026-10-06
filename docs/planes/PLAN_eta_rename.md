@@ -1,6 +1,6 @@
 # PLAN — Renombrar κ (kappa) → η (eta)
 
-**Estado (2026-10-06):** contrato escrito, sin tocar código. Decisión del usuario: lo que el código y las figuras llaman κ (kappa) es en realidad η (eta). Coordina: manager (`DOE_utils/PLAN_app_v2.md`). Reparto: **wt-validacion** = scripts, figuras y documentos de validación; **wt-interfaz** = app, visor, SLD, formularios, tutorial.
+**Estado (2026-10-06):** lado wt-validacion HECHO: Fase 1 (lectores, eta_compat.py) 8165b7c/a8115e2/8b31502; Fase 2 (escritores) 91f3a87/ca197f1; Fase 3 (textos, figuras score_vs_eta / delay_vs_eta, docs de validación) 557f885/08c3a85. Quedan en mi parte solo alias, lectores de ambos nombres y selftests con archivos viejos. Pendiente: lado wt-interfaz (su Fase 2/3) y `indicators/*` (decide el usuario). Contrato original:  Decisión del usuario: lo que el código y las figuras llaman κ (kappa) es en realidad η (eta). Coordina: manager (`DOE_utils/PLAN_app_v2.md`). Reparto: **wt-validacion** = scripts, figuras y documentos de validación; **wt-interfaz** = app, visor, SLD, formularios, tutorial.
 
 ## 1. Qué es y qué NO se toca
 

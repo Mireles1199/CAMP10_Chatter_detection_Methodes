@@ -376,9 +376,9 @@ def main() -> None:
         try:
             label_key = _detect_label_key(h5_in)
         except ValueError as exc:
-            if args.experiment:   # solo etiqueta los casos para las figuras: kappa sirve siempre
-                label_key = "kappa"
-                log.info("LABEL_KEY: varias variables cambian; con --experiment se usa 'kappa'")
+            if args.experiment:   # solo etiqueta los casos para las figuras: eta (o kappa en .h5 viejos) sirve siempre
+                label_key = "eta"
+                log.info("LABEL_KEY: varias variables cambian; con --experiment se usa 'eta'")
             elif not args.list:
                 log.error("No se pudo auto-detectar LABEL_KEY:\n  %s", exc)
                 sys.exit(1)
@@ -989,7 +989,7 @@ def write_results(out_path: str, res: Dict[str, Any], h5_src: str,
                                 case_grp.create_dataset(f"{sig}/{ds}", data=src[f"{sig}/{ds}"][()],
                                                         compression="gzip")
                 case_grp.attrs["signals_written"] = True
-                # lo que el visor necesita sin buscar otros archivos: kappa, Ap y la etiqueta verdadera
+                # lo que el visor necesita sin buscar otros archivos: eta, Ap y la etiqueta verdadera
                 if "$Ap_start$" in case_grp.attrs:
                     case_grp.attrs["Ap_mm"] = float(case_grp.attrs["$Ap_start$"]) * 1e3   # a ramp: Ap at the start
                     if "$Ap_end$" in case_grp.attrs:
@@ -1048,7 +1048,7 @@ def _threshold_scalars(raw, params_physical: dict) -> dict:
 
 def _case_summary(h5_path: str, case: str, results: list, true_label: str, strategy: str,
                   t_onset: Optional[float] = None) -> None:
-    """Resumen de un caso al terminar todas sus variantes: kappa, Ap, etiqueta verdadera y, por variante,
+    """Resumen de un caso al terminar todas sus variantes: eta, Ap, etiqueta verdadera y, por variante,
     detección (con acierto si se conoce la verdad), error o avisos de varianza mínima. Rampa que cruza (verdad
     'mixed'): el cruce de la verdad t_onset, la detección, el retraso con signo y la regla de Validate
     (OK / MAL: false alarm si detecta antes del cruce / MAL: missed), sin tolerancia."""
@@ -1060,10 +1060,10 @@ def _case_summary(h5_path: str, case: str, results: list, true_label: str, strat
     ex = _experiment_module()
     head = f"-- {case}"
     if ex.is_ramp(a):
-        head += f"  rampa Ap {ex.ap_text(a, '.3f')}  kappa {(getattr(ex, 'eta_text', None) or ex.kappa_text)(a)}"
+        head += f"  rampa Ap {ex.ap_text(a, '.3f')}  eta {(getattr(ex, 'eta_text', None) or ex.kappa_text)(a)}"
     else:
         if eta_compat.get(a, "eta", None) is not None:
-            head += f"  kappa {float(eta_compat.get(a, 'eta')):.3f}"
+            head += f"  eta {float(eta_compat.get(a, 'eta')):.3f}"
         if a.get("$Ap_start$") is not None:
             head += f"  Ap {float(a['$Ap_start$']) * 1e3:.3f} mm"
     head += f"  verdad: {true_label} ({strategy})" if true_label else "  verdad: sin etiqueta"
@@ -1287,7 +1287,7 @@ def _selftest() -> None:
     finally:
         log.removeHandler(h)
     txt = "\n".join(seen)
-    assert "rampa Ap 5.000 -> 15.000 mm  kappa 0.580 -> 1.740" in txt and "cruza a inestable en 10.000 s" in txt, txt
+    assert "rampa Ap 5.000 -> 15.000 mm  eta 0.580 -> 1.740" in txt and "cruza a inestable en 10.000 s" in txt, txt
     for name, end in (("late", "(retraso +0.400 s)   OK"), ("early", "(retraso -0.200 s)   MAL: false alarm"),
                       ("fa", "(retraso -8.000 s)   MAL: false alarm"), ("none", "sin detección   MAL: missed")):
         assert any(line.strip().startswith(name) and line.endswith(end) for line in txt.splitlines()), (name, txt)
@@ -1366,7 +1366,7 @@ def _selftest() -> None:
         _case_summary(src, "case_eta", [dict(res, case="case_eta", run_name="r", meta={})], "unstable", "amplitude")
     finally:
         log.removeHandler(h2)
-    assert any("kappa 1.250" in m_ for m_ in seen2), seen2
+    assert any("eta 1.250" in m_ for m_ in seen2), seen2
     print("doe_indicators selftest OK")
 
 

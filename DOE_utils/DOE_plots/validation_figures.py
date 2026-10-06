@@ -30,17 +30,17 @@ name (-> h5 data it reads)
   roc                case-level ROC + operating point                   /roc/<run>/{high,low}, /metrics
   tpr_tnr            TPR and TNR with Wilson 95%                        /metrics/<run> TPR TNR (_lo, _hi)
   confusion          2x2 per indicator                                  /metrics/<run> TP FN TN FP
-  case_matrix        indicator x case outcomes, cases ordered by kappa  /summary/<run>
+  case_matrix        indicator x case outcomes, cases ordered by eta    /summary/<run>
   detection_time     first detection vs the amplitude onset             /summary/<run>
-  delay_vs_kappa     signed delay of the first detection vs kappa       /summary/<run>
+  delay_vs_eta       signed delay of the first detection vs eta         /summary/<run>
   detection_amp      |Axial_disp| (% of base) at the first alarm        case_NNN/Axial_disp, /summary/<run>
-  score_vs_kappa     max(I_t) per case vs kappa                         /summary/<run>
+  score_vs_eta       max(I_t) per case vs eta                           /summary/<run>
   score_dist         score of stable vs unstable cases                  /summary/<run>
-  anticipation       t_det / t_onset of the hits vs kappa               /summary/<run>.t_ratio
+  anticipation       t_det / t_onset of the hits vs eta                 /summary/<run>.t_ratio
   pairwise_test      exact McNemar p-value between indicators           /pairwise
   gray_bounds        bal. accuracy / MCC if gray = stable / unstable    /metrics/<run> gray_as_*
   alarm_quality      alarm fraction in stable cases, persistence        /metrics/<run>
-  training_coverage  training cases vs validated cases (kappa, rpm)     /training, /summary/<run>
+  training_coverage  training cases vs validated cases (eta, rpm)       /training, /summary/<run>
 NOISE_FIGURES (doe_noise_validation_results.h5; PLAN_noise_validation.md §6)
   noise_metrics      bal. accuracy, TPR, TNR, alarm fraction vs SNR      /by_snr/<run> (mean, min, max), /clean/<run>
   noise_case_matrix  fraction of realizations right, case x SNR          /summary/<run>
@@ -69,6 +69,12 @@ FIGSCALE = 1.5    # multiplier of the plot_style presets (same criterion as sld_
 RUN_COLOR = ["#0072B2", "#D55E00", "#009E73", "#CC79A7", "#E69F00", "#56B4E9"]   # Okabe-Ito, one per indicator
 FIGURES = {}
 NOISE_FIGURES = {}
+FIGURE_ALIASES = {"score_vs_kappa": "score_vs_eta", "delay_vs_kappa": "delay_vs_eta"}   # kappa was eta's old name; the registry only has the new ones
+
+
+def resolve(name):
+    """Registry name of a figure asked for by its old or its new name."""
+    return FIGURE_ALIASES.get(name, name)
 
 
 def T(en, fr=None, sep="\n"):
@@ -203,7 +209,7 @@ def _gray(s):
     return s["is_gray"] == 1 if "is_gray" in s else s["truth"] == "unlabelled"
 
 
-def _kappa(s):
+def _eta(s):
     return eta_compat.col(s, "eta")
 
 
@@ -277,7 +283,7 @@ def fig_confusion(D):
 @_figure
 def fig_case_matrix(D):
     s0 = D.summ[D.order[0]]
-    idx = np.argsort(_kappa(s0), kind="stable")
+    idx = np.argsort(_eta(s0), kind="stable")
     keys = ["TP", "TN", "FN", "FP", "n/a"]
     colors = [OUTCOMES[k][0] for k in keys[:4]] + [ps.COLOR_GRAY]
     grid = np.array([[keys.index(D.summ[r]["outcome"][i]) if D.summ[r]["outcome"][i] in keys else 4 for i in idx]
@@ -286,10 +292,10 @@ def fig_case_matrix(D):
     ax.imshow(grid, cmap=ListedColormap(colors), vmin=-0.5, vmax=4.5, aspect="auto")
     tr = {"stable": "S", "unstable": "U"}
     g0 = _gray(s0)
-    ax.set_xticks(range(len(idx)), [f"{_kappa(s0)[i]:.2f} {'g' if g0[i] else tr.get(s0['truth'][i], 'g')}" for i in idx], rotation=90)
+    ax.set_xticks(range(len(idx)), [f"{_eta(s0)[i]:.2f} {'g' if g0[i] else tr.get(s0['truth'][i], 'g')}" for i in idx], rotation=90)
     ax.set_yticks(range(len(D.order)), [short(r) for r in D.order])
-    ax.set_xlabel(T(r"case: $\kappa$ and truth (S stable, U unstable, g gray)",
-                    r"cas : $\kappa$ et vérité (S stable, U instable, g gris)"))
+    ax.set_xlabel(T(r"case: $\eta$ and truth (S stable, U unstable, g gray)",
+                    r"cas : $\eta$ et vérité (S stable, U instable, g gris)"))
     fig.legend(handles=[plt.Rectangle((0, 0), 1, 1, color=c, label=k) for k, c in zip(keys, colors)], ncol=5,
                loc="outside upper center")
     return fig
@@ -300,33 +306,33 @@ def fig_detection_time(D):
     fig, ax = _fig()
     s0 = D.summ[D.order[0]]
     m = np.isfinite(s0["t_onset_amp"])
-    o = np.argsort(_kappa(s0)[m])
-    ax.plot(_kappa(s0)[m][o], s0["t_onset_amp"][m][o], "k-s", ms=4, label=T("amplitude onset $t_{onset}$", "début en amplitude $t_{onset}$", " / "))
+    o = np.argsort(_eta(s0)[m])
+    ax.plot(_eta(s0)[m][o], s0["t_onset_amp"][m][o], "k-s", ms=4, label=T("amplitude onset $t_{onset}$", "début en amplitude $t_{onset}$", " / "))
     for i, r in enumerate(D.order):
         s = D.summ[r]
         g = _gray(s)
         ok, st, un = np.isfinite(s["first_detection_t"]), (s["truth"] == "stable") & ~g, (s["truth"] == "unstable") & ~g
         gr = ok & g   # gray: hollow
-        ax.plot(_kappa(s)[gr], s["first_detection_t"][gr], "o", ms=5, mfc="none", color=RUN_COLOR[i])
-        ax.plot(_kappa(s)[ok & un], s["first_detection_t"][ok & un], "o", ms=5, color=RUN_COLOR[i], label=short(r))
-        ax.plot(_kappa(s)[ok & st], s["first_detection_t"][ok & st], "x", ms=6, color=RUN_COLOR[i])
+        ax.plot(_eta(s)[gr], s["first_detection_t"][gr], "o", ms=5, mfc="none", color=RUN_COLOR[i])
+        ax.plot(_eta(s)[ok & un], s["first_detection_t"][ok & un], "o", ms=5, color=RUN_COLOR[i], label=short(r))
+        ax.plot(_eta(s)[ok & st], s["first_detection_t"][ok & st], "x", ms=6, color=RUN_COLOR[i])
     ax.plot([], [], "o", mfc="none", color="k", label=T("gray (not scored)", "gris (non noté)", " / "))
     ax.axvline(1, color="grey", ls=":")
-    ax.set(xlabel=r"$\kappa$", ylabel=T("first detection [s]", "première détection [s]"), yscale="log")
+    ax.set(xlabel=r"$\eta$", ylabel=T("first detection [s]", "première détection [s]"), yscale="log")
     fig.legend(*ax.get_legend_handles_labels(), loc="outside upper center", ncol=3, fontsize=8)
     return fig
 
 
 @_figure
-def fig_delay_vs_kappa(D):
+def fig_delay_vs_eta(D):
     fig, ax = _fig()
     for i, r in enumerate(D.order):
         s = D.summ[r]
         ok = np.isfinite(s["delay_det_s"])
-        o = np.argsort(_kappa(s)[ok])
-        ax.plot(_kappa(s)[ok][o], s["delay_det_s"][ok][o], "o-", ms=4, color=RUN_COLOR[i], label=short(r))
+        o = np.argsort(_eta(s)[ok])
+        ax.plot(_eta(s)[ok][o], s["delay_det_s"][ok][o], "o-", ms=4, color=RUN_COLOR[i], label=short(r))
     ax.axhline(0, color="k", lw=0.8)
-    ax.set(xlabel=r"$\kappa$", ylabel=T("first detection $-$ $t_{onset}$ [s]", "première détection $-$ $t_{onset}$ [s]"),
+    ax.set(xlabel=r"$\eta$", ylabel=T("first detection $-$ $t_{onset}$ [s]", "première détection $-$ $t_{onset}$ [s]"),
            yscale="symlog")
     ax.legend(fontsize=8)
     return fig
@@ -353,11 +359,11 @@ def fig_detection_amp(D):
                 t, y = sig
                 msk = (t <= td) & (t > td - 0.1)
                 if msk.any() and base_attr in f[case].attrs:
-                    xs.append(_kappa(s0)[k]); ys.append(100 * np.abs(y[msk]).max() / (float(f[case].attrs[base_attr]) * scale))
+                    xs.append(_eta(s0)[k]); ys.append(100 * np.abs(y[msk]).max() / (float(f[case].attrs[base_attr]) * scale))
             ax.plot(xs, ys, "o-", ms=4, color=RUN_COLOR[i], label=short(r))
     ax.axhline(float(D.attrs.get("labeling_lim_sup_pct", 40)), color="k", ls="--", label="lim_sup")
     ax.axhline(float(D.attrs.get("labeling_lim_inf_pct", 10)), color="grey", ls=":", label="lim_inf")
-    ax.set(xlabel=r"$\kappa$", ylabel=T("$|$Axial_disp$|$ at first alarm [% of base]", "$|$Axial_disp$|$ à la 1re alarme [% base]"),
+    ax.set(xlabel=r"$\eta$", ylabel=T("$|$Axial_disp$|$ at first alarm [% of base]", "$|$Axial_disp$|$ à la 1re alarme [% base]"),
            yscale="log")
     ax.legend(fontsize=8)
     return fig
@@ -369,18 +375,18 @@ def _case_score(D, r):
 
 
 @_figure
-def fig_score_vs_kappa(D):
+def fig_score_vs_eta(D):
     fig, axs = _grid(len(D.order))
     for ax, r in zip(axs, D.order):
         s, sc = D.summ[r], _case_score(D, r)
         for truth, col in (("stable", ps.COLOR_STABLE), ("unstable", ps.COLOR_UNSTABLE)):
             k = (s["truth"] == truth) & ~_gray(s)
-            ax.plot(_kappa(s)[k], sc[k], "o", ms=5, color=col, label=T(truth, {"stable": "stable", "unstable": "instable"}[truth], " / "))
+            ax.plot(_eta(s)[k], sc[k], "o", ms=5, color=col, label=T(truth, {"stable": "stable", "unstable": "instable"}[truth], " / "))
         g = _gray(s) & np.isfinite(sc)
         if g.any():
-            ax.plot(_kappa(s)[g], sc[g], "o", ms=5, mfc="none", color=ps.COLOR_GRAY, label=T("gray (not scored)", "gris (non noté)", " / "))
+            ax.plot(_eta(s)[g], sc[g], "o", ms=5, mfc="none", color=ps.COLOR_GRAY, label=T("gray (not scored)", "gris (non noté)", " / "))
         ax.axvline(1, color="grey", ls=":")
-        ax.set(title=f"{short(r)}  AUC={D.met[r]['AUC']:.2f}", xlabel=r"$\kappa$", yscale=_yscale(sc))
+        ax.set(title=f"{short(r)}  AUC={D.met[r]['AUC']:.2f}", xlabel=r"$\eta$", yscale=_yscale(sc))
         ax.set_ylabel("max $I_t$" if D.met[r]["roc_direction"] == 1 else "min $I_t$")
     axs[0].legend(fontsize=8)
     return fig
@@ -411,10 +417,10 @@ def fig_anticipation(D):
         if "t_ratio" not in s:
             raise ValueError("no t_ratio in this file (run validate again)")
         ok = np.isfinite(s["t_ratio"]) & ~_gray(s)
-        o = np.argsort(_kappa(s)[ok])
-        ax.plot(_kappa(s)[ok][o], s["t_ratio"][ok][o], "o-", ms=4, color=RUN_COLOR[i], label=short(r))
+        o = np.argsort(_eta(s)[ok])
+        ax.plot(_eta(s)[ok][o], s["t_ratio"][ok][o], "o-", ms=4, color=RUN_COLOR[i], label=short(r))
     ax.axhline(1, color="k", ls="--", lw=0.8)
-    ax.set(xlabel=r"$\kappa$", ylabel=T("$t_{det}\,/\,t_{onset}$", "$t_{det}\,/\,t_{onset}$"), ylim=(0, 1.1))
+    ax.set(xlabel=r"$\eta$", ylabel=T("$t_{det}\,/\,t_{onset}$", "$t_{det}\,/\,t_{onset}$"), ylim=(0, 1.1))
     ax.text(0.02, 0.97, T("1 = alarm when the amplitude reaches the limit", "1 = alarme quand l'amplitude atteint la limite"),
             transform=ax.transAxes, va="top", fontsize=8)
     ax.legend(fontsize=8, loc="lower right")
@@ -496,8 +502,8 @@ def fig_training_coverage(D):
         if m.any():
             ax.plot(k[m], rpm[m], "o", ms=4, color=col.get(name, ps.COLOR_GRAY), label=T(f"training {name}", f"entraînement {name}", " / "))
     s0 = D.summ[D.order[0]]
-    ax.plot(_kappa(s0), s0["spin_rpm"], "kx", ms=7, label=T("validation", "validation"))
-    ax.set(xlabel=r"$\kappa$", ylabel=T("spin [rpm]", "rotation [tr/min]"))
+    ax.plot(_eta(s0), s0["spin_rpm"], "kx", ms=7, label=T("validation", "validation"))
+    ax.set(xlabel=r"$\eta$", ylabel=T("spin [rpm]", "rotation [tr/min]"))
     ax.legend(fontsize=8)
     return fig
 
@@ -582,7 +588,7 @@ def fig_noise_metrics(D):
 
 @_figure(registry=NOISE_FIGURES, loader=load_noise)
 def fig_noise_case_matrix(D):
-    """Per indicator: cases (rows, by kappa) x SNR levels (columns); color = fraction of the realizations whose outcome
+    """Per indicator: cases (rows, by eta) x SNR levels (columns); color = fraction of the realizations whose outcome
     is right (TP or TN); gray cell = not scored (gray case in mode 'ignore')."""
     fig, axs = _grid(len(D.order))
     cmap = plt.get_cmap("viridis").copy()
@@ -591,7 +597,7 @@ def fig_noise_case_matrix(D):
     for ax, r in zip(axs, D.order):
         s = D.summ[r]
         levels = sorted(set(s["snr_db"]), reverse=True)
-        cases = sorted(set(s["case"]), key=lambda c: (float(np.nanmax(np.where(s["case"] == c, _kappa(s), np.nan))), c))
+        cases = sorted(set(s["case"]), key=lambda c: (float(np.nanmax(np.where(s["case"] == c, _eta(s), np.nan))), c))
         grid = np.full((len(cases), len(levels)), np.nan)
         for i, c in enumerate(cases):
             for j, lv in enumerate(levels):
@@ -603,12 +609,12 @@ def fig_noise_case_matrix(D):
         for c in cases:
             m = s["case"] == c
             tag[c] = "g" if np.any(s["is_gray"][m] == 1) else {"stable": "S", "unstable": "U"}.get(s["truth"][m][0], "?")
-        kap = {c: float(np.nanmax(np.where(s["case"] == c, _kappa(s), np.nan))) for c in cases}
+        kap = {c: float(np.nanmax(np.where(s["case"] == c, _eta(s), np.nan))) for c in cases}
         ax.set_yticks(range(len(cases)), [f"{kap[c]:.2f} {tag[c]}" for c in cases], fontsize=8)
         ax.set_xticks(range(len(levels)), [f"{v:g}" for v in levels])
         ax.set(title=short(r), xlabel=T("SNR [dB]", "SNR [dB]"))
         ax.tick_params(length=0)
-    axs[0].set_ylabel(T(r"case: $\kappa$ and truth", r"cas : $\kappa$ et vérité"))
+    axs[0].set_ylabel(T(r"case: $\eta$ and truth", r"cas : $\eta$ et vérité"))
     fig.colorbar(im, ax=axs, shrink=0.8, label=T("fraction of realizations right", "fraction de réalisations justes"))
     return fig
 
@@ -702,7 +708,7 @@ def _selftest():
     with h5py.File(ind, "w") as f, h5py.File(lab, "w") as fl:
         for i, k in enumerate(kap):
             g = f.create_group(f"case_{i:03d}")
-            g.attrs.update({"$spin_rate$": 12000.0, "$Ap_start$": 0.005 * k, "kappa": k, "$f_tooth$": 0.05})
+            g.attrs.update({"$spin_rate$": 12000.0, "$Ap_start$": 0.005 * k, "eta": k, "$f_tooth$": 0.05})
             g["Axial_disp/time"], g["Axial_disp/values"] = t, 1e-5 * t * k
             for run, it in (("ind_a", np.sin(t) * k), ("ind_b", np.cos(3 * t) + k)):
                 r = g.create_group(run)
@@ -712,7 +718,7 @@ def _selftest():
             p = fl.require_group(f"{'stable' if k < 1.0 else 'gray' if k == 1.05 else 'unstable'}/case_{i:03d}").create_dataset("Axial_disp__000", data=[0.0])
             p.attrs.update(channel="Axial_disp", t0=0.0, t1=10.0, labeling_strategy="amplitude", labeling_lim_sup_pct=40.0,
                            labeling_lim_inf_pct=10.0, labeling_base_attr="$f_tooth$", labeling_base_scale=1e-3,
-                           labeling_signal="Axial_disp", kappa=k, **{"$Ap_start$": 0.005 * k, "$spin_rate$": 12000.0})
+                           labeling_signal="Axial_disp", eta=k, **{"$Ap_start$": 0.005 * k, "$spin_rate$": 12000.0})
     vi.validate(ind, lab, out, reference_h5=lab)
     figs = os.path.join(d, "figs")
     make_all(out, figs)
@@ -726,18 +732,19 @@ def _selftest():
         assert sorted(os.listdir(os.path.join(d, f"f_{mode}"))) == sorted(n + ".png" for n in FIGURES)
         assert FIGURES["ranking"](o)._supxlabel.get_text().startswith("gray cases counted as")
     assert FIGURES["ranking"](out)._supxlabel is None   # the default mode carries no note
-    # kappa -> eta: a validation file whose /summary and /training say eta (no kappa) draws the same figures
+    assert resolve("score_vs_kappa") == "score_vs_eta" and resolve("roc") == "roc" and "score_vs_kappa" not in FIGURES   # old names
+    # kappa -> eta: an OLD validation file (/summary and /training with kappa, no eta) draws the same figures
     import shutil
-    out_eta = os.path.join(d, "out_eta.h5")
-    shutil.copy(out, out_eta)
-    with h5py.File(out_eta, "a") as f:
+    out_old = os.path.join(d, "out_old.h5")
+    shutil.copy(out, out_old)
+    with h5py.File(out_old, "a") as f:
         for r in f["summary"]:
-            f[f"summary/{r}/eta"] = f[f"summary/{r}/kappa"][()]
-            del f[f"summary/{r}/kappa"]
-        f["training/eta"] = f["training/kappa"][()]
-        del f["training/kappa"]
-    for name in ("score_vs_kappa", "case_matrix", "detection_time", "training_coverage", "anticipation"):
-        assert FIGURES[name](out_eta)._keep_size
+            f[f"summary/{r}/kappa"] = f[f"summary/{r}/eta"][()]
+            del f[f"summary/{r}/eta"]
+        f["training/kappa"] = f["training/eta"][()]
+        del f["training/eta"]
+    for name in ("score_vs_eta", "case_matrix", "detection_time", "training_coverage", "anticipation"):
+        assert FIGURES[name](out_old)._keep_size
     fig = FIGURES["roc"](out)
     assert fig._keep_size == tuple(fig.get_size_inches()) and np.allclose(fig._keep_size, ps.figsize_from_scale(ps.FIGSIZE_SIMPLE, FIGSCALE))
     fc = fig_compare(out, out, figs)

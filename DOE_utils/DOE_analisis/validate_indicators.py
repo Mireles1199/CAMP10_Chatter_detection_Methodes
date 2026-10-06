@@ -11,21 +11,21 @@ Inputs
 
 Output  doe_validation_results.h5  — same layout as doe_indicator_results.h5 (case_NNN/<run_name>/{t, I_t, t_d}),
 so doe_unified_selector.py opens it as-is (table columns, SLD, I_t curves), plus the validation data:
-  case_NNN attrs : (copy of the case attrs) + $kappa$ $truth$ $t_onset_amp$ and one $outcome_<run>$ per indicator
+  case_NNN attrs : (copy of the case attrs) + $eta$ $truth$ $t_onset_amp$ and one $outcome_<run>$ per indicator
                    (only attrs written as $name$ become columns of the viewer table)
   case_NNN       : datasets truth_t0, truth_t1, truth_label (datasets, not a group: the viewer reads every
                    sub-group of a case as an indicator run)
   case_NNN/<run> : pred, truth_w (per window: 0 stable, 1 unstable, -1 gray/unlabelled) + attrs outcome,
                    first_detection_t, delay_start_s, delay_onset_s and the window counts TP FP TN FN tpr tnr
   schema 4 (was 3): no early_tol (no TP_early outcome, no early_alarm/anticipated metrics, no early_tol_s attr)
-  /summary/<run> : one row per case (case, kappa, ap_mm, spin_rpm, truth, outcome, first_detection_t,
+  /summary/<run> : one row per case (case, eta, ap_mm, spin_rpm, truth, outcome, first_detection_t,
                    delay_start_s, t_onset_amp, delay_onset_s, tpr, tnr)
   /metrics/<run> : attrs with the per-case metrics below (+ alarm quality and ROC/AUC)
   /ranking       : the runs ordered by balanced accuracy, then MCC, then AUC (+ <out>_metrics.csv with every metric)
   /pairwise      : exact McNemar test between every pair of indicators over the scored cases (run_a, run_b, a_only, b_only,
                    p_value); written when there are two or more indicators
   /roc/<run>/{high,low} : fpr, tpr, thr of the case-level ROC for each orientation of I_t
-  /training      : case, kappa, ap_mm, spin_rpm, label of the training dataset
+  /training      : case, eta, ap_mm, spin_rpm, label of the training dataset
 
 Labels are per CASE (the amplitude labelling gives each constant case one interval over the whole signal), so the
 headline metrics are per case and there is NO time tolerance: an unstable case is TP if the indicator flags anything
@@ -44,7 +44,7 @@ stretch, nothing is tolerated); no detection -> FN. These ramps do NOT enter the
 Detection times, over the hits (TP; median, with p25 / p75 of the signed delay):
   delay_start_s = first flagged window inside the unstable part - its start (time since the signal starts)
   delay_onset_s = first detection - t_onset, signed (negative: the alarm came before the amplitude of the truth reached the limit)
-  t_ratio = t_det / t_onset (per hit, median_t_ratio): < 1 = alarm before the amplitude limit is reached, independent of kappa
+  t_ratio = t_det / t_onset (per hit, median_t_ratio): < 1 = alarm before the amplitude limit is reached, independent of eta
   t_onset_amp = first time |labeling_signal| exceeds labeling_lim_sup_pct % of the base (labeling_base_attr *
   labeling_base_scale): the same threshold that makes the amplitude labelling call a case unstable. NaN if the signal
   or the base is not in the validation file.
@@ -110,7 +110,7 @@ def gray_suffix(mode: str) -> str:
     return "" if mode == "ignore" else f"_gray-{mode}"
 
 
-SUMMARY_FLOATS = ("is_gray", "t_ratio", "kappa", "ap_mm", "ap_end_mm", "kappa_start", "kappa_end", "spin_rpm", "first_detection_t",
+SUMMARY_FLOATS = ("is_gray", "t_ratio", "eta", "ap_mm", "ap_end_mm", "eta_start", "eta_end", "spin_rpm", "first_detection_t",
                   "delay_start_s", "t_onset_amp", "t_onset", "delay_onset_s", "delay_det_s", "alarm_fraction", "persistence",
                   "hit_in_unstable", "score_max", "score_min", "tpr", "tnr")
 RANK_BY = ("balanced_accuracy", "MCC", "AUC")
@@ -251,13 +251,13 @@ def write_training(out, ref_h5: str) -> None:
                 if piece is None:
                     continue
                 a = piece.attrs
-                r = rows.setdefault(case, dict(kappa=_attr_float(a, "eta", "kappa"), ap=_attr_float(a, "$Ap_start$") * 1e3,
+                r = rows.setdefault(case, dict(eta=_attr_float(a, "eta", "kappa"), ap=_attr_float(a, "$Ap_start$") * 1e3,
                                                spin=_attr_float(a, "$spin_rate$"), labels=set()))
                 r["labels"].add(label)
     g = out.create_group("training")
     names = sorted(rows)
     g.create_dataset("case", data=np.array(names, dtype=object), dtype=STR)
-    g.create_dataset("kappa", data=[rows[n]["kappa"] for n in names])
+    g.create_dataset("eta", data=[rows[n]["eta"] for n in names])
     g.create_dataset("ap_mm", data=[rows[n]["ap"] for n in names])
     g.create_dataset("spin_rpm", data=[rows[n]["spin"] for n in names])
     g.create_dataset("label", data=np.array([",".join(sorted(rows[n]["labels"])) for n in names], dtype=object), dtype=STR)
@@ -303,14 +303,14 @@ def write_validation(out, cases: dict, intervals: dict, gray: str, onset_of, sig
         # onset of the rule: constant cases (and ramps whose truth does not change) as before, the first sample
         # over the limit; a ramp that crosses, the start of its first unstable window (no theoretical time)
         onset = t_start if group == "ramp" else t_on
-        kappa = np.nan if ramp else _attr_float(sg.attrs, "eta", "kappa")
-        k0, k1 = (_attr_float(sg.attrs, "eta_start", "kappa_start"), _attr_float(sg.attrs, "eta_end", "kappa_end")) if ramp else (kappa, kappa)
+        eta = np.nan if ramp else _attr_float(sg.attrs, "eta", "kappa")
+        k0, k1 = (_attr_float(sg.attrs, "eta_start", "kappa_start"), _attr_float(sg.attrs, "eta_end", "kappa_end")) if ramp else (eta, eta)
         ap_mm, spin = _attr_float(sg.attrs, "$Ap_start$", "Ap_start") * 1e3, _attr_float(sg.attrs, "$spin_rate$", "spin_rate")
         ap_end = _attr_float(sg.attrs, "$Ap_end$") * 1e3 if ramp else ap_mm
-        cg.attrs.update({"$kappa$": kappa, "$truth$": truth, "$gray$": int(is_gray), "$t_onset_amp$": t_on, "$group$": group,
+        cg.attrs.update({"$eta$": eta, "$truth$": truth, "$gray$": int(is_gray), "$t_onset_amp$": t_on, "$group$": group,
                          "$t_onset$": onset if np.isfinite(onset) else t_start})   # NaN for a stable case
         if ramp:
-            cg.attrs.update({"$kappa_start$": k0, "$kappa_end$": k1, "$Ap_end_mm$": ap_end})
+            cg.attrs.update({"$eta_start$": k0, "$eta_end$": k1, "$Ap_end_mm$": ap_end})
         cg.create_dataset("truth_t0", data=[i[0] for i in intervals[case]])
         cg.create_dataset("truth_t1", data=[i[1] for i in intervals[case]])
         cg.create_dataset("truth_label", data=np.array([i[2] for i in intervals[case]], dtype=object), dtype=STR)
@@ -335,7 +335,7 @@ def write_validation(out, cases: dict, intervals: dict, gray: str, onset_of, sig
             og.attrs.update(m)
             cg.attrs[f"$outcome_{run}$"] = m["outcome"]
             summary.setdefault(run, []).append(dict(
-                case=case, kappa=kappa, ap_mm=ap_mm, ap_end_mm=ap_end, kappa_start=k0, kappa_end=k1,
+                case=case, eta=eta, ap_mm=ap_mm, ap_end_mm=ap_end, eta_start=k0, eta_end=k1,
                 spin_rpm=spin, truth=truth, group=group, is_gray=float(is_gray), t_onset_amp=t_on, **m, **roc_sums))
 
     sg, mg = out.create_group("summary"), out.create_group("metrics")
@@ -751,7 +751,7 @@ def _selftest():
         assert c1["fake_run/pred"][()].sum() == 3
         # the ramps: onset = start of the first unstable window (5.0 s), no theoretical time; their metrics apart
         c3 = f["case_003"].attrs
-        assert c3["$group$"] == "ramp" and c3["$t_onset$"] == 5.0 and np.isnan(c3["$kappa$"]) and c3["$kappa_end$"] == 1.74
+        assert c3["$group$"] == "ramp" and c3["$t_onset$"] == 5.0 and np.isnan(c3["$eta$"]) and c3["$eta_end$"] == 1.74
         assert c3["$Ap_end_mm$"] == 15.0 and abs(f["case_003/fake_run"].attrs["delay_onset_s"] - 0.5) < 1e-9
         assert mt["ramp_n"] == 3 and abs(mt["ramp_detection_rate"] - 2 / 3) < 1e-12 and abs(mt["ramp_early_alarm_rate"] - 1 / 3) < 1e-12
         assert mt["ramp_miss_rate"] == 0.0 and "ramp_anticipated_rate" not in mt
@@ -829,7 +829,7 @@ def _selftest():
         assert f["case_001/fake_run"].attrs["persistence"] > 0 and f["case_000/fake_run"].attrs["alarm_fraction"] == 0.0
     csv_rows = open(os.path.splitext(out)[0] + "_metrics.csv", encoding="utf-8").read().splitlines()
     assert csv_rows[0].startswith("rank,run,") and csv_rows[1].startswith("1,fake_run,") and len(csv_rows) == 2
-    # kappa -> eta: a "new" file (attrs eta / eta_start / eta_end, no kappa) gives the same case kappas as the "old" one
+    # kappa -> eta: a "new" file (attrs eta / eta_start / eta_end, no kappa) gives the same case etas as the "old" one
     ind_new, out_new = os.path.join(d, "ind_eta.h5"), os.path.join(d, "out_eta.h5")
     with h5py.File(ind, "r") as a, h5py.File(ind_new, "w") as b:
         for c in a:
@@ -841,9 +841,9 @@ def _selftest():
     validate(ind_new, lab, out_new)
     with h5py.File(out, "r") as fo, h5py.File(out_new, "r") as fn:
         same = lambda x, y: (np.isnan(x) and np.isnan(y)) or x == y   # noqa: E731
-        assert all(same(fo[c].attrs["$kappa$"], fn[c].attrs["$kappa$"]) for c in fo if c.startswith("case_"))
-        assert np.allclose(fo["summary/fake_run/kappa"][()], fn["summary/fake_run/kappa"][()], equal_nan=True)
-        assert fn["case_002"].attrs["$kappa_end$"] == 1.74 and fn["case_001"].attrs["$kappa$"] == 1.5
+        assert all(same(fo[c].attrs["$eta$"], fn[c].attrs["$eta$"]) for c in fo if c.startswith("case_"))
+        assert np.allclose(fo["summary/fake_run/eta"][()], fn["summary/fake_run/eta"][()], equal_nan=True)
+        assert fn["case_002"].attrs["$eta_end$"] == 1.74 and fn["case_001"].attrs["$eta$"] == 1.5
     print("selftest OK")
 
 
