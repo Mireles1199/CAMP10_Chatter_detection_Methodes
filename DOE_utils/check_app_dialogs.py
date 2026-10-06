@@ -9,6 +9,9 @@ import tempfile
 
 import h5py
 
+if hasattr(sys.stdout, "reconfigure"):   # the messages say η: a cp1252 console would refuse it
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 DOE = os.path.dirname(os.path.abspath(__file__))
 SHOTS = os.path.join(tempfile.gettempdir(), "app_dialog_shots")   # captures for a visual check
 os.makedirs(SHOTS, exist_ok=True)
