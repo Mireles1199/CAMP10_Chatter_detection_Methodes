@@ -1864,8 +1864,34 @@ class DoeSelectorUnifiedApp:
         else:
             self._pick_one("Indicator plots", f"Variant to re-run on {case} (one at a time):", runs, with_variant)
 
-    def _run_indicator_plots(self, experiment: str, case: str, variant: str) -> None:
+    def _ssq_options(self, on_ok) -> None:
+        """SST-SVD has figures that depend on arguments: the spectrograms (heavy) and the lines of the 3D waterfalls."""
+        win = tk.Toplevel(self.root)
+        win.title("SST-SVD figures")
+        win.transient(self.root)
+        spec, wf = tk.BooleanVar(value=False), tk.StringVar(value="time")
+        ttk.Checkbutton(win, text="Spectrograms: STFT / SST, slices at 150 Hz, 3D waterfalls (F1-F2c; heavy)",
+                        variable=spec).pack(anchor=tk.W, padx=10, pady=(10, 4))
+        row = ttk.Frame(win)
+        row.pack(anchor=tk.W, padx=28, pady=2)
+        ttk.Label(row, text="waterfall lines").pack(side=tk.LEFT)
+        ttk.Combobox(row, values=("time", "freq", "both", "surface", "wire"), textvariable=wf, state="readonly",
+                     width=9).pack(side=tk.LEFT, padx=6)
+
+        def ok():
+            win.destroy()
+            on_ok(["--spectrograms", "--waterfall", wf.get()] if spec.get() else [])
+        bf = ttk.Frame(win)
+        bf.pack(fill=tk.X, padx=10, pady=10)
+        ttk.Button(bf, text="Run", command=ok).pack(side=tk.RIGHT)
+        ttk.Button(bf, text="Cancel", command=win.destroy).pack(side=tk.RIGHT, padx=6)
+        self._ssq_win, self._ssq_spec, self._ssq_wf, self._ssq_ok = win, spec, wf, ok   # for the selftest
+
+    def _run_indicator_plots(self, experiment: str, case: str, variant: str, extra=None) -> None:
         """Launch indicator_plots.py and show its progress; when it ends the figures join the export window."""
+        if extra is None and variant.startswith("ssq"):   # the arguments of its figures
+            self._ssq_options(lambda opts: self._run_indicator_plots(experiment, case, variant, opts))
+            return
         import atexit
         import queue
         import shutil
@@ -1876,7 +1902,7 @@ class DoeSelectorUnifiedApp:
         out = tempfile.mkdtemp(prefix="indicator_plots_")
         atexit.register(shutil.rmtree, out, True)
         cmd = [sys.executable, INDICATOR_PLOTS_SCRIPT, "--experiment", experiment, "--case", case, "--variant", variant,
-               "--scale", str(scale), "--ind-h5", self.h5_path, "--pickle-dir", out]
+               "--scale", str(scale), "--ind-h5", self.h5_path, "--pickle-dir", out] + list(extra or [])
         win = tk.Toplevel(self.root)
         win.title(f"Indicator plots — {variant} / {case}")
         win.geometry("760x360")
@@ -4801,6 +4827,17 @@ def _selftest_indicator_plots(d: str) -> None:
         win.save_all()
         assert any(x.endswith(".png") for x in os.listdir(dest)), os.listdir(dest)
         win.win.destroy()
+        got = []                                                  # SST-SVD: options of its figures
+        app._ssq_options(got.append)
+        app._ssq_ok()
+        app._ssq_options(got.append)
+        app._ssq_spec.set(True)
+        app._ssq_wf.set("both")
+        app._ssq_ok()
+        assert got == [[], ["--spectrograms", "--waterfall", "both"]], got
+        app._run_indicator_plots("e", "case_000", "ssq_revo")     # an ssq variant asks before launching anything
+        assert app._ssq_win.winfo_exists()
+        app._ssq_win.destroy()
         print("  indicator plots: button, choice windows, subprocess and export items OK")
     finally:
         INDICATOR_PLOTS_SCRIPT = old_script
