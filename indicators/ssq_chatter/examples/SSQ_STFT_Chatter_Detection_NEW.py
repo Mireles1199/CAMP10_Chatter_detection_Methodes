@@ -114,11 +114,18 @@ def main() -> None:
             r"\DOE_Detection_Limite_Lobes_dxl_20e-5_RUN_10"
             r"\6\1DOF_150Hz\sens_out.hdf5"
         ),
+        "2DOF150250_n9989_intersection" : (
+            r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
+            r"\Data\2DOF\train_2DOF150250_n9989_intersection"
+            r"\14\2DOF_150_250\sens_out.hdf5"
+        )
+
+
 
 
     }
 
-    _ACTIVE_SIGNAL_KEY = "tubo_stable_8_605e_5"
+    _ACTIVE_SIGNAL_KEY = "2DOF150250_n9989_intersection"
 
     _SIGNAL_SOURCE = {
         "hdf5_path": _DATA_DIRS[_ACTIVE_SIGNAL_KEY],
@@ -141,8 +148,8 @@ def main() -> None:
 
 
     _CUT_START = 0.05
-    t_cut, v_cut = _cut_signal(t, v,        (_CUT_START, 16))
-    _,     x_cut = _cut_signal(t, tool_dyn, (_CUT_START, 16))
+    t_cut, v_cut = _cut_signal(t, v,        (_CUT_START, 30))
+    _,     x_cut = _cut_signal(t, tool_dyn, (_CUT_START, 30))
     # _,     f_cut = _cut_signal(t, force_N,  (_CUT_START, 16))
 
     fs = 1.0 / (t[1] - t[0])
@@ -292,10 +299,9 @@ def main() -> None:
     # =============================================================================
     USE_EXTERNAL_REFERENCE = True
     _REFERENCE_H5 = (
-        r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\Chatter-Criteria"
-        r"\CAMP10_Chatter_detection_Methodes\Convergency_Simulation"
-        r"\4_DOE_Data_Training_Tube\DOE_Training_Tube_dxl_20e-5_RUN_10_0.5-2.0"
-        r"\reference_dataset.h5"
+        r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\Data"
+        r"\1DOF_150_Training_Tube\DOE_Training_Tube_dxl_20e-5_RUN_10_0.5-2.0"
+        r"\DOE_Training_Tube_dxl_20e-5_RUN_10_0.5-2.0\reference_dataset_amp.h5"
     )
     INDICATOR_CONFIG["reference_signal"] = (
         _load_reference_pieces(_REFERENCE_H5, label="stable", channel="Axial_vel")
@@ -508,7 +514,9 @@ def main() -> None:
         vlines=None, hlines=None,
         waterfall_lines="surface",  # "surface" | "time" | "freq" | "both" | "wire"
         reference_signal=INDICATOR_CONFIG.get("reference_signal"),
-        show_spectrograms=False,
+        show_spectrograms=True,
+        f_max=500.0,    # Hz: top of the F1-F2c frequency axes (None = 250, which cuts the 250 Hz mode of the 2DOF)
+        f_slice=150.0,  # Hz: frequency of the F1b/F2b slices
         scale=FIGSCALE,
         figsize_simple=FIGSIZE_SIMPLE,
         figsize_wide=FIGSIZE_WIDE,
