@@ -1053,7 +1053,7 @@ def run_all(
                 for grp, run in tasks
             }
             for future in as_completed(future_map):
-                grp, run = future_map[future]
+                grp, run = future_map.pop(future)   # pop: si no, los futuros (y sus resultados) se acumulan en memoria
                 try:
                     _handle(future.result())
                 except Exception as exc:
