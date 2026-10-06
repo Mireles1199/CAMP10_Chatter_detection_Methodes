@@ -415,6 +415,21 @@ class _LazySignals(Mapping):
         return len(self._names)
 
 
+LAZY_MAX_CURVES = 12     # lazy (multi-case noise) copies drawn at once; more are thinned to an even sample
+LAZY_BINS = 4000         # min/max pairs per curve (8 000 points instead of ~600 000)
+
+
+def _minmax(t, y, bins: int = LAZY_BINS):
+    """(t, y) thinned to the min and max of `bins` equal chunks: the envelope of the noise survives, the points do not."""
+    n = len(y) // bins * bins
+    if n == 0:
+        return t, y
+    yc = np.asarray(y[:n]).reshape(bins, -1)
+    i = np.arange(bins)[:, None] * (n // bins) + np.stack([yc.argmin(1), yc.argmax(1)], 1)
+    i = np.sort(i, axis=1).ravel()
+    return np.asarray(t)[i], np.asarray(y)[i]
+
+
 def _str_attr(v) -> str:
     return v.decode() if isinstance(v, bytes) else str(v)
 
@@ -2256,6 +2271,12 @@ class DoeSelectorUnifiedApp:
         selected = [self._iid_to_case[i] for i in sel_iids if i in self._iid_to_case]
         if not selected:
             return
+        # multi-case noise files: each curve is read from the file and has ~600 000 points (~90 MB drawn), so an even
+        # sample of at most LAZY_MAX_CURVES copies is drawn (the title says so) and each curve is thinned (min / max)
+        lazy = isinstance(selected[0].get("signals"), _LazySignals)
+        n_sel = len(selected)
+        if lazy and n_sel > LAZY_MAX_CURVES:
+            selected = [selected[i] for i in np.linspace(0, n_sel - 1, LAZY_MAX_CURVES).round().astype(int)]
 
         if self._cbar is not None:
             try:
@@ -2315,7 +2336,8 @@ class DoeSelectorUnifiedApp:
                 if data is None:
                     continue
                 t, y = data
-                ax.plot(t[::DECIMATE], y[::DECIMATE], color=clr, lw=lw,
+                t, y = _minmax(t, y) if lazy else (t[::DECIMATE], y[::DECIMATE])
+                ax.plot(t, y, color=clr, lw=lw,
                         alpha=alpha, label=lbl,
                         zorder=zo, rasterized=True)
             _draw_truth_marks([ax for _, ax, _n in self._sig_axes()], c, clr, shade=len(selected) == 1)
@@ -2335,7 +2357,8 @@ class DoeSelectorUnifiedApp:
         lk_disp = _col_header(selected[0]["label_key"]) if selected else ""
         if n <= 12:
             for _, ax, _n in axes_sig:
-                ax.legend(fontsize=9, framealpha=0.7, loc="upper left")
+                if ax.get_legend_handles_labels()[0]:   # an empty axis (signal absent) has nothing to label
+                    ax.legend(fontsize=9, framealpha=0.7, loc="upper left")
 
         # Colorbar horizontal — escala global (fijo) o sobre seleccionados (dinámico)
         if use_fixed:
@@ -2364,7 +2387,8 @@ class DoeSelectorUnifiedApp:
             self._cbar.update_ticks()
             self._mark_values_on_colorbar(self._cbar, _cbar_marks)
 
-        self.sig_fig.suptitle(f"{lk_disp}  —  {n} case(s)")
+        self.sig_fig.suptitle(f"{lk_disp}  —  {n} case(s)" +
+                              (f"  (even sample of the {n_sel} selected: too many curves to draw)" if n < n_sel else ""))
         self._draw_reference_lines({n: ax for _, ax, n in self._sig_axes()})
         self.sig_canvas.draw()
         self.sig_toolbar.update()  # refresca "Home" a la vista actual (con las lineas nuevas incluidas)
@@ -4486,6 +4510,11 @@ def _selftest_noise(d: str, t) -> None:
     assert isinstance(s, _LazySignals) and "Axial_disp" in s and "Axial_vel" not in s and len(s) == 1 and s.get("Axial_vel") is None
     assert abs(s["Axial_disp"][1][0] - 10.0) < 1e-12 and len(s["Axial_disp"][0]) == len(t) and cn[0]["Axial_disp"] is None
     assert ci[0]["signals"] == {} and ci[0]["runs"]["maxent_x"]["t_d"][0] == 7.0 and ci[0]["var_val"]["kappa"] == 1.05
+    # thinning of the lazy curves: 2 points per bin, the extremes and the order in time are kept, short signals untouched
+    tt, yy = np.linspace(0, 1, 100_003), np.random.default_rng(0).normal(size=100_003)
+    tm, ym = _minmax(tt, yy, 50)
+    assert len(tm) == len(ym) == 100 and ym.max() == yy[:100_000].max() and ym.min() == yy[:100_000].min() and np.all(np.diff(tm) >= 0)
+    assert _minmax(t, np.cos(t))[1].shape == t.shape
     assert _make_summary_entries(TYPE_DOE_NOISE, cn, nz) == [] and _make_summary_entries(TYPE_NOISE_IND, ci, nzi) == []
     # noise validation file: its own type, one row per copy with the outcome of every indicator, figures from NOISE_FIGURES
     nv = os.path.join(d, "doe_noise_validation_results.h5")
