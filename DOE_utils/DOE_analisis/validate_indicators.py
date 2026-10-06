@@ -86,6 +86,9 @@ import sys
 import h5py
 import numpy as np
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))   # DOE_utils/
+import noise_origins  # noqa: E402
+
 CODE = {"stable": 0, "unstable": 1}   # anything else (gray) -> -1
 EARLY_TOL_S = 0.0   # DEPRECATED, no effect: only so that doe_indicators / experiment.py (--early-tol) still import and call
 OUTCOME_TEXT = {"TP": "OK", "FA": "MAL: false alarm", "FN": "MAL: missed", "TN": "OK", "FP": "MAL: false alarm"}
@@ -382,6 +385,7 @@ def validate(ind_h5: str, labels_h5: str, out_h5: str, channel: str = "Axial_dis
                 g.create_dataset(col, data=np.array([q[col] for q in pw], dtype=int))
             g.create_dataset("p_value", data=np.array([q["p_value"] for q in pw], dtype=float))
     write_csv(os.path.splitext(out_h5)[0] + "_metrics.csv", {r: m for r, (m, _) in metrics.items()}, order)
+    noise_origins.set_origins(out_h5, clean_indicators=ind_h5, source_signals=noise_origins.origins(ind_h5)["source_signals"])   # §4.4
     return summary
 
 

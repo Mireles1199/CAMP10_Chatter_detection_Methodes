@@ -42,6 +42,8 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate_indicators as vi  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))   # DOE_utils/
+import noise_origins  # noqa: E402
 
 METRICS = ("TP", "FN", "TN", "FP", "TPR", "TNR", "balanced_accuracy", "MCC", "AUC", "mean_alarm_fraction_stable",
            "median_t_ratio", "n_gray")
@@ -180,6 +182,7 @@ def validate_noise(noise_ind: str, clean: str, out_h5: str = None, realizations=
             bg.attrs["snr_breakdown_db"] = brk
             out.create_group(f"clean/{run}").attrs.update(cm)
             result[run] = (table, bs, brk, float(cm.get("balanced_accuracy", NAN)))
+    write_origins(out_h5, noise_ind, clean)
     with open(os.path.splitext(out_h5)[0] + "_by_snr.csv", "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         cols = [k for k in next(iter(result.values()))[1] if k != "snr_db"]
@@ -188,6 +191,17 @@ def validate_noise(noise_ind: str, clean: str, out_h5: str = None, realizations=
             for i, lv in enumerate(bs["snr_db"]):
                 w.writerow([run, lv, *[bs[c][i] for c in cols], brk])
     return result
+
+
+def write_origins(out_h5: str, noise_ind: str, clean: str) -> None:
+    """Root attrs with where the data come from (PLAN_noise_validation.md §4.4): everything the noise indicator file
+    records, plus itself (noise_indicators) and the clean validation; clean_indicators from the latter if missing."""
+    noise_origins.inherit_origins(out_h5, noise_ind)
+    noise_origins.set_origins(out_h5, noise_indicators=noise_ind, clean_validation=clean)
+    c = noise_origins.origins(clean)
+    with h5py.File(out_h5, "r") as f:
+        have = {k: (k + "_abs") in f.attrs for k in ("clean_indicators", "source_signals")}
+    noise_origins.set_origins(out_h5, **{k: c[k] for k, ok in have.items() if not ok})
 
 
 def print_summary(result: dict) -> None:
@@ -246,6 +260,15 @@ def _selftest():
     assert (bs["TPR_mean"][1], bs["TPR_min"][1], bs["TPR_max"][1]) == (0.5, 0.0, 1.0)   # realizations summarised, not pooled
     with h5py.File(out, "r") as f:
         assert list(f.attrs["realizations_scored"]) == [0, 1] and f.attrs["realizations"] == 2
+    # origins: the noise indicator file's (source_signals, noise_results) + itself + the clean validation; clean_indicators
+    # taken from the clean validation when the noise file does not record it
+    with h5py.File(nind, "a") as f:
+        pass
+    noise_origins.set_origins(nind, source_signals=ind, noise_results=os.path.join(d, "noise_src.h5"))
+    validate_noise(nind, clean, out)
+    oo = noise_origins.origins(out)
+    assert oo["noise_indicators"] == nind and oo["clean_validation"] == clean and oo["source_signals"] == ind
+    assert oo["noise_results"] is None and oo["clean_indicators"] == ind   # noise_src.h5 was never written; ind came from clean
     # --realizations 0: only r00 scored, the rest of the file ignored; the attr says which
     out0 = os.path.join(d, "nv0.h5")
     r0 = validate_noise(nind, clean, out0, realizations=[0])
