@@ -9,7 +9,8 @@ It knows nothing about the figures. Each element is an `Item(name, render, nativ
   - live: render() gives the figure of a panel on screen; an independent copy is exported (selection and zoom kept, the
     panel is not touched);
   - folder: where this item is saved (absolute), instead of the folder of the window (Save and Save all);
-  - note: a text shown under the figure (e.g. a limitation of the language options for it).
+  - note: a text shown under the figure (e.g. a limitation of the language options for it);
+  - skip_all: an alternative view of another item: it can be selected and saved, but 'Save all' leaves it out.
 Read-only apart from the saved figures.
 
     python figures_window.py --selftest
@@ -42,6 +43,7 @@ class Item(NamedTuple):
     live: bool = False
     folder: str = ""
     note: str = ""
+    skip_all: bool = False   # an alternative view of another item (e.g. two of the three signals): selectable, not in Save all
 
 
 def copy_figure(fig):
@@ -288,6 +290,8 @@ class FiguresWindow:
     def save_all(self):
         done, failed, missing, saved = 0, [], set(), set()
         for it in self.items:
+            if it.skip_all:
+                continue
             try:
                 saved.add(os.path.dirname(self.save_fig(self.make(it), it.name, it.folder)))
                 done += 1

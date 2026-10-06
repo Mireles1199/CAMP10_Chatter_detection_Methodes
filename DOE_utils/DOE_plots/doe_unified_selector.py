@@ -615,7 +615,7 @@ def _add_clean_rows(h5_path: str, with_runs: bool, cases: List[Dict]) -> None:
             if kappa is not None:
                 vv["kappa"] = float(kappa)
             cases.append({
-                "group": f"clean__{case}", "label_key": "snr_db", "label_val": float("inf"), "var_val": vv,
+                "group": f"clean__{case}", "label_key": "snr_db", "label_val": float("inf"), "var_val": vv, "_attr_src": (path, case),
                 "signals": _LazySignals(path, case, [s_ for s_ in _SIGNAL_NAMES if s_ in keep and s_ in grp
                                                      and isinstance(grp[s_], h5py.Group) and "values" in grp[s_]])
                            if not with_runs else {},
@@ -1544,6 +1544,10 @@ class DoeSelectorUnifiedApp:
             variable=self._invert_order_var,
             command=self._replot_active_tab,
         ).pack(side=tk.LEFT, padx=4)
+
+        self._margins_var = tk.BooleanVar(value=False)   # the 10 % / 40 % limits of the labelling rule on the signal
+        ttk.Checkbutton(bar, text="Labelling margins", variable=self._margins_var,
+                        command=self._replot_active_tab).pack(side=tk.LEFT, padx=4)
 
         ttk.Separator(bar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6, pady=2)
         ttk.Label(bar, text="X axis:", font=("Arial", 8)).pack(side=tk.LEFT)
@@ -2781,6 +2785,85 @@ class DoeSelectorUnifiedApp:
         self.It_fig.suptitle("Select cases and press  Plot ▶")
 
     # ── PLOT DE SEÑALES ───────────────────────────────────────────────────────────
+    def _attr_of_case(self, c: dict, name: str):
+        """Float attribute `name` ('$f_tooth$') of the case of a row: the viewer's own values first, then the attributes of
+        its group (a 'clean' row: in the origin file). None where there is none."""
+        vv = c.get("var_val", {})
+        for k in (name.strip("$"), name):
+            if k in vv:
+                try:
+                    return float(vv[k])
+                except (TypeError, ValueError):
+                    pass
+        path, grp = c.get("_attr_src") or (self.h5_path, c.get("group"))
+        sg = c.get("signals")
+        if c.get("_attr_src") is None and isinstance(sg, _LazySignals):
+            path, grp = sg._path, sg._group
+        try:
+            with h5py.File(path, "r") as f:
+                v = f[grp].attrs.get(name)
+            return None if v is None else float(v)
+        except (OSError, KeyError, TypeError, ValueError):
+            return None
+
+    def _draw_margins(self, selected: list) -> str:
+        """'Labelling margins': on the signal of the labelling (amp_signal, usually Axial_disp) the horizontal limits of the
+        amplitude rule of reference_dataset.py, ± lim_inf % and ± lim_sup % of the base of each case (base = its base_attr
+        x base_scale; amplitude below the first limit = stable, above the second = unstable, gray between), and the first
+        detection t_d of the drawn indicators as vertical lines. Returns a note when something cannot be drawn ('' = fine)."""
+        var = getattr(self, "_margins_var", None)
+        if var is None or not var.get():
+            return ""
+        if "_label_params" not in self.__dict__:
+            import experiment as ex
+            self._label_params = ex.label_params_for(self.h5_path)
+        params, src = self._label_params
+        if str(params.get("strategy", "amplitude")) != "amplitude":
+            return f"labelling margins: the strategy '{params.get('strategy')}' has no amplitude limits"
+        ax = {sig: a for sig, a, _n in self._sig_axes()}.get(str(params.get("amp_signal", "Axial_disp")))
+        if ax is None:
+            return f"labelling margins: {params.get('amp_signal')} is not in this panel"
+        scale = float(params["base_scale"])
+        bases = sorted({round(v * scale, 12) for v in (self._attr_of_case(c, str(params["base_attr"])) for c in selected)
+                        if v is not None and np.isfinite(v)})
+        if not bases:
+            return f"labelling margins: no {params['base_attr']} in the cases (not drawn); parameters: {src}"
+        # neutral greys (dotted 10 %, dashed 40 %, each labelled): the colours of the panel belong to the indicators
+        for pct, col, ls in ((float(params["lim_inf_pct"]), "#555555", (0, (1.5, 2.5))),
+                             (float(params["lim_sup_pct"]), "#222222", (0, (5, 3)))):
+            for b in bases:
+                y = pct / 100.0 * b
+                for sgn in (1, -1):
+                    ax.axhline(sgn * y, color=col, ls=ls, lw=0.9, alpha=0.9, zorder=2)
+                ax.text(1.0, y, f"{pct:g} %", transform=ax.get_yaxis_transform(), ha="right", va="bottom", color=col, fontsize=8)
+        if self._all_runs:   # indicator files: where each drawn indicator first detects, on the same axis
+            seen = set()
+            for c in selected:
+                for rn in self._get_runs_to_show():
+                    td = c.get("runs", {}).get(rn, {}).get("t_d", np.array([]))
+                    if td.size:
+                        col = self._ind_color_map.get(_run_indicator_prefix(rn), "k") if hasattr(self, "_ind_color_map") else "k"
+                        ax.axvline(float(td[0]), color=col, ls="--", lw=1.4, zorder=6,
+                                   label=None if rn in seen else f"{rn.split('_revo')[0].split('_aux')[0]} t_d")
+                        seen.add(rn)
+        return ""
+
+    def _signal_figure(self, names: list):
+        """Independent copy of the Signals panel with only the axes of `names` (the export of one signal or of a selection)."""
+        from figures_window import copy_figure
+        fig = copy_figure(self.sig_fig)
+        sigs = [sig for sig, _a, _n in self._sig_axes()]
+        axes = fig.axes[:len(sigs)]   # the signal axes come first, then the colour bar
+        for sig, ax in zip(sigs, axes):
+            if sig not in names:
+                ax.remove()
+        keep = [ax for sig, ax in zip(sigs, axes) if sig in names]
+        for k, ax in enumerate(keep):
+            ax.tick_params(labelbottom=(k == len(keep) - 1))
+            if k == len(keep) - 1:
+                ax.set_xlabel("Time (s)", fontsize=14)
+        return fig
+
     def _plot_signals(self) -> None:
         if not hasattr(self, "sig_canvas"):
             messagebox.showinfo("No panel", "This format has no signals panel.",
@@ -2877,6 +2960,7 @@ class DoeSelectorUnifiedApp:
                 ax.set_xlabel("Time (s)", fontsize=14)
                 ax.xaxis.set_major_formatter(mticker.FormatStrFormatter("%.3g"))
 
+        margins_note = self._draw_margins(selected)
         n = len(selected)
         lk_disp = _col_header(selected[0]["label_key"]) if selected else ""
         if n <= 12:
@@ -2912,7 +2996,8 @@ class DoeSelectorUnifiedApp:
             self._mark_values_on_colorbar(self._cbar, _cbar_marks)
 
         self.sig_fig.suptitle(f"{lk_disp}  —  {n} case(s)" +
-                              (f"  (even sample of the {n_sel} selected: too many curves to draw)" if n < n_sel else ""))
+                              (f"  (even sample of the {n_sel} selected: too many curves to draw)" if n < n_sel else "") +
+                              (f"\n[{margins_note}]" if margins_note else ""))
         self._draw_reference_lines({n: ax for _, ax, n in self._sig_axes()})
         self.sig_canvas.draw()
         self.sig_toolbar.update()  # refresca "Home" a la vista actual (con las lineas nuevas incluidas)
@@ -3535,6 +3620,13 @@ class DoeSelectorUnifiedApp:
         items = [Item(name, (lambda a=attr: getattr(self, a)), live=True)
                  for _tab, attr, name in self._PANELS if hasattr(self, attr)]
         items.append(Item("Panel — right (current)", lambda: self._fig_holder.get("summary"), live=True))
+        if hasattr(self, "sig_fig"):   # the signals: all together (above), one figure per signal, and two of three
+            import itertools
+            sigs = [sig for sig, _a, _n in self._sig_axes()]
+            items += [Item(f"Panel — Signals: {sg}", (lambda sg=sg: self._signal_figure([sg]))) for sg in sigs]
+            if len(sigs) > 2:
+                items += [Item(f"Panel — Signals: {a} + {b}", (lambda a=a, b=b: self._signal_figure([a, b])), skip_all=True)
+                          for a, b in itertools.combinations(sigs, 2)]
 
         def gen(entry):
             self._sync_globals()
@@ -5043,6 +5135,7 @@ def _selftest() -> None:
     assert [(r["kappa"], r.get("kappa_txt")) for r in _index_reference_dataset(to_eta(lab))] == [(r["kappa"], r.get("kappa_txt")) for r in _index_reference_dataset(lab)]
     _selftest_noise(d, t)
     _selftest_variants(d, t)
+    _selftest_margins(d, t)
     _selftest_indicator_plots(d)
     print("doe_unified_selector selftest OK")
 
@@ -5103,6 +5196,55 @@ def _selftest_variants(d: str, t) -> None:
 
 
 STUB = "import argparse, json, pickle, os\nimport matplotlib\nmatplotlib.use('Agg')\nimport matplotlib.pyplot as plt\nap = argparse.ArgumentParser()\nfor k in ('experiment', 'case', 'variant', 'scale', 'ind-h5', 'pickle-dir'):\n    ap.add_argument('--' + k)\na = ap.parse_args()\nfig = plt.figure()\nfig.add_subplot(111).plot([0, 1])\nos.makedirs(a.pickle_dir, exist_ok=True)\npickle.dump(fig, open(os.path.join(a.pickle_dir, '00_x.pkl'), 'wb'))\njson.dump({'case': a.case, 'variant': a.variant, 'indicator': 'X', 'figures': [{'name': 'Tool Velocity', 'file': '00_x.pkl'}]},\n          open(os.path.join(a.pickle_dir, 'index.json'), 'w'))\nprint('[indicator_plots] DONE 1 figures')\n"   # stands in for indicator_plots.py in the selftest
+
+
+def _selftest_margins(d: str, t) -> None:
+    """'Labelling margins' (the 10 % / 40 % limits of the amplitude rule + t_d on the displacement) and the export of the signals
+    one by one: lines at ± lim % of base_attr x base_scale, a note when they cannot be drawn."""
+    f_ind = os.path.join(d, "margins_ind.h5")
+    with h5py.File(f_ind, "w") as f:
+        for i, tooth in enumerate((0.05, None)):
+            g = f.create_group(f"case_{i:03d}")
+            g.attrs.update({"kappa": 1.0 + i, "label_key": "kappa", "label_val": 1.0 + i, "$spin_rate$": 12000.0})
+            if tooth is not None:
+                g.attrs["$f_tooth$"] = tooth
+            for name in ("Axial_disp", "Axial_vel"):
+                g.create_dataset(f"{name}/time", data=t)
+                g.create_dataset(f"{name}/values", data=np.sin(t) * 1e-5)
+            q = g.create_group("maxent_x")
+            q["t"], q["I_t"], q["t_d"] = t, np.cos(t), [4.0]
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        return
+    root.withdraw()
+    try:
+        app = DoeSelectorUnifiedApp(root, f_ind)
+        kids = app.tree.get_children()
+        by_group = {app._iid_to_case[i]["group"]: i for i in kids}
+        hl = lambda ax: sorted({round(float(ln.get_ydata()[0]), 12) for ln in ax.lines   # noqa: E731
+                                if len(set(ln.get_ydata())) == 1 and abs(ln.get_ydata()[0]) < 1e-3})
+        vl = lambda ax: [ln.get_xdata()[0] for ln in ax.lines if len(set(ln.get_xdata())) == 1]   # noqa: E731
+        app.tree.selection_set(by_group["case_000"])
+        app._plot_signals()
+        assert hl(app.ax_disp) == [] and vl(app.ax_disp) == []                       # off by default
+        app._margins_var.set(True)
+        app._plot_signals()
+        assert hl(app.ax_disp) == [-2e-05, -5e-06, 5e-06, 2e-05] and vl(app.ax_disp) == [4.0], (hl(app.ax_disp), vl(app.ax_disp))
+        assert "[" not in app.sig_fig._suptitle.get_text() and not hl(app.ax_vel)    # only on the signal of the labelling
+        app.tree.selection_set(by_group["case_001"])                                  # no f_tooth in the case: said, not drawn
+        app._plot_signals()
+        assert not hl(app.ax_disp) and "no $f_tooth$" in app.sig_fig._suptitle.get_text()
+        app._label_params = ({"strategy": "kappa"}, "test")                           # another strategy: no amplitude limits
+        app._plot_signals()
+        assert "has no amplitude limits" in app.sig_fig._suptitle.get_text()
+        names = [i.name for i in app._export_items() if i.name.startswith("Panel — Signals")]
+        assert names == ["Panel — Signals", "Panel — Signals: Axial_disp", "Panel — Signals: Axial_vel"], names
+        fig = next(i for i in app._export_items() if i.name == "Panel — Signals: Axial_vel").render()
+        assert [a.get_ylabel() for a in fig.axes if a.get_ylabel()] == ["Axial Velocity [m/s]"] and fig.axes[0].get_xlabel() == "Time (s)"
+        plt.close("all")
+    finally:
+        root.destroy()
 
 
 def _selftest_indicator_plots(d: str) -> None:
