@@ -86,6 +86,9 @@ import sys
 import h5py
 import numpy as np
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))   # DOE_utils/
+import noise_origins  # noqa: E402
+
 CODE = {"stable": 0, "unstable": 1}   # anything else (gray) -> -1
 EARLY_TOL_S = 0.0   # DEPRECATED, no effect: only so that doe_indicators / experiment.py (--early-tol) still import and call
 OUTCOME_TEXT = {"TP": "OK", "FA": "MAL: false alarm", "FN": "MAL: missed", "TN": "OK", "FP": "MAL: false alarm"}
@@ -276,6 +279,97 @@ def _first_piece_attrs(labels_h5: str) -> dict:
     return {}
 
 
+def write_validation(out, cases: dict, intervals: dict, gray: str, onset_of, signals: bool = True, case_attrs: dict = None) -> tuple:
+    """Scores every indicator run of `cases` {case: h5 group with the case attrs and one subgroup per indicator run
+    (t, I_t, t_d)} against `intervals` {case: [(t0, t1, label)]} and writes, into `out` (a File or a Group), the groups
+    case_*, summary, metrics, roc, ranking and pairwise of doe_validation_results/4. onset_of(case, group, t_start)
+    -> the amplitude onset of the case; signals: copy Axial_* of each case group; case_attrs {case: {attr: value}}:
+    extra attrs of the case groups. Returns (summary, metrics, order). Shared by validate() and by the validation of
+    each noise level (validate_noise.py)."""
+    summary = {}
+    for case in sorted(cases):
+        sg, cg = cases[case], out.create_group(case)
+        for k, v in sg.attrs.items():
+            cg.attrs[k] = v
+        for k, v in (case_attrs or {}).get(case, {}).items():
+            cg.attrs[k] = v
+        for sig in ("Axial_disp", "Axial_vel", "Axial_acc") if signals else ():   # signals, so the viewer shows them too
+            if sig in sg:
+                sg.copy(sg[sig], cg, name=sig)
+        truth, t_start, is_gray = effective_truth(intervals[case], gray)
+        ramp = is_ramp(sg.attrs)
+        group = "ramp" if ramp and truth == "mixed" else "global"
+        t_on = onset_of(case, sg, t_start)
+        # onset of the rule: constant cases (and ramps whose truth does not change) as before, the first sample
+        # over the limit; a ramp that crosses, the start of its first unstable window (no theoretical time)
+        onset = t_start if group == "ramp" else t_on
+        kappa = np.nan if ramp else _attr_float(sg.attrs, "kappa")
+        k0, k1 = (_attr_float(sg.attrs, "kappa_start"), _attr_float(sg.attrs, "kappa_end")) if ramp else (kappa, kappa)
+        ap_mm, spin = _attr_float(sg.attrs, "$Ap_start$", "Ap_start") * 1e3, _attr_float(sg.attrs, "$spin_rate$", "spin_rate")
+        ap_end = _attr_float(sg.attrs, "$Ap_end$") * 1e3 if ramp else ap_mm
+        cg.attrs.update({"$kappa$": kappa, "$truth$": truth, "$gray$": int(is_gray), "$t_onset_amp$": t_on, "$group$": group,
+                         "$t_onset$": onset if np.isfinite(onset) else t_start})   # NaN for a stable case
+        if ramp:
+            cg.attrs.update({"$kappa_start$": k0, "$kappa_end$": k1, "$Ap_end_mm$": ap_end})
+        cg.create_dataset("truth_t0", data=[i[0] for i in intervals[case]])
+        cg.create_dataset("truth_t1", data=[i[1] for i in intervals[case]])
+        cg.create_dataset("truth_label", data=np.array([i[2] for i in intervals[case]], dtype=object), dtype=STR)
+
+        for run in sg:
+            rg = sg[run]
+            if not isinstance(rg, h5py.Group) or "t" not in rg or "I_t" not in rg:
+                continue
+            t, i_t = rg["t"][()], rg["I_t"][()]
+            t_d = rg["t_d"][()] if "t_d" in rg else np.array([])
+            m, pred, tw, roc_sums = score_run(t, i_t, t_d, intervals[case], t_start, onset, group == "ramp",
+                                              gray if is_gray and gray != "ignore" else None)
+            og = cg.create_group(run)
+            for k, v in rg.attrs.items():
+                og.attrs[k] = v
+            og.create_dataset("t", data=t, compression="gzip")
+            og.create_dataset("I_t", data=i_t, compression="gzip")
+            if t_d.size:
+                og.create_dataset("t_d", data=t_d, compression="gzip")
+            og.create_dataset("pred", data=pred, compression="gzip")
+            og.create_dataset("truth_w", data=tw, compression="gzip")
+            og.attrs.update(m)
+            cg.attrs[f"$outcome_{run}$"] = m["outcome"]
+            summary.setdefault(run, []).append(dict(
+                case=case, kappa=kappa, ap_mm=ap_mm, ap_end_mm=ap_end, kappa_start=k0, kappa_end=k1,
+                spin_rpm=spin, truth=truth, group=group, is_gray=float(is_gray), t_onset_amp=t_on, **m, **roc_sums))
+
+    sg, mg = out.create_group("summary"), out.create_group("metrics")
+    for run, rows in summary.items():
+        g = sg.create_group(run)
+        for col in ("case", "truth", "outcome", "group"):
+            g.create_dataset(col, data=np.array([r[col] for r in rows], dtype=object), dtype=STR)
+        for col in SUMMARY_FLOATS:
+            g.create_dataset(col, data=np.array([r[col] for r in rows], dtype=float))
+    metrics = {run: run_metrics(rows) for run, rows in summary.items()}
+    for run, (m, curves) in metrics.items():
+        mg.create_group(run).attrs.update(m)
+        for orient, (fpr, tpr, thr) in curves.items():
+            rg = out.require_group(f"roc/{run}/{orient}")
+            rg.create_dataset("fpr", data=fpr)
+            rg.create_dataset("tpr", data=tpr)
+            rg.create_dataset("thr", data=thr)
+    order = rank_runs({r: m for r, (m, _) in metrics.items()})
+    rk = out.create_group("ranking")
+    rk.create_dataset("run", data=np.array(order, dtype=object), dtype=STR)
+    rk.create_dataset("rank", data=np.arange(1, len(order) + 1))
+    for col in ("balanced_accuracy", "MCC", "F1", "AUC", "TPR", "TNR", "accuracy"):
+        rk.create_dataset(col, data=np.array([metrics[r][0][col] for r in order], dtype=float))
+    pw = mcnemar_pairs(summary)
+    if pw:
+        g = out.create_group("pairwise")
+        for col in ("run_a", "run_b"):
+            g.create_dataset(col, data=np.array([q[col] for q in pw], dtype=object), dtype=STR)
+        for col in ("a_only", "b_only"):
+            g.create_dataset(col, data=np.array([q[col] for q in pw], dtype=int))
+        g.create_dataset("p_value", data=np.array([q["p_value"] for q in pw], dtype=float))
+    return summary, metrics, order
+
+
 def validate(ind_h5: str, labels_h5: str, out_h5: str, channel: str = "Axial_disp", reference_h5: str = None,
              gray: str = "ignore") -> dict:
     """Write out_h5 and return {run_name: [row dict per case]}. Each row has 'group': 'ramp' for a ramp of Ap whose
@@ -286,7 +380,6 @@ def validate(ind_h5: str, labels_h5: str, out_h5: str, channel: str = "Axial_dis
         raise ValueError(f"no pieces of channel '{channel}' in {labels_h5}")
     if gray not in GRAY_MODES:
         raise ValueError(f"gray must be one of {GRAY_MODES}, not {gray!r}")
-    summary = {}
     os.makedirs(os.path.dirname(os.path.abspath(out_h5)), exist_ok=True)
     if os.path.exists(out_h5):
         os.remove(out_h5)
@@ -300,88 +393,15 @@ def validate(ind_h5: str, labels_h5: str, out_h5: str, channel: str = "Axial_dis
             out.attrs["reference_h5"] = os.path.basename(reference_h5)
             write_training(out, reference_h5)
 
+        cases = {}
         for case in sorted(k for k in src if k.startswith("case_")):
-            if case not in intervals:
+            if case in intervals:
+                cases[case] = src[case]
+            else:
                 print(f"  [skip] {case}: no labels")
-                continue
-            sg, cg = src[case], out.create_group(case)
-            for k, v in sg.attrs.items():
-                cg.attrs[k] = v
-            for sig in ("Axial_disp", "Axial_vel", "Axial_acc"):   # signals, so the viewer shows them too
-                if sig in sg:
-                    src.copy(sg[sig], cg, name=sig)
-            truth, t_start, is_gray = effective_truth(intervals[case], gray)
-            ramp = is_ramp(sg.attrs)
-            group = "ramp" if ramp and truth == "mixed" else "global"
-            t_on = amplitude_onset(sg, params, t_start)
-            # onset of the rule: constant cases (and ramps whose truth does not change) as before, the first sample
-            # over the limit; a ramp that crosses, the start of its first unstable window (no theoretical time)
-            onset = t_start if group == "ramp" else t_on
-            kappa = np.nan if ramp else _attr_float(sg.attrs, "kappa")
-            k0, k1 = (_attr_float(sg.attrs, "kappa_start"), _attr_float(sg.attrs, "kappa_end")) if ramp else (kappa, kappa)
-            ap_mm, spin = _attr_float(sg.attrs, "$Ap_start$", "Ap_start") * 1e3, _attr_float(sg.attrs, "$spin_rate$", "spin_rate")
-            ap_end = _attr_float(sg.attrs, "$Ap_end$") * 1e3 if ramp else ap_mm
-            cg.attrs.update({"$kappa$": kappa, "$truth$": truth, "$gray$": int(is_gray), "$t_onset_amp$": t_on, "$group$": group,
-                             "$t_onset$": onset if np.isfinite(onset) else t_start})   # NaN for a stable case
-            if ramp:
-                cg.attrs.update({"$kappa_start$": k0, "$kappa_end$": k1, "$Ap_end_mm$": ap_end})
-            cg.create_dataset("truth_t0", data=[i[0] for i in intervals[case]])
-            cg.create_dataset("truth_t1", data=[i[1] for i in intervals[case]])
-            cg.create_dataset("truth_label", data=np.array([i[2] for i in intervals[case]], dtype=object), dtype=STR)
-
-            for run in sg:
-                rg = sg[run]
-                if not isinstance(rg, h5py.Group) or "t" not in rg or "I_t" not in rg:
-                    continue
-                t, i_t = rg["t"][()], rg["I_t"][()]
-                t_d = rg["t_d"][()] if "t_d" in rg else np.array([])
-                m, pred, tw, roc_sums = score_run(t, i_t, t_d, intervals[case], t_start, onset, group == "ramp",
-                                                  gray if is_gray and gray != "ignore" else None)
-                og = cg.create_group(run)
-                for k, v in rg.attrs.items():
-                    og.attrs[k] = v
-                og.create_dataset("t", data=t, compression="gzip")
-                og.create_dataset("I_t", data=i_t, compression="gzip")
-                if t_d.size:
-                    og.create_dataset("t_d", data=t_d, compression="gzip")
-                og.create_dataset("pred", data=pred, compression="gzip")
-                og.create_dataset("truth_w", data=tw, compression="gzip")
-                og.attrs.update(m)
-                cg.attrs[f"$outcome_{run}$"] = m["outcome"]
-                summary.setdefault(run, []).append(dict(
-                    case=case, kappa=kappa, ap_mm=ap_mm, ap_end_mm=ap_end, kappa_start=k0, kappa_end=k1,
-                    spin_rpm=spin, truth=truth, group=group, is_gray=float(is_gray), t_onset_amp=t_on, **m, **roc_sums))
-
-        sg, mg = out.create_group("summary"), out.create_group("metrics")
-        for run, rows in summary.items():
-            g = sg.create_group(run)
-            for col in ("case", "truth", "outcome", "group"):
-                g.create_dataset(col, data=np.array([r[col] for r in rows], dtype=object), dtype=STR)
-            for col in SUMMARY_FLOATS:
-                g.create_dataset(col, data=np.array([r[col] for r in rows], dtype=float))
-        metrics = {run: run_metrics(rows) for run, rows in summary.items()}
-        for run, (m, curves) in metrics.items():
-            mg.create_group(run).attrs.update(m)
-            for orient, (fpr, tpr, thr) in curves.items():
-                rg = out.require_group(f"roc/{run}/{orient}")
-                rg.create_dataset("fpr", data=fpr)
-                rg.create_dataset("tpr", data=tpr)
-                rg.create_dataset("thr", data=thr)
-        order = rank_runs({r: m for r, (m, _) in metrics.items()})
-        rk = out.create_group("ranking")
-        rk.create_dataset("run", data=np.array(order, dtype=object), dtype=STR)
-        rk.create_dataset("rank", data=np.arange(1, len(order) + 1))
-        for col in ("balanced_accuracy", "MCC", "F1", "AUC", "TPR", "TNR", "accuracy"):
-            rk.create_dataset(col, data=np.array([metrics[r][0][col] for r in order], dtype=float))
-        pw = mcnemar_pairs(summary)
-        if pw:
-            g = out.create_group("pairwise")
-            for col in ("run_a", "run_b"):
-                g.create_dataset(col, data=np.array([q[col] for q in pw], dtype=object), dtype=STR)
-            for col in ("a_only", "b_only"):
-                g.create_dataset(col, data=np.array([q[col] for q in pw], dtype=int))
-            g.create_dataset("p_value", data=np.array([q["p_value"] for q in pw], dtype=float))
+        summary, metrics, order = write_validation(out, cases, intervals, gray, lambda c, sg, t0: amplitude_onset(sg, params, t0))
     write_csv(os.path.splitext(out_h5)[0] + "_metrics.csv", {r: m for r, (m, _) in metrics.items()}, order)
+    noise_origins.set_origins(out_h5, clean_indicators=ind_h5, source_signals=noise_origins.origins(ind_h5)["source_signals"])   # §4.4
     return summary
 
 

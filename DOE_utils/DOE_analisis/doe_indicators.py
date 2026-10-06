@@ -43,6 +43,8 @@ from green_integral import run_green_std, StdSignalData as _StdSignalDataGreen  
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from validate_indicators import OUTCOME_TEXT, detection_outcome  # noqa: E402  (rule of the ramps)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))   # DOE_utils/
+import noise_origins  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -416,6 +418,8 @@ def main() -> None:
                       "(¿es un archivo de ruido multi-caso?)", args.realizations)
             sys.exit(1)
     skip = done_tasks(out_path, groups, runs) if args.resume else set()
+    if not args.dry_run:
+        write_origins(out_path, h5_in)
 
     log.info("doe_indicators")
     log.info("  Entrada     : %s  (%s)", h5_in, layout)
@@ -1071,6 +1075,18 @@ def _case_summary(h5_path: str, case: str, results: list, true_label: str, strat
     log.info("\n".join(lines))
 
 
+def write_origins(out_path: str, h5_in: str) -> None:
+    """Root attrs with where the data come from (PLAN_noise_validation.md §4.4): a clean input -> source_signals; a
+    multi-case noise file -> noise_results, plus the source_signals / clean_indicators it records."""
+    with h5py.File(h5_in, "r") as f:
+        multi = "noise_layout" in f.attrs
+    if not multi:
+        noise_origins.set_origins(out_path, source_signals=h5_in)
+        return
+    noise_origins.inherit_origins(out_path, h5_in)
+    noise_origins.set_origins(out_path, noise_results=h5_in)
+
+
 def select_runs(runs: List[Dict[str, Any]], only: Iterable[str]) -> Tuple[List[Dict[str, Any]], List[str]]:
     """(variantes cuyo nombre empieza por algún X de `only`, los X sin ninguna coincidencia)."""
     if not only:
@@ -1306,6 +1322,17 @@ def _selftest() -> None:
         assert select_realizations(grps, []) == []
     finally:
         globals()["_run_one"] = real_run_one
+    # origins: a clean input is the source of the signals; a noise file passes its own on and becomes noise_results
+    clean_out = os.path.join(tmp, "o_clean.h5")
+    write_origins(clean_out, src)
+    assert noise_origins.origins(clean_out)["source_signals"] == os.path.abspath(src)
+    with h5py.File(nsrc, "a") as f:
+        f.attrs["noise_layout"] = "multi"
+    noise_origins.set_origins(nsrc, source_signals=src)
+    nout = os.path.join(tmp, "o_noise.h5")
+    write_origins(nout, nsrc)
+    o = noise_origins.origins(nout)
+    assert o["noise_results"] == os.path.abspath(nsrc) and o["source_signals"] == os.path.abspath(src) and o["clean_validation"] is None
     print("doe_indicators selftest OK")
 
 
