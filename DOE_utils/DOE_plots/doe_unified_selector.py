@@ -1864,12 +1864,13 @@ class DoeSelectorUnifiedApp:
         else:
             self._pick_one("Indicator plots", f"Variant to re-run on {case} (one at a time):", runs, with_variant)
 
-    def _ssq_options(self, on_ok) -> None:
-        """SST-SVD has figures that depend on arguments: the spectrograms (heavy) and the lines of the 3D waterfalls."""
+    def _ssq_options(self, on_ok, f_max: str = "") -> None:
+        """SST-SVD has figures that depend on arguments: the spectrograms (heavy), the lines of the 3D waterfalls and the top
+        of their frequency axis (f_max; empty = the script's own: twice the modal frequency of the experiment)."""
         win = tk.Toplevel(self.root)
         win.title("SST-SVD figures")
         win.transient(self.root)
-        spec, wf = tk.BooleanVar(value=False), tk.StringVar(value="time")
+        spec, wf, fm = tk.BooleanVar(value=False), tk.StringVar(value="time"), tk.StringVar(value=f_max)
         ttk.Checkbutton(win, text="Spectrograms: STFT / SST, slices at 150 Hz, 3D waterfalls (F1-F2c; heavy)",
                         variable=spec).pack(anchor=tk.W, padx=10, pady=(10, 4))
         row = ttk.Frame(win)
@@ -1877,20 +1878,44 @@ class DoeSelectorUnifiedApp:
         ttk.Label(row, text="waterfall lines").pack(side=tk.LEFT)
         ttk.Combobox(row, values=("time", "freq", "both", "surface", "wire"), textvariable=wf, state="readonly",
                      width=9).pack(side=tk.LEFT, padx=6)
+        row2 = ttk.Frame(win)
+        row2.pack(anchor=tk.W, padx=28, pady=2)
+        ttk.Label(row2, text="f max [Hz]").pack(side=tk.LEFT)
+        ttk.Entry(row2, textvariable=fm, width=9).pack(side=tk.LEFT, padx=6)
+        ttk.Label(row2, text="top of the frequency axis (empty = 2 x modal frequency)", foreground="#666").pack(side=tk.LEFT)
 
         def ok():
             win.destroy()
-            on_ok(["--spectrograms", "--waterfall", wf.get()] if spec.get() else [])
+            if not spec.get():
+                return on_ok([])
+            extra = ["--spectrograms", "--waterfall", wf.get()]
+            try:
+                if fm.get().strip() and float(fm.get()) > 0:
+                    extra += ["--f-max", fm.get().strip()]
+            except ValueError:
+                pass   # not a number: the script's own value
+            on_ok(extra)
         bf = ttk.Frame(win)
         bf.pack(fill=tk.X, padx=10, pady=10)
         ttk.Button(bf, text="Run", command=ok).pack(side=tk.RIGHT)
         ttk.Button(bf, text="Cancel", command=win.destroy).pack(side=tk.RIGHT, padx=6)
-        self._ssq_win, self._ssq_spec, self._ssq_wf, self._ssq_ok = win, spec, wf, ok   # for the selftest
+        self._ssq_win, self._ssq_spec, self._ssq_wf, self._ssq_fm, self._ssq_ok = win, spec, wf, fm, ok   # for the selftest
 
     def _run_indicator_plots(self, experiment: str, case: str, variant: str, extra=None) -> None:
         """Launch indicator_plots.py and show its progress; when it ends the figures join the export window."""
         if extra is None and variant.startswith("ssq"):   # the arguments of its figures
-            self._ssq_options(lambda opts: self._run_indicator_plots(experiment, case, variant, opts))
+            fm = ""
+            try:   # prefilled with twice the largest modal frequency of the experiment (the script clamps it to Nyquist)
+                utils = os.path.dirname(SCRIPT_DIR)
+                if utils not in sys.path:
+                    sys.path.insert(0, utils)
+                import experiment as ex
+                v = ex.load(experiment).indicators.get("f_modal")
+                v = [float(x) for x in (v if isinstance(v, (list, tuple)) else [v]) if x]
+                fm = f"{2 * max(v):g}" if v else ""
+            except Exception:
+                pass
+            self._ssq_options(lambda opts: self._run_indicator_plots(experiment, case, variant, opts), fm)
             return
         import atexit
         import queue
@@ -4834,7 +4859,14 @@ def _selftest_indicator_plots(d: str) -> None:
         app._ssq_spec.set(True)
         app._ssq_wf.set("both")
         app._ssq_ok()
-        assert got == [[], ["--spectrograms", "--waterfall", "both"]], got
+        app._ssq_options(got.append, "300")                       # f max prefilled: passed with the spectrograms only
+        assert app._ssq_fm.get() == "300"
+        app._ssq_spec.set(True)
+        app._ssq_ok()
+        app._ssq_options(got.append, "300")
+        app._ssq_ok()
+        assert got == [[], ["--spectrograms", "--waterfall", "both"], ["--spectrograms", "--waterfall", "time", "--f-max", "300"],
+                       []], got
         app._run_indicator_plots("e", "case_000", "ssq_revo")     # an ssq variant asks before launching anything
         assert app._ssq_win.winfo_exists()
         app._ssq_win.destroy()

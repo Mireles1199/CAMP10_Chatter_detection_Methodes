@@ -94,8 +94,24 @@ def config_mismatch(info: dict, ind_h5: str, case: str, variant: str) -> list:
     return bad
 
 
+def modal_frequencies(f_modal) -> list:
+    """f_modal of the experiment (a number, a list, or None) as a list of positive frequencies [Hz]."""
+    v = f_modal if isinstance(f_modal, (list, tuple)) else [f_modal]
+    return [float(x) for x in v if x is not None and float(x) > 0]
+
+
+def sst_frequency_axes(f_modal, fs: float):
+    """(f_max, f_slice) of the SST-SVD figures F1-F2c from the modal frequency of the experiment: the top of the axes is
+    twice the largest mode (not above the Nyquist frequency of the signal), the slice is at the first mode. (None, None)
+    when the experiment has no f_modal: the package keeps its own 250 / 150 Hz."""
+    fm = modal_frequencies(f_modal)
+    if not fm:
+        return None, None
+    return min(2.0 * max(fm), fs / 2.0), fm[0]
+
+
 def draw(ind_id: str, sig, result, config, case: str, scale: float, t_gt, spectrograms: bool = False,
-         waterfall: str = "time"):
+         waterfall: str = "time", f_max=None, f_slice=None):
     """Calls the plotting function of the package; the figures stay open in pyplot."""
     kw = dict(scale=scale, figsize_simple=_presets()[0], figsize_wide=_presets()[1], show=False)
     sig.meta["signal_id"] = case   # the package tags its figures with it
@@ -108,7 +124,8 @@ def draw(ind_id: str, sig, result, config, case: str, scale: float, t_gt, spectr
     elif ind_id == "SST_SVD":
         from ssq_chatter import plots_sst_svd
         plots_sst_svd(signal=sig, result=result, show_signal=True, reference_signal=config.get("reference_signal"),
-                      show_spectrograms=spectrograms, waterfall_lines=waterfall, **kw)
+                      show_spectrograms=spectrograms, waterfall_lines=waterfall,
+                      **({"f_max": f_max} if f_max else {}), **({"f_slice": f_slice} if f_slice else {}), **kw)
     elif ind_id == "Green_Integral":
         from green_integral import SignalData as GreenSignal, plots_green_integral, plots_lyapunov
         raw = result.meta["raw_result"]
@@ -166,6 +183,9 @@ def _selftest():
     assert config_mismatch(info, path, "case_000", "v1") == []
     info["cfg"]["params_physical"]["N_rev_window"] = 4
     assert len(config_mismatch(info, path, "case_000", "v1")) == 1 and config_mismatch(info, "", "case_000", "v1") == []
+    assert sst_frequency_axes(150.0, 1000.0) == (300.0, 150.0) and sst_frequency_axes([150, 250], 1000.0) == (500.0, 150.0)
+    assert sst_frequency_axes(250.0, 600.0) == (300.0, 250.0)                      # not above the Nyquist frequency
+    assert sst_frequency_axes(None, 1000.0) == (None, None) and sst_frequency_axes([], 1000.0) == (None, None)
     print("indicator_plots selftest OK")
 
 
@@ -183,6 +203,10 @@ def main(argv=None) -> int:
     ap.add_argument("--show", action="store_true", help="open the figures in windows")
     ap.add_argument("--spectrograms", action="store_true",
                     help="SST_SVD only: also the STFT / SST spectrograms, slices and 3D waterfalls (F1-F2c; heavy)")
+    ap.add_argument("--f-max", type=float, default=0.0, help="SST_SVD only: top of the frequency axes of F1-F2c [Hz] (default: "
+                    "2 x the modal frequency of the experiment, not above the Nyquist frequency)")
+    ap.add_argument("--f-slice", type=float, default=0.0, help="SST_SVD only: frequency of the slices F1b / F2b [Hz] (default: "
+                    "the modal frequency of the experiment)")
     ap.add_argument("--waterfall", default="time", choices=("time", "freq", "both", "surface", "wire"),
                     help="SST_SVD only: lines of the 3D waterfalls (with --spectrograms)")
     ap.add_argument("--t-end", type=float, default=0.0, help="analyse the signal only up to this time [s] (quick tests; 0 = all)")
@@ -205,7 +229,13 @@ def main(argv=None) -> int:
     t_gt = float(onset) if onset is not None and np.isfinite(onset) else None
     say("drawing")
     plt.close("all")
-    draw(ind_id, sig, result, config, a.case, a.scale, t_gt, a.spectrograms, a.waterfall)
+    f_max, f_slice = sst_frequency_axes(exp.indicators.get("f_modal"), float(sig.fs)) if ind_id == "SST_SVD" else (None, None)
+    if a.f_max:
+        f_max = min(a.f_max, float(sig.fs) / 2.0)
+    f_slice = a.f_slice or f_slice
+    if ind_id == "SST_SVD" and a.spectrograms:
+        say(f"spectrogram axes: up to {f_max or 250:g} Hz, slices at {f_slice or 150:g} Hz")
+    draw(ind_id, sig, result, config, a.case, a.scale, t_gt, a.spectrograms, a.waterfall, f_max, f_slice)
     figs = collect(a.case)
     say(f"{len(figs)} figures")
     names = []
