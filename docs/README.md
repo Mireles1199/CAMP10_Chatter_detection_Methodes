@@ -8,6 +8,7 @@ Estados: **activo** (se sigue editando), **vigente** (terminado, sirve como refe
 |---|---|---|---|
 | `planes/` | `PLAN_app_v2.md` | Plan v2 de la app de experimentos (bitácora y punto donde retomar, §0) | activo |
 | `planes/` | `PLAN_noise_validation.md` | Validación con ruido blanco: decisiones, contrato de formatos (§4), fases N/I/J | vigente (hecho; §4 es el contrato) |
+| `planes/` | `PLAN_eta_rename.md` | Renombrar κ (kappa) → η (eta): contrato de nombres, helper `eta_compat.py`, fases, reparto | activo |
 | `guias/` | `GUIA_metricas_validacion.md` | Métricas y gráficas de la validación, para no especialistas | vigente |
 | `guias/` | `GUIA_validacion_ruido.md` | Validación con ruido paso a paso, para no especialistas | vigente |
 | `guias/` | `indicadores_modos_explicacion.md` | Derivación de los modos de parametrización física de los indicadores | vigente |
@@ -29,4 +30,5 @@ Estados: **activo** (se sigue editando), **vigente** (terminado, sirve como refe
 ## Notas
 
 - Las rutas de este índice son relativas a `docs/`. Muchos comentarios del código citan solo el nombre del archivo (por ejemplo `PLAN_ramps.md`): búscalo aquí.
+- κ (kappa) pasó a llamarse η (eta) el 2026-10-06 (`planes/PLAN_eta_rename.md`): los documentos de `historico/` conservan "kappa"; equivale a η.
 - Hasta el 2026-10-06 los documentos de planes, guías e informes estaban sueltos en `DOE_utils/` y en la raíz.
