@@ -537,6 +537,8 @@ Los colores son una paleta segura para daltónicos. Verde = acierto TP, azul = T
 
 ## 8. Validación con ruido (robustez)
 
+> Hay una guía propia, más detallada y paso a paso: **`GUIA_validacion_ruido.md`**. Esta sección es el resumen.
+
 ### 8.1 La pregunta
 
 Todo lo anterior usa señales **limpias** de simulación. Un sensor real añade **ruido**. La pregunta es: *¿un indicador cuyo umbral se calibró con datos limpios sigue funcionando cuando la señal tiene ruido?* Es una pregunta de **robustez**.

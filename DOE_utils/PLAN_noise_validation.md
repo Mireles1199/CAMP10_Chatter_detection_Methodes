@@ -1,6 +1,6 @@
 # PLAN — Validación con ruido blanco (Ap constante)
 
-**Estado (2026-10-05):** N1–N4 ✅ hechos en `wt-validacion` (a57c847 doe_noise, 4cabb64 + 5036ca0 doe_indicators, b80745c refactor, cbb3296 validate_noise, 86df0a2 figuras; selftests OK). N5 ✅ (n12000 por CLI, 12 casos × 6 niveles × 3 realizaciones; medidas en §8). wt-interfaz: I1–I3 ✅ (merge de wt-validacion 8788d2e en wt-interfaz → 6e7f0bb; e6b374b etapas, 1aa3bd0 formularios, ee0b09a visor). Rama de la interfaz: `wt-interfaz`. Coordina: sesión `DOE_utils/PLAN_app_v2.md` (manager).
+**Estado (2026-10-05):** N1–N4 ✅ hechos en `wt-validacion` (a57c847 doe_noise, 4cabb64 + 5036ca0 doe_indicators, b80745c refactor, cbb3296 validate_noise, 86df0a2 figuras; selftests OK). N5 ✅ (n12000 por CLI, 12 casos × 6 niveles × 3 realizaciones; medidas en §8). J2 ✅ (2026-10-06): `cases: all` (22) × 6 × 5 realizaciones de ruido, indicadores y validación de la realización 0 (`validacion_figs/noise_all22_r5/`, §8); `doe_indicators.py --only/--resume/--realizations`, `validate_noise.py --realizations`. wt-interfaz: I1–I3 ✅ (merge de wt-validacion 8788d2e en wt-interfaz → 6e7f0bb; e6b374b etapas, 1aa3bd0 formularios, ee0b09a visor). Rama de la interfaz: `wt-interfaz`. Coordina: sesión `DOE_utils/PLAN_app_v2.md` (manager).
 **Cómo retomar:** leer §0 y la tabla de fases (§9); la última fase marcada ✅ es donde se quedó.
 
 Estilo de trabajo: **ponytail** (reusar lo que ya existe, el cambio más corto que funcione, un selftest por lógica nueva) y figuras con **article-plot-style** (`DOE_plots/plot_style.py`: `FIGSIZE_SIMPLE`/`FIGSIZE_WIDE` × `FIGSCALE`, `figsize_grid`, `lang_text`, paleta Okabe-Ito, `fig._keep_size`).
@@ -156,6 +156,7 @@ Todas con `lang_text` (EN/FR/both), `constrained_layout`, leyendas fuera de los 
 - No abrir el archivo multi en el visor hasta que I3 haga la carga perezosa.
 - **Medido en N5 (n12000, 12 casos × 6 niveles × 3 realizaciones = 216 copias):** `doe_noise_multi_results.h5` = 2.13 GB, generado en 6 s. `doe_noise_indicator_results.h5` (sin señales) = 65 MB. `doe_noise_validation_results.h5` = 0.36 MB (+ `_by_snr.csv` 8 KB); `validate_noise.py` tarda 2 s. Indicadores (864 tareas): un grupo con los 4 indicadores en un proceso = 87 s → 1 worker ≈ 5.2 h; 3 workers ≈ 5.8 tareas/min (≈ 2.5 h); 6 workers ≈ 11 tareas/min (≈ 1.3 h) pero sin memoria virtual (ver arriba). Windows también puede suspender el equipo y cortar la corrida: se reanuda con `--cases` de los grupos incompletos (en N5 se usó un lanzador que reintenta y pide no suspender, `SetThreadExecutionState`).
 - **Memoria (medido en N5):** cada worker de `noise_indicators` llega a ~3 GB de pico (un grupo, 4 indicadores, 1 proceso: 87 s, 2.9 GB). Con 6 workers Windows se quedó sin memoria virtual (log System 18:27:02, "Mémoire virtuelle minimale insuffisante") y el pool se cayó tras 399/864 tareas. **Usar `workers` <= 3.** Como los resultados se escriben incrementalmente, se retoma pasando `--cases` con los grupos incompletos.
+- **Medido en la ampliación (22 casos × 6 niveles × 5 realizaciones = 660 copias, seed 42, 2026-10-06):** `doe_noise_multi_results.h5` = 6.45 GB en 44 s; indicadores solo de r00 (132 grupos × 4) = 69 MB (incluye ~25 grupos de r03/r04 a 10 dB que sobraron de una corrida cortada; se ignoran con `--realizations 0`); `doe_noise_validation_results.h5` = 0.27 MB. Tiempo de indicadores ~4.7 h con 3 workers; ritmo 3–4.5 tareas/min, Green domina (~6 min por tarea a 10 dB, mucho menos con poco ruido). **Fuga de memoria encontrada y corregida:** `run_all` guardaba todos los resultados en `future_map` (~190 MB por tarea, 30 GB tras 93 tareas); con 2640 tareas habría agotado la memoria virtual (probable causa real del fallo de N5 con 6 workers). Con la corrección el proceso principal se queda en ~2.7 GB. Quiebres con 22 casos: green/ssq 20 dB, maxent 40 dB, rms_cv 80 dB (iguales que con 12 casos).
 - **Alternativa anotada** (no se hace ahora): no guardar las señales ruidosas y regenerarlas desde la semilla dentro de `noise_indicators`.
 
 ## 9. Fases
@@ -172,7 +173,8 @@ Todas con `lang_text` (EN/FR/both), `constrained_layout`, leyendas fuera de los 
 | I2 ✅ | wt-interfaz | Formularios y tarjetas | su rama |
 | I3 ✅ | wt-interfaz | Visor: tipo nuevo, `NOISE_FIGURES`, columnas multi, ocultar figuras antiguas, `figs_dir` | su rama |
 | J1 | ambos | E2E desde la app sobre n12000 (12 casos): crear etapas, configurar, correr, ver y exportar | lista de problemas por mensaje |
-| J2 | quien corresponda | Correcciones; luego `cases: all` y, si sirve, más realizaciones | — |
+| J2 ✅ | wt-validacion | `cases: all` (22) con 5 realizaciones de ruido; indicadores y validación de r00; `--only`, `--resume`, `--realizations` (doe_indicators y validate_noise), `prepare_run`, fuga de memoria; líneas de quiebre de `noise_metrics` | 298ca86, 0394156, 7146aa0, 66d0b2a, 409123b |
+| J3 | wt-interfaz | Probar los flags reales desde la app; ampliar a r01–r02 con `--resume` si hace falta | — |
 
 ## 10. Protocolo de coordinación entre sesiones
 
@@ -197,6 +199,8 @@ Todas con `lang_text` (EN/FR/both), `constrained_layout`, leyendas fuera de los 
 - `doe_noise.py` en modo multi sin `--out` escribe `doe_noise_multi_results.h5` **junto a `doe_results.h5`**; la etapa de la app debe pasar `--out` en `out_dir` (§7.1).
 - `validate_noise.py` sin `--out` escribe `doe_noise_validation_results{gray_suffix}.h5` junto a `--noise_ind` y siempre `<out>_by_snr.csv`.
 - `doe_noise.py` mantiene sus finales de línea CRLF (así estaba en el repo).
+- `validate_noise.py --realizations K [K …]` puntúa solo esas realizaciones (índice del attr `realization` de cada copia); attr raíz **aditivo** `realizations_scored` = las puntuadas, mientras `realizations` sigue siendo las del archivo de ruido.
+- `doe_indicators.py`: `--only X [X …]` (prefijo o nombre de variante; error si algún X no coincide), `--resume` (salta tareas grupo × variante con attr `id` ya escrito), `--realizations K [K …]` (sufijo `__rKK`, se interseca con `--cases`).
 
 ## 12. Fuera de alcance (anotado)
 

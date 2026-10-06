@@ -489,7 +489,8 @@ def _snr_axis(ax, levels):
 @_figure(registry=NOISE_FIGURES, loader=load_noise)
 def fig_noise_metrics(D):
     """Balanced accuracy, TPR, TNR and alarm fraction in stable cases vs SNR: line = mean, band = min-max over the
-    realizations, marker on the left = clean, dashed vertical = breakdown SNR (balanced accuracy panel)."""
+    realizations, marker on the left = clean, triangle above the balanced accuracy panel = breakdown SNR of each
+    indicator (own color, one row per indicator so they never overlap, labelled with its dB)."""
     fig, axs = _grid(4)
     panels = (("balanced_accuracy", T("balanced accuracy", "exactitude équilibrée")), ("TPR", "TPR"), ("TNR", "TNR"),
               ("mean_alarm_fraction_stable", T("alarm fraction, stable cases", "fraction d'alarme, cas stables")))
@@ -501,9 +502,19 @@ def fig_noise_metrics(D):
             ax.fill_between(b["snr_db"], b[k + "_min"], b[k + "_max"], color=c, alpha=0.15, lw=0)
             ax.plot([x_clean], [float(D.clean.get(r, {}).get(k, np.nan))], "D", ms=6, mfc="none", mew=1.5, color=c)
             if k == "balanced_accuracy" and np.isfinite(b["snr_breakdown_db"]):
-                ax.axvline(b["snr_breakdown_db"], color=c, ls="--", lw=0.8)
-        ax.set(ylabel=lab, ylim=(-0.05, 1.05))
-    fig.legend(*axs[0].get_legend_handles_labels(), loc="outside upper center", ncol=4, fontsize=8)
+                y = 1.05 + 0.08 * (i + 0.5)   # a row above the data per indicator: same SNR, no overlap
+                ax.plot([b["snr_breakdown_db"]], [y], "v", ms=6, color=c, clip_on=False)
+                ax.annotate(f"{b['snr_breakdown_db']:g} dB", (b["snr_breakdown_db"], y), xytext=(6, 0), textcoords="offset points",
+                            va="center", fontsize=7, color=c, annotation_clip=False)
+        if k == "balanced_accuracy":
+            ax.set(ylim=(-0.05, 1.05 + 0.08 * len(D.order)), yticks=np.arange(0, 1.01, 0.2))
+        else:
+            ax.set(ylim=(-0.05, 1.05))
+        ax.set_ylabel(lab, y=0.4 if k == "balanced_accuracy" else 0.5)
+    h, l = axs[0].get_legend_handles_labels()
+    h.append(plt.Line2D([], [], marker="v", ls="", color="grey", ms=6))
+    l.append(T("breakdown SNR", "SNR de rupture"))
+    fig.legend(h, l, loc="outside upper center", ncol=5, fontsize=8)
     return fig
 
 
