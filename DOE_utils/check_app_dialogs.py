@@ -139,6 +139,31 @@ def check_noise():
     nv.out.set(os.path.join(tmp, "nv.h5"))
     nv._ok()
     assert ex.stages(ex.load(TR))["noise_validate"].outputs == [os.path.normpath(os.path.join(tmp, "nv.h5"))]
+    # realizations_run in both forms and resume in Noise indicators: written only when filled, read back, the command follows
+    nv = L.NoiseValidateForm(app, ex.load(TR))
+    assert nv.rr.get() == "" and ex.own_yaml(TR)["noise_validate"] == {"out": os.path.normpath(os.path.join(tmp, "nv.h5")).replace("\\", "/")}
+    nv.rr.set("0")
+    nv._ok()
+    assert ex.own_yaml(TR)["noise_validate"]["realizations_run"] == [0] and "out" in ex.own_yaml(TR)["noise_validate"]
+    assert ex.stages(ex.load(TR))["noise_validate"].cmds[0][-2:] == ["--realizations", "0"]
+    ni = L.NoiseIndicatorsForm(app, ex.load(TR))                                      # its own form now (the variants: a button)
+    assert ni.rr.get() == "" and not ni.resume.get()
+    ni.rr.set("0, 2")
+    ni.resume.set(True)
+    shot(ni.win, "noise_indicators_form.png")
+    ni._ok()
+    assert ex.own_yaml(TR)["noise_indicators"] == {"realizations_run": [0, 2], "resume": True}, ex.own_yaml(TR)["noise_indicators"]
+    c = ex.stages(ex.load(TR))["noise_indicators"].cmds[0]
+    assert c[-5:] == ["--no-signals", "--realizations", "0", "2", "--resume"], c
+    ni = L.NoiseIndicatorsForm(app, ex.load(TR))
+    assert ni.rr.get() == "0 2" and ni.resume.get()
+    ni.rr.set("a")
+    ni._ok()                                                                          # refused: the form stays, says why
+    assert errors.pop()[2] == "error" and ex.own_yaml(TR)["noise_indicators"]["realizations_run"] == [0, 2]
+    ni.rr.set("")
+    ni.resume.set(False)
+    ni._ok()
+    assert ex.own_yaml(TR).get("noise_indicators") is None                            # emptied: the section leaves the YAML
     ex.save_section(TR, "noise_validate", None)
     lay = L.diagram_layout(list(ex.stages(ex.load(TR))), False)
     assert lay["noise_validate"][0] > lay["noise_indicators"][0] and lay["noise_validate"][1] == lay["noise"][1]
