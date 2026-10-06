@@ -7,9 +7,29 @@ experimentos y `indicator_variants.yaml`), `DOE_utils/TUTORIAL.md` (tutorial, ta
 Rama: `Aplication-Indicateur-Validacion-Training`, sin push. Commits v2: `00d17eb` núcleo, `d5830d7` app,
 `ebe357d` visor, `09fd03f` docs + migración, `d61f159` ronda 2.
 
-## 0. Para retomar (estado al 2026-10-03)
+## 0. Para retomar
 
-**Dónde estamos.** Los 44 puntos de §1 y los 5 extras de la ronda 2 están hechos y probados sin ratón:
+**Estado al 2026-10-06 (lo más reciente; lo de abajo es el estado del 2026-10-03).** Tres ramas alineadas en
+`REPO-Utils` (HEAD `e7900e4`; `wt-interfaz` y `wt-validacion` sin commits fuera de él), sin push por mi parte.
+- **Validación con ruido hecha** (plan y contrato: `docs/planes/PLAN_noise_validation.md`; guía: `docs/guias/GUIA_validacion_ruido.md`).
+  n12000: 22 casos × 6 niveles (80…10 dB) × 1 realización (r00; seed 42; referencia `case_011`); etapas `noise`,
+  `noise_indicators`, `noise_validate` configuradas y adoptadas ('imported') en `DOE_Test_1DOF_150_n12000.yaml`.
+  Quiebres (exactitud balanceada): Green y SSQ 20 dB, MaxEnt 40 dB, RMS-CV 80 dB (calentamiento abierto, TNR 0.00 siempre).
+  Los resultados viven en la carpeta de datos de n12000; las copias de respaldo (r5 = 5 realizaciones y N5 = 12 casos)
+  siguen en `CAMP10_wt-validacion\validacion_figs\` (borrables a decisión del usuario).
+- **App/visor nuevos**: selector de variantes, 'Indicator plots…' (reejecuta una variante en un caso con
+  `indicator_plots.py`; figuras de los paquetes en inglés), 'Run only…' (`doe_indicators --only/--resume/--realizations`),
+  aviso 'indicator code changed' (descartable con 'Mark up to date'), visores de ruido con filas 'clean' seleccionables
+  (orígenes por attrs vía `DOE_utils/noise_origins.py`, sin duplicar señales), validación con ruido en un solo `.h5` con
+  un subárbol por nivel de SNR (15 figuras por nivel), márgenes de etiquetado 10 %/40 % y exportación de señales por separado.
+- **κ → η** (contrato: `docs/planes/PLAN_eta_rename.md`, helper `DOE_utils/eta_compat.py`): hecho en pantalla,
+  escritores y lectores (aceptan ambos nombres; los `.h5` de datos existentes no se reescribieron). Queda sin tocar
+  `indicators/*` (a decidir con el usuario) y los comentarios de código. Este plan conserva 'kappa' en lo histórico.
+- **Documentación** reorganizada en `docs/` (índice `docs/README.md`); `DOE_utils/TUTORIAL.md` se queda (la app lo lee).
+- **Pendientes del usuario**: decidir si `augmented_trajectory_exploration.py` (Green) usa el mismo κ; borrar los respaldos
+  de `validacion_figs\`; probar a mano la lista de pruebas dada el 2026-10-06 (ruido, 'Indicator plots…', márgenes, η).
+
+**Dónde estábamos el 2026-10-03.** Los 44 puntos de §1 y los 5 extras de la ronda 2 están hechos y probados sin ratón:
 `experiment.py selftest`, `launcher.py --selftest`, `DOE_analisis/doe_indicators.py --selftest`,
 `check_app_dialogs.py` (formularios sobre copia temporal; capturas en `%TEMP%/app_dialog_shots`). Nunca se corrieron
 indicadores reales: el usuario lo pidió (tardan ~1 h).
