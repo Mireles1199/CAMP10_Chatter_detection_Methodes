@@ -266,12 +266,7 @@ noise:
   - 30
   - 20
   - 10
-  realizations: 5
+  realizations: 1
   seed: 42
 noise_indicators:
-  realizations_run:
-  - 0
   resume: true
-noise_validate:
-  realizations_run:
-  - 0
