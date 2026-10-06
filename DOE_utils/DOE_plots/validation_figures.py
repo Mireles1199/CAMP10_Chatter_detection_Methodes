@@ -16,8 +16,13 @@ API (what doe_unified_selector.py / launcher.py consume):
 Gray cases (--gray of validate_indicators.py): mode 'ignore' leaves them out of the metrics; 'stable' / 'unstable' score them
 as such. Either way they are drawn as hollow gray points, and a note on the figure says the mode when it is not 'ignore'.
 A figure is saved as <out_dir>/<name>.png (300 dpi) only when out_dir is given; fig._keep_size holds its size.
+Noise validation file (doe_noise_validation_results/2, one validation subtree per level, PLAN_noise_validation.md §4.5): the
+15 FIGURES draw ONE level, fn(h5, out_dir=None, snr=40, realization=None) (realization: default the first scored; snr is
+required for such a file and rejected for a clean one), saved by default in figs_dir(h5, snr) = .../figs_noise_validation/snr_040;
+NOISE_FIGURES (summary over levels) ignore snr. make_all(h5, snr=40 | [40, 20] | "all") draws both.
 
 CLI:  python validation_figures.py --results X/doe_validation_results.h5 [--out-dir D] [--lang EN|FR|both] [--scale 1.5]
+      python validation_figures.py --results X/doe_noise_validation_results.h5 [--snr 40 [20 ...] | --snr all] [--realization K]
       python validation_figures.py --selftest
 
 name (-> h5 data it reads)
@@ -55,6 +60,8 @@ from matplotlib.colors import ListedColormap
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import plot_style as ps  # noqa: E402
 from sld_model import OUTCOMES  # noqa: E402  (same TP/TN/FN/FP colors as the SLD of the viewer)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))   # DOE_utils/
+import noise_origins  # noqa: E402
 
 LANGUAGE = "EN"   # "EN" | "FR" | "both"
 FIGSCALE = 1.5    # multiplier of the plot_style presets (same criterion as sld_model.py)
@@ -72,16 +79,62 @@ def short(run):
 
 
 # ============================================================================== data
-def load(path):
-    """Constant-Ap rows of /summary (group 'global'), run order of /ranking, /metrics attrs and the root attrs."""
+def _is_noise_file(f):
+    return str(f.attrs.get("schema", "")).startswith("doe_noise_validation")
+
+
+def _level_names(f):
+    return [str(n) for n in f.attrs.get("snr_subtrees", [])]
+
+
+def _subtree(f, snr, realization=None):
+    """Name of the validation subtree of level `snr` (and realization; default the first scored)."""
+    names = _level_names(f)
+    ok = [n for n in names if abs(float(f[n].attrs["snr_db"]) - float(snr)) < 1e-6
+          and (realization is None or int(f[n].attrs["realization"]) == int(realization))]
+    if not ok:
+        raise ValueError(f"no validation subtree for snr={snr}" + ("" if realization is None else f", realization={realization}")
+                         + f"; the file has {sorted({float(f[n].attrs['snr_db']) for n in names}, reverse=True) or 'none (a file made before schema /2: run validate_noise.py again)'}")
+    return ok[0]
+
+
+def load(path, snr=None, realization=None):
+    """Constant-Ap rows of /summary (group 'global'), run order of /ranking, /metrics attrs and the root attrs. A noise
+    validation file needs snr (and realization if several were scored): D.base is then the subtree of that level."""
     with h5py.File(path, "r") as f:
+        base, g, attrs = None, f, dict(f.attrs)
+        if _is_noise_file(f):
+            if snr is None:
+                raise ValueError("a noise validation file: pass snr (a level of /snr_subtrees) for the validation figures")
+            base = _subtree(f, snr, realization)
+            g = f[base]
+            attrs.update(g.attrs)
+        elif snr is not None or realization is not None:
+            raise ValueError("snr / realization only apply to a noise validation file")
         summ = {}
-        for r, g in f["summary"].items():
-            cols = {c: (g[c].asstr()[()] if g[c].dtype.kind == "O" else g[c][()]) for c in g}
+        for r, gr in g["summary"].items():
+            cols = {c: (gr[c].asstr()[()] if gr[c].dtype.kind == "O" else gr[c][()]) for c in gr}
             keep = cols["group"] == "global" if "group" in cols else np.ones(len(cols["case"]), bool)
             summ[r] = {c: v[keep] for c, v in cols.items()}
-        return SimpleNamespace(path=path, attrs=dict(f.attrs), summ=summ, order=list(f["ranking/run"].asstr()[()]),
-                               met={r: dict(g.attrs) for r, g in f["metrics"].items()})
+        return SimpleNamespace(path=path, base=base, attrs=attrs, summ=summ, order=list(g["ranking/run"].asstr()[()]),
+                               met={r: dict(gr.attrs) for r, gr in g["metrics"].items()})
+
+
+def _base(D, f):
+    """The group of the file that has the validation structure: the file itself, or the subtree of a noise level."""
+    return f[D.base] if getattr(D, "base", None) else f
+
+
+def _signal(D, f, case, name="Axial_disp"):
+    """(t, y) of a case: from the file when it keeps its signals (clean validation); else from the origin (a noise level:
+    the noisy copy, via the case's attr 'copy'); None if the origin is missing."""
+    g = f[case]
+    if name in g:
+        return g[f"{name}/time"][()], g[f"{name}/values"][()]
+    try:
+        return noise_origins.signal_of(D.path, case, name, subtree=D.base)
+    except (noise_origins.OriginMissing, KeyError):
+        return None
 
 
 # ============================================================================== figure plumbing
@@ -119,9 +172,9 @@ def _figure(fn=None, *, registry=None, loader=None):
     name = fn.__name__[len("fig_"):]
 
     @functools.wraps(fn)
-    def run(h5_path, out_dir=None):
+    def run(h5_path, out_dir=None, snr=None, realization=None):
         with plt.rc_context(ps.ARTICLE_RCPARAMS):
-            D = loader(h5_path)
+            D = loader(h5_path, snr, realization)
             fig = fn(D)
             mode = str(D.attrs.get("gray_mode", "ignore"))
             if mode != "ignore":   # a figure of a non-default mode must say so
@@ -173,7 +226,8 @@ def fig_ranking(D):
 @_figure
 def fig_roc(D):
     fig, ax = _fig()
-    with h5py.File(D.path, "r") as f:
+    with h5py.File(D.path, "r") as f_:
+        f = _base(D, f_)
         for i, r in enumerate(D.order):
             m = D.met[r]
             g = f[f"roc/{r}/{'high' if m['roc_direction'] == 1 else 'low'}"]
@@ -284,14 +338,18 @@ def fig_detection_amp(D):
     base_attr, scale = str(D.attrs.get("labeling_base_attr", "$f_tooth$")), float(D.attrs.get("labeling_base_scale", 1e-3))
     s0 = D.summ[D.order[0]]
     g0 = _gray(s0)
-    with h5py.File(D.path, "r") as f:
+    with h5py.File(D.path, "r") as f_:
+        f = _base(D, f_)
         for i, r in enumerate(D.order):
             xs, ys = [], []
             for k, case in enumerate(s0["case"]):
                 td = D.summ[r]["first_detection_t"][k]
-                if s0["truth"][k] != "unstable" or g0[k] or not np.isfinite(td) or "Axial_disp" not in f[case]:
+                if s0["truth"][k] != "unstable" or g0[k] or not np.isfinite(td):
                     continue
-                t, y = f[case]["Axial_disp/time"][()], f[case]["Axial_disp/values"][()]
+                sig = _signal(D, f, case)
+                if sig is None:
+                    continue
+                t, y = sig
                 msk = (t <= td) & (t > td - 0.1)
                 if msk.any() and base_attr in f[case].attrs:
                     xs.append(s0["kappa"][k]); ys.append(100 * np.abs(y[msk]).max() / (float(f[case].attrs[base_attr]) * scale))
@@ -365,7 +423,8 @@ def fig_anticipation(D):
 @_figure
 def fig_pairwise_test(D):
     """Exact McNemar p-value for every pair of indicators over the cases both scored: p < 0.05 = more than chance."""
-    with h5py.File(D.path, "r") as f:
+    with h5py.File(D.path, "r") as f_:
+        f = _base(D, f_)
         if "pairwise" not in f:
             raise ValueError("no /pairwise in this file (needs two or more indicators)")
         g = f["pairwise"]
@@ -424,7 +483,8 @@ def fig_alarm_quality(D):
 @_figure
 def fig_training_coverage(D):
     fig, ax = _fig()
-    with h5py.File(D.path, "r") as f:
+    with h5py.File(D.path, "r") as f_:
+        f = _base(D, f_)
         if "training" not in f:
             raise ValueError("no /training in this file (run validate with --reference)")
         g = f["training"]
@@ -463,8 +523,9 @@ def fig_compare(h5_a, h5_b, out_dir=None):
 
 
 # ============================================================================== noise validation figures
-def load_noise(path):
-    """A doe_noise_validation_results.h5: /by_snr and /summary per run, /clean attrs, runs ordered by clean balanced accuracy."""
+def load_noise(path, snr=None, realization=None):
+    """A doe_noise_validation_results.h5: /by_snr and /summary per run, /clean attrs, runs ordered by clean balanced accuracy.
+    (snr / realization: the summary figures draw every level, so they are ignored.)"""
     with h5py.File(path, "r") as f:
         if not str(f.attrs.get("schema", "")).startswith("doe_noise_validation"):
             raise ValueError("not a noise validation file (validate_noise.py)")
@@ -574,20 +635,56 @@ def _is_noise(h5_path):
         return str(f.attrs.get("schema", "")).startswith("doe_noise_validation"), str(f.attrs.get("gray_mode", "ignore"))
 
 
-def figs_dir(h5_path):
+def _level_dir(snr, realization=None):
+    return (f"snr_{snr:03.0f}" if float(snr).is_integer() else f"snr_{snr:g}") + ("" if realization is None else f"_r{int(realization):02d}")
+
+
+def figs_dir(h5_path, snr=None, realization=None):
     """Where the figures of a validation file go: next to it, in figs_validation (+ _gray-<mode> for --gray
-    stable|unstable); figs_noise_validation[...] for a noise validation file."""
+    stable|unstable); figs_noise_validation[...] for a noise validation file, and with snr (and realization, when it is
+    given) its subfolder snr_040[_r01] with the 15 figures of that level."""
     noise, mode = _is_noise(h5_path)
-    return os.path.join(os.path.dirname(os.path.abspath(h5_path)),
-                        ("figs_noise_validation" if noise else "figs_validation") + ("" if mode == "ignore" else f"_gray-{mode}"))
+    d = os.path.join(os.path.dirname(os.path.abspath(h5_path)),
+                     ("figs_noise_validation" if noise else "figs_validation") + ("" if mode == "ignore" else f"_gray-{mode}"))
+    return d if snr is None else os.path.join(d, _level_dir(snr, realization))
 
 
-def make_all(h5_path, out_dir=None):
+def noise_levels(h5_path):
+    """[(snr_db, realization, several_realizations)] of the subtrees of a noise validation file, clean to noisy."""
+    with h5py.File(h5_path, "r") as f:
+        ks = [(float(f[n].attrs["snr_db"]), int(f[n].attrs["realization"])) for n in _level_names(f)]
+    return [(s_, k, len({k2 for _, k2 in ks}) > 1) for s_, k in ks]
+
+
+def make_all(h5_path, out_dir=None, snr=None, realization=None):
+    """Every figure of the registry of the file in out_dir (default figs_dir). A noise validation file: NOISE_FIGURES always,
+    plus the 15 FIGURES of each level in `snr` (a number, a list, or "all") in <out_dir>/snr_040."""
     out_dir = out_dir or figs_dir(h5_path)
-    for name, fn in (NOISE_FIGURES if _is_noise(h5_path)[0] else FIGURES).items():
+    noise = _is_noise(h5_path)[0]
+    if snr is not None and not noise:
+        raise ValueError("snr only applies to a noise validation file")
+    jobs = [(name, fn, {}, out_dir) for name, fn in (NOISE_FIGURES if noise else FIGURES).items()]
+    if noise and snr is not None:
+        levels = noise_levels(h5_path)
+        want = [(s_, k, many) for s_, k, many in levels] if snr == "all" else \
+            [(s_, k, many) for s_, k, many in levels if any(abs(s_ - float(x)) < 1e-6 for x in np.atleast_1d(snr))
+             and (realization is None or k == int(realization))]
+        if snr != "all" and realization is None:   # a level with several realizations: the first scored, like the figures
+            seen, first = set(), []
+            for w in want:
+                if w[0] not in seen:
+                    seen.add(w[0])
+                    first.append(w)
+            want = first
+        if not want:
+            raise ValueError(f"no level {snr!r} in {h5_path} (levels: {[(s_, k) for s_, k, _ in levels]})")
+        for s_, k, many in want:
+            sub_dir = os.path.join(out_dir, _level_dir(s_, k if (many and (snr == "all" or realization is not None)) else None))
+            jobs += [(name, fn, dict(snr=s_, realization=k if many else None), sub_dir) for name, fn in FIGURES.items()]
+    for name, fn, kw, d in jobs:
         try:
-            plt.close(fn(h5_path, out_dir))
-            print("  ", name)
+            plt.close(fn(h5_path, d, **kw))
+            print("  ", name if not kw else f"{name}  [snr {kw['snr']:g}]")
         except Exception as e:   # a figure without data (e.g. only ramps, no /training) is skipped, not fatal
             plt.close("all")
             print("   [skip]", name, "-", e)
@@ -641,13 +738,21 @@ def _selftest():
             for k in (0, 1):
                 for c in src:
                     g = f.create_group(f"snr_{snr:06.2f}__{c}__r{k:02d}")
-                    g.attrs.update(snr_db=snr, case_source=c, realization=k)
+                    g.attrs.update(dict(src[c].attrs), snr_db=snr, case_source=c, realization=k)   # a copy keeps the attrs of its case
                     for run in ("ind_a", "ind_b"):
                         r = g.create_group(run)
                         r["t"], r["I_t"] = t, src[c][run]["I_t"][()]
                         td = src[c][run]["t_d"][()] if "t_d" in src[c][run] else ([1.0] if snr == 10.0 and k == 0 else [])
                         if len(td):
                             r["t_d"] = td
+    nres = os.path.join(d, "noise_res.h5")   # the noisy signals live in their own file; the validation reads them from there
+    with h5py.File(ind, "r") as src, h5py.File(nres, "w") as f:
+        for snr in (40.0, 10.0):
+            for k in (0, 1):
+                for c in src:
+                    g = f.create_group(f"snr_{snr:06.2f}__{c}__r{k:02d}/Axial_disp")
+                    g["time"], g["values"] = t, src[c]["Axial_disp/values"][()] + snr * 1e-9
+    noise_origins.set_origins(nind, source_signals=ind, noise_results=nres)
     nv = os.path.join(d, "noise_val.h5")
     vn.validate_noise(nind, out, nv)
     assert figs_dir(nv) == os.path.join(d, "figs_noise_validation") and len(NOISE_FIGURES) == 3
@@ -655,6 +760,28 @@ def _selftest():
     assert sorted(os.listdir(os.path.join(d, "fn"))) == sorted(n + ".png" for n in NOISE_FIGURES)
     fig = NOISE_FIGURES["noise_metrics"](nv)
     assert fig._keep_size and len(fig.axes) >= 4
+    # the 15 figures of ONE level: same registry and drawing as the clean ones, the data of that level's subtree
+    assert noise_levels(nv)[0] == (40.0, 0, True) and figs_dir(nv, 40) == os.path.join(d, "figs_noise_validation", "snr_040")
+    assert figs_dir(nv, 40, 1) == os.path.join(d, "figs_noise_validation", "snr_040_r01")
+    make_all(nv, os.path.join(d, "fl"), snr=[40])
+    assert sorted(os.listdir(os.path.join(d, "fl", "snr_040"))) == sorted(n + ".png" for n in FIGURES)
+    make_all(nv, os.path.join(d, "fa"), snr="all")   # every level and realization (several realizations: own folder each)
+    assert sorted(x for x in os.listdir(os.path.join(d, "fa")) if x.startswith("snr_")) == \
+        ["snr_010_r00", "snr_010_r01", "snr_040_r00", "snr_040_r01"]
+    assert FIGURES["tpr_tnr"](nv, snr=10, realization=1)._keep_size
+    for bad in (dict(), dict(snr=33)):   # a noise file without a level, or a level it does not have
+        try:
+            FIGURES["ranking"](nv, **bad)
+            raise SystemExit("a level is required")
+        except ValueError:
+            pass
+    try:
+        FIGURES["ranking"](out, snr=40)
+        raise SystemExit("snr is for noise files")
+    except ValueError:
+        pass
+    t_, y_ = noise_origins.signal_of(nv, "case_005", subtree="snr_040.00__r00")   # noisy signal of the copy, from noise_results
+    assert np.allclose(y_, 1e-5 * t * kap[5] + 40.0 * 1e-9)
     try:
         NOISE_FIGURES["noise_metrics"](out)
         raise SystemExit("a clean validation file is not a noise one")
@@ -670,6 +797,9 @@ def main():
     p.add_argument("--out-dir", metavar="DIR", help="default: figs_dir(h5): <folder of the h5>/figs_validation[_gray-<mode>]")
     p.add_argument("--lang", choices=("EN", "FR", "both"), default=LANGUAGE)
     p.add_argument("--scale", type=float, default=FIGSCALE, help="multiplier of the plot_style presets")
+    p.add_argument("--snr", nargs="+", metavar="DB", help="noise validation file: also the 15 figures of these levels (a number, "
+                   "several, or 'all') in <figs>/snr_040")
+    p.add_argument("--realization", type=int, default=None, metavar="K", help="with --snr: the realization (default: the first scored)")
     p.add_argument("--selftest", action="store_true")
     a = p.parse_args()
     LANGUAGE, FIGSCALE = a.lang, a.scale
@@ -678,7 +808,8 @@ def main():
         return _selftest()
     if not a.results:
         p.error("--results is required")
-    make_all(a.results, a.out_dir)
+    snr = None if not a.snr else ("all" if a.snr == ["all"] else [float(x) for x in a.snr])
+    make_all(a.results, a.out_dir, snr=snr, realization=a.realization)
 
 
 if __name__ == "__main__":
