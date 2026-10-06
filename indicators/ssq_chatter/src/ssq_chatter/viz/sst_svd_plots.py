@@ -37,6 +37,8 @@ def plots_sst_svd(
     vlines: Optional[Sequence[float]] = None,
     hlines: Optional[Sequence[float]] = None,
     waterfall_lines: str = "time",   # "time" | "freq" | "both"
+    f_max: Optional[float] = None,    # top of the F1-F2c frequency axes [Hz]; None = 250 (zoom_y still wins on the spectrograms)
+    f_slice: Optional[float] = None,  # frequency of the F1b/F2b slices [Hz]; None = 150 (e.g. the modal frequency)
     training_intervals=None,
     reference_signal: Optional[Sequence[SignalData]] = None,
     scale: float = SCALE,
@@ -54,6 +56,8 @@ def plots_sst_svd(
     FIGSIZE_WIDE = figsize_wide
     if grid_scale is None:
         grid_scale = scale
+    _f_max = 250.0 if f_max is None else float(f_max)
+    _f_slice = 150.0 if f_slice is None else float(f_slice)
 
     # ── Case identifier -- every figure this call creates is tagged with it
     # in its window identity (num=) only. Without this, every call reuses
@@ -868,37 +872,38 @@ def plots_sst_svd(
     # ── F1-F2c: STFT/SST spectrograms + slices + 3D waterfalls -- heavy to
     # render (pcolormesh/3D surfaces over the full spectrogram), on demand only.
     if show_spectrograms:
+        _zy_spec = zoom_y if zoom_y is not None else (0, _f_max)
         _plot_S(
-            Sx, f, t_s, zoom_x=zoom_x, zoom_y=zoom_y,
+            Sx, f, t_s, zoom_x=zoom_x, zoom_y=_zy_spec,
             title="STFT — Short Time Fourier Transform",
             scale=scale, vlines=auto_vlines,
             fig_label="F1 — STFT Spectrogram",
         )
         _plot_freq_slice(
-            Sx, f, t_s, freq_hz=150.0,
+            Sx, f, t_s, freq_hz=_f_slice,
             zoom_x=zoom_x, scale=scale, vlines=auto_vlines,
-            fig_label="F1b — Slice at 150 Hz",
+            fig_label=f"F1b — Slice at {_f_slice:g} Hz",
         )
         _plot_waterfall_3d(
-            Sx, f, t_s, f_max=250.0,
+            Sx, f, t_s, f_max=_f_max,
             lines=waterfall_lines,
             zoom_x=zoom_x, scale=scale, vlines=auto_vlines,
             fig_label="F1c — Waterfall 3D",
         )
         _plot_S(
-            Tsx, f, t_s, zoom_x=zoom_x, zoom_y=zoom_y,
+            Tsx, f, t_s, zoom_x=zoom_x, zoom_y=_zy_spec,
             title="SST — Synchrosqueezing Transform",
             scale=scale, vlines=auto_vlines,
             fig_label="F2 — SST Spectrogram",
         )
         _plot_freq_slice(
-            Tsx, f, t_s, freq_hz=150.0,
-            title="SST — Slice at 150 Hz",
+            Tsx, f, t_s, freq_hz=_f_slice,
+            title=f"SST — Slice at {_f_slice:g} Hz",
             zoom_x=zoom_x, scale=scale, vlines=auto_vlines,
-            fig_label="F2b — SST Slice at 150 Hz",
+            fig_label=f"F2b — SST Slice at {_f_slice:g} Hz",
         )
         _plot_waterfall_3d(
-            Tsx, f, t_s, f_max=250.0,
+            Tsx, f, t_s, f_max=_f_max,
             title="SST — Cascade (Waterfall)",
             lines=waterfall_lines,
             zoom_x=zoom_x, scale=scale, vlines=auto_vlines,
