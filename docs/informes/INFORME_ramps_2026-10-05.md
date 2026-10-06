@@ -74,6 +74,6 @@ otras carpetas, hay que copiar ese cambio de la `db_def`.
 ## Revisión final y seguimiento
 - La revisión final del branch la hice yo mismo: no lancé un revisor aparte porque no lo pediste. Es más débil que
   una revisión independiente; si la quieres, corre `/code-review` antes de hacer merge.
-- La bitácora y el punto donde retomar están en `DOE_utils/PLAN_ramps.md`; también están en el tutorial (sección
+- La bitácora y el punto donde retomar están en `docs/historico/PLAN_ramps.md`; también están en el tutorial (sección
   "Rampas de Ap") y en el HELP de la app.
 - `experiments/ramp_check.yaml` queda sin commitear, como tus otros experimentos.

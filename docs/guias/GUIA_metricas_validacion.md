@@ -526,11 +526,11 @@ Los colores son una paleta segura para daltónicos. Verde = acierto TP, azul = T
 |---|---|
 | Código de métricas | `DOE_utils/DOE_analisis/validate_indicators.py` |
 | Código de figuras | `DOE_utils/DOE_plots/validation_figures.py` |
-| Informe técnico (decisiones, estado) | `DOE_utils/INFORME_validacion.md` |
-| Esta guía | `DOE_utils/GUIA_metricas_validacion.md` |
+| Informe técnico (decisiones, estado) | `docs/informes/INFORME_validacion.md` |
+| Esta guía | `docs/guias/GUIA_metricas_validacion.md` |
 | Resultados | `doe_validation_results.h5` y `doe_validation_results_metrics.csv` (junto a los datos de cada experimento) |
 | Figuras guardadas | `<carpeta del .h5>/figs_validation/` |
-| Validación con ruido | `DOE_utils/DOE_simulacion/doe_noise.py` (ruido), `DOE_utils/DOE_analisis/validate_noise.py` (métricas), plan en `DOE_utils/PLAN_noise_validation.md` |
+| Validación con ruido | `DOE_utils/DOE_simulacion/doe_noise.py` (ruido), `DOE_utils/DOE_analisis/validate_noise.py` (métricas), plan en `docs/planes/PLAN_noise_validation.md` |
 | Figuras con ruido | `<carpeta del .h5>/figs_noise_validation/` |
 
 ---

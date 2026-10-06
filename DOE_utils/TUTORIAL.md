@@ -255,7 +255,7 @@ python experiment.py selftest
 | Datos de la simulación: carpetas de casos, `doe_results.h5`, deflexión, ruido, SNR del modelo | `base_dir/doe_name` de la simulación |
 | Etiquetas, dataset etiquetado, indicadores, validación | la carpeta de salidas del experimento (por defecto `<carpeta del DOE>/<experimento>/`) |
 | Capturas de este tutorial | `DOE_utils/tutorial_img/` (`python launcher.py --screenshot ARCHIVO.png EXP ETAPA`) |
-| Diseño y decisiones | `DOE_utils/PLAN_app_experimentos.md`, `DOE_utils/PLAN_app_v2.md` |
+| Diseño y decisiones | `docs/historico/PLAN_app_experimentos.md`, `docs/planes/PLAN_app_v2.md` |
 
 ## 8. Preguntas frecuentes
 

@@ -256,6 +256,6 @@ Los 22 casos de n12000 (los 12 anteriores + 10 más), 6 niveles y solo la realiz
 | Indicadores sobre el ruido | `DOE_utils/DOE_analisis/doe_indicators.py` (`--no-signals`) |
 | Métricas con ruido | `DOE_utils/DOE_analisis/validate_noise.py` |
 | Figuras | `DOE_utils/DOE_plots/validation_figures.py` (`noise_*`) |
-| Plan y contrato de formatos | `DOE_utils/PLAN_noise_validation.md` |
-| Guía de las métricas | `DOE_utils/GUIA_metricas_validacion.md` |
+| Plan y contrato de formatos | `docs/planes/PLAN_noise_validation.md` |
+| Guía de las métricas | `docs/guias/GUIA_metricas_validacion.md` |
 | Resultados de la prueba real | `validacion_figs/noise/` (en el worktree, fuera de git) |

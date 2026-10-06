@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 """validate_noise.py — Score the indicators run on NOISY copies of the validation cases against the truth of the
-CLEAN cases (DOE_utils/PLAN_noise_validation.md §4.3, §5.3).
+CLEAN cases (docs/planes/PLAN_noise_validation.md §4.3, §5.3).
 
 Inputs
   --noise_ind  doe_noise_indicator_results.h5 (doe_indicators.py on doe_noise_multi_results.h5): one group per noisy

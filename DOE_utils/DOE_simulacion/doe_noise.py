@@ -3,7 +3,7 @@ r"""doe_noise.py — Aplica ruido gaussiano (varios niveles SNR) a casos de doe_
 Dos modos:
   * un caso de control (modo antiguo, sin CASES): doe_noise_results.h5 con 'control' + 'snr_XXX.XX';
     SNR relativo a la potencia de esa señal.
-  * multi-caso (CASES = lista o "all"; DOE_utils/PLAN_noise_validation.md §4.1): doe_noise_multi_results.h5 con
+  * multi-caso (CASES = lista o "all"; docs/planes/PLAN_noise_validation.md §4.1): doe_noise_multi_results.h5 con
     un grupo por copia ruidosa 'snr_{SNR:06.2f}__{case}__r{K:02d}'. SNR ABSOLUTO: sigma = sqrt(P_ref / 10^(SNR/10)),
     P_ref = varianza de la señal del caso de referencia (SNR_REF_CASE; 'auto' = el caso inestable de menor kappa,
     de las etiquetas PROPIAS del experimento) -> el mismo sigma para todos los casos de un nivel. REALIZATIONS

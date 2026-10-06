@@ -69,7 +69,7 @@ Reusar: `_make_summary_figure`, `_is_validation_h5`, `_sim_models`, `_fig_style`
 - Casilla **κ axis** en el panel derecho (redibuja el SLD actual) y opción en la ventana de exportación para las entradas SLD.
 
 ## Fases (un commit cada una; LF verificado por bytes, CRLF en `doe_unified_selector.py`)
-0. Actualizar `DOE_utils/PLAN_figuras.md` con estas decisiones y **pedir al manager** la autorización para tocar
+0. Actualizar `docs/historico/PLAN_figuras.md` con estas decisiones y **pedir al manager** la autorización para tocar
    `DOE_plots/` (`doe_unified_selector`, `sld_model`) y `DOE_simulacion/` (planners). No tocar esos archivos hasta el OK.
 1. Ventana genérica (tamaño por preset, carpeta/nombre, elementos vivos por pickle).
 2. `fig_lang.py` + `figure_texts.yaml` (tabla rellenada) e idioma en la ventana.

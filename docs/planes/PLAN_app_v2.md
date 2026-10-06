@@ -1,7 +1,7 @@
 # Plan v2 — App de experimentos DOE: generalizar y mejorar la experiencia
 
 Fecha: 2026-10-02 · Estado: **implementado** (decisiones 1a, 2a, 3a, 4a; bitácora §5, ronda 2 al final).
-Plan anterior (v1, implementado): `DOE_utils/PLAN_app_experimentos.md` (bitácora §13, filas F0–F9, R2, R3).
+Plan anterior (v1, implementado): `docs/historico/PLAN_app_experimentos.md` (bitácora §13, filas F0–F9, R2, R3).
 Código: `DOE_utils/launcher.py` (ventana), `DOE_utils/experiment.py` (núcleo), `DOE_utils/experiments/` (YAML de
 experimentos y `indicator_variants.yaml`), `DOE_utils/TUTORIAL.md` (tutorial, también pestaña de la app).
 Rama: `Aplication-Indicateur-Validacion-Training`, sin push. Commits v2: `00d17eb` núcleo, `d5830d7` app,
