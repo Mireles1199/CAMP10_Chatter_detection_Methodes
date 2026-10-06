@@ -1022,6 +1022,18 @@ def _fig_style() -> tuple:
     return getattr(m, "LANGUAGE", "EN"), float(getattr(m, "FIGSCALE", 1.5))
 
 
+INDICATOR_PLOTS_SCRIPT = os.path.join(SCRIPT_DIR, "indicator_plots.py")   # the own figures of an indicator package (a subprocess)
+INDICATOR_NOTE = ("Figure of the indicator package: its texts are English (the package has no language option); FR / both "
+                  "translate only the texts that figure_texts.yaml knows.")
+
+
+def _load_pickled(path: str):
+    """A figure pickled by indicator_plots.py (a new object each time: the export window consumes it)."""
+    import pickle
+    with open(path, "rb") as fh:
+        return pickle.load(fh)
+
+
 def _apply_fig_style(language: str, scale: float) -> None:
     """Set the language (EN | FR | both) and the scale (multiplier of the plot_style presets) of the figure modules."""
     for name in ("validation_figures", "sld_model"):
@@ -1709,6 +1721,8 @@ class DoeSelectorUnifiedApp:
             self._ind_check_vars[ind] = var
 
         ttk.Separator(frm).pack(fill=tk.X, pady=3)
+        if self.h5_type == TYPE_DOE_INDICATOR:   # the package's own figures for one case and one variant (a re-run)
+            ttk.Button(frm, text="Indicator plots…", command=self._indicator_plots).pack(anchor=tk.W, padx=(12, 0))
 
 
     def _extract_indicators(self) -> List[str]:
@@ -1784,6 +1798,154 @@ class DoeSelectorUnifiedApp:
         ttk.Button(bf, text="None", command=lambda: [b.set(False) for b in boxes.values()]).pack(side=tk.LEFT, padx=6)
         win.protocol("WM_DELETE_WINDOW", cancel)
         self._variants_win, self._variants_boxes, self._variants_ok, self._variants_cancel = win, boxes, ok, cancel   # selftest
+
+    # ── Indicator plots: the figures of the indicator package for one case and one variant ──────────────
+    def _experiments_of_file(self, variant: str) -> List[str]:
+        """Experiments whose indicator results are this file and that have `variant` (the file does not say which)."""
+        utils = os.path.dirname(SCRIPT_DIR)
+        if utils not in sys.path:
+            sys.path.insert(0, utils)
+        import experiment as ex
+        me, out = os.path.normcase(os.path.normpath(self.h5_path)), []
+        for n in ex.list_experiments():
+            try:
+                e = ex.load(n)
+                if os.path.normcase(os.path.normpath(e.indicators["out"])) == me and variant in e.indicators["specs"]:
+                    out.append(n)
+            except Exception:   # a broken experiment file is not this one
+                continue
+        return out
+
+    def _pick_one(self, title: str, prompt: str, options: List[str], on_ok) -> None:
+        """Small window to choose one of `options`; on_ok(choice) when OK is pressed."""
+        win = tk.Toplevel(self.root)
+        win.title(title)
+        win.transient(self.root)
+        ttk.Label(win, text=prompt).pack(anchor=tk.W, padx=10, pady=(10, 4))
+        var = tk.StringVar(value=options[0])
+        ttk.Combobox(win, values=options, textvariable=var, state="readonly", width=max(30, min(80, max(map(len, options))))
+                     ).pack(padx=10)
+
+        def ok():
+            win.destroy()
+            on_ok(var.get())
+        bf = ttk.Frame(win)
+        bf.pack(fill=tk.X, padx=10, pady=10)
+        ttk.Button(bf, text="OK", command=ok).pack(side=tk.RIGHT)
+        ttk.Button(bf, text="Cancel", command=win.destroy).pack(side=tk.RIGHT, padx=6)
+        self._pick_win, self._pick_var, self._pick_ok = win, var, ok   # for the selftest
+
+    def _indicator_plots(self) -> None:
+        """'Indicator plots…': re-runs ONE variant (the one drawn; asks when several are) on the selected case and opens the
+        figures of its package in the export window. A subprocess does the work (indicator_plots.py)."""
+        sel = [self._iid_to_case[i] for i in self.tree.selection() if i in self._iid_to_case]
+        if len(sel) != 1:
+            messagebox.showinfo("Indicator plots", "Select ONE case in the table: the indicator is re-run on it.",
+                                parent=self.root)
+            return
+        case, runs = sel[0]["group"], self._get_runs_to_show()
+        if not runs:
+            messagebox.showinfo("Indicator plots", "No variant to draw: tick an indicator.", parent=self.root)
+            return
+
+        def with_variant(variant):
+            exps = self._experiments_of_file(variant)
+            if not exps:
+                messagebox.showwarning("Indicator plots", f"No experiment of the app has this file as its indicator results "
+                                       f"with the variant '{variant}': the configuration to re-run it is not known.",
+                                       parent=self.root)
+            elif len(exps) == 1:
+                self._run_indicator_plots(exps[0], case, variant)
+            else:
+                self._pick_one("Indicator plots", "Several experiments have this file; which configuration?", exps,
+                               lambda e: self._run_indicator_plots(e, case, variant))
+        if len(runs) == 1:
+            with_variant(runs[0])
+        else:
+            self._pick_one("Indicator plots", f"Variant to re-run on {case} (one at a time):", runs, with_variant)
+
+    def _run_indicator_plots(self, experiment: str, case: str, variant: str) -> None:
+        """Launch indicator_plots.py and show its progress; when it ends the figures join the export window."""
+        import atexit
+        import queue
+        import shutil
+        import subprocess
+        import tempfile
+        import threading
+        lang, scale = _fig_style()
+        out = tempfile.mkdtemp(prefix="indicator_plots_")
+        atexit.register(shutil.rmtree, out, True)
+        cmd = [sys.executable, INDICATOR_PLOTS_SCRIPT, "--experiment", experiment, "--case", case, "--variant", variant,
+               "--scale", str(scale), "--ind-h5", self.h5_path, "--pickle-dir", out]
+        win = tk.Toplevel(self.root)
+        win.title(f"Indicator plots — {variant} / {case}")
+        win.geometry("760x360")
+        ttk.Label(win, text=f"Re-running {variant} on {case} (experiment {experiment}); it can take from seconds to a few "
+                            "minutes.", wraplength=720).pack(anchor=tk.W, padx=8, pady=(8, 2))
+        bar = ttk.Progressbar(win, mode="indeterminate")
+        bar.pack(fill=tk.X, padx=8)
+        bar.start(60)
+        log = tk.Text(win, height=14, font=("Consolas", 9), wrap="none")
+        log.pack(fill=tk.BOTH, expand=True, padx=8, pady=6)
+        status = tk.StringVar(value="running…")
+        ttk.Label(win, textvariable=status).pack(anchor=tk.W, padx=8)
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8",
+                                errors="replace", creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        lines: "queue.Queue" = queue.Queue()
+
+        def read():
+            for ln in proc.stdout:
+                lines.put(ln)
+        threading.Thread(target=read, daemon=True).start()
+        ttk.Button(win, text="Cancel", command=lambda: proc.poll() is None and proc.terminate()).pack(side=tk.RIGHT, padx=8, pady=6)
+
+        def poll():
+            while not lines.empty():
+                log.insert("end", lines.get())
+                log.see("end")
+            if proc.poll() is None:
+                win.after(150, poll)
+                return
+            bar.stop()
+            if not lines.empty():   # the reader thread may still be draining the last lines
+                win.after(50, poll)
+                return
+            idx = os.path.join(out, "index.json")
+            if proc.returncode == 0 and os.path.isfile(idx):
+                status.set("done")
+                self._add_indicator_figures(out, win)
+            else:
+                status.set(f"failed (exit {proc.returncode}); the log above says why")
+        self._indicator_win = win
+        win.after(150, poll)
+
+    def _add_indicator_figures(self, folder: str, progress_win=None) -> None:
+        """The figures pickled in `folder` (index.json) join the export window, which is reopened on the first one."""
+        import json
+        with open(os.path.join(folder, "index.json"), encoding="utf-8") as fh:
+            idx = json.load(fh)
+        self.__dict__.setdefault("_ind_cache", {})[(idx["case"], idx["variant"])] = (folder, idx["figures"])
+        if progress_win is not None:
+            progress_win.destroy()
+        win = getattr(self, "_export_win", None)
+        if win is not None and win.win.winfo_exists():
+            win.win.destroy()
+        self._export_win = None
+        first = f"Indicator — {idx['variant']} — {idx['case']} — 01 {idx['figures'][0]['name']}" if idx["figures"] else None
+        self._open_export(first)
+
+    def _indicator_items(self) -> list:
+        """Export items of the indicator figures made so far: one per figure, saved in figs_indicator/<case>/<variant>/
+        next to the .h5 (300 dpi by the window's own controls)."""
+        from figures_window import Item
+        items = []
+        for (case, variant), (folder, figs) in self.__dict__.get("_ind_cache", {}).items():
+            dest = os.path.join(os.path.dirname(self.h5_path), "figs_indicator", case, variant)
+            for i, f in enumerate(figs, 1):
+                items.append(Item(f"Indicator — {variant} — {case} — {i:02d} {f['name']}",
+                                  (lambda p=os.path.join(folder, f["file"]): _load_pickled(p)), folder=dest,
+                                  note=INDICATOR_NOTE))
+        return items
 
     def _indicator_attrs(self, rn: str) -> dict:
         """Attributes of the run `rn` with the law and thresholds of the indicator (meta_* / pp_*): the same in every case.
@@ -3050,7 +3212,7 @@ class DoeSelectorUnifiedApp:
             return self._make_summary_figure(entry)
         items += [Item(e[0], (lambda e=e: gen(e)), native=e[0].startswith(("SLD", "Validation", "Noise validation")))
                   for e in self._summary_entries]
-        return items
+        return items + self._indicator_items()
 
     def _active_panel_name(self) -> Optional[str]:
         current = self._nb.select() if hasattr(self, "_nb") else None
@@ -4522,6 +4684,8 @@ def _selftest() -> None:
     assert all(c["label_key"] == "kappa" for c in cs), [c["label_key"] for c in cs]
     assert [c["group"] for c in cs] == ["case_001", "case_000", "case_002"] and cs[0]["label_val"] == 0.58
     _selftest_noise(d, t)
+    _selftest_variants(d, t)
+    _selftest_indicator_plots(d)
     print("doe_unified_selector selftest OK")
 
 
@@ -4577,6 +4741,71 @@ def _selftest_variants(d: str, t) -> None:
         assert not app._ind_check_vars["green"].get() and app._get_runs_to_show() == ["maxent_revo"]
     finally:
         _VARIANT_CHOICE.clear()
+        root.destroy()
+
+
+STUB = "import argparse, json, pickle, os\nimport matplotlib\nmatplotlib.use('Agg')\nimport matplotlib.pyplot as plt\nap = argparse.ArgumentParser()\nfor k in ('experiment', 'case', 'variant', 'scale', 'ind-h5', 'pickle-dir'):\n    ap.add_argument('--' + k)\na = ap.parse_args()\nfig = plt.figure()\nfig.add_subplot(111).plot([0, 1])\nos.makedirs(a.pickle_dir, exist_ok=True)\npickle.dump(fig, open(os.path.join(a.pickle_dir, '00_x.pkl'), 'wb'))\njson.dump({'case': a.case, 'variant': a.variant, 'indicator': 'X', 'figures': [{'name': 'Tool Velocity', 'file': '00_x.pkl'}]},\n          open(os.path.join(a.pickle_dir, 'index.json'), 'w'))\nprint('[indicator_plots] DONE 1 figures')\n"   # stands in for indicator_plots.py in the selftest
+
+
+def _selftest_indicator_plots(d: str) -> None:
+    """'Indicator plots…' without the heavy part: the checks of the button, the choice windows, and the whole flow with a
+    stub in place of indicator_plots.py (progress window, subprocess, figures joining the export window, their folder)."""
+    global INDICATOR_PLOTS_SCRIPT
+    f_ind = os.path.join(d, "variants_ind.h5")   # written by _selftest_variants
+    if not os.path.isfile(f_ind):
+        return
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        return
+    root.withdraw()
+    msgs = []
+    saved = {n: getattr(messagebox, n) for n in ("showinfo", "showwarning", "showerror")}
+    for n in saved:
+        setattr(messagebox, n, lambda t, x, parent=None, n=n: msgs.append((n, x)))
+    stub = os.path.join(d, "stub_indicator_plots.py")
+    with open(stub, "w", encoding="utf-8") as fh:
+        fh.write(STUB)
+    old_script = INDICATOR_PLOTS_SCRIPT
+    try:
+        app = DoeSelectorUnifiedApp(root, f_ind)
+        kids = app.tree.get_children()
+        app._indicator_plots()                                   # nothing selected
+        assert msgs[-1][0] == "showinfo" and "ONE case" in msgs[-1][1]
+        app.tree.selection_set(kids[0])
+        app._indicator_plots()                                   # 4 variants drawn: asks which; none has an experiment
+        assert set(app._pick_var.get() for _ in [0]) <= set(app._all_runs) and app._pick_win.winfo_exists()
+        app._pick_var.set("maxent_revo")
+        app._pick_ok()
+        assert msgs[-1][0] == "showwarning" and "maxent_revo" in msgs[-1][1]
+        for ind in ("green",):                                    # one variant drawn: no question, straight to the run
+            app._ind_check_vars[ind].set(False)
+        _VARIANT_CHOICE.clear()
+        assert app._get_runs_to_show() == ["maxent_revo"]
+        app._experiments_of_file = lambda variant: ["fake_experiment"]
+        INDICATOR_PLOTS_SCRIPT = stub
+        app._indicator_plots()
+        import time
+        t0 = time.time()
+        while time.time() - t0 < 60 and not getattr(app, "_export_win", None):
+            root.update()
+            time.sleep(0.05)
+        win = app._export_win
+        assert win is not None, "the figures did not reach the export window"
+        root.update()
+        want = "Indicator — maxent_revo — case_000 — 01 Tool Velocity"
+        assert win.labels[-1] == want and win.current().name == want, win.labels
+        dest = os.path.join(d, "figs_indicator", "case_000", "maxent_revo")
+        it = win.items[-1]
+        assert it.folder == dest and "English" in it.note and "Tool Velocity" not in os.listdir(d)
+        win.save_all()
+        assert any(x.endswith(".png") for x in os.listdir(dest)), os.listdir(dest)
+        win.win.destroy()
+        print("  indicator plots: button, choice windows, subprocess and export items OK")
+    finally:
+        INDICATOR_PLOTS_SCRIPT = old_script
+        for n, f in saved.items():
+            setattr(messagebox, n, f)
         root.destroy()
 
 
