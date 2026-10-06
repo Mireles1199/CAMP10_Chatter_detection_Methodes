@@ -122,14 +122,17 @@ En la aplicación, añadiendo al experimento las etapas **Noise**, **Noise indic
 
 1. `doe_noise.py --doe_results <doe_results.h5> --labels <etiquetas.h5> --cases ... --realizations 3 --out <archivo de ruido>`
 2. `doe_indicators.py --experiment <exp> --doe_results <archivo de ruido> --out <resultados> --no-signals --workers 3`
-3. `validate_noise.py --noise_ind <resultados> --clean <validación limpia>`
+3. `validate_noise.py --noise_ind <resultados> --clean <validación limpia> [--realizations 0]`
 4. `validation_figures.py --results <validación con ruido>`
+
+Opciones de `doe_indicators.py` útiles en estas corridas largas: `--realizations K [K …]` (solo esas realizaciones), `--only green rms_cv` (solo esos indicadores; el resto del archivo no se toca) y `--resume` (salta lo que ya está calculado: sirve para retomar tras un corte o para ampliar de 1 a 3 realizaciones sin repetir la 0). `validate_noise.py --realizations K` puntúa solo esas realizaciones y deja en el archivo cuáles fueron.
 
 ### Tamaño y tiempo (medidos en n12000)
 - Archivo de ruido: **2.1 GB**, se genera en segundos.
 - Resultados de indicadores (sin señales): **65 MB**. Validación con ruido: **0.4 MB**.
 - Indicadores: **unas 2.5 horas con 3 procesos** (con 1 proceso, unas 5 horas). Es la parte lenta.
-- Si el equipo se suspende, la corrida se corta pero lo calculado se conserva y se puede reanudar con solo los grupos que faltan.
+- Ampliación a 22 casos × 5 realizaciones de ruido (6.45 GB, generado en 44 s): los indicadores de la realización 0 tardaron ~4.7 h en total con 3 procesos (Green, a 10 dB, ~6 min por tarea, domina); con las 5 realizaciones habrían sido ~8 h.
+- Si el equipo se suspende, la corrida se corta pero lo calculado se conserva y se puede reanudar con `--resume` (o pasando solo los grupos que faltan).
 
 ---
 
@@ -193,6 +196,20 @@ Se generan con `validation_figures.py`. En el visor aparecen con el mismo nombre
 4. **rms_cv** ya fallaba sin ruido (alarma desde el arranque), así que el ruido casi no empeora algo que ya estaba mal.
 5. **Las realizaciones coinciden:** las bandas son casi invisibles. El resultado de cada caso es de todo o nada y el ruido a ese nivel no lo cambia.
 
+### 7.1 Ampliación a los 22 casos (1 realización)
+Los 22 casos de n12000 (los 12 anteriores + 10 más), 6 niveles y solo la realización 0 (con 3 realizaciones los indicadores habrían tardado el triple; la 0 de la ampliación es la misma tirada de ruido que en una corrida de 5):
+
+| Indicador | Sin ruido (22 casos) | SNR de quiebre | Falsas alarmas (TNR) |
+|---|---|---|---|
+| green | 0.94 | **20 dB** | 0.88 hasta 30 dB, 0.12 a 20 dB, 0.00 a 10 dB |
+| ssq (SST-SVD) | 0.94 | **20 dB** | 0.88 hasta 30 dB, 0.00 desde 20 dB |
+| maxent | 0.88 | **40 dB** | 0.75 hasta 60 dB, 0.00 desde 40 dB |
+| rms_cv | 0.56 | 80 dB (ya 0.50 con ruido débil) | 0.00 siempre |
+
+**Las conclusiones no cambian al pasar de 12 a 22 casos:** mismos quiebres, mismo TPR = 1.0 en todos los niveles. Sube la referencia limpia de green y ssq (0.90 → 0.94) porque ahora hay más casos estables bien clasificados.
+
+**Observación sobre rms_cv (no es del ruido):** alarma en la primera ventana de casi todos los casos, también sin ruido (el arranque del indicador no se ignora, `warmup_ignore_alerts: false`). Por eso su TNR es 0.00 a cualquier nivel y su "quiebre" aparece en el primer nivel. Es una configuración del indicador, no se cambió aquí; con esa configuración la comparación con ruido no le dice nada nuevo.
+
 ---
 
 ## 8. Cómo contárselo a los directores
@@ -205,7 +222,7 @@ Se generan con `validation_figures.py`. En el visor aparecen con el mismo nombre
 5. **Los umbrales se calibraron sin ruido**, y eso explica el quiebre: son sensibles porque los casos estables de entrenamiento vibran muy poco.
 
 ### Limitaciones que conviene decir antes de que pregunten
-- **Primera pasada:** 12 casos y 3 realizaciones. Las diferencias pequeñas entre indicadores no son concluyentes.
+- **Pocas realizaciones:** 3 en la primera pasada (12 casos) y 1 en la ampliación (22 casos). Las diferencias pequeñas entre indicadores no son concluyentes, y con 1 realización no hay banda mín–máx.
 - **Ruido idealizado:** blanco, gaussiano e independiente en desplazamiento y velocidad. No es el ruido de un sensor concreto.
 - **Entrenamiento sin ruido:** no se probó qué pasa si se calibran los umbrales **con** ruido. Es otra pregunta, anotada para el futuro.
 - **Un solo experimento** (1DOF, 12098 rpm).
