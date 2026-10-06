@@ -90,8 +90,9 @@ def clean_on(clean: str, gray: str, cases: dict, subset) -> dict:
     return {run: vi.run_metrics(rr)[0] for run, rr in rows.items()}
 
 
-def score_noise(noise_ind: str, gray: str, cases: dict) -> tuple:
-    """({root noise attrs}, {run: [row per noisy copy]}): every copy scored against its clean case's truth."""
+def score_noise(noise_ind: str, gray: str, cases: dict, realizations=None) -> tuple:
+    """({root noise attrs}, {run: [row per noisy copy]}): every copy scored against its clean case's truth
+    (only the realizations K listed in `realizations`, if given)."""
     rows, skipped = {}, set()
     with h5py.File(noise_ind, "r") as f:
         nattrs = {k: f.attrs[k] for k in f.attrs if k in NOISE_ATTRS or k.startswith("snr_ref_power_")}
@@ -101,6 +102,8 @@ def score_noise(noise_ind: str, gray: str, cases: dict) -> tuple:
             c = cases.get(case)
             if c is None or c["ramp"] or "snr_db" not in g.attrs:
                 skipped.add(case or name)
+                continue
+            if realizations is not None and int(g.attrs.get("realization", 0)) not in realizations:
                 continue
             for run, rg in g.items():
                 row = _score(rg, c, gray)
@@ -137,12 +140,15 @@ def by_snr(table: list, clean_bal: float) -> tuple:
     return out, float(brk)
 
 
-def validate_noise(noise_ind: str, clean: str, out_h5: str = None) -> dict:
-    """Write out_h5 (+ _by_snr.csv) and return {run: (level table, by_snr dict, snr_breakdown_db, clean bal. acc.)}."""
+def validate_noise(noise_ind: str, clean: str, out_h5: str = None, realizations=None) -> dict:
+    """Write out_h5 (+ _by_snr.csv) and return {run: (level table, by_snr dict, snr_breakdown_db, clean bal. acc.)}.
+    `realizations`: indices K to score (None = every realization in noise_ind)."""
     gray, cases, clean_m = load_clean(clean)
-    nattrs, rows = score_noise(noise_ind, gray, cases)
+    nattrs, rows = score_noise(noise_ind, gray, cases, None if realizations is None else {int(k) for k in realizations})
     if not rows:
-        raise ValueError(f"no noisy copy of a constant case of {clean} in {noise_ind}")
+        raise ValueError(f"no noisy copy of a constant case of {clean} in {noise_ind}"
+                         + ("" if realizations is None else f" for realizations {list(realizations)}"))
+    scored = sorted({int(r["realization"]) for rr in rows.values() for r in rr})
     clean_sub = clean_on(clean, gray, cases, {r["case"] for rr in rows.values() for r in rr})
     out_h5 = out_h5 or os.path.join(os.path.dirname(os.path.abspath(noise_ind)),
                                     f"doe_noise_validation_results{vi.gray_suffix(gray)}.h5")
@@ -151,7 +157,8 @@ def validate_noise(noise_ind: str, clean: str, out_h5: str = None) -> dict:
     with h5py.File(out_h5, "w") as out:
         out.attrs.update(schema="doe_noise_validation_results/1", created=datetime.datetime.now().isoformat(timespec="seconds"),
                          gray_mode=gray, clean_results=os.path.basename(clean),
-                         noise_indicator_results=os.path.basename(noise_ind), breakdown_drop=BREAKDOWN_DROP, **nattrs)
+                         noise_indicator_results=os.path.basename(noise_ind), breakdown_drop=BREAKDOWN_DROP,
+                         realizations_scored=np.array(scored), **nattrs)
         for run, rr in rows.items():
             g = out.create_group(f"summary/{run}")
             for col in SUMMARY_STR:
@@ -237,6 +244,19 @@ def _selftest():
     assert (m[10.0, 0]["TP"], m[10.0, 0]["FP"]) == (1, 1) and (m[10.0, 1]["FN"], m[10.0, 1]["TN"]) == (1, 1)
     assert bs["snr_db"] == [40.0, 10.0] and bs["balanced_accuracy_mean"] == [1.0, 0.5]
     assert (bs["TPR_mean"][1], bs["TPR_min"][1], bs["TPR_max"][1]) == (0.5, 0.0, 1.0)   # realizations summarised, not pooled
+    with h5py.File(out, "r") as f:
+        assert list(f.attrs["realizations_scored"]) == [0, 1] and f.attrs["realizations"] == 2
+    # --realizations 0: only r00 scored, the rest of the file ignored; the attr says which
+    out0 = os.path.join(d, "nv0.h5")
+    r0 = validate_noise(nind, clean, out0, realizations=[0])
+    assert [(s_, k) for s_, k, _ in r0["ind_a"][0]] == [(40.0, 0), (10.0, 0)] and r0["ind_a"][1]["TPR_min"] == r0["ind_a"][1]["TPR_max"]
+    with h5py.File(out0, "r") as f:
+        assert list(f.attrs["realizations_scored"]) == [0] and f.attrs["realizations"] == 2 and len(f["summary/ind_a/copy"]) == 6
+    try:
+        validate_noise(nind, clean, out0, realizations=[7])
+        raise SystemExit("realization 7 should have failed")
+    except ValueError:
+        pass
     # baseline on the SAME cases: clean 0.5 there (0.75 over every case) -> no false breakdown at 10 dB (0.5)
     assert b0 == 0.5 and np.isnan(brk)
     assert np.isnan(res["ind_b"][2])                    # no clean value -> no breakdown
@@ -270,13 +290,16 @@ def main():
     p.add_argument("--clean", metavar="PATH", help="doe_validation_results*.h5 of the same experiment")
     p.add_argument("--out", metavar="PATH", default=None,
                    help="default: doe_noise_validation_results[_gray-<mode>].h5 next to --noise_ind")
+    p.add_argument("--realizations", nargs="+", type=int, default=None, metavar="K",
+                   help="realization indices to score (suffix __rKK); default: all in --noise_ind. Written to the attr "
+                        "realizations_scored; attr realizations stays the count of the noise file")
     p.add_argument("--selftest", action="store_true")
     a = p.parse_args()
     if a.selftest:
         return _selftest()
     if not (a.noise_ind and a.clean):
         p.error("--noise_ind and --clean are required")
-    print_summary(validate_noise(a.noise_ind, a.clean, a.out))
+    print_summary(validate_noise(a.noise_ind, a.clean, a.out, a.realizations))
 
 
 if __name__ == "__main__":
