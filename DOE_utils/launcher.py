@@ -993,8 +993,9 @@ class App:
         self._enable(btn["labels"], k in ("label_template", "label_build") and os.path.isfile(e.label["labels_yaml"]))
         self._enable(btn["grid"], k == "label_build" and os.path.isfile(e.label["out"]))
         self._enable(btn["folder"], any(os.path.exists(os.path.dirname(p)) for p in s.outputs))
-        self._enable(btn["accept"], state == "stale" and ("configuration changed" in reason
-                                                           or "input changed after the run" in reason))
+        stale_ok = state == "stale" and ("configuration changed" in reason or "input changed after the run" in reason)
+        code_changed = k in ex.PARTIAL_STAGES and state != "running" and bool(ex.indicator_code_changed(e, k))
+        self._enable(btn["accept"], stale_ok or code_changed)
 
     @staticmethod
     def _channels(e, k) -> list:
@@ -1168,6 +1169,16 @@ class App:
     def mark_uptodate(self):
         from tkinter import messagebox
         e, k = self.exp(), self.sel_stage
+        state, reason = ex.status(e)[k]
+        if state != "stale" and k in ex.PARTIAL_STAGES and ex.indicator_code_changed(e, k):   # only the code notice
+            if messagebox.askyesno(
+                    "Dismiss the code notice",
+                    f"The code of {', '.join(ex.indicator_code_changed(e, k))} changed after the last run of "
+                    f"'{ex.TITLES[k]}'.\n\nDismiss the notice? Nothing is rerun and the results stay as they are; the "
+                    "notice comes back if the code changes again. Run the stage (or 'Run only…') to renew them instead."):
+                ex.dismiss_code_notice(e, k)
+                self.refresh(True)
+            return
         if messagebox.askyesno(
                 "Mark up to date",
                 f"'{ex.TITLES[k]}' is stale: {ex.status(e)[k][1]}.\n\n"

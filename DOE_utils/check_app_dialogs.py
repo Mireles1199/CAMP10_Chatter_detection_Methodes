@@ -211,6 +211,22 @@ def check_run_only():
     f._ok()
     argv = launched[-1][1]
     assert launched[-1][0] == "console" and argv[argv.index("--only") + 1] == first and argv[3:5] == [N9, "indicators"], argv
+    # the code notice: shown on the card, 'Mark up to date' (enabled even if the stage is done) dismisses it
+    pkgs = sorted({ex.CODE_PKG[sp["indicator"]] for sp in ex.load(N9).indicators["specs"].values()})
+    ex.write_record(ex.load(N9), "indicators", {"stage": "indicators", "status": "done", "start": time.time(), "end": time.time(),
+                                                "hash": st.hash, "code": {p: 0.0 for p in pkgs}})
+    assert sorted(ex.indicator_code_changed(ex.load(N9), "indicators")) == pkgs
+    card = [t for t, _ in ex.stage_summary(ex.load(N9), "indicators")]
+    assert card[0].startswith("indicator code changed since this run") and "Mark up to date" in card[0], card
+    app.select(N9, "indicators")
+    app.root.update()
+    assert not app.stage_btns["accept"].instate(["disabled"]) and ex.status(ex.load(N9))["indicators"][0] == "done"
+    h = ex.stages(ex.load(N9))["indicators"].hash
+    app.mark_uptodate()
+    assert ex.indicator_code_changed(ex.load(N9), "indicators") == [] and ex.status(ex.load(N9))["indicators"][0] == "done"
+    assert ex.stages(ex.load(N9))["indicators"].hash == h
+    app.root.update()
+    assert app.stage_btns["accept"].instate(["disabled"])                              # nothing left to accept
     ex.write_record(ex.load(N9), "indicators", {"stage": "indicators", "status": "failed", "start": time.time(), "exit_code": 1})
     f = L.RunOnlyForm(app, ex.load(N9), "indicators")                                 # not up to date: refused
     f.vars[first].set(True)
