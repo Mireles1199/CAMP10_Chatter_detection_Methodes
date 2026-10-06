@@ -2342,6 +2342,33 @@ def _label_attrs(path: str) -> dict:
     return {}
 
 
+def label_params_for(h5_path: str) -> tuple:
+    """(label parameters, where they come from) of a result file, for the labelling margins of the viewer: the label section
+    of the experiment that has this file among its files; else the labeling_* attrs of the label dataset the file names;
+    else the defaults of reference_dataset.py. The parameters are those of LABEL_DEFAULTS."""
+    me = _norm(h5_path)
+    for n in list_experiments():
+        try:
+            e = load(n)
+            files = {e.data_h5, e.label["out"]} | {p for st in stages(e).values() for p in st.outputs}
+        except Exception:   # a broken experiment file is not this one
+            continue
+        if me in {_norm(p) for p in files if p}:
+            return {**LABEL_DEFAULTS, **{k: v for k, v in e.label.items() if k in LABEL_DEFAULTS}}, f"label section of experiment {n}"
+    try:
+        import h5py
+        with h5py.File(h5_path, "r") as f:
+            lab = f.attrs.get("label_dataset")
+        lab = lab.decode() if isinstance(lab, bytes) else lab
+        if lab and os.path.isfile(str(lab)):
+            got = {k: v for k, v in _label_attrs(str(lab)).items() if k in LABEL_DEFAULTS}
+            if got:
+                return {**LABEL_DEFAULTS, **got}, f"labeling attributes of {os.path.basename(str(lab))}"
+    except OSError:
+        pass
+    return dict(LABEL_DEFAULTS), "default parameters of reference_dataset.py (no experiment or label dataset found for this file)"
+
+
 def simulated_cases(doe_dir: str) -> tuple:
     """(case, [(index, var_val)]) of the simulated cases of a DOE folder (index folders with sens_out.hdf5 and
     var_val.py), sorted by index."""
@@ -3316,6 +3343,15 @@ def run_command(name: str, key: str, python: str | None = None, yes: bool = True
             + (["--only", *only] if only else []))
 
 
+def _selftest_label_params(v2: Exp) -> None:
+    """label_params_for: the label section of the experiment that owns the file, else the defaults with a note."""
+    p, src = label_params_for(v2.ref.data_h5)
+    assert src == f"label section of experiment {v2.ref.name}" and p["lim_sup_pct"] == v2.ref.label.get("lim_sup_pct", 40.0), (p, src)
+    assert p["base_attr"] == "$f_tooth$" and p["amp_signal"] == "Axial_disp"
+    p, src = label_params_for(os.path.join(tempfile.mkdtemp(prefix="lp_"), "nothing.h5"))
+    assert p == LABEL_DEFAULTS and "default parameters" in src
+
+
 def _selftest_eta(v2: Exp) -> None:
     """kappa -> eta, phase 1 (docs/planes/PLAN_eta_rename.md): the readers take both spellings (eta first), the fingerprints do
     not change with the spelling of a key, and files written with eta are read like the old ones."""
@@ -3697,6 +3733,7 @@ def _selftest():
         assert list(stages(v2)) == FLOWS["Validation against a reference"] and v2.indicators["variants"] == ["v1"]
         _selftest_noise(v2)
         _selftest_eta(v2)
+        _selftest_label_params(v2)
         # the training dataset disappears -> the validation indicators say what is missing and where
         os.rename(e.label["out"], e.label["out"] + ".bak")
         st = status(v)
