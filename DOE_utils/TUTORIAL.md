@@ -203,6 +203,22 @@ Deflexión estática, ruido y SNR del modelo se activan en **Experiment settings
 
 La etapa se activa en **Experiment settings** (**Noise validation** trae **Noise indicators**, **Noise** y **Validate**). Si **Noise** no tiene `cases`, **Noise validation** no se puede correr y dice por qué.
 
+### Ampliar sin rehacer (Run missing)
+
+Si después de correr **Indicators** o **Noise indicators** solo **añades** trabajo (más casos, más realizaciones o niveles de ruido, más variantes), la etapa queda *stale* pero lo ya calculado sigue valiendo. Su tarjeta dice `missing: N of M tasks (group x variant)` y **Run missing** calcula solo esas `N` (`--resume`), sin tocar el resto. Las etapas que leen esos resultados quedan *stale* como siempre: córrelas después (**Noise validation** y **Validate** tardan poco).
+
+Qué es seguro (probado en una copia pequeña, 2026-10-07):
+
+| Cambio | ¿Run missing? |
+|---|---|
+| Más realizaciones, más niveles de SNR o más casos en **Noise** (vuelve a correr **Noise**: las copias que ya existían salen idénticas bit a bit, la semilla va por realización y por número de caso) | sí |
+| Más variantes en la tabla de Indicators | sí |
+| `realizations_run` que crece (p. ej. `[0]` → todas) | sí |
+| Otros parámetros de una variante que ya existe (mismo nombre) | **no**: corre la etapa entera |
+| Otra semilla, otro caso de referencia del SNR, menos casos o niveles, otras etiquetas o referencia | **no**: corre la etapa entera |
+
+La app lo decide comparando la configuración con la que corrió la etapa (se guarda en su registro desde esta versión) con la actual: si algo **cambió** (no solo creció), **Run missing** se niega y dice qué. Si la etapa corrió antes de esta versión (o se importó), la app no lo sabe y **Run missing** pregunta. Con `snr_ref_case: auto`, cambiar las etiquetas puede cambiar el caso de referencia sin que la configuración lo diga: en ese caso corre todo.
+
 ### Rampas de Ap
 
 Un caso en **rampa** cambia la profundidad durante el corte (con `n` fija): `Ap` va de `Ap_start` a `Ap_end`, en línea recta con el tiempo de la señal. Sirven para **validar**; el entrenamiento sigue siendo de casos constantes. Un experimento puede mezclar casos constantes y rampas.
