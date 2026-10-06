@@ -1,4 +1,4 @@
-"""Check of the app forms (v2) on a temp copy of the experiments: new experiment from scratch (a single Ap, kappa
+"""Check of the app forms (v2) on a temp copy of the experiments: new experiment from scratch (a single Ap, η
 from a model, an Ap = inf refused), settings, copy, simulation form (a config run written in full), indicator
 table, import, standardize, dry-run, log viewer, mark up to date, compare. Real data are only read; captures in
 %TEMP%/app_dialog_shots for a visual check."""
@@ -108,7 +108,7 @@ def check_noise():
     f.nreal.set("2")
     f._pick()                                                                         # list of cases with kappa and label
     lb = f.picker.winfo_children()[0]
-    assert lb.size() == 5 and "kappa 0.600" in lb.get(0) and "stable" in lb.get(0), lb.get(0)
+    assert lb.size() == 5 and "η 0.600" in lb.get(0) and "stable" in lb.get(0), lb.get(0)
     lb.selection_clear(0, "end")
     lb.selection_set(1)
     lb.selection_set(3)
@@ -248,7 +248,7 @@ def check_run_only():
 
 
 def check_ramps():
-    """Ramps of Ap (PLAN_ramps.md): create (mm, kappa, mixed with constant cases), SLD picker in ramps mode, edit,
+    """Ramps of Ap (PLAN_ramps.md): create (mm, η, mixed with constant cases), SLD picker in ramps mode, edit,
     copy, dry-run, a decreasing ramp on a one-way workpiece, import / standardize of an .h5 with ramps."""
     # new experiment: Ap in mm, a ramp + a constant case in the same run
     nd = L.NewExperimentDialog(app)
@@ -280,7 +280,7 @@ def check_ramps():
     fr.base_dir.set(base)
     fr.case.set("1DOF_150Hz")
     fr.spins.set("12098.28")
-    fr.unit.set("kappa")
+    fr.unit.set("η")
     fr.depths.set("0.6")
     fr.depths_end.set("1.6")
     fr.ap_mode.set("model_at_spin")
@@ -324,7 +324,7 @@ def check_ramps():
     pk.on_click(Ev(7.0, 3))                           # right click: the ramp 12 -> 6 contains 7
     assert (12.0, 6.0) not in pk.ramps and (5.0, 15.0) in pk.ramps
     pk.new_view()
-    pk.r_unit.set("kappa")
+    pk.r_unit.set("η")
     pk.new_view()
     pk.r_from.set("0.6"), pk.r_to.set("0.9"), pk.r_n.set("2"), pk.span.set("0.8")
     pk.fill()
@@ -342,7 +342,7 @@ def check_ramps():
     pk.accept_proposed()
     assert len(pk.r_accepted) == 3 and not pk.r_proposed
     lines = pk.lst.get(0, "end")
-    assert any("[accepted] ramp Ap" in x and "kappa" in x for x in lines), lines
+    assert any("[accepted] ramp Ap" in x and "η" in x for x in lines), lines
     assert any("crosses 1" in x for x in lines), lines
     shot(pk.win, "ramps_sld_picker.png")
     pk.lst.selection_clear(0, "end")
@@ -393,7 +393,7 @@ def check_ramps():
     filedialog.askdirectory = lambda **k_: rd
     im = L.ImportDialog(app)
     txt = im.prev.get("1.0", "end")
-    assert "2 cases (1 ramps)" in txt and "kappa 0.58-1.74" in txt and "ramp case_001: Ap 5 -> 15 mm" in txt, txt
+    assert "2 cases (1 ramps)" in txt and "η 0.58-1.74" in txt and "ramp case_001: Ap 5 -> 15 mm" in txt, txt
     shot(im.win, "ramps_import.png")
     im.name.set("ramps_imported")
     im._ok()
@@ -414,7 +414,7 @@ def check_ramps():
     with h5py.File(os.path.join(rd, "doe_results.h5"), "r") as h:
         a = h["case_001"].attrs
         assert abs(a["eta_start"] - 5 / 8.6) < 1e-9 and abs(a["eta_end"] - 15 / 8.6) < 1e-9 and "eta" not in a and "kappa" not in a
-    print("ramps OK: new (mm, kappa, mixed), SLD picker ramps mode, form, copy, decreasing refused, import, standardize")
+    print("ramps OK: new (mm, η, mixed), SLD picker ramps mode, form, copy, decreasing refused, import, standardize")
 
 
 root = tk.Tk()
@@ -465,7 +465,7 @@ try:
     im.ap_mode.set("manual")
     im.ap_manual.set("8")
     txt = im.prev.get("1.0", "end")
-    assert "not extracted yet: 2 cases" in txt and "kappa 0.5-1.5" in txt, txt
+    assert "not extracted yet: 2 cases" in txt and "η 0.5-1.5" in txt, txt
     shot(im.win, "v2_import_not_extracted.png")
     im._ok()
     rw = ex.load("RAW")
@@ -500,7 +500,7 @@ try:
     fr.base_dir.set(base)
     fr.case.set("1DOF_150Hz")
     fr.doe_name.set("pocket")
-    fr.unit.set("kappa")
+    fr.unit.set("η")
     fr.depths.set("1.0")
     fr.ap_mode.set("model_at_spin")
     fr.ap_model.set("1DOF_150")
@@ -509,7 +509,7 @@ try:
         fr.spins.set(str(pocket))
         assert not fr.preview() and "no finite stability limit" in fr.out.get("1.0", "end"), fr.out.get("1.0", "end")
         shot(nd.win, "v2_new_kappa_pocket.png")
-        print(f"kappa at n = {pocket} rpm (pocket) refused OK")
+        print(f"η at n = {pocket} rpm (pocket) refused OK")
     fr.spins.set("12098.28")
     nd.flow.set("Validation against a reference")
     nd.ref.set(TR)
@@ -524,7 +524,7 @@ try:
     v = ex.load("val_from_dialog")
     assert v.ref.name == TR and "validate" in ex.stages(v) and v.runs[0].cfg["ap_ref"]["mode"] == "model_at_spin"
     assert len(v.runs[0].cfg["sweep"]["$Ap_start$"]) == 3
-    print("new validation with kappa x SLD limit OK; Ap =", v.runs[0].cfg["sweep"]["$Ap_start$"])
+    print("new validation with η x SLD limit OK; Ap =", v.runs[0].cfg["sweep"]["$Ap_start$"])
     # ---- load values from an existing experiment (pre-fill) keeps every value
     nd = L.NewExperimentDialog(app)
     assert nd.frame.n2m.get().endswith("nessy2m/n2m.bat"), nd.frame.n2m.get()   # from base.yaml, shown in full
@@ -546,9 +546,9 @@ try:
     assert len(pk.aps) == 5 and pk.lst.size() == 5          # the loaded depths are on the plot
     pk.aps.clear()
     pk.model.set("1DOF_150")
-    pk.r_from.set("0.9"), pk.r_to.set("1.1"), pk.r_n.set("3"), pk.r_unit.set("kappa")
+    pk.r_from.set("0.9"), pk.r_to.set("1.1"), pk.r_n.set("3"), pk.r_unit.set("η")
     pk.fill()
-    assert len(pk.aps) == 3 and "kappa  1.000" in pk.lst.get(1), pk.lst.get(0, "end")
+    assert len(pk.aps) == 3 and "η  1.000" in pk.lst.get(1), pk.lst.get(0, "end")
 
     # the button: n goes to the bottom of the lobe that the current n is in (not to another lobe)
     pk.n.set("13000")
@@ -601,7 +601,7 @@ try:
     pk.n.set("12098.28")
     pk.draw()
     lim = pk.limit()
-    assert "kappa" in pk.ax.get_ylabel() and abs(pk.div - lim) < 1e-12      # kappa chosen -> the y axis is kappa
+    assert "η" in pk.ax.get_ylabel() and abs(pk.div - lim) < 1e-12      # kappa chosen -> the y axis is kappa
 
     class _Ev:   # a left click at kappa = 0.5 -> Ap = 0.5 x limit
         inaxes, ydata, button = pk.ax, 0.5, 1
@@ -679,7 +679,7 @@ try:
     log = os.path.join(tmp, "x.log")
     with open(log, "w", encoding="utf-8") as fh:
         fh.write("$ python doe_indicators.py\n[3/34] completado: case_002 / maxent\nTraceback (most recent call last):\n"
-                 "-- case_002  kappa 0.6  verdad: stable (amplitude)\n")
+                 "-- case_002  η 0.6  verdad: stable (amplitude)\n")
     lv = L.LogViewer(app, log, "test")
     lv.q.set("case_002")
     lv.find()
@@ -725,7 +725,7 @@ try:
     assert not rep["missing"]["kappa"] and not rep["missing"]["sim_model"] and rep["values"]["sim_case"][0] == "1DOF_150Hz"
     st = ex.load("ext_std")
     assert st.data_h5.endswith("old_results.h5") and abs(ex.summary(st)["kappa"][0] - 0.006 / 0.00860396) < 1e-9
-    print("standardize OK: kappa", ex.summary(st)["kappa"])
+    print("standardize OK: η", ex.summary(st)["kappa"])
     n_before = len(ex.list_experiments())               # the same file again: it already has its experiment
     sd = L.StandardizeDialog(app)
     assert sd.users == ["ext_std"] and not sd.create.get()

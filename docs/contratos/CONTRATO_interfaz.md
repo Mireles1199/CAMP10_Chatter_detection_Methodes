@@ -33,7 +33,7 @@ Docs actualizados: `TUTORIAL.md`, `PLAN_ramps.md` (nota al inicio), ayuda del la
 
 ## 3. Label grid (rejilla de datos etiquetados) — commit `feat(experiments)`
 Archivo nuevo `DOE_utils/label_grid.py` + botón **Label grid** en la etapa Label build del launcher. Solo **lee** el
-`reference_dataset*.h5` de Label build (`stable|gray|unstable/<case>/<canal>__NNN/{t,y}` y sus attrs `kappa`,
+`reference_dataset*.h5` de Label build (`stable|gray|unstable/<case>/<canal>__NNN/{t,y}` y sus attrs `eta` (antes `kappa`; se leen ambos),
 `labeling_*`); no cambia ningún argumento ni script de etapa, ni escribe nada. Lanzado como el visor
 (`launch("gui", "label_grid.py", ["--h5", <label.out>])`). Los límites ±lim_inf/±lim_sup salen de los mismos attrs
 `labeling_*` que usa `doe_unified_selector._amp_limits` (misma regla; se reimplementa en 5 líneas, no se importa).
@@ -97,10 +97,10 @@ Desviaciones menores: (1) no hay `hatch` como codificación redundante estable/i
 `validation_figures.py` y `sld_model.py`, la skill lo define como `FIGSCALE_SIMPLE` en `plot_style.py` y ahí no existe;
 (3) `legend(fontsize=8)` y `fontsize=14` explícitos en vez del `legend.fontsize` de los rcParams; (4) la skill llama
 `_lang_text` a lo que el proyecto llama `lang_text` (no afecta); (5) varias figuras fallan en un `.h5` que solo tiene rampas
-(`score_vs_kappa`, `score_dist`: array vacío; `detection_time`: escala log sin datos positivos) — el visor lo muestra como
+(`score_vs_eta`, `score_dist`: array vacío; `detection_time`: escala log sin datos positivos) — el visor lo muestra como
 error; sería mejor que lancen un mensaje claro.
 
-## 8. Exportación configurable de toda figura + eje κ / Ap en el SLD (PLAN_figuras.md)
+## 8. Exportación configurable de toda figura + eje η / Ap en el SLD (PLAN_figuras.md)
 Autorizado por el manager para `doe_unified_selector.py`, `sld_model.py`, `doe_planner.py`, `doe_val_planner.py`. Supera §7 en
 la parte del guardado: ya no hay `Save PNG`/`_save_summary` ni `_export_figure`/`_save_figure_to_reference_dir`; todo pasa por
 la ventana de exportación.
@@ -109,8 +109,8 @@ la ventana de exportación.
 |---|---|---|
 | `DOE_plots/figures_window.py` (mío) | ventana única: `Item(name, render, native, live)`; tamaño own / SIMPLE / WIDE / grid × escala, idioma, dpi, formato, carpeta, nombre; los paneles vivos se exportan como copia (`pickle`) | la llamada antigua `(parent, title, labels, render, style, out_dir, lang, scale)` sigue valiendo |
 | `DOE_plots/fig_lang.py` + `figure_texts.yaml` (míos, nuevos) | EN / FR / both para las figuras de texto fijo: se traduce la copia exportada frase a frase; los plotters no se tocan | — |
-| `DOE_plots/doe_unified_selector.py` (CRLF) | botón **💾 Export…** en la barra; `Save…`/`Figures…` del panel derecho y `💾 Export figure` de la referencia abren la misma ventana; los exportadores de la referencia ahora devuelven la figura (`_tramos_article_figure`, `_combinado_article_figure(page)`, `_combinado_pages`); casilla **κ axis**; los 4 `FuncFormatter(lambda …)` → `FormatStrFormatter("%.3g")` (mismo texto; la lambda impedía copiar el panel) | archivos `figs_*` en las mismas carpetas de antes |
-| `DOE_plots/sld_model.py` (CRLF en el repo, se mantiene) | `plot_sld(..., y_axis=None)`: `None` → global `Y_AXIS = "Ap"`; `"kappa"` **solo añade un eje derecho** κ = Ap / `ap_lim(rpm mediana de los casos)` (lóbulos y casos siguen en Ap; sin casos o en un hueco → contra `ap_crit`). Corregido a petición del usuario: la primera versión dividía los lóbulos por el límite. `_scaled` (módulo) para poder copiar la figura | **llamadores revisados con grep**: el visor (3 entradas) y `doe_planner` (`plot_sld(cases, preset)`); `validation_figures` solo importa `OUTCOMES`. Con `y_axis` por defecto todo dibuja igual que antes |
+| `DOE_plots/doe_unified_selector.py` (CRLF) | botón **💾 Export…** en la barra; `Save…`/`Figures…` del panel derecho y `💾 Export figure` de la referencia abren la misma ventana; los exportadores de la referencia ahora devuelven la figura (`_tramos_article_figure`, `_combinado_article_figure(page)`, `_combinado_pages`); casilla **η axis**; los 4 `FuncFormatter(lambda …)` → `FormatStrFormatter("%.3g")` (mismo texto; la lambda impedía copiar el panel) | archivos `figs_*` en las mismas carpetas de antes |
+| `DOE_plots/sld_model.py` (CRLF en el repo, se mantiene) | `plot_sld(..., y_axis=None)`: `None` → global `Y_AXIS = "Ap"`; `"kappa"` **solo añade un eje derecho** η = Ap / `ap_lim(rpm mediana de los casos)` (lóbulos y casos siguen en Ap; sin casos o en un hueco → contra `ap_crit`). Corregido a petición del usuario: la primera versión dividía los lóbulos por el límite. `_scaled` (módulo) para poder copiar la figura | **llamadores revisados con grep**: el visor (3 entradas) y `doe_planner` (`plot_sld(cases, preset)`); `validation_figures` solo importa `OUTCOMES`. Con `y_axis` por defecto todo dibuja igual que antes |
 | `sld_model.py` — **texto visible** | eje Ap rotulado EN « Width of cut $a_p$ [mm] » / FR « Largeur de coupe $a_p$ [mm] » (antes *Depth of cut* / *Profondeur de passe*). Decisión del usuario; cambia el rótulo de **todas** las figuras con SLD (visor, planner, exportaciones) | — |
 | `DOE_simulacion/doe_planner.py` (LF) | **solo** botón **💾 Export…** + `export()` que abre la ventana con su figura | ninguna otra lógica |
 | `DOE_simulacion/doe_val_planner.py` (CRLF en el repo, se mantiene) | **solo** botón **💾 Export…** + `export()` | ninguna otra lógica |
@@ -145,7 +145,7 @@ UI: `ValidateForm` gana el campo **gray cases** (ignore / stable (pessimistic) /
 Validate empieza con "gray cases: <modo>" y, con `n_gray`, la línea de conteo dice "not scored" o "scored as <modo>". Un modo por
 corrida: para tener los tres hay que correr Validate tres veces (cada una con su archivo y su carpeta de figuras).
 
-### 8b. Corrección del eje κ y leyenda de I(t) (a petición del usuario)
+### 8b. Corrección del eje η y leyenda de I(t) (a petición del usuario)
 - SLD: ver la fila de `sld_model.py` arriba. `envelope`/`kappa_of` ya no existen.
 - Visor, gráfica de `I(t)`: la leyenda explica las líneas verticales: trazo discontinuo + punto = `t_d` (primera detección del
   indicador, color de su curva); línea de puntos = `t_onset` (la verdad de una rampa pasa a inestable; solo rampas, y con varios
@@ -164,8 +164,8 @@ Solo lectura de datos que ya guardan los `.h5`; ningún script de etapa cambia.
   corrida; los `meta_*` se leen (solo attrs) del archivo de indicadores vecino (`indicator_results_file` del atributo raíz).
   Petición abierta a quien mantenga `doe_indicators.py`/Green: guardar el umbral de Green y, en el archivo de validación, copiar los
   umbrales para no depender del archivo vecino.
-- Barra de color de κ en la pestaña `I(t)` (como Signals/Forces/Deflex) cuando las curvas van coloreadas por caso (un indicador), con
-  marca por caso; el título de arranque "Select cases and press Plot" se sustituye por "κ — N case(s)" como en las señales; se quitó
+- Barra de color de η en la pestaña `I(t)` (como Signals/Forces/Deflex) cuando las curvas van coloreadas por caso (un indicador), con
+  marca por caso; el título de arranque "Select cases and press Plot" se sustituye por "η — N case(s)" como en las señales; se quitó
   `tight_layout()` (la figura ya usa `constrained_layout`).
 
 ## 11. Una sola ventana de visor (el botón Viewer reutiliza el visor abierto)
@@ -182,7 +182,7 @@ Solo lectura de datos que ya guardan los `.h5`; ningún script de etapa cambia.
 ## 12. Métricas con intervalo y razón t_det/t_onset (hito 8 de wt-validacion, `git merge wt-validacion`)
 Solo lectura de claves aditivas de `/metrics/<run>` (schema sigue en `doe_validation_results/4`); todo con `.get`, los `.h5` anteriores se ven igual.
 - Tarjeta de Validate: "bal.acc 0.94 [0.74-0.99]" y "MCC x [lo-hi]" (IC 95 %, `*_lo`/`*_hi`) y "t_det/t_onset" (`median_t_ratio`: < 1 = la alarma llegó
-  antes de que la vibración alcanzara el límite de amplitud, independiente de κ). Sin intervalo en el archivo: no se muestra nada.
+  antes de que la vibración alcanzara el límite de amplitud, independiente de η). Sin intervalo en el archivo: no se muestra nada.
 - Compare (`METRIC_COLUMNS`): `balanced_accuracy_lo/hi`, `MCC_lo/hi`, `delay_onset_p25_s`, `delay_onset_p75_s`, `median_t_ratio` (celdas vacías si faltan).
 - `/pairwise` (McNemar exacto entre pares): el visor lee los grupos `case_*` como casos y las corridas de cada caso, así que no se confunde con un
   indicador (comprobado con un archivo generado por el backend nuevo con 2 indicadores: corridas vistas = las 2, 15 figuras de validación).

@@ -92,7 +92,7 @@ def ap_lim(preset: str, rpm: float) -> float:
 
 
 def _scaled(x, k):
-    """x * k (a module-level function, so a figure with the kappa axis can be pickled by the export window)."""
+    """x * k (a module-level function, so a figure with the η axis can be pickled by the export window)."""
     return x * k
 
 
@@ -184,8 +184,8 @@ def plot_sld(cases, preset: str, seg=None, out_dir=None, language: str | None = 
     el visor lo pasa a todas las figuras de resumen.
     outcome_run: nombre de un indicador de doe_validation_results.h5; los puntos se colorean por su resultado
     (TP/TN/FN/FP, ver OUTCOMES) en vez de todos del mismo color.
-    y_axis: "Ap" o "kappa" (por defecto Y_AXIS). Los lóbulos y los casos siempre van en Ap [mm] (eje izquierdo); con
-    "kappa" se añade un eje derecho kappa = Ap / límite del SLD a la velocidad de los casos (la mediana de sus rpm; si
+    y_axis: "Ap" o "η" (por defecto Y_AXIS). Los lóbulos y los casos siempre van en Ap [mm] (eje izquierdo); con
+    "η" se añade un eje derecho η = Ap / límite del SLD a la velocidad de los casos (la mediana de sus rpm; si
     cae en un hueco entre lóbulos o no hay casos, Ap / a_p,min del modelo). Es exacto con los casos a una sola velocidad.
     """
     lang = language or LANGUAGE
@@ -253,9 +253,9 @@ def plot_sld(cases, preset: str, seg=None, out_dir=None, language: str | None = 
             except ValueError:
                 lim = float("inf")
             if np.isfinite(lim):
-                txt = rf"$\kappa = a_p\,/\,a_{{p,\lim}}(\Omega = {n_ref:.0f}\ \mathrm{{rpm}})$ [–]"
+                txt = rf"$\eta = a_p\,/\,a_{{p,\lim}}(\Omega = {n_ref:.0f}\ \mathrm{{rpm}})$ [–]"
             else:   # no cases, or their speed is in a pocket between lobes: against the minimum of the model
-                lim, txt = a_min, r"$\kappa = a_p\,/\,a_{p,\min}$ [–]"
+                lim, txt = a_min, r"$\eta = a_p\,/\,a_{p,\min}$ [–]"
             sec = ax.secondary_yaxis("right", functions=(partial(_scaled, k=1.0 / lim), partial(_scaled, k=lim)))
             sec.set_ylabel(txt)
         ax.set_title(f"SLD — {preset}" + (f" — {outcome_run}" if outcome_run else ""))
@@ -323,7 +323,7 @@ if __name__ == "__main__":
     sec = ax.child_axes[0]
     lim = ap_lim("1DOF_150", 12100.0)
     fig.canvas.draw()   # el eje derecho se sincroniza al dibujar
-    assert "kappa" in sec.get_ylabel() and "12100" in sec.get_ylabel()
+    assert "eta" in sec.get_ylabel() and "12100" in sec.get_ylabel()
     assert abs(sec.get_ylim()[1] - ax.get_ylim()[1] / lim) < 1e-9 and abs(sec.get_ylim()[0]) < 1e-12   # kappa = Ap / lim
     assert len(plot_sld(cases, "1DOF_150").axes[0].child_axes) == 0                                      # Ap: sin eje derecho
     assert "a_{p,\\min}" in plot_sld([], "1DOF_150", y_axis="kappa").axes[0].child_axes[0].get_ylabel()  # sin casos

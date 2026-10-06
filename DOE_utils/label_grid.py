@@ -5,7 +5,7 @@
 Each panel shows the signal of a case coloured by its label (green stable, grey gray, red unstable) and, if the
 dataset was labelled by amplitude, the lines of the criterion (+-lim_inf, +-lim_sup of max|y|; they can be switched
 off: when the signal is far below the limits they flatten it, and the autoscale then fits the signal). Cases are
-sorted by kappa and paged. A switch turns the signal into the histogram of its samples with the fitted normal; mu and
+sorted by η and paged. A switch turns the signal into the histogram of its samples with the fitted normal; mu and
 sigma of every case (per label) are written in its panel. Read-only: the .h5 is never written.
 
 Usage (entorno_CAMP10 Python):
@@ -49,8 +49,8 @@ def _limits(attrs, channel):
 
 
 def index(h5_path: str) -> dict:
-    """{'channels': [...], 'default_channel': str, 'cases': [...]} (attrs only, no signals), cases sorted by kappa.
-    A case: {case, kappa (sort key, None if unknown), ktxt, ramp, pieces: [(label, piece_name, channel, limits)]}."""
+    """{'channels': [...], 'default_channel': str, 'cases': [...]} (attrs only, no signals), cases sorted by η.
+    A case: {case, η (sort key, None if unknown), ktxt, ramp, pieces: [(label, piece_name, channel, limits)]}."""
     cases, channels, amp_ch = {}, set(), None
     with h5py.File(h5_path, "r") as f:
         for label in LABELS:
@@ -73,7 +73,7 @@ def index(h5_path: str) -> dict:
         if ramp:   # ponytail: ramps only shown, not studied (parked in PLAN_ramps); kappa of the start of the piece
             ktxt = "ramp " + ex.ap_text(a, ".1f")
         else:
-            ktxt = (f"κ={ks[0]:.3g}" if ks else ex.ap_text(a, ".1f"))
+            ktxt = (f"η={ks[0]:.3g}" if ks else ex.ap_text(a, ".1f"))
         c.update(kappa=ks[0] if ks else None, ktxt=ktxt, ramp=ramp)
         out.append(c)
     out.sort(key=lambda c: (c["kappa"] is None, c["kappa"] if c["kappa"] is not None else 0.0, c["case"]))
@@ -99,7 +99,7 @@ def counts(idx: dict, channel: str) -> dict:
 
 
 def select(idx: dict, channel: str, label: str = "all") -> list:
-    """Cases (sorted by kappa) with a piece of `channel` and, if label != 'all', of that label."""
+    """Cases (sorted by η) with a piece of `channel` and, if label != 'all', of that label."""
     return [c for c in idx["cases"] if any(p[2] == channel and label in ("all", p[0]) for p in c["pieces"])]
 
 
@@ -208,7 +208,7 @@ class GridWindow:
                                    self.limits.get(), self.page if page is None else page,
                                    int(self.rows.get()), int(self.cols.get()), self.dist.get())
         c = counts(self.idx, self.channel.get())
-        self.info.set(f"page {self.page + 1}/{pages}  ·  {n} cases (sorted by κ)  ·  "
+        self.info.set(f"page {self.page + 1}/{pages}  ·  {n} cases (sorted by η)  ·  "
                       + "  ".join(f"{k} {c[k]}" for k in LABELS if c[k]))
         self.canvas.draw_idle()
 

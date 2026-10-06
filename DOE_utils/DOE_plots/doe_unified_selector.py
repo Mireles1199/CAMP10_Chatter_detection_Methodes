@@ -628,7 +628,7 @@ def _add_clean_rows(h5_path: str, with_runs: bool, cases: List[Dict]) -> None:
 def _load_noise(h5_path: str, with_runs: bool) -> List[Dict]:
     """Casos de doe_noise_results.h5 / doe_noise_indicator_results.h5. Old mode: control + snr_<dB> with their signals.
     Multi-case mode (attr 'realization' in the groups, PLAN_noise_validation.md): one group per noisy copy
-    snr_<dB>__<case>__r<k>: its columns are snr_db, case_source, realization (+ kappa) and the signals are lazy."""
+    snr_<dB>__<case>__r<k>: its columns are snr_db, case_source, realization (+ η) and the signals are lazy."""
     cases = []
     with h5py.File(h5_path, "r") as f:
         for grp_name in sorted(f.keys()):
@@ -676,7 +676,7 @@ def load_doe_noise(h5_path: str) -> List[Dict]:
 
 def load_noise_validation(h5_path: str) -> List[Dict]:
     """Loader for doe_noise_validation_results.h5 (validate_noise.py): one row per noisy copy (/summary of every
-    indicator): snr_db, case_source, realization, truth, kappa and the outcome of each indicator. No signals: the
+    indicator): snr_db, case_source, realization, truth, η and the outcome of each indicator. No signals: the
     figures of the file are in the summary panel (validation_figures.NOISE_FIGURES)."""
     rows: Dict[str, Dict[str, Any]] = {}
     with h5py.File(h5_path, "r") as f:
@@ -822,8 +822,8 @@ def _truth_from_dataset(path: str) -> Dict[str, List[Tuple[float, float, str]]]:
 
 
 def _apply_ramps(cases: List[Dict], h5_path: str) -> None:
-    """Ramp cases (Ap_end != Ap_start): their single 'kappa' is ignored (NaN), the table shows kappa_start /
-    kappa_end; with kappa as label key, a ramp takes its start kappa (ramps sort by the kappa where they start).
+    """Ramp cases (Ap_end != Ap_start): their single 'η' is ignored (NaN), the table shows η_start /
+    η_end; with η as label key, a ramp takes its start η (ramps sort by the η where they start).
     Each ramp gets 'truth_iv' (the intervals of its ground truth: datasets of a validation file, else the
     labelled dataset named in the file) and 't_onset' (start of the first unstable interval), to draw them."""
     ramps = [c for c in cases if _is_ramp_vv(c.get("var_val", {}))]
@@ -869,13 +869,13 @@ def _apply_ramps(cases: List[Dict], h5_path: str) -> None:
 
 
 def _case_legend(c: dict, lk: str, lv: float) -> str:
-    """Legend text of a case: 'kappa=1.03', a ramp 'kappa 0.58->1.74', else the group."""
+    """Legend text of a case: 'η=1.03', a ramp 'η 0.58->1.74', else the group."""
     vv = c.get("var_val", {})
     if "realization" in vv and vv.get("kind") in ("clean", "noisy"):   # a row of a multi-case noise file
         return _noise_tag(c)
     if c.get("ramp"):
         try:
-            return f"kappa {float(vv['kappa_start']):.3g}->{float(vv['kappa_end']):.3g}"
+            return f"η {float(vv['kappa_start']):.3g}->{float(vv['kappa_end']):.3g}"
         except (KeyError, TypeError, ValueError):
             return f"{c.get('group', '?')} (ramp)"
     base = f"{_col_header(lk)}={lv:.3g}" if np.isfinite(lv) else c.get("group", "?")
@@ -990,7 +990,9 @@ def _exact(v) -> str:
     return str(v)
 
 
-NOISE_HEADERS = {"snr_db": "SNR [dB]", "case_source": "source case", "realization": "realization", "kind": "kind"}
+NOISE_HEADERS = {"snr_db": "SNR [dB]", "case_source": "source case", "realization": "realization", "kind": "kind",
+                 "kappa": "η", "kappa_start": "η_start", "kappa_end": "η_end", "eta": "η", "eta_start": "η_start",
+                 "eta_end": "η_end"}
 
 
 def _col_header(key: str) -> str:
@@ -1822,7 +1824,7 @@ class DoeSelectorUnifiedApp:
                 sld_model.Y_AXIS = "kappa" if self._kappa_axis.get() else "Ap"
                 if self._sum_combo.get().startswith("SLD"):
                     self._refresh_summary()
-            ttk.Checkbutton(btns, text="κ axis", variable=self._kappa_axis, command=flip_axis).pack(side=tk.LEFT, padx=6)
+            ttk.Checkbutton(btns, text="η axis", variable=self._kappa_axis, command=flip_axis).pack(side=tk.LEFT, padx=6)
         self._sum_toolbar_frame = ttk.Frame(rf)
         self._sum_toolbar_frame.pack(fill=tk.X)
         self._sum_canvas_frame = ttk.Frame(rf)
@@ -3810,7 +3812,7 @@ def file_role(h5_path: str) -> str:
         return ""
     bits = []
     if ramp_cases:
-        bits.append(f"{len(ramp_cases)} RAMP case(s) of Ap (kappa_start -> kappa_end; dotted line = where the truth "
+        bits.append(f"{len(ramp_cases)} RAMP case(s) of Ap (η_start -> η_end; dotted line = where the truth "
                     f"turns unstable)")
     if a.get("experiment"):
         bits.append(f"experiment {a['experiment']} · stage {a.get('experiment_stage', '?')}")
@@ -4250,7 +4252,7 @@ class ReferenceViewerApp:
         self._tree_sort_rev = False
         self._tree = ttk.Treeview(left, columns=self._tree_cols, show="headings", selectmode="extended")
         for c, w in zip(self._tree_cols, widths):
-            self._tree.heading(c, text=c, command=lambda cc=c: self._sort_tree_by(cc))
+            self._tree.heading(c, text=NOISE_HEADERS.get(c, c), command=lambda cc=c: self._sort_tree_by(cc))
             self._tree.column(c, width=w, anchor=tk.CENTER)
         self._tree.pack(fill=tk.BOTH, expand=True, side=tk.LEFT)
         vsb = ttk.Scrollbar(left, orient=tk.VERTICAL, command=self._tree.yview)
@@ -5025,7 +5027,7 @@ def main() -> None:
 
 
 def _selftest() -> None:
-    """Loading functions with ramps of Ap (no window): kappa of a ramp ignored, sorted by its start kappa, the
+    """Loading functions with ramps of Ap (no window): η of a ramp ignored, sorted by its start η, the
     truth intervals / t_onset of indicator and validation files, the file band, the pieces of a dataset."""
     import tempfile
     d = tempfile.mkdtemp(prefix="unified_sel_")
@@ -5069,7 +5071,7 @@ def _selftest() -> None:
         assert [c["group"] for c in cs] == ["case_001", "case_000", "case_002"], (path, [c["group"] for c in cs])
         r = by["case_001"]
         assert r["ramp"] and np.isnan(r["var_val"]["kappa"]) and r["label_val"] == 0.58, (path, r["var_val"])
-        assert _case_legend(r, "kappa", r["label_val"]) == "kappa 0.58->1.74" and not by["case_000"].get("ramp")
+        assert _case_legend(r, "kappa", r["label_val"]) == "η 0.58->1.74" and not by["case_000"].get("ramp")
         if path == doe:
             assert "truth_iv" not in r and r["t_onset"] is None
         else:

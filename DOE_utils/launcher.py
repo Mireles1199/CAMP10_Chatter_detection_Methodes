@@ -227,7 +227,7 @@ Experiment settings (description, stages, reference, output folder) · Delete (t
 data are never deleted) · Edit YAML (advanced: everything the forms do is in that file).
 
 RAMPS OF Ap: a case whose depth changes along the cut ('depths end' in the simulation form, or 'add: ramps' on the
-SLD picker). Its kappa is kappa_start -> kappa_end; its ground truth is the amplitude rule window by window (the
+SLD picker). Its η is η_start -> η_end; its ground truth is the amplitude rule window by window (the
 window of the indicators, Edit config of the labelling) and t_onset is where it turns unstable. Validate scores
 the ramps that cross apart from the global metrics (ramp_* columns), with the same rule as every unstable case:
 any alarm on an unstable constant case = TP; on a ramp that crosses, an alarm before t_onset = false alarm, after = TP.
@@ -890,7 +890,7 @@ class App:
         bits.append(f"{sm['cases']} case" + ("s" if sm["cases"] != 1 else "")
                     + (f" (ramps {sm['ramps']} of {sm['cases']})" if sm.get("ramps") else ""))
         if sm["kappa"]:
-            bits.append(f"kappa {sm['kappa'][0]:g}" + (f"-{sm['kappa'][1]:g}" if sm["kappa"][1] != sm["kappa"][0] else ""))
+            bits.append(f"η {sm['kappa'][0]:g}" + (f"-{sm['kappa'][1]:g}" if sm["kappa"][1] != sm["kappa"][0] else ""))
         bits.append(f"{sm['done']}/{sm['total']} stages done")
         self.card_line.set("  ·  ".join(bits))
         self.desc.set(e.cfg.get("description", ""))
@@ -1692,7 +1692,7 @@ class NoiseForm(_Dialog):
         info = ex.h5_info(e.data_h5) if e.data_h5 else None
         self.ref = self.field("reference case", tk.StringVar(value=str(sec.get("snr_ref_case", "auto"))), width=14,
                               values=["auto"] + (info["cases"] if info else []), editable=True,
-                              note="auto = the unstable case with the lowest kappa of this experiment's labels")
+                              note="auto = the unstable case with the lowest η of this experiment's labels")
         self.ws.append(self.last)
         self.seed = self.field("seed", tk.StringVar(value="" if sec.get("seed") is None else str(sec["seed"])), width=8,
                                note="empty = the script's default")
@@ -1737,7 +1737,7 @@ class NoiseForm(_Dialog):
                                                        "signal), then the indicators on each copy" if ns else ""))
 
     def _pick(self):
-        """Select the cases in a list (kappa and label of each) instead of typing their names."""
+        """Select the cases in a list (η and label of each) instead of typing their names."""
         tk, ttk = self.tk, self.ttk
         lab = ex._label_cases(self.e.label["out"])
         info = ex.h5_info(self.e.data_h5) if self.e.data_h5 else None
@@ -1752,7 +1752,7 @@ class NoiseForm(_Dialog):
         lb = tk.Listbox(win, selectmode="extended", exportselection=False, width=52, height=min(26, len(names)),
                         font=("Consolas", 9))
         for c in names:
-            lb.insert("end", f"{c}   kappa {kap(c):.3f}   {lab.get(c, ('no label',))[0]}")
+            lb.insert("end", f"{c}   η {kap(c):.3f}   {lab.get(c, ('no label',))[0]}")
         cur = self.cases.get().strip()
         for i, c in enumerate(names):
             if cur == "all" or c in _words(cur):
@@ -2158,7 +2158,7 @@ class SimulationFrame:
         self.depths = dlg.field("depths", tk.StringVar(value=_fmt_list(v["depths"]) if v["depths"] else ""))
         f = ttk.Frame(dlg.body)
         f.grid(row=dlg.row - 1, column=2, sticky="w", padx=6)
-        for u in ("Ap [mm]", "kappa"):
+        for u in ("Ap [mm]", "η"):
             ttk.Radiobutton(f, text=u, value=u, variable=self.unit).pack(side="left")
         ttk.Label(f, text="  list or start:stop:step; one value = a single case", foreground="#666").pack(side="left")
         ends = v.get("depths_end") or []
@@ -2166,7 +2166,7 @@ class SimulationFrame:
                                     note="empty = constant Ap · else Ap at the END of the cut, one per depth (same "
                                          "unit): different = a ramp, equal = constant")
         a = v["ap_ref"] or {"mode": "none"}
-        self.ap_mode = dlg.field("ap_ref (kappa = Ap / ap_ref)", tk.StringVar(value=a.get("mode", "none")),
+        self.ap_mode = dlg.field("ap_ref (η = Ap / ap_ref)", tk.StringVar(value=a.get("mode", "none")),
                                  values=["none", "manual", "model", "model_at_spin"],
                                  note="manual: a depth · model: SLD minimum · model_at_spin: SLD limit at the n of each case")
         self.ap_manual = dlg.field("  ap_ref manual [mm]", tk.StringVar(
@@ -2244,7 +2244,7 @@ class SimulationFrame:
 
     def build(self) -> dict:
         return ex.build_simulation(self.base_dir.get().strip(), self.case.get().strip(), self.doe_name.get().strip(),
-                                   self.depths.get(), "kappa" if self.unit.get() == "kappa" else "mm", self.spins.get(),
+                                   self.depths.get(), "eta" if self.unit.get() == "η" else "mm", self.spins.get(),
                                    self.ap_ref(), self.variables(), self.combine.get(), _num(self.nb_proc.get(), int) or 1,
                                    self.n2m.get().strip(), [x.strip() for x in self.signals.get().split(",") if x.strip()],
                                    self.force.get().strip(), depths_end=self.depths_end.get().strip() or None)
@@ -2277,7 +2277,7 @@ class SimulationFrame:
         ramps = any(d.get("ramp") for d in rows)
         f3 = lambda x: "-" if x is None else f"{x:.3f}"   # noqa: E731
         t.insert("end", f"{'case':>5} {'type':>5} {'Ap [mm]':>10} " + (f"{'Ap end':>10} " if ramps else "")
-                 + f"{'kappa':>8} " + (f"{'kappa end':>9} " if ramps else "") + f"{'n [rpm]':>10}  "
+                 + f"{'η':>8} " + (f"{'η end':>9} " if ramps else "") + f"{'n [rpm]':>10}  "
                  + "  ".join(extra) + "\n")
         for d in rows:
             r = bool(d.get("ramp"))
@@ -2292,7 +2292,7 @@ class SimulationFrame:
 class SldPicker:
     """Choose the depths of a simulation on the SLD of a model: the lobes, the line of n, its stability limit and
     the cases of the reference (coloured by label). Click = add an Ap at the n line (only the height counts),
-    right click = remove the nearest; or fill a range in Ap [mm] or kappa (x the limit at n). 'Use these Ap'
+    right click = remove the nearest; or fill a range in Ap [mm] or η (x the limit at n). 'Use these Ap'
     writes them, the n (and, if ticked, ap_ref = model_at_spin of that model) into the simulation form."""
     LAB_COL = {"stable": "#0072B2", "unstable": "#D55E00", "gray": "#999999", "": "#555555"}
 
@@ -2333,7 +2333,7 @@ class SldPicker:
         row = ttk.Frame(w, padding=(6, 0))
         row.pack(fill=tk.X)
         self.r_from, self.r_to, self.r_n = tk.StringVar(), tk.StringVar(), tk.StringVar(value="5")
-        self.r_unit = tk.StringVar(value="kappa")
+        self.r_unit = tk.StringVar(value="η")
         self.mode = tk.StringVar(value="points")   # points = constant Ap; ramps = Ap from a start to an end
         self.span = tk.StringVar(value="0.6")
         ttk.Label(row, text="add").pack(side=tk.LEFT)
@@ -2349,7 +2349,7 @@ class SldPicker:
         self.span_lbl.pack(side=tk.LEFT)
         self.span_ent = ttk.Entry(row, textvariable=self.span, width=6)
         self.span_ent.pack(side=tk.LEFT, padx=2)
-        for u in ("kappa", "Ap [mm]"):
+        for u in ("η", "Ap [mm]"):
             ttk.Radiobutton(row, text=u, value=u, variable=self.r_unit, command=self.new_view).pack(side=tk.LEFT)
         ttk.Button(row, text="Fill", command=self.fill).pack(side=tk.LEFT, padx=4)
         ttk.Button(row, text="Propose (as the validation planner)", command=self.propose).pack(side=tk.LEFT, padx=2)
@@ -2357,7 +2357,7 @@ class SldPicker:
         prow = ttk.Frame(w, padding=(6, 0))
         prow.pack(fill=tk.X)
         self.gap, self.jit, self.seed = tk.StringVar(value="0.02"), tk.StringVar(value="0.6"), tk.StringVar(value="1")
-        ttk.Label(prow, text="proposal: min gap to the training kappa").pack(side=tk.LEFT)
+        ttk.Label(prow, text="proposal: min gap to the training η").pack(side=tk.LEFT)
         ttk.Entry(prow, textvariable=self.gap, width=6).pack(side=tk.LEFT, padx=2)
         ttk.Label(prow, text="jitter (0-1)").pack(side=tk.LEFT, padx=(8, 0))
         ttk.Entry(prow, textvariable=self.jit, width=5).pack(side=tk.LEFT, padx=2)
@@ -2398,7 +2398,7 @@ class SldPicker:
         bot = ttk.Frame(w, padding=6)
         bot.pack(fill=tk.X)
         self.set_ref = tk.BooleanVar(value=True)
-        ttk.Checkbutton(bot, text="also set ap_ref = model_at_spin of this model (kappa = Ap / limit at n)",
+        ttk.Checkbutton(bot, text="also set ap_ref = model_at_spin of this model (η = Ap / limit at n)",
                         variable=self.set_ref).pack(side=tk.LEFT)
         ttk.Button(bot, text="Use these Ap", command=self.use).pack(side=tk.RIGHT)
         ttk.Button(bot, text="Cancel", command=w.destroy).pack(side=tk.RIGHT, padx=6)
@@ -2584,7 +2584,7 @@ class SldPicker:
             return
         lim = self.limit()
         # y axis: Ap [mm], or kappa = Ap / (limit at this n) when 'kappa' is chosen and that limit is finite
-        self.div = div = lim if (self.r_unit.get() == "kappa" and lim is not None and math.isfinite(lim)) else 1.0
+        self.div = div = lim if (self.r_unit.get() == "η" and lim is not None and math.isfinite(lim)) else 1.0
         kap = div != 1.0
         # one colour per MODE (all its lobes share it); the lobe the current n is in is drawn thicker and named
         import matplotlib.pyplot as _plt
@@ -2615,7 +2615,7 @@ class SldPicker:
         ax.axvline(n, color="#1565c0", ls="--", lw=1)
         if lim is not None and math.isfinite(lim):
             ax.plot([n], [lim / div], marker="_", markersize=22, color="#1565c0", mew=2,
-                    label=f"limit at n: {lim:.3f} mm" + (" (kappa = 1)" if kap else ""))
+                    label=f"limit at n: {lim:.3f} mm" + (" (η = 1)" if kap else ""))
         if kap:
             ax.axhline(1.0, color="#1565c0", lw=0.8, ls=":")
         if self.aps:
@@ -2656,7 +2656,7 @@ class SldPicker:
         if xs:
             ax.set_xlim(min(xs + [n]) * 0.95, max(xs + [n]) * 1.02)
         ax.set_xlabel("n [rpm]")
-        ax.set_ylabel(f"kappa = Ap / {lim:.3f} mm (limit at n)" if kap else "Ap [mm]")
+        ax.set_ylabel(f"η = Ap / {lim:.3f} mm (limit at n)" if kap else "Ap [mm]")
         ax.set_title(f"{self.model.get()} · n = {n:g} rpm · " + (
             "pocket between lobes (no finite limit: axis stays in Ap)" if lim is not None and not math.isfinite(lim)
             else f"limit {lim:.3f} mm" if lim is not None else "outside the lobes computed (axis stays in Ap)"),
@@ -2676,14 +2676,14 @@ class SldPicker:
                 k = a / lim if ok_lim else None
                 zone = "" if k is None else ("stable" if k < 1 else "UNSTABLE")
                 prop, acc = a in self.proposed, a in self.accepted
-                txt = f" Ap {a:8.4f} mm" + (f"   kappa {k:6.3f}  {zone}" if k is not None else "")
+                txt = f" Ap {a:8.4f} mm" + (f"   η {k:6.3f}  {zone}" if k is not None else "")
             else:
                 k0, k1 = (a[0] / lim, a[1] / lim) if ok_lim else (None, None)
                 zone = "" if k0 is None else ("crosses 1" if min(k0, k1) < 1 <= max(k0, k1) else
                                               ("stable" if max(k0, k1) < 1 else "UNSTABLE"))
                 prop, acc = a in self.r_proposed, a in self.r_accepted
                 txt = (f" ramp Ap {a[0]:.4f} -> {a[1]:.4f} mm"
-                       + (f"  kappa {k0:.3f} -> {k1:.3f}  {zone}" if k0 is not None else ""))
+                       + (f"  η {k0:.3f} -> {k1:.3f}  {zone}" if k0 is not None else ""))
             tag = "[proposed]" if prop else ("[accepted]" if acc else "[yours]   ")
             self.lst.insert("end", tag + txt)
             self.lst.itemconfig(idx, foreground="#1565c0" if prop else ("#6a1b9a" if acc else "#2e7d32"))
@@ -2722,13 +2722,13 @@ class SldPicker:
         self.r_accepted = [r for r in self.r_accepted if r not in gone]
 
     def _scale(self, what: str):
-        """Factor from the range units to Ap [mm] (the limit at n for kappa), or None after telling why."""
+        """Factor from the range units to Ap [mm] (the limit at n for η), or None after telling why."""
         import math
-        if self.r_unit.get() != "kappa":
+        if self.r_unit.get() != "η":
             return 1.0
         lim = self.limit()
         if lim is None or not math.isfinite(lim):
-            self.app._msg(what, "kappa needs a finite stability limit at this n (it is a pocket between lobes or "
+            self.app._msg(what, "η needs a finite stability limit at this n (it is a pocket between lobes or "
                                 "outside the lobes): choose another n or use Ap [mm]", "warn")
             return None
         return lim
@@ -2769,16 +2769,16 @@ class SldPicker:
         self.draw()
 
     def propose(self):
-        """Same rule as doe_val_planner: the range [from, to] in kappa split into 'cases' strata, one case per
-        stratum with a little jitter, kept at least 0.02 away from the kappa already used by the reference (its
-        extracted cases; no labels needed to choose what to simulate). Kappa -> Ap with the limit at n."""
+        """Same rule as doe_val_planner: the range [from, to] in η split into 'cases' strata, one case per
+        stratum with a little jitter, kept at least 0.02 away from the η already used by the reference (its
+        extracted cases; no labels needed to choose what to simulate). η -> Ap with the limit at n."""
         import math
         sys.path.insert(0, ex.SIM) if ex.SIM not in sys.path else None
         import doe_val_planner as vp
         try:
             a, b, n = float(self.r_from.get()), float(self.r_to.get()), int(self.r_n.get())
         except ValueError:
-            self.app._msg("Propose", "give from, to (kappa) and the number of cases", "warn")
+            self.app._msg("Propose", "give from, to (η) and the number of cases", "warn")
             return
         if self.mode.get() == "ramps":
             self.propose_ramps(vp, a, b, n)
@@ -2787,7 +2787,7 @@ class SldPicker:
         used = list(info["kappa"]) if info and info["kappa"] else []
         lim = self.limit()
         if lim is None or not math.isfinite(lim):
-            self.app._msg("Propose", "kappa needs a finite stability limit at this n (pocket or outside the lobes)", "warn")
+            self.app._msg("Propose", "η needs a finite stability limit at this n (pocket or outside the lobes)", "warn")
             return
         try:
             gap, jit, seed = float(self.gap.get()), float(self.jit.get()), int(self.seed.get())
@@ -2798,9 +2798,9 @@ class SldPicker:
         # a new proposal replaces the previous one; the cases you added by hand stay
         self.aps = sorted(set(a for a in self.aps if a not in self.proposed) | {round(k * lim, 4) for _, k in picked})
         self.proposed = [round(k * lim, 4) for _, k in picked]
-        self.r_unit.set("kappa")
+        self.r_unit.set("η")
         self.draw()
-        self.app.status_msg.set(f"{len(picked)} cases proposed in kappa {a:g}-{b:g}, away from the {len(used)} kappa of "
+        self.app.status_msg.set(f"{len(picked)} cases proposed in η {a:g}-{b:g}, away from the {len(used)} η of "
                                 f"the reference (gap {gap:g}, jitter {jit:g}, seed {seed})")
 
     def propose_ramps(self, vp, a, b, n):
@@ -2859,7 +2859,7 @@ class SldPicker:
         self.draw()
 
     def ref_h5(self):
-        """The reference's extracted signals file (its kappa are the ones to stay away from), or None."""
+        """The reference's extracted signals file (its η are the ones to stay away from), or None."""
         ref = self.ref
         return ref.data_h5 if ref is not None and ref.data_h5 and os.path.isfile(ref.data_h5) else None
 
@@ -2916,7 +2916,7 @@ class SimulationForm(_Dialog):
         vals = ex.simulation_form(ex.explicit_simulation(r.cfg)) if r is not None else {}
         if r is not None and r.existing:
             self.note("Simulated outside the app (imported without .h5). Extract reads the cases from the folder: "
-                      "only ap_ref (kappa) and the signals to extract matter here. Simulate stays blocked so the "
+                      "only ap_ref (η) and the signals to extract matter here. Simulate stays blocked so the "
                       "folder is never deleted.", "#b26a00")
         if r is not None and "config" in r.entry:
             self.note(f"This run reads {r.source}. Saving writes the whole simulation inside the experiment "
@@ -2994,7 +2994,7 @@ class NewExperimentDialog(_Dialog):
         bf.grid(row=self.row, column=1, columnspan=2, sticky="w")
         self.row += 1
         ttk.Button(bf, text="Propose names", command=self._propose).pack(side="left")
-        ttk.Button(bf, text="Pick kappa with the validation planner (constant cases)…", command=self._planner).pack(side="left", padx=6)
+        ttk.Button(bf, text="Pick η with the validation planner (constant cases)…", command=self._planner).pack(side="left", padx=6)
         self.frame_row = self.row
         self.frame = SimulationFrame(self, {})
         self.buttons("Create")
@@ -3022,7 +3022,7 @@ class NewExperimentDialog(_Dialog):
         try:
             spins = ex._values(self.frame.spins.get())
             ks = (ex._values(self.frame.depths.get()) + ex._values(self.frame.depths_end.get())
-                  if self.frame.unit.get() == "kappa" else None)
+                  if self.frame.unit.get() == "η" else None)
             name = ex.propose_name(self.flow.get(), self.frame.case.get(), spins[0] if len(set(spins)) == 1 else None, ks)
             self.name.set(name)
             self.frame.doe_name.set(name)
@@ -3037,7 +3037,7 @@ class NewExperimentDialog(_Dialog):
         ref = self.ref.get()
         if ref in ("", "(none)"):
             self.app._msg("Validation planner", "Choose the reference experiment first: the planner places the new "
-                                                "kappa values around its labelled cases.", "warn")
+                                                "η values around its labelled cases.", "warn")
             return
         doe = self.frame.doe_name.get().strip() or self.name.get().strip() or "validation_doe"
         launch("gui", "DOE_simulacion/doe_val_planner.py", [ex.load(ref).label["out"], "--name", doe])
@@ -3145,7 +3145,7 @@ class CopyDialog(_Dialog):
                                  note="e.g. _n10000: give one if you will change the simulation (the copy then "
                                       "simulates into its own folder). Empty = same data")
         self.note("The copy is one explicit file (nothing inherited) with its own outputs folder. After copying, "
-                  "change what differs: Edit config of Simulate (n, Ap / kappa…), Indicators, or Experiment settings.")
+                  "change what differs: Edit config of Simulate (n, Ap / η…), Indicators, or Experiment settings.")
         self.buttons("Copy")
 
     def save(self):
@@ -3175,7 +3175,7 @@ class ImportDialog(_Dialog):
                                   "runs from the app")
         self.ap_mode = self.field("ap_ref (not extracted only)", tk.StringVar(value="none"),
                                   values=["none", "manual", "model", "model_at_spin"],
-                                  note="for kappa = Ap / ap_ref, computed by Extract")
+                                  note="for η = Ap / ap_ref, computed by Extract")
         self.ap_manual = self.field("  ap_ref manual [mm]", tk.StringVar())
         self.ap_model = self.field("  SLD model", tk.StringVar(), values=ex.sld_models())
         self.ref = self.field("reference experiment", tk.StringVar(value="(none)"), values=["(none)"] + _experiment_names(),
@@ -3231,14 +3231,14 @@ class ImportDialog(_Dialog):
                 aps = [a * 1e3 for r in rows for a in (r.get("Ap_start"), r.get("Ap_end")) if a is not None]
                 nr = sum(bool(r.get("ramp")) for r in rows)
                 if nr:
-                    line(f"  {nr} ramp case(s): " + "; ".join(f"Ap {ex.ap_text(r, '.3g')}, kappa {ex.kappa_text(r)}"
+                    line(f"  {nr} ramp case(s): " + "; ".join(f"Ap {ex.ap_text(r, '.3g')}, η {ex.kappa_text(r)}"
                                                              for r in rows if r.get("ramp"))[:300])
                 ns = sorted({r["spin_rate"] for r in rows if "spin_rate" in r})
                 line(f"not extracted yet: {len(rows)} cases rebuilt from their var_val.py → Extract will write "
                      f"doe_results.h5 here (Simulate stays blocked: it would delete this folder)", "ok")
                 line("  n = " + ", ".join(f"{n:g}" for n in ns[:6]) + " rpm"
                      + (f"   Ap {min(aps):.4g}-{max(aps):.4g} mm" if aps else "")
-                     + (f"   kappa {min(ks):.3g}-{max(ks):.3g}" if ks else "   kappa: none (choose an ap_ref)"))
+                     + (f"   η {min(ks):.3g}-{max(ks):.3g}" if ks else "   η: none (choose an ap_ref)"))
             except Exception as exc:
                 line(f"PROBLEM cannot rebuild the simulation: {exc}", "bad")
         elif h5:
@@ -3251,7 +3251,7 @@ class ImportDialog(_Dialog):
                 line(f"{h5}: {len(rep['cases'])} cases" + (f" ({info['ramps']} ramps)" if info["ramps"] else "")
                      + f", signals {', '.join(rep['signals'])}", "ok")
                 line("  n = " + (f"{float(info['first']['$spin_rate$']):.10g} rpm" if "$spin_rate$" in info["first"] else "missing")
-                     + (f"   kappa {kap[0]:g}-{kap[1]:g}" if kap else "   kappa missing") + f"   duration {info['duration']} s")
+                     + (f"   η {kap[0]:g}-{kap[1]:g}" if kap else "   η missing") + f"   duration {info['duration']} s")
                 for txt in info["ramp_text"][:4]:
                     line(f"  ramp {txt}")
                 miss = [a for a in ex.STD_ATTRS if rep["missing"][a]]
@@ -3296,7 +3296,7 @@ class ImportDialog(_Dialog):
 
 class StandardizeDialog(_Dialog):
     """An .h5 made outside the app (other scripts, older runs): check what it has, add the attributes the app
-    needs (simulated model, n, kappa) and create its experiment. Signals are never modified."""
+    needs (simulated model, n, η) and create its experiment. Signals are never modified."""
 
     def __init__(self, app):
         from tkinter import filedialog
@@ -3328,12 +3328,12 @@ class StandardizeDialog(_Dialog):
         for a in ex.STD_ATTRS:
             miss = rep["missing"][a]
             vals = [x for x in rep["values"][a] if x is not None]
-            t.insert("end", f"  {a:<14s} " + ("present in every case" if not miss else
+            t.insert("end", f"  {'η' if a == 'kappa' else a:<14s} " + ("present in every case" if not miss else
                                                f"missing in {len(miss)}/{len(rep['cases'])} cases") +
                      (f"  (e.g. {vals[0]})" if vals else "") + "\n", None if not miss else "bad")
         if rep.get("ramps"):
-            t.insert("end", f"{len(rep['ramps'])} ramp case(s) (Ap_end != Ap_start): for them 'kappa' means "
-                            "kappa_start and kappa_end (a single kappa is ignored)\n")
+            t.insert("end", f"{len(rep['ramps'])} ramp case(s) (Ap_end != Ap_start): for them 'η' means "
+                            "η_start and η_end (a single η is ignored)\n")
         t.configure(state="disabled")
         folder = os.path.dirname(p)
         self.section("Attributes to add (empty = leave as it is). Only these attributes are written to the file.")
@@ -3346,11 +3346,11 @@ class StandardizeDialog(_Dialog):
         self.spin = self.field("$spin_rate$ [rpm]", tk.StringVar(), state="normal" if rep["missing"]["$spin_rate$"] else "disabled",
                                note="only when missing" if rep["missing"]["$spin_rate$"] else "present")
         need_k = bool(rep["missing"]["kappa"]) and not rep["missing"]["$Ap_start$"]
-        self.ap_mode = self.field("kappa from ap_ref", tk.StringVar(value="none"),
+        self.ap_mode = self.field("η from ap_ref", tk.StringVar(value="none"),
                                   values=["none", "manual", "model", "model_at_spin"],
                                   state="normal" if need_k else "disabled",
-                                  note=("kappa = Ap / ap_ref (ramps: kappa_start and kappa_end)" if need_k else
-                                        "kappa present (or no Ap to compute it)"))
+                                  note=("η = Ap / ap_ref (ramps: η_start and η_end)" if need_k else
+                                        "η present (or no Ap to compute it)"))
         self.ap_manual = self.field("  ap_ref manual [mm]", tk.StringVar(), state="normal" if need_k else "disabled")
         self.ap_model = self.field("  SLD model", tk.StringVar(), values=ex.sld_models(),
                                    state="normal" if need_k else "disabled")
