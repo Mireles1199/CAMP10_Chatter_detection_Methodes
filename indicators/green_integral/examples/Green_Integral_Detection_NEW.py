@@ -153,13 +153,19 @@ def main() -> None:
             r"\6\1DOF_150Hz\sens_out.hdf5"
         ),
 
+        "2DOF150250_n9989_intersection" : (
+            r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
+            r"\Data\2DOF\train_2DOF150250_n9989_intersection"
+            r"\14\2DOF_150_250\sens_out.hdf5"
+        )
+
 
     }
 
     # Change only this key to switch signals -- _SIG_NAME (used in every
     # figure title) is derived from it, instead of a name hardcoded
     # separately that could silently go stale relative to the real signal.
-    _ACTIVE_SIGNAL_KEY = "tubo_stable_8_605e_5"
+    _ACTIVE_SIGNAL_KEY = "2DOF150250_n9989_intersection"
     _SIGNAL_SOURCE = {
         "hdf5_path": _DATA_DIRS[_ACTIVE_SIGNAL_KEY],
         "case_name": None,
@@ -344,10 +350,9 @@ def main() -> None:
     # =============================================================================
     USE_EXTERNAL_REFERENCE = True
     _REFERENCE_DATASET_H5 = (
-        r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\Chatter-Criteria"
-        r"\CAMP10_Chatter_detection_Methodes\Convergency_Simulation"
-        r"\4_DOE_Data_Training_Tube\DOE_Training_Tube_dxl_20e-5_RUN_10_0.5-2.0"
-        r"\reference_dataset.h5"
+        r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\Data"
+        r"\1DOF_150_Training_Tube\DOE_Training_Tube_dxl_20e-5_RUN_10_0.5-2.0"
+        r"\DOE_Training_Tube_dxl_20e-5_RUN_10_0.5-2.0\reference_dataset_amp.h5"
     )
     INDICATOR_CONFIG["reference_signal"] = (
         _load_reference_pieces(_REFERENCE_DATASET_H5, label="stable", channel="Axial_disp")

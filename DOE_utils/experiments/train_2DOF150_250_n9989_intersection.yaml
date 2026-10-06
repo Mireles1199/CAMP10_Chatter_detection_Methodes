@@ -1,0 +1,149 @@
+name: train_2DOF150_250_n9989_intersection
+description: labelled dataset (training), 1DOF_150Hz, n = 9989.1 rpm, Ap [mm] 7.7782,
+  9.3339, 10.8895, 12.4451, 14.0008, 14.7786, 15.0897, 15.4009, 15.5564, 15.712, 16.0231,
+  16.3343, 17.1121, 18.6677, 20.2234, 21.779, 23.3347
+stages:
+- simulate
+- extract
+- label_template
+- label_build
+runs:
+- simulation:
+    base_dir: D:/Thesis/03-Code_Storage/02-Altintlas_Nessy2m_Storage/Data/2DOF
+    case: 2DOF_150_250
+    n2m_bat: C:/Users/quiqu/OneDrive-ensam.eu/Desktop/Thesis/03-Code/01-Nessy2m/VP2025.1.0/VP2025.1.0/nessy2m/n2m.bat
+    doe_name: train_2DOF150250_n9989_intersection
+    nb_proc: 4
+    mode: sweep
+    sweep:
+      $Ap_start$:
+      - 0.0077782
+      - 0.0093339
+      - 0.0108895
+      - 0.0124451
+      - 0.0140008
+      - 0.0147786
+      - 0.0150897
+      - 0.0154009
+      - 0.0155564
+      - 0.015712
+      - 0.0160231
+      - 0.0163343
+      - 0.0171121
+      - 0.0186677
+      - 0.0202234
+      - 0.021779
+      - 0.0233347
+      $Ap_end$:
+      - 0.0077782
+      - 0.0093339
+      - 0.0108895
+      - 0.0124451
+      - 0.0140008
+      - 0.0147786
+      - 0.0150897
+      - 0.0154009
+      - 0.0155564
+      - 0.015712
+      - 0.0160231
+      - 0.0163343
+      - 0.0171121
+      - 0.0186677
+      - 0.0202234
+      - 0.021779
+      - 0.0233347
+      $spin_rate$:
+      - 9989.1
+      - 9989.1
+      - 9989.1
+      - 9989.1
+      - 9989.1
+      - 9989.1
+      - 9989.1
+      - 9989.1
+      - 9989.1
+      - 9989.1
+      - 9989.1
+      - 9989.1
+      - 9989.1
+      - 9989.1
+      - 9989.1
+      - 9989.1
+      - 9989.1
+      $f_tooth$:
+      - 0.05
+      - 0.05
+      - 0.05
+      - 0.05
+      - 0.05
+      - 0.05
+      - 0.05
+      - 0.05
+      - 0.05
+      - 0.05
+      - 0.05
+      - 0.05
+      - 0.05
+      - 0.05
+      - 0.05
+      - 0.05
+      - 0.05
+      $dxl_size$:
+      - 0.0002
+      - 0.0002
+      - 0.0002
+      - 0.0002
+      - 0.0002
+      - 0.0002
+      - 0.0002
+      - 0.0002
+      - 0.0002
+      - 0.0002
+      - 0.0002
+      - 0.0002
+      - 0.0002
+      - 0.0002
+      - 0.0002
+      - 0.0002
+      - 0.0002
+      $nb_dt_rev$:
+      - 200.0
+      - 200.0
+      - 200.0
+      - 200.0
+      - 200.0
+      - 200.0
+      - 200.0
+      - 200.0
+      - 200.0
+      - 200.0
+      - 200.0
+      - 200.0
+      - 200.0
+      - 200.0
+      - 200.0
+      - 200.0
+      - 200.0
+    ap_ref:
+      mode: model_at_spin
+      model: 2DOF_150_250
+    extract_signals:
+    - Axial_disp
+    - Axial_vel
+    - Axial_acc
+    force_signal: res_R_p
+  model: 2DOF_150_250
+simulate:
+  timed: true
+  auto_extract: true
+label:
+  strategy: amplitude
+  amp_signal: Axial_disp
+  base_attr: $f_tooth$
+  base_scale: 0.001
+  lim_inf_pct: 10.0
+  lim_sup_pct: 40.0
+  warmup: 0.0
+  window_mode: by_revolution
+  window_N: 7.0
+  window_step: 1.0

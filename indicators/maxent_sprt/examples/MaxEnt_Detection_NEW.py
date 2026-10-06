@@ -77,10 +77,9 @@ USE_EXTERNAL_REFERENCE_CHATTER = True
 # and keeps being the input for doe_unified_selector.py's viewer -- it's just not
 # read here anymore.
 _REFERENCE_H5 = (
-    r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\Chatter-Criteria"
-    r"\CAMP10_Chatter_detection_Methodes\Convergency_Simulation"
-    r"\4_DOE_Data_Training_Tube\DOE_Training_Tube_dxl_20e-5_RUN_10_0.5-2.0"
-    r"\reference_dataset.h5"
+        r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage\Data"
+        r"\1DOF_150_Training_Tube\DOE_Training_Tube_dxl_20e-5_RUN_10_0.5-2.0"
+        r"\DOE_Training_Tube_dxl_20e-5_RUN_10_0.5-2.0\reference_dataset_amp.h5"
 )
 _REFERENCE_CHANNEL = "Axial_vel"
 
@@ -307,6 +306,12 @@ def main() -> None:
             r"\DOE_Detection_Limite_Lobes_dxl_20e-5_RUN_10"
             r"\6\1DOF_150Hz\sens_out.hdf5"
         ),
+        "2DOF150250_n9989_intersection" : (
+            r"D:\Thesis\03-Code_Storage\02-Altintlas_Nessy2m_Storage"
+            r"\Data\2DOF\train_2DOF150250_n9989_intersection"
+            r"\14\2DOF_150_250\sens_out.hdf5"
+        )
+
 
 
 
@@ -316,7 +321,7 @@ def main() -> None:
     # by every figure's title/window tag) is derived from it, instead of a
     # name hardcoded separately that could silently go stale relative to the
     # real signal.
-    _ACTIVE_SIGNAL_KEY = "tubo_stable_8_605e_5"
+    _ACTIVE_SIGNAL_KEY = "2DOF150250_n9989_intersection"
 
     # See COMMON_TEMPLATE.md §11 -- forma estándar de declarar el origen de la señal.
     _SIGNAL_SOURCE = {
