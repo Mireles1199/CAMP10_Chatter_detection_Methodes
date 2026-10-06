@@ -53,7 +53,7 @@ flowchart TD
   H1 --> SD -->|"añade Out_Deflex/ en el mismo archivo"| H1
   H1 --> NZ --> H2[("doe_noise_results.h5")]
   H1 --> RD --> YAML["reference_labels.yaml"] --> RD
-  RD --> REF[("reference_dataset(_amp|_kappa).h5<br/>reference_combined.h5")]
+  RD --> REF[("reference_dataset(_amp|_eta).h5<br/>reference_combined.h5")]
   H1 --> IND
   H2 --> IND
   REF --> IND
@@ -73,11 +73,11 @@ flowchart TD
 | # | Script | Entrada | Salida | Atributos / argumentos clave |
 |---|---|---|---|---|
 | 1 | `DOE_simulacion/doe_runner.py` (`n2m_sch`) | Caso Nessy2m (`--case`), `n2m.bat` | Carpeta `<DOE_NAME>/<idx>/<caso>/` con `sens_out.hdf5`, `out.hdf5`, `var_val.py` (+ `wall_time_s.txt` con `--timed`) | CONFIG: `DOE_NAME`, `DOE_MODE` (factorial/sweep/manual), `DOE_SWEEP`, `NB_PROC`. CLI: `--case`, `--doe_name`, `--timed`, `--workers`, `--auto-extract`, `--dry-run` |
-| 2 | `doe_runner.py --command extract` | Carpeta del DOE | `<DOE>/doe_results.h5` | Grupos `case_NNN`, attrs `$param$`, `kappa` o `kappa_start/end`, `wall_time_s`; subgrupos `Axial_disp/vel/acc` y `res_R_p` con `{time, values}`. `AP_REF`, `DOE_EXTRACT_SIGNALS` |
+| 2 | `doe_runner.py --command extract` | Carpeta del DOE | `<DOE>/doe_results.h5` | Grupos `case_NNN`, attrs `$param$`, `eta` o `eta_start/end`, `wall_time_s`; subgrupos `Axial_disp/vel/acc` y `res_R_p` con `{time, values}`. `AP_REF`, `DOE_EXTRACT_SIGNALS` |
 | 2b | `doe_runner.py --command merge` / `doe_merge_auto.py` | Dos o más DOE (`<fam>_RUN_N`) | `doe_results.h5` fusionado; auto → `<fam>_MERGED/` | `--merge_from`, `--merge_out`; `--root`, `--dry-run`, `--self-test` |
 | 3 | `static_deflection.py` (opcional) | `doe_results.h5` | Mismo archivo: `case_XXX/Out_Deflex/Axial_disp_out_deflex` y `Axial_vel_out_deflex`; attrs `deflex_theoric_m`, `force_theoric_N` | `F_TOOTH_MM`, `K_CUT`, `K_SYS`, `ALPHA_DEG`, `THETA_DEG`; `--dry-run`, `--selftest` |
 | 4 | `doe_noise.py` | `doe_results.h5` | `doe_noise_results.h5`: `control`, `snr_XXX.XX` | `CONTROL_CASE_IDX`, `SNR_LIST`/`SNR_RANGE`, `SEED`, `SIGNALS`; `--list`, `--out` |
-| 5 | `reference_dataset.py template` | `doe_results.h5` | `reference_labels.yaml` | `--strategy manual\|kappa\|amplitude`, `--kappa-threshold`, `--warmup`, `--base-attr`, `--base-scale`, `--amp-signal`, `--lim-inf-pct`, `--lim-sup-pct`, `--t-start`, `--t-end` |
+| 5 | `reference_dataset.py template` | `doe_results.h5` | `reference_labels.yaml` | `--strategy manual\|eta\|amplitude`, `--eta-threshold`, `--warmup`, `--base-attr`, `--base-scale`, `--amp-signal`, `--lim-inf-pct`, `--lim-sup-pct`, `--t-start`, `--t-end` |
 | 5b | (a mano) | `reference_labels.yaml` | YAML corregido | Intervalos stable/unstable/gray por caso |
 | 5c | `reference_dataset.py build` | `doe_results.h5` + YAML | `reference_dataset*.h5` (`/stable`, `/unstable`, `/gray` → `caso/canal__NNN/{t,y}`) | `--channels`, `--t-start`, `--t-end` (SOBRESCRIBE) |
 | 5d | `reference_dataset.py combine` | `reference_dataset.h5` | `reference_combined.h5` | Solo para el visor; los indicadores ya no lo usan |

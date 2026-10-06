@@ -47,7 +47,7 @@ Cada simulación (un **caso**) tiene una profundidad de corte Ap fija. Se etique
 | queda por debajo del **10 %** | **estable** |
 | queda **entre 10 % y 40 %** | **gris** (no está claro) |
 
-Es una etiqueta **operacional**: dice "el chatter ya se ve en la amplitud". No usa la teoría. De hecho, cada caso trae un número `kappa = Ap / Ap_límite` (qué tan por encima del límite teórico de estabilidad está), pero ese número es **solo informativo**: no se usa para etiquetar.
+Es una etiqueta **operacional**: dice "el chatter ya se ve en la amplitud". No usa la teoría. De hecho, cada caso trae un número `eta = Ap / Ap_límite` (qué tan por encima del límite teórico de estabilidad está), pero ese número es **solo informativo**: no se usa para etiquetar.
 
 ### 1.4 Qué hace la validación, paso a paso
 
@@ -60,7 +60,7 @@ Es una etiqueta **operacional**: dice "el chatter ya se ve en la amplitud". No u
 
 ### 1.5 Un caso real, de principio a fin
 
-Caso de n12000 con **kappa = 1.19** (Ap ≈ 10.25 mm):
+Caso de n12000 con **η = 1.19** (Ap ≈ 10.25 mm):
 - Su amplitud llega al 40 % de la base a los **5.29 s** (ese es su `t_onset`) → etiqueta: **inestable**.
 - El indicador Green alarma por primera vez a los **3.11 s**.
 - Como era inestable y alarmó: resultado **TP** (acierto).
@@ -249,10 +249,10 @@ Estas cifras **no deciden si un caso es acierto o fallo**. Solo cuentan **cuánt
 | `delay_onset_s` | `t_det − t_onset`, con signo, solo en los casos detectados (en el resumen: la mediana). | **Negativo = alarmó antes de que la amplitud llegara al 40 %.** Eso es anticipación, no un error. |
 | `delay_det_s` | El mismo retraso para cualquier primera detección. | Es el que usan las figuras. |
 | `delay_onset_p25_s`, `delay_onset_p75_s` | Los cuartiles (25 % y 75 %) del retraso `delay_onset_s` entre los casos detectados. | La mediana sola esconde la dispersión: el rango entre estos dos números contiene a la mitad central de los casos. Green n12000: mediana −1.91 s, rango [−4.06, −0.93] s. |
-| `t_ratio` (por caso) y `median_t_ratio` (por indicador) | `t_det / t_onset`: en qué fracción del tiempo hasta el límite de amplitud llega la alarma. | **1 = alarma justo cuando la amplitud llega al límite; 0.5 = a la mitad de ese tiempo; menos de 1 = anticipa.** No depende de kappa, así que permite comparar. n12000: green 0.58, ssq 0.57, maxent 0.37. rms_cv da 0.02, pero porque alarma en el arranque. |
+| `t_ratio` (por caso) y `median_t_ratio` (por indicador) | `t_det / t_onset`: en qué fracción del tiempo hasta el límite de amplitud llega la alarma. | **1 = alarma justo cuando la amplitud llega al límite; 0.5 = a la mitad de ese tiempo; menos de 1 = anticipa.** No depende de η, así que permite comparar. n12000: green 0.58, ssq 0.57, maxent 0.37. rms_cv da 0.02, pero porque alarma en el arranque. |
 | `delay_start_s` | Primera ventana marcada en la parte inestable − inicio de esa parte. | **Hoy no es un retraso real y no se debe usar**: el registro entero está etiquetado como inestable desde 0.05 s, así que es casi el tiempo de detección. Se conserva en el archivo solo por compatibilidad. |
 
-Ejemplo (Green, n12000): el adelanto es de **−4.7 s con kappa 1.08** y de **−0.45 s con kappa 2.0**. Cuanto más inestable el corte, más rápido crece el chatter y menos margen hay.
+Ejemplo (Green, n12000): el adelanto es de **−4.7 s con η 1.08** y de **−0.45 s con η 2.0**. Cuanto más inestable el corte, más rápido crece el chatter y menos margen hay.
 
 **Por qué anticipar no es un error:** el caso está etiquetado inestable, es decir, el chatter existe. Que el indicador lo detecte cuando solo tiene 2–5 % de la amplitud límite es **sensibilidad**, no una falsa alarma.
 
@@ -286,7 +286,7 @@ Se ordena por **balanced accuracy**, luego **MCC**, luego **AUC**. Los NaN queda
 
 ### 4.1 Qué es un caso gris y por qué no se puntúa
 
-Un caso es **gris** cuando su amplitud máxima queda entre el 10 % y el 40 % de la base: la etiqueta no puede decir si es estable o inestable. En n12000 hay **3 casos grises** (kappa 1.057 a 1.066). En n5189 no hay ninguno.
+Un caso es **gris** cuando su amplitud máxima queda entre el 10 % y el 40 % de la base: la etiqueta no puede decir si es estable o inestable. En n12000 hay **3 casos grises** (η 1.057 a 1.066). En n5189 no hay ninguno.
 
 Por defecto (modo `ignore`, ver 4.8) los grises **no se puntúan**: su resultado es `n/a` (no aplica), no suman en TP/FN/TN/FP, ni en el ROC, ni en el ranking. **Razón:** no hay una respuesta correcta contra la cual comparar. Forzarles una (decir "estable" o "inestable") sería inventarla.
 
@@ -334,7 +334,7 @@ Los 3 grises: los **cuatro indicadores alarman en los tres**.
 - En el pesimista **sí baja**: el TNR de Green pasa de 0.875 a 0.64.
 - **El orden de los indicadores no cambia** en ningún escenario: Green y ssq arriba, luego MaxEnt, rms_cv al final.
 
-> Frase para los directores: *"Sobre los casos con etiqueta clara, Green detecta todos los inestables y se calla en la gran mayoría de los estables. En los 3 casos ambiguos (kappa ≈ 1.06) todos los indicadores alarman. Si esos 3 se contaran como estables, el TNR de Green bajaría de 0.88 a 0.64; si se contaran como inestables, no cambiaría. Las conclusiones sobre el orden de los indicadores no dependen de cómo se cuenten."*
+> Frase para los directores: *"Sobre los casos con etiqueta clara, Green detecta todos los inestables y se calla en la gran mayoría de los estables. En los 3 casos ambiguos (η ≈ 1.06) todos los indicadores alarman. Si esos 3 se contaran como estables, el TNR de Green bajaría de 0.88 a 0.64; si se contaran como inestables, no cambiaría. Las conclusiones sobre el orden de los indicadores no dependen de cómo se cuenten."*
 
 ### 4.7 Dónde aparece esto
 
@@ -342,7 +342,7 @@ Los 3 grises: los **cuatro indicadores alarman en los tres**.
 |---|---|
 | **Cálculos** (`/metrics` y `_metrics.csv`) | **Sí**, todas las métricas de la tabla de arriba. |
 | **Resumen de consola** | Sí, una línea por indicador cuando hay grises. |
-| **Figuras** | Los casos grises **se dibujan** (círculo hueco gris) en `detection_time`, `score_vs_kappa` y `score_dist`, y salen en gris en `case_matrix`. **Las cotas pesimista y optimista todavía no se grafican**: hoy solo están como números. |
+| **Figuras** | Los casos grises **se dibujan** (círculo hueco gris) en `detection_time`, `score_vs_eta` y `score_dist`, y salen en gris en `case_matrix`. **Las cotas pesimista y optimista todavía no se grafican**: hoy solo están como números. |
 | **Interfaz** (tarjeta de Validate, pestaña Compare) | Pendiente: ya se pasó la petición a wt-interfaz. |
 | **Calcular todo en un modo** (ver 4.8) | **Sí**, desde la línea de comandos (`--gray ignore\|stable\|unstable`); el selector en la interfaz está pendiente (wt-interfaz). |
 
@@ -409,36 +409,36 @@ Los colores son una paleta segura para daltónicos. Verde = acierto TP, azul = T
 - **Para qué sirve:** lectura inmediata de dónde pierde cada indicador.
 
 ### 5.5 `case_matrix`: resultado por caso e indicador
-- **Cómo leerla:** cada columna es un caso, ordenado por kappa (S = estable, U = inestable, g = gris); cada fila, un indicador; el color es el resultado.
-- **Qué vemos:** los amarillos (falsas alarmas) de Green, ssq y MaxEnt aparecen en kappa 1.03–1.05, justo antes de los grises. rms_cv falla en casi todos los estables, incluso con kappa 0.5.
-- **Para qué sirve:** ver **dónde** (en qué zona de kappa) falla cada uno.
+- **Cómo leerla:** cada columna es un caso, ordenado por η (S = estable, U = inestable, g = gris); cada fila, un indicador; el color es el resultado.
+- **Qué vemos:** los amarillos (falsas alarmas) de Green, ssq y MaxEnt aparecen en η 1.03–1.05, justo antes de los grises. rms_cv falla en casi todos los estables, incluso con η 0.5.
+- **Para qué sirve:** ver **dónde** (en qué zona de η) falla cada uno.
 
 ### 5.6 `detection_time`: primera detección frente al inicio por amplitud
-- **Ejes:** horizontal = kappa; vertical (escala logarítmica) = tiempo en segundos.
+- **Ejes:** horizontal = η; vertical (escala logarítmica) = tiempo en segundos.
 - **Cómo leerla:** la **línea negra** es `t_onset` (cuándo la amplitud llega al 40 %). Los **círculos llenos** son detecciones en casos inestables; las **"x"**, en casos estables; el **círculo hueco**, en casos grises.
 - **Qué vemos:** todos los círculos llenos están **por debajo de la línea negra**: los indicadores alarman antes de que el chatter sea visible. rms_cv está pegado al fondo (0.07 s) en todos los casos, estables incluidos: eso es la primera ventana, no una detección real.
 
-### 5.7 `delay_vs_kappa`: retraso con signo frente a kappa
+### 5.7 `delay_vs_eta`: retraso con signo frente a η
 - **Cómo leerla:** el eje vertical es `t_det − t_onset`. **La línea en 0 = el instante en que la amplitud llega al límite.** Negativo = alarmó antes.
-- **Qué vemos:** todos los retrasos son negativos y se acercan a 0 al aumentar kappa (el chatter crece más rápido y deja menos margen). MaxEnt anticipa más que Green y ssq; rms_cv "anticipa" aún más, pero porque alarma desde el arranque.
+- **Qué vemos:** todos los retrasos son negativos y se acercan a 0 al aumentar η (el chatter crece más rápido y deja menos margen). MaxEnt anticipa más que Green y ssq; rms_cv "anticipa" aún más, pero porque alarma desde el arranque.
 
 ### 5.8 `detection_amp`: cuánta amplitud hay cuando alarma
 - **Cómo leerla:** el eje vertical es |Axial_disp| como % de la base en el momento de la primera alarma, en los casos inestables. Líneas de referencia: 40 % (límite de la etiqueta) y 10 % (límite inferior).
 - **Qué vemos:** los indicadores alarman con **2–5 %** de la base, muy por debajo de los dos límites. Es evidencia directa de que detectan chatter incipiente.
 - **Ojo:** la curva de rms_cv refleja el arranque, no crecimiento.
 
-### 5.9 `score_vs_kappa`: el puntaje de cada caso frente a kappa
-- **Cómo leerla:** un panel por indicador. Azul = casos estables, naranja = inestables, círculo hueco gris = grises. La línea punteada es kappa = 1.
+### 5.9 `score_vs_eta`: el puntaje de cada caso frente a η
+- **Cómo leerla:** un panel por indicador. Azul = casos estables, naranja = inestables, círculo hueco gris = grises. La línea punteada es η = 1.
 - **Qué vemos:** esto es lo que el ROC "umbraliza". En Green, ssq y MaxEnt hay un salto de órdenes de magnitud entre estables e inestables (por eso AUC = 1). En rms_cv las nubes se mezclan.
 
 ### 5.10 `score_dist`: distribución del puntaje, por tipo de caso
 - **Cómo leerla:** tres columnas por indicador (estable, inestable, gris), escala logarítmica. **Cuanto más separadas las nubes, mejor.**
-- **Qué vemos:** Green, ssq y MaxEnt separan completamente estables de inestables, y **los grises quedan en medio** (en Green y ssq, entre ambas nubes): coherente con que son casos ambiguos. Los puntos "estables" más altos son los casos de kappa 1.03–1.05. En rms_cv hay solape.
+- **Qué vemos:** Green, ssq y MaxEnt separan completamente estables de inestables, y **los grises quedan en medio** (en Green y ssq, entre ambas nubes): coherente con que son casos ambiguos. Los puntos "estables" más altos son los casos de η 1.03–1.05. En rms_cv hay solape.
 - **Ojo:** si el indicador usa valores negativos (MaxEnt), la escala es mixta.
 
-### 5.10b `anticipation`: cuánto se anticipa, independiente de kappa
-- **Ejes:** horizontal = kappa; vertical = `t_det / t_onset` (ver 3.9), solo casos inestables detectados. La línea punteada en 1 = "alarma cuando la amplitud llega al límite".
-- **Cómo leerla:** más abajo = más anticipación. Una línea **plana** significa que el indicador alarma siempre en la misma fracción del camino, sea cual sea kappa.
+### 5.10b `anticipation`: cuánto se anticipa, independiente de η
+- **Ejes:** horizontal = η; vertical = `t_det / t_onset` (ver 3.9), solo casos inestables detectados. La línea punteada en 1 = "alarma cuando la amplitud llega al límite".
+- **Cómo leerla:** más abajo = más anticipación. Una línea **plana** significa que el indicador alarma siempre en la misma fracción del camino, sea cual sea η.
 - **Qué vemos:** Green y ssq alarman a ~0.5–0.6 del tiempo; MaxEnt a ~0.4; las tres casi planas. rms_cv queda pegado a 0 porque alarma en el arranque, no porque detecte antes.
 - **Para qué sirve:** es la forma más limpia de decir "cuánto antes" sin depender de los segundos concretos de cada caso.
 
@@ -457,7 +457,7 @@ Los colores son una paleta segura para daltónicos. Verde = acierto TP, azul = T
 - **Qué vemos:** Green y ssq casi no alarman donde no deben (0.03); rms_cv, 0.29. Los tres primeros mantienen la alarma (persistencia 1.0).
 
 ### 5.12 `training_coverage`: entrenamiento frente a validación
-- **Cómo leerla:** ejes = kappa y rpm. Puntos de color = casos del entrenamiento (azul estable, naranja inestable); "x" = casos de validación.
+- **Cómo leerla:** ejes = η y rpm. Puntos de color = casos del entrenamiento (azul estable, naranja inestable); "x" = casos de validación.
 - **Para qué sirve:** si la validación cae dentro de la región entrenada, es una validación "en dominio". Si cae fuera, hay extrapolación y hay que decirlo.
 - **Requisito:** la validación debe haberse corrido con `--reference`; si no, la figura da un aviso en vez de dibujarse.
 
@@ -472,8 +472,8 @@ Los colores son una paleta segura para daltónicos. Verde = acierto TP, azul = T
 ### Mensajes principales
 1. **La validación compara cada indicador con una etiqueta operacional de amplitud, caso por caso:** acierta si detecta un caso inestable y no alarma en uno estable.
 2. **Green, ssq y MaxEnt detectan todos los casos inestables** (TPR = 1) y **separan perfectamente** las dos clases (AUC = 1). **rms_cv no:** alarma casi siempre desde el arranque.
-3. **Los indicadores detectan antes de que el chatter sea visible:** con 2–5 % de la base, entre ~0.4 y ~7 s antes del límite del 40 %, según kappa y el indicador. Es una ventaja, no un error.
-4. **Los pocos falsos positivos** de Green, ssq y MaxEnt ocurren con kappa 1.03–1.05: casos teóricamente inestables que la etiqueta operacional aún llama estables.
+3. **Los indicadores detectan antes de que el chatter sea visible:** con 2–5 % de la base, entre ~0.4 y ~7 s antes del límite del 40 %, según η y el indicador. Es una ventaja, no un error.
+4. **Los pocos falsos positivos** de Green, ssq y MaxEnt ocurren con η 1.03–1.05: casos teóricamente inestables que la etiqueta operacional aún llama estables.
 5. **Las diferencias finas entre Green y ssq no son concluyentes** con 11–19 casos: los intervalos se solapan.
 6. **Los casos grises no se puntúan, pero se reportan:** todos los indicadores alarman en ellos, y el ranking no cambia con ninguno de los dos escenarios extremos.
 
@@ -512,7 +512,7 @@ Los colores son una paleta segura para daltónicos. Verde = acierto TP, azul = T
 | F1 | Combina cuántas alarmas eran reales y cuántos inestables se detectaron. |
 | FN / FP / TN / TP | Fallo (no detectó), falsa alarma, silencio correcto, detección correcta. |
 | Intervalo de confianza | Rango razonable del valor real de una métrica medida con pocos casos. |
-| kappa | Qué tan por encima del límite teórico de estabilidad está el corte. Solo informativo. |
+| η | Qué tan por encima del límite teórico de estabilidad está el corte. Solo informativo. |
 | MCC | Correlación entre lo que dijo el indicador y la verdad, de −1 a +1. |
 | Operacional | Basado en lo que se observa (amplitud visible), no en la teoría. |
 | Punto operativo | Dónde está el indicador en la curva ROC con su umbral real. |
@@ -584,7 +584,7 @@ El ruido es aleatorio: con otra "tirada" (semilla) el resultado de un caso puede
 - **Cómo leerla:** una curva que se mantiene plana hasta niveles muy ruidosos = indicador robusto. Si cae el **TNR** (y sube la fracción de alarma), el ruido provoca **falsas alarmas**; si cae el **TPR**, el ruido **tapa** el chatter.
 
 **`noise_case_matrix`** (un panel por indicador)
-- Filas = casos ordenados por kappa (S estable, U inestable, g gris); columnas = niveles de SNR.
+- Filas = casos ordenados por η (S estable, U inestable, g gris); columnas = niveles de SNR.
 - Color = fracción de realizaciones en que el caso salió **bien** (amarillo = siempre bien, morado = siempre mal); gris = no puntuado.
 - **Cómo leerla:** muestra **qué casos** empiezan a fallar primero. Lo esperable: los estables (por las falsas alarmas) antes que los inestables.
 
@@ -607,7 +607,7 @@ El ruido es aleatorio: con otra "tirada" (semilla) el resultado de un caso puede
 - **El TPR no baja:** con ruido los indicadores siguen detectando todos los casos inestables. El ruido no tapa el chatter en este rango.
 - **Lo que cae es el TNR:** los casos estables vibran muy poco (~1e-8 m), así que el ruido los hace parecer chatter y se disparan **falsas alarmas**. Con el entrenamiento limpio, los umbrales no aguantan ruido de ese tamaño.
 - **Green y ssq aguantan mucho más que maxent** (hasta ~30 dB frente a ~60 dB). rms_cv ya fallaba sin ruido (por su arranque), así que el ruido casi no empeora algo que ya estaba mal.
-- **En `noise_case_matrix`** se ve el mismo patrón por caso: los estables pasan todos a la vez de acertar a fallar al cruzar el quiebre; los inestables nunca fallan. El estable de kappa 1.05 falla incluso sin ruido (es el caso ambiguo de siempre).
+- **En `noise_case_matrix`** se ve el mismo patrón por caso: los estables pasan todos a la vez de acertar a fallar al cruzar el quiebre; los inestables nunca fallan. El estable de η 1.05 falla incluso sin ruido (es el caso ambiguo de siempre).
 - **En `noise_anticipation`:** al llegar al quiebre la anticipación se desploma (`t_det/t_onset` → ~0): el indicador alarma desde el principio, es decir, falsas alarmas, no detección temprana.
 
 Las bandas mínimo–máximo entre realizaciones son casi invisibles: las 3 realizaciones coinciden en casi todo (el resultado de cada caso es de todo o nada y el ruido a ese nivel no lo cambia). Eso es buena señal, pero con 12 casos y 3 realizaciones sigue siendo una primera pasada.

@@ -38,7 +38,7 @@ La validación con ruido **no es un experimento nuevo**: es la misma validación
 | **Ruido blanco gaussiano** | Ruido aleatorio sin ningún patrón, como el "siseo" de un sensor. Es el tipo de ruido que se usa. |
 | **SNR (dB)** | "Relación señal/ruido": cuánto más fuerte es la señal que el ruido. **Más dB = menos ruido.** Cada 20 dB el ruido se divide por 10 en amplitud (por 100 en potencia). |
 | **SNR absoluto** | El ruido de un nivel tiene **el mismo tamaño en todos los casos**, como un sensor real. Se mide respecto a una señal de referencia fija. |
-| **Caso de referencia** | El **caso inestable más débil** del experimento (en n12000, kappa 1.082). Sirve para fijar el tamaño del ruido: "SNR 20 dB" = ruido con el 1 % de la potencia de ese chatter. |
+| **Caso de referencia** | El **caso inestable más débil** del experimento (en n12000, η 1.082). Sirve para fijar el tamaño del ruido: "SNR 20 dB" = ruido con el 1 % de la potencia de ese chatter. |
 | **Copia ruidosa** | Un caso con ruido de un nivel y una realización concretos. Es una señal nueva. |
 | **Realización** | Una "tirada" de números aleatorios. Con otra tirada el ruido es distinto aunque tenga el mismo tamaño. |
 | **Entrenamiento limpio** | Los umbrales de los indicadores se calcularon con datos sin ruido y **no se recalculan**. |
@@ -68,7 +68,7 @@ La validación con ruido **no es un experimento nuevo**: es la misma validación
   | 20 dB | 1.3e-6 m |
   | 10 dB | 4.0e-6 m |
 
-- **Por qué importa que sea absoluto:** los casos estables vibran muy poco (la mayoría entre 1e-8 y 5e-8 m; el de kappa 1.05, unos 8e-7 m). A 60 dB el ruido ya es del tamaño de toda su vibración. Un caso inestable, que vibra ~1e-5 m o más, sigue viéndose muy por encima del ruido.
+- **Por qué importa que sea absoluto:** los casos estables vibran muy poco (la mayoría entre 1e-8 y 5e-8 m; el de η 1.05, unos 8e-7 m). A 60 dB el ruido ya es del tamaño de toda su vibración. Un caso inestable, que vibra ~1e-5 m o más, sigue viéndose muy por encima del ruido.
 - Cada combinación (caso, nivel, realización) es una **copia ruidosa**. Con 12 casos, 6 niveles y 3 realizaciones son **216 copias** (2.1 GB).
 
 ### Paso 2: correr los indicadores (`doe_indicators.py`)
@@ -108,7 +108,7 @@ El quiebre de green es **20 dB**: a partir de ahí el ruido hace sonar la alarma
 | `cases` | Casos con ruido: `all` o una lista | 12 casos elegidos |
 | `snr_list` | Niveles de SNR en dB | 80, 60, 40, 30, 20, 10 |
 | `realizations` | Realizaciones por caso y nivel | 3 |
-| `snr_ref_case` | Caso de referencia del SNR: `auto` (el inestable de menor kappa) o uno concreto | `auto` (case_011) |
+| `snr_ref_case` | Caso de referencia del SNR: `auto` (el inestable de menor η) o uno concreto | `auto` (case_011) |
 | `seed` | Semilla: la misma semilla da exactamente el mismo ruido | 42 |
 | `signals` | Señales con ruido | `Axial_disp` y `Axial_vel` |
 | `workers` (indicadores) | Procesos en paralelo | 3 (con 6 se agota la memoria) |
@@ -171,8 +171,8 @@ Se generan con `validation_figures.py`. En el visor aparecen con el mismo nombre
 - **En n12000:** el TPR se queda en 1.0 en todos los niveles; lo que cae es el TNR.
 
 ### `noise_case_matrix` (un panel por indicador)
-- **Qué muestra:** filas = casos ordenados por kappa (S estable, U inestable, g gris); columnas = niveles de SNR; color = fracción de realizaciones en que el caso salió **bien** (amarillo = siempre bien, morado = siempre mal; gris = no puntuado).
-- **Cómo leerla:** dice **qué casos** fallan y a qué nivel. En n12000, los inestables nunca fallan y los estables pasan juntos de acertar a fallar al cruzar el quiebre. El estable de kappa 1.05 falla incluso sin ruido (es el caso ambiguo de siempre).
+- **Qué muestra:** filas = casos ordenados por η (S estable, U inestable, g gris); columnas = niveles de SNR; color = fracción de realizaciones en que el caso salió **bien** (amarillo = siempre bien, morado = siempre mal; gris = no puntuado).
+- **Cómo leerla:** dice **qué casos** fallan y a qué nivel. En n12000, los inestables nunca fallan y los estables pasan juntos de acertar a fallar al cruzar el quiebre. El estable de η 1.05 falla incluso sin ruido (es el caso ambiguo de siempre).
 
 ### `noise_anticipation`
 - **Qué muestra:** la mediana de `t_det / t_onset` contra SNR (1 = alarma justo cuando la amplitud llega al límite; menos de 1 = se anticipa).
