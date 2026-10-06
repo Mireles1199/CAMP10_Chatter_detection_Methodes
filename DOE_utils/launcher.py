@@ -20,6 +20,7 @@ Usage (entorno_CAMP10 Python):
 """
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -44,6 +45,7 @@ TOOLS = [
     ("cli", "DOE_simulacion/reference_dataset.py", "Labels template / build / combine reference dataset"),
     ("cli", "DOE_analisis/doe_indicators.py", "Run the indicators over a DOE"),
     ("cli", "DOE_analisis/validate_indicators.py", "Score the indicators against the validation labels"),
+    ("cli", "DOE_analisis/validate_noise.py", "Score the indicators on noisy copies (per SNR x realization)"),
     ("cli", "DOE_analisis/doe_model_snr.py", "Model SNR analysis"),
     ("cli", "DOE_plots/doe_plotter.py", "Plot DOE results"),
     ("cli", "DOE_plots/doe_indicator_plotter.py", "Plot indicator results"),
@@ -60,7 +62,7 @@ STATE_TEXT = {"done": "done", "stale": "stale", "running": "running", "failed": 
 # diagram grid (column, row); merge only when the experiment has several runs
 POS = {"simulate": (0, 0), "extract": (1, 0), "merge": (2, 0), "label_template": (3, 0), "label_build": (4, 0),
        "indicators": (4, 1), "validate": (5, 1), "model_snr": (0, 2), "static_deflection": (1, 2), "noise": (2, 2),
-       "noise_indicators": (3, 2)}
+       "noise_indicators": (3, 2), "noise_validate": (4, 2)}
 BOX_W, BOX_H, STEP_X, STEP_Y, MARGIN = 132, 64, 160, 100, 18
 LOG_TAIL = 15
 
@@ -229,6 +231,12 @@ SLD picker). Its kappa is kappa_start -> kappa_end; its ground truth is the ampl
 window of the indicators, Edit config of the labelling) and t_onset is where it turns unstable. Validate scores
 the ramps that cross apart from the global metrics (ramp_* columns), with the same rule as every unstable case:
 any alarm on an unstable constant case = TP; on a ramp that crosses, an alarm before t_onset = false alarm, after = TP.
+
+NOISE VALIDATION (does an indicator trained on clean data survive sensor noise?): Edit config of Noise > 'Noise for the
+validation': pick the validation cases, the SNR levels [dB] (absolute: one sigma for every case, set from the weakest
+unstable case) and the realizations; copies = cases x levels x realizations. Noise indicators runs the clean-trained
+indicators on them; Noise validation (needs Validate) scores each copy against the truth of its CLEAN case. Its Viewer
+has balanced accuracy vs SNR (with the breakdown level), the case x SNR matrix and the anticipation.
 
 COMPARE tab: metrics of two validations side by side. TOOLS tab: every script on its own.
 TUTORIAL tab: step-by-step guide (the same text as DOE_utils/TUTORIAL.md).
@@ -1173,6 +1181,10 @@ class App:
             IndicatorsForm(self, e)
         elif k == "validate":
             ValidateForm(self, e)
+        elif k == "noise":
+            NoiseForm(self, e)
+        elif k == "noise_validate":
+            NoiseValidateForm(self, e)
         elif k == "merge":
             MergeForm(self, e)
         else:
@@ -1569,6 +1581,172 @@ class ValidateForm(_Dialog):
         ex.save_section(self.e.name, "validate", sec)
 
 
+def _words(text: str) -> list:
+    """'a, b; c' -> ['a', 'b', 'c']."""
+    return [w for w in re.split(r"[,;\s]+", str(text).strip()) if w]
+
+
+def _words_text(v) -> str:
+    return ", ".join(v) if isinstance(v, (list, tuple)) else (v or "")
+
+
+class NoiseForm(_Dialog):
+    """Edit config of Noise. With 'cases' it adds noise to validation cases: noisy copies = cases x absolute SNR levels x
+    realizations (PLAN_noise_validation.md); without it the old mode (one control case at several levels: its other keys
+    stay in the YAML) and no validation."""
+    ONLY_MULTI = ("cases", "realizations", "snr_ref_case")   # keys of the multi-case mode alone (snr_list, seed, signals: both)
+    LEVELS, SIGNALS = [80, 60, 40, 30, 20, 10], "Axial_disp, Axial_vel"
+
+    def __init__(self, app, e):
+        super().__init__(app, f"Noise — {e.name}")
+        tk, ttk = self.tk, self.ttk
+        self.e, sec = e, e.section("noise")
+        self.multi = tk.BooleanVar(value="cases" in sec)
+        ttk.Checkbutton(self.body, text="Noise for the validation: several validation cases x SNR levels x realizations "
+                        "(unticked: the old mode, one control case)", variable=self.multi,
+                        command=self._sync).grid(row=self.row, column=0, columnspan=3, sticky="w")
+        self.row += 1
+        cases = sec.get("cases", "all")
+        self.ws = []
+        self.cases = self.field("cases", tk.StringVar(value=cases if isinstance(cases, str) else ", ".join(cases)), width=70,
+                                note="'all' or case names separated by commas")
+        self.ws.append(self.last)
+        self.pick = ttk.Button(self.body, text="Pick…", command=self._pick)
+        self.pick.grid(row=self.row - 1, column=2, sticky="w", padx=6)
+        self.levels = self.field("SNR levels [dB]", tk.StringVar(value=_fmt_list(sec.get("snr_list", self.LEVELS))), width=40,
+                                 note="absolute: the same noise power for every case, set from the weakest unstable case")
+        self.ws.append(self.last)
+        self.nreal = self.field("realizations", tk.StringVar(value=str(sec.get("realizations", 3))), width=8,
+                                note="independent noises per case and level (metrics: mean / min / max over them)")
+        self.ws.append(self.last)
+        info = ex.h5_info(e.data_h5) if e.data_h5 else None
+        self.ref = self.field("reference case", tk.StringVar(value=str(sec.get("snr_ref_case", "auto"))), width=14,
+                              values=["auto"] + (info["cases"] if info else []), editable=True,
+                              note="auto = the unstable case with the lowest kappa of this experiment's labels")
+        self.ws.append(self.last)
+        self.seed = self.field("seed", tk.StringVar(value="" if sec.get("seed") is None else str(sec["seed"])), width=8,
+                               note="empty = the script's default")
+        self.sig = self.field("signals", tk.StringVar(value=_words_text(sec.get("signals")) or self.SIGNALS), width=30,
+                              note="noise independent on each signal")
+        self.out = self.field("out file", tk.StringVar(value=sec.get("out", "")), width=90)
+        self.note(f"empty = {os.path.join(e.out_dir, 'doe_noise_multi_results.h5')} (cases) · "
+                  f"{os.path.join(e.data_dir, 'doe_noise_results.h5')} (one control case: shared by every experiment on "
+                  "the same data, so another configuration over them needs another out file)")
+        self.count = ttk.Label(self.body, foreground="#1565c0", wraplength=900, justify="left")
+        self.count.grid(row=self.row, column=0, columnspan=3, sticky="w", pady=4)
+        self.row += 1
+        for v in (self.cases, self.levels, self.nreal, self.multi):
+            v.trace_add("write", lambda *_: self._count())
+        self._sync()
+        self.buttons()
+
+    def _sync(self):
+        for w in self.ws + [self.pick]:
+            w.state(["!disabled"] if self.multi.get() else ["disabled"])
+        self._count()
+
+    def _n_cases(self) -> int:
+        c = self.cases.get().strip()
+        if c in ("", "all"):
+            info = ex.h5_info(self.e.data_h5) if self.e.data_h5 else None
+            return len(info["cases"]) if info else 0
+        return len(_words(c))
+
+    def _count(self):
+        """Copies and disk of what is written in the form (2 signals per copy: 16 bytes x samples)."""
+        if not self.multi.get():
+            self.count.config(text="")
+            return
+        try:
+            n = self._n_cases() * len(_words(self.levels.get())) * int(self.nreal.get())
+            ns = ex.noise_samples(self.e)
+        except ValueError:
+            self.count.config(text="")
+            return
+        self.count.config(text=f"{n} noisy copies" + (f" ≈ {n * 16 * ns / 1e9:.1f} GB in the noise file ({ns} samples per "
+                                                       "signal), then the indicators on each copy" if ns else ""))
+
+    def _pick(self):
+        """Select the cases in a list (kappa and label of each) instead of typing their names."""
+        tk, ttk = self.tk, self.ttk
+        lab = ex._label_cases(self.e.label["out"])
+        info = ex.h5_info(self.e.data_h5) if self.e.data_h5 else None
+        kap = lambda c: lab.get(c, ("", float("nan")))[1]   # noqa: E731
+        names = sorted((info or {}).get("cases") or lab, key=lambda c: (kap(c) != kap(c), kap(c) if kap(c) == kap(c) else 0, c))
+        if not names:   # by kappa; a ramp (no single kappa) or an unlabelled case last
+            self.app._msg("Cases", "no cases yet: run Extract first", "warn")
+            return
+        win = tk.Toplevel(self.win)
+        win.title("Cases to add noise to")
+        win.transient(self.win)
+        lb = tk.Listbox(win, selectmode="extended", exportselection=False, width=52, height=min(26, len(names)),
+                        font=("Consolas", 9))
+        for c in names:
+            lb.insert("end", f"{c}   kappa {kap(c):.3f}   {lab.get(c, ('no label',))[0]}")
+        cur = self.cases.get().strip()
+        for i, c in enumerate(names):
+            if cur == "all" or c in _words(cur):
+                lb.selection_set(i)
+        lb.pack(padx=8, pady=8, fill="both", expand=True)
+
+        def ok():
+            sel = [names[i] for i in lb.curselection()]
+            self.cases.set("all" if len(sel) == len(names) else ", ".join(sorted(sel)))
+            win.destroy()
+        self._pick_ok = ok
+        bf = ttk.Frame(win, padding=(8, 0, 8, 8))
+        bf.pack(fill="x")
+        ttk.Button(bf, text="OK", command=ok).pack(side="right")
+        ttk.Button(bf, text="Cancel", command=win.destroy).pack(side="right", padx=6)
+        ttk.Button(bf, text="All", command=lambda: lb.selection_set(0, "end")).pack(side="left")
+        ttk.Button(bf, text="None", command=lambda: lb.selection_clear(0, "end")).pack(side="left", padx=6)
+        self.picker = win
+
+    def save(self):
+        d = {k: v for k, v in (ex.own_yaml(self.e.name).get("noise") or {}).items() if k not in self.ONLY_MULTI}
+        if self.multi.get():
+            c = self.cases.get().strip()
+            d["cases"] = "all" if c in ("", "all") else _words(c)
+            lv = [float(x) for x in _words(self.levels.get())]
+            if not lv or int(self.nreal.get()) < 1:
+                raise ValueError("give at least one SNR level and one realization")
+            d["snr_list"] = [int(x) if x == int(x) else x for x in lv]
+            d["realizations"] = int(self.nreal.get())
+            if self.ref.get().strip() not in ("", "auto"):
+                d["snr_ref_case"] = self.ref.get().strip()
+            d.pop("snr_range", None)   # replaced by the absolute list (the script ignores it)
+        for k, txt in (("seed", self.seed.get().strip()), ("out", self.out.get().strip())):
+            if txt:
+                d[k] = int(txt) if k == "seed" else os.path.normpath(txt).replace("\\", "/")
+            else:
+                d.pop(k, None)
+        sig = _words(self.sig.get())
+        if sig and sig != _words(self.SIGNALS):
+            d["signals"] = sig
+        else:
+            d.pop("signals", None)
+        ex.save_section(self.e.name, "noise", d or None)
+
+
+class NoiseValidateForm(_Dialog):
+    """Edit config of Noise validation: only the out file. Truth, onsets and the gray mode come from the clean validation."""
+
+    def __init__(self, app, e):
+        super().__init__(app, f"Noise validation — {e.name}")
+        self.e = e
+        default = ex._all_stages(e)["noise_validate"].outputs[0]
+        self.out = self.field("out file", self.tk.StringVar(value=e.section("noise_validate").get("out", "")), width=90)
+        self.note(f"empty = {default}")
+        self.note("Every noisy copy is scored against the truth of its CLEAN case, taken from the clean validation (run "
+                  "Validate first): its gray mode (" + ex.GRAY_LABELS[ex.gray_mode(e)] + ", change it in Edit config of "
+                  "Validate), its onsets and the metrics that are the 'no noise' reference.")
+        self.buttons()
+
+    def save(self):
+        o = self.out.get().strip()
+        ex.save_section(self.e.name, "noise_validate", {"out": os.path.normpath(o).replace("\\", "/")} if o else None)
+
+
 def _var_keys(spec: dict) -> tuple:
     """(time base, window, step, aux) keys of a variant spec for its mode (rev / modal)."""
     u = "rev" if spec["mode"] == "by_revolution" else "modal"
@@ -1623,8 +1801,9 @@ class IndicatorsForm(_Dialog):
         cases = e.indicators.get("cases", "all")
         self.cases = self.field("cases", tk.StringVar(value=cases if isinstance(cases, str) else " ".join(cases)),
                                 note="'all' or case_000 case_003 …")
-        self.workers = self.field("workers", tk.StringVar(value=str(e.indicators.get("workers") or 6)),
-                                  note="processes in parallel (each reads the reference: ~0.7 GB RAM)")
+        self.workers = self.field("workers", tk.StringVar(value=str(e.indicators.get("workers") or ex.DEFAULT_WORKERS)),
+                                  note="processes in parallel: ~1 GB RAM each, up to ~3 GB on signals of 600 000 samples "
+                                       "(6 workers once ran out of virtual memory: 3 or fewer if other programs are open)")
         self._fill()
         self._toggle()
         self.buttons()

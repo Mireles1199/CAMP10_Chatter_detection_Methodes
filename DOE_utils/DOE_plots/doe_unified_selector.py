@@ -25,6 +25,7 @@ import argparse
 import os
 import re
 import sys
+from collections.abc import Mapping
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 # ── Backend ANTES de cualquier import de pyplot ──────────────────────────────────────────
@@ -107,6 +108,7 @@ TYPE_DOE_NOISE     = "doe_noise"
 TYPE_DOE_INDICATOR = "doe_indicator"
 TYPE_NOISE_IND     = "doe_noise_ind"
 TYPE_MODEL_SNR     = "doe_model_snr"
+TYPE_NOISE_VAL     = "doe_noise_validation"   # validate_noise.py: the indicators on noisy copies scored per SNR x realization
 # reference_dataset.py (Fase 1/2A): stable/unstable, no "case_*" -- formatos aparte,
 # con un visualizador propio (ReferenceViewerApp), no encajan en el resto de esta app.
 TYPE_REFERENCE_DATASET  = "reference_dataset"
@@ -118,6 +120,7 @@ _TYPE_LABELS = {
     TYPE_DOE_INDICATOR: "DOE Indicator Results",
     TYPE_NOISE_IND    : "DOE Noise Indicators",
     TYPE_MODEL_SNR    : "DOE Model SNR",
+    TYPE_NOISE_VAL    : "DOE Noise Validation  (per SNR x realization)",
     TYPE_REFERENCE_DATASET : "Reference Dataset  (segments per case)",
     TYPE_REFERENCE_COMBINED: "Reference Combined  (signal per label+channel)",
 }
@@ -156,6 +159,8 @@ def _channel_ylabel(channel: str) -> str:
 def detect_h5_type(h5_path: str) -> str:
     """Auto-detecta el tipo de formato de un HDF5 del DOE."""
     with h5py.File(h5_path, "r") as f:
+        if str(f.attrs.get("schema", "")).startswith("doe_noise_validation"):   # it has no case_* nor snr_* groups
+            return TYPE_NOISE_VAL
         groups = list(f.keys())
         if not groups:
             return TYPE_DOE_RESULTS
@@ -386,22 +391,60 @@ def load_doe_results(h5_path: str) -> List[Dict]:
     return cases
 
 
-def load_doe_noise(h5_path: str) -> List[Dict]:
-    """Loader para doe_noise_results.h5 (control + snr_* + señales)."""
+class _LazySignals(Mapping):
+    """{name: (t, y)} of a group that is read from the file when asked and not kept: a multi-case noise file has GB of
+    signals (2 per noisy copy), so the viewer opens it without reading them and each plot reads what it draws."""
+
+    def __init__(self, h5_path: str, group: str, names: List[str]):
+        self._path, self._group, self._names = h5_path, group, list(names)
+
+    def __getitem__(self, name):
+        if name not in self._names:
+            raise KeyError(name)
+        with h5py.File(self._path, "r") as f:
+            sg = f[self._group][name]
+            return sg["time"][()], sg["values"][()]
+
+    def __contains__(self, name):   # Mapping's would read the data to answer
+        return name in self._names
+
+    def __iter__(self):
+        return iter(self._names)
+
+    def __len__(self):
+        return len(self._names)
+
+
+def _str_attr(v) -> str:
+    return v.decode() if isinstance(v, bytes) else str(v)
+
+
+def _load_noise(h5_path: str, with_runs: bool) -> List[Dict]:
+    """Casos de doe_noise_results.h5 / doe_noise_indicator_results.h5. Old mode: control + snr_<dB> with their signals.
+    Multi-case mode (attr 'realization' in the groups, PLAN_noise_validation.md): one group per noisy copy
+    snr_<dB>__<case>__r<k>: its columns are snr_db, case_source, realization (+ kappa) and the signals are lazy."""
     cases = []
     with h5py.File(h5_path, "r") as f:
         for grp_name in sorted(f.keys()):
             grp   = f[grp_name]
             attrs = dict(grp.attrs)
+            multi = "realization" in attrs
             snr   = float(attrs.get("snr_db", 0.0)) if grp_name != "control" else float("inf")
+            vv    = {"snr_db": snr}
+            if multi:
+                vv.update(case_source=_str_attr(attrs.get("case_source", "?")), realization=int(attrs["realization"]))
+                if attrs.get("kappa") is not None:
+                    vv["kappa"] = float(attrs["kappa"])
             cases.append({
                 "group":       grp_name,
                 "label_key":   "snr_db",
                 "label_val":   snr,
-                "var_val":     {"snr_db": snr},
-                "signals":     _read_signals(grp),
-                "forces":      _read_forces(grp),
-                "runs":        {},
+                "var_val":     vv,
+                "signals":     (_LazySignals(h5_path, grp_name, [s for s in _SIGNAL_NAMES if s in grp
+                                                                 and isinstance(grp[s], h5py.Group) and "values" in grp[s]])
+                                if multi else _read_signals(grp)),
+                "forces":      {} if multi else _read_forces(grp),
+                "runs":        _read_runs(grp) if with_runs else {},
                 "snr":         {},
                 "dt_us":       None,
                 "wall_time_s": None,
@@ -409,8 +452,36 @@ def load_doe_noise(h5_path: str) -> List[Dict]:
                 "Axial_vel":   None,
             })
             for sig in _SIGNAL_NAMES:
-                cases[-1][sig] = cases[-1]["signals"].get(sig)
-    cases.sort(key=lambda c: c["label_val"] if np.isfinite(c["label_val"]) else float("inf"))
+                cases[-1][sig] = None if multi else cases[-1]["signals"].get(sig)
+    cases.sort(key=lambda c: (c["var_val"].get("case_source", ""),
+                              c["label_val"] if np.isfinite(c["label_val"]) else float("inf"),
+                              c["var_val"].get("realization", 0)))
+    return cases
+
+
+def load_doe_noise(h5_path: str) -> List[Dict]:
+    """Loader para doe_noise_results.h5 (control + snr_* + señales, o las copias del modo multi-caso)."""
+    return _load_noise(h5_path, with_runs=False)
+
+
+def load_noise_validation(h5_path: str) -> List[Dict]:
+    """Loader for doe_noise_validation_results.h5 (validate_noise.py): one row per noisy copy (/summary of every
+    indicator): snr_db, case_source, realization, truth, kappa and the outcome of each indicator. No signals: the
+    figures of the file are in the summary panel (validation_figures.NOISE_FIGURES)."""
+    rows: Dict[str, Dict[str, Any]] = {}
+    with h5py.File(h5_path, "r") as f:
+        for run, g in f["summary"].items():
+            col = {k: (g[k].asstr()[()] if g[k].dtype.kind == "O" else g[k][()]) for k in g}
+            copy, case = col.get("copy", col.get("group")), col.get("case", col.get("case_source"))
+            for i, name in enumerate(copy):
+                vv = rows.setdefault(str(name), {"snr_db": float(col["snr_db"][i]), "case_source": str(case[i]),
+                                                 "realization": int(col["realization"][i]), "truth": str(col["truth"][i]),
+                                                 "kappa": float(col["kappa"][i])})
+                vv["outcome_" + run] = str(col["outcome"][i])
+    cases = [{"group": name, "label_key": "snr_db", "label_val": vv["snr_db"], "var_val": vv, "signals": {}, "forces": {},
+              "runs": {}, "snr": {}, "dt_us": None, "wall_time_s": None, "Axial_disp": None, "Axial_vel": None}
+             for name, vv in rows.items()]
+    cases.sort(key=lambda c: (c["var_val"]["kappa"], c["var_val"]["snr_db"], c["var_val"]["realization"]))
     return cases
 
 
@@ -460,31 +531,8 @@ def load_doe_indicator_unified(h5_path: str) -> List[Dict]:
 
 
 def load_noise_indicator_unified(h5_path: str) -> List[Dict]:
-    """Loader para doe_noise_indicator_results.h5 (control + snr_* + runs)."""
-    cases = []
-    with h5py.File(h5_path, "r") as f:
-        for grp_name in sorted(f.keys()):
-            grp   = f[grp_name]
-            attrs = dict(grp.attrs)
-            snr   = float(attrs.get("snr_db", 0.0)) if grp_name != "control" else float("inf")
-            cases.append({
-                "group":       grp_name,
-                "label_key":   "snr_db",
-                "label_val":   snr,
-                "var_val":     {"snr_db": snr},
-                "signals":     _read_signals(grp),
-                "forces":      _read_forces(grp),
-                "runs":        _read_runs(grp),
-                "snr":         {},
-                "dt_us":       None,
-                "wall_time_s": None,
-                "Axial_disp":  None,
-                "Axial_vel":   None,
-            })
-            for sig in _SIGNAL_NAMES:
-                cases[-1][sig] = cases[-1]["signals"].get(sig)
-    cases.sort(key=lambda c: c["label_val"] if np.isfinite(c["label_val"]) else float("inf"))
-    return cases
+    """Loader para doe_noise_indicator_results.h5 (control + snr_* + runs, o las copias del modo multi-caso)."""
+    return _load_noise(h5_path, with_runs=True)
 
 
 def load_model_snr_unified(h5_path: str) -> List[Dict]:
@@ -517,6 +565,7 @@ def load_h5_unified(h5_path: str, h5_type: str) -> List[Dict]:
         TYPE_DOE_INDICATOR: load_doe_indicator_unified,
         TYPE_NOISE_IND    : load_noise_indicator_unified,
         TYPE_MODEL_SNR    : load_model_snr_unified,
+        TYPE_NOISE_VAL    : load_noise_validation,
     }
     cases = loaders[h5_type](h5_path)
     _apply_ramps(cases, h5_path)
@@ -849,8 +898,17 @@ class ColumnsDialog(tk.Toplevel):
 def _make_summary_entries(h5_type: str, cases: list, h5_path: str):
     """Devuelve la lista de (label, func, extra_args_dict) para el combobox de resumen."""
     entries = []
+    # multi-case noise files (one group per noisy copy): the figures of doe_noise_plotter and the overlay by SNR assume ONE
+    # control case and read the SNR from the group name, so they are not offered; the results are in the noise validation
+    multi_noise = h5_type in (TYPE_DOE_NOISE, TYPE_NOISE_IND) and any("realization" in c.get("var_val", {}) for c in cases)
 
-    if h5_type == TYPE_DOE_RESULTS:
+    if multi_noise:
+        pass
+    elif h5_type == TYPE_NOISE_VAL:
+        import validation_figures as vf
+        entries = [(f"Noise validation — {n}", fn, {"h5_path": h5_path}) for n, fn in vf.NOISE_FIGURES.items()]
+
+    elif h5_type == TYPE_DOE_RESULTS:
         for lbl, fn, args in [
             ("Convergencia RMS — Axial_disp",      plot_convergence,              ("Axial_disp", "rms")),
             ("Convergencia RMS — Axial_vel",        plot_convergence,              ("Axial_vel",  "rms")),
@@ -1477,6 +1535,10 @@ class DoeSelectorUnifiedApp:
         if labels:
             self._sum_combo.current(0)
         self._sum_combo.pack(fill=tk.X)
+        if not labels and any("realization" in c.get("var_val", {}) for c in self.cases):   # multi-case noise file
+            ttk.Label(top, text="Noisy copies of the validation cases: scored in the 'Noise validation' stage, "
+                                "whose file has the figures.", foreground="#777777", wraplength=280,
+                      justify=tk.LEFT).pack(fill=tk.X, pady=4)
         btns = ttk.Frame(top)
         btns.pack(fill=tk.X, pady=(4, 0))
         ttk.Button(btns, text="▶ Preview", command=self._refresh_summary).pack(side=tk.LEFT)
@@ -1724,12 +1786,12 @@ class DoeSelectorUnifiedApp:
         self.tree = ttk.Treeview(tf, columns=cols, show="headings",
                                  selectmode="extended")
         for col in cols:
-            if col == "case":
-                hdr, w = "case", 68
+            if col == "case":   # the copies of a multi-case noise file are named snr_060.00__case_011__r00
+                hdr, w = "case", max(68, min(230, 7 * max((len(str(c["group"])) for c in self.cases), default=0)))
             elif col.startswith("td_"):
                 hdr = "t_d:" + col[3:][:10]
                 w   = 90
-            elif col.startswith("snr_"):
+            elif col.startswith("snr_") and col != "snr_db":
                 hdr = "SNR:" + col[4:]
                 w   = 90
             else:
@@ -1768,16 +1830,18 @@ class DoeSelectorUnifiedApp:
                     rn   = col[3:]
                     td   = c.get("runs", {}).get(rn, {}).get("t_d", np.array([]))
                     row.append(f"{td[0]:.2e} s" if td.size > 0 else "—")
+                elif col == "snr_db":   # before 'snr_*' (model SNR per signal): this one is the noise level of the group
+                    raw_v = c.get("var_val", {}).get("snr_db", float("nan"))
+                    if is_control or not np.isfinite(float(raw_v) if raw_v is not None else float("nan")):
+                        row.append("control")
+                    else:   # multi-case noise: 40 dB, not 4.00e+01
+                        row.append(f"{float(raw_v):g} dB" if "realization" in c.get("var_val", {}) else f"{float(raw_v):.2e} dB")
                 elif col.startswith("snr_"):
                     sig  = col[4:]
                     snr  = c.get("snr", {}).get(sig, float("nan"))
                     row.append(f"{snr:.2e} dB" if not np.isnan(snr) else "—")
-                elif col == "snr_db":
-                    raw_v = c.get("var_val", {}).get("snr_db", float("nan"))
-                    if is_control or not np.isfinite(float(raw_v) if raw_v is not None else float("nan")):
-                        row.append("control")
-                    else:
-                        row.append(f"{float(raw_v):.2e} dB")
+                elif col == "realization":
+                    row.append(str(c.get("var_val", {}).get(col, "—")))
                 else:
                     raw_v = c.get("var_val", {}).get(col)
                     if col == "snr_db" and is_control:
@@ -1889,7 +1953,7 @@ class DoeSelectorUnifiedApp:
         has_forces  = self.h5_type == TYPE_DOE_RESULTS
         has_runs    = self.h5_type in (TYPE_DOE_INDICATOR, TYPE_NOISE_IND)
         has_deflex  = self._has_deflex
-        has_snr_only = self.h5_type == TYPE_MODEL_SNR
+        has_snr_only = self.h5_type in (TYPE_MODEL_SNR, TYPE_NOISE_VAL)
 
         if has_signals and has_forces and has_runs:
             self._nb = ttk.Notebook(cf)
@@ -1939,8 +2003,8 @@ class DoeSelectorUnifiedApp:
             self._sig_tab = cf
             self._build_signal_canvas(cf)
         elif has_snr_only:
-            ttk.Label(cf, text="Signals not available in doe_model_snr_results.h5.\n"
-                                "Use the summary panel for the SNR figures.",
+            ttk.Label(cf, text=f"Signals not available in {os.path.basename(self.h5_path)}.\n"
+                                "Use the summary panel for its figures.",
                       foreground="#777777", font=("Arial", 11),
                       anchor=tk.CENTER, justify=tk.CENTER).pack(expand=True)
 
@@ -2904,7 +2968,7 @@ class DoeSelectorUnifiedApp:
         def gen(entry):
             self._sync_globals()
             return self._make_summary_figure(entry)
-        items += [Item(e[0], (lambda e=e: gen(e)), native=e[0].startswith(("SLD", "Validation")))
+        items += [Item(e[0], (lambda e=e: gen(e)), native=e[0].startswith(("SLD", "Validation", "Noise validation")))
                   for e in self._summary_entries]
         return items
 
@@ -2924,7 +2988,7 @@ class DoeSelectorUnifiedApp:
             return
         from figures_window import FiguresWindow
         lang, scale = _fig_style()
-        if _is_validation_h5(self.h5_path):   # one folder per gray mode (validation_figures.figs_dir)
+        if self.h5_type == TYPE_NOISE_VAL or _is_validation_h5(self.h5_path):   # one folder per gray mode (vf.figs_dir)
             import validation_figures as vf
             folder = os.path.basename(vf.figs_dir(self.h5_path))
         else:
@@ -4377,7 +4441,80 @@ def _selftest() -> None:
     cs = load_h5_unified(ind, detect_h5_type(ind))
     assert all(c["label_key"] == "kappa" for c in cs), [c["label_key"] for c in cs]
     assert [c["group"] for c in cs] == ["case_001", "case_000", "case_002"] and cs[0]["label_val"] == 0.58
+    _selftest_noise(d, t)
     print("doe_unified_selector selftest OK")
+
+
+def _selftest_noise(d: str, t) -> None:
+    """Noise files (PLAN_noise_validation.md): the old one-control-case mode as it was, the multi-case mode (columns,
+    lazy signals, no single-case figures) and the noise validation file (type, rows, figures of validation_figures)."""
+    import validation_figures as vf
+    str_dt = h5py.string_dtype()
+    # old mode: control + snr_<dB>, signals read at load, overlay figures offered
+    old = os.path.join(d, "old_noise.h5")
+    with h5py.File(old, "w") as f:
+        for name, snr in (("control", "None"), ("snr_040.00", 40.0)):
+            g = f.create_group(name)
+            g.attrs["snr_db"] = snr
+            g.create_dataset("Axial_disp/time", data=t)
+            g.create_dataset("Axial_disp/values", data=np.sin(t))
+    co = load_h5_unified(old, detect_h5_type(old))
+    assert detect_h5_type(old) == TYPE_DOE_NOISE and [c["group"] for c in co] == ["snr_040.00", "control"]
+    assert isinstance(co[0]["signals"], dict) and co[0]["Axial_disp"] is not None and co[0]["var_val"] == {"snr_db": 40.0}
+    assert [e[0] for e in _make_summary_entries(TYPE_DOE_NOISE, co, old)] == ["Overlay Axial_disp por SNR", "Overlay Axial_vel por SNR"]
+    # multi-case mode: one group per noisy copy; the same layout with indicators (noise_indicators --no-signals: no signals)
+    nz, nzi = os.path.join(d, "noise_multi.h5"), os.path.join(d, "noise_multi_ind.h5")
+    for path in (nz, nzi):
+        with h5py.File(path, "w") as f:
+            f.attrs.update(noise_layout="multi", snr_mode="absolute", snr_ref_case="case_001", snr_levels=[40.0, 10.0])
+            for snr in (40.0, 10.0):
+                for c, k in (("case_000", 1.05), ("case_001", 1.5)):
+                    for r in (0, 1):
+                        g = f.create_group(f"snr_{snr:06.2f}__{c}__r{r:02d}")
+                        g.attrs.update(snr_db=snr, case_source=c, realization=r, kappa=k)
+                        if path == nz:
+                            g.create_dataset("Axial_disp/time", data=t)
+                            g.create_dataset("Axial_disp/values", data=np.sin(t) + snr)
+                        else:
+                            q = g.create_group("maxent_x")
+                            q["t"], q["I_t"], q["t_d"] = t, np.cos(t), [7.0]
+    assert detect_h5_type(nz) == TYPE_DOE_NOISE and detect_h5_type(nzi) == TYPE_NOISE_IND
+    cn, ci = (load_h5_unified(p, detect_h5_type(p)) for p in (nz, nzi))
+    assert len(cn) == 8 and [(c["var_val"]["case_source"], c["label_val"], c["var_val"]["realization"]) for c in cn][:3] == [
+        ("case_000", 10.0, 0), ("case_000", 10.0, 1), ("case_000", 40.0, 0)]
+    s = cn[0]["signals"]
+    assert isinstance(s, _LazySignals) and "Axial_disp" in s and "Axial_vel" not in s and len(s) == 1 and s.get("Axial_vel") is None
+    assert abs(s["Axial_disp"][1][0] - 10.0) < 1e-12 and len(s["Axial_disp"][0]) == len(t) and cn[0]["Axial_disp"] is None
+    assert ci[0]["signals"] == {} and ci[0]["runs"]["maxent_x"]["t_d"][0] == 7.0 and ci[0]["var_val"]["kappa"] == 1.05
+    assert _make_summary_entries(TYPE_DOE_NOISE, cn, nz) == [] and _make_summary_entries(TYPE_NOISE_IND, ci, nzi) == []
+    # noise validation file: its own type, one row per copy with the outcome of every indicator, figures from NOISE_FIGURES
+    nv = os.path.join(d, "doe_noise_validation_results.h5")
+    with h5py.File(nv, "w") as f:
+        f.attrs.update(schema="doe_noise_validation_results/1", gray_mode="ignore")
+        for run in ("ind_a", "ind_b"):
+            g = f.create_group(f"summary/{run}")
+            copies = [c["group"] for c in cn]
+            g.create_dataset("copy", data=np.array(copies, dtype=object), dtype=str_dt)
+            g.create_dataset("case", data=np.array([c["var_val"]["case_source"] for c in cn], dtype=object), dtype=str_dt)
+            g.create_dataset("truth", data=np.array(["unstable"] * len(cn), dtype=object), dtype=str_dt)
+            g.create_dataset("outcome", data=np.array(["TP" if run == "ind_a" else "FN"] * len(cn), dtype=object), dtype=str_dt)
+            for k in ("snr_db", "realization", "kappa"):
+                g.create_dataset(k, data=[float(c["var_val"][k]) for c in cn])
+    assert detect_h5_type(nv) == TYPE_NOISE_VAL
+    cv = load_h5_unified(nv, TYPE_NOISE_VAL)
+    assert len(cv) == 8 and cv[0]["var_val"]["outcome_ind_a"] == "TP" and cv[0]["var_val"]["outcome_ind_b"] == "FN"
+    assert cv[0]["var_val"]["case_source"] == "case_000" and cv[0]["var_val"]["realization"] == 0 and cv[0]["signals"] == {}
+    assert [e[0] for e in _make_summary_entries(TYPE_NOISE_VAL, cv, nv)] == [f"Noise validation — {n}" for n in vf.NOISE_FIGURES]
+    assert os.path.basename(vf.figs_dir(nv)) == "figs_noise_validation" and set(vf.NOISE_FIGURES) >= {"noise_metrics"}
+    # the plotter of the single control case refuses a multi-case file instead of failing on its group names
+    import doe_noise_plotter as dnp
+    for fn in (dnp.load_noise_results, dnp.gather_detection_rows):
+        try:
+            fn(nz)
+            raise AssertionError("single-case plotter accepted a multi-case file")
+        except ValueError as exc:
+            assert "multi-case" in str(exc)
+    assert set(dnp.load_noise_results(old)) == {"control", "snr_040.00"}
 
 
 if __name__ == "__main__":

@@ -48,16 +48,16 @@ def set_root(path: str) -> None:
 
 # stage order = topological order; main path first, optional branches after
 STAGES = ("simulate", "extract", "merge", "label_template", "label_build", "indicators", "validate",
-          "static_deflection", "noise", "noise_indicators", "model_snr")
-OPTIONAL = {"static_deflection", "noise", "noise_indicators", "model_snr"}
+          "static_deflection", "noise", "noise_indicators", "noise_validate", "model_snr")
+OPTIONAL = {"static_deflection", "noise", "noise_indicators", "noise_validate", "model_snr"}
 TITLES = {"simulate": "Simulate", "extract": "Extract", "merge": "Merge runs", "label_template": "Label template",
           "label_build": "Label build", "indicators": "Indicators", "validate": "Validate",
           "static_deflection": "Static deflection", "noise": "Noise", "noise_indicators": "Noise indicators",
-          "model_snr": "Model SNR"}
+          "noise_validate": "Noise validation", "model_snr": "Model SNR"}
 MAIN = ("simulate", "extract", "label_template", "label_build", "indicators", "validate")
 GOALS = {"Simulated data": ["@data"], "Labelled dataset": ["label_build"], "Indicators computed": ["indicators"],
-         "Indicator validation": ["validate"], "Noise robustness": ["noise_indicators"], "Model SNR": ["model_snr"],
-         "Static deflection": ["static_deflection"]}
+         "Indicator validation": ["validate"], "Noise robustness": ["noise_indicators"],
+         "Noise validation": ["noise_validate"], "Model SNR": ["model_snr"], "Static deflection": ["static_deflection"]}
 # flow templates: which stages a new experiment turns on (training / validation are just two of them)
 FLOWS = {"Simulation only": ["simulate", "extract"],
          "Labelled dataset (training)": ["simulate", "extract", "label_template", "label_build"],
@@ -160,6 +160,8 @@ def presets() -> dict:
 
 # keys that never change a result (parallelism, launcher, text): left out of the configuration fingerprint
 HASH_IGNORE = {"nb_proc", "n2m_bat", "workers", "description", "timed", "auto_extract"}
+# indicator processes in parallel when the experiment does not say: each takes ~1-3 GB (6 once ran out of virtual memory)
+DEFAULT_WORKERS = 3
 
 
 def _canon(o):
@@ -500,10 +502,12 @@ class Exp:
                 self.errors.append(f"reference '{ref}': {exc}")
         elif self.cfg.get("kind") == "validation":
             self.errors.append("validation experiment without 'reference'")
-        # stages the user turned on (older files: the whole main path, validate when validation, all optional)
+        # stages the user turned on (older files: the whole main path, validate when validation, all optional but
+        # noise_validate, which only exists when written: it brings validate with it)
         st = self.cfg.get("stages")
         if st is None:
-            st = [k for k in STAGES if k != "validate" or self.cfg.get("kind") == "validation" or self.ref]
+            st = [k for k in STAGES if k != "noise_validate" and
+                  (k != "validate" or self.cfg.get("kind") == "validation" or self.ref)]
         bad = [k for k in st if k not in STAGES]
         if bad:
             self.errors.append(f"unknown stages {bad}; valid: {list(STAGES)}")
@@ -593,6 +597,7 @@ class Exp:
         if self.ref is not None:
             for k in ("f_modal", "workers"):
                 ind.setdefault(k, self.ref.indicators.get(k))
+        ind["workers"] = ind.get("workers") or DEFAULT_WORKERS   # an explicit value of the file is kept
         if v == "inherit":
             specs = dict(self.ref.indicators["specs"]) if self.ref is not None else {}
         elif isinstance(v, dict):
@@ -666,6 +671,12 @@ def gray_suffix(mode: str) -> str:
 def validation_path(exp: "Exp") -> str:
     """doe_validation_results[_gray-<mode>].h5 of the experiment's outputs (an explicit validate.out is respected)."""
     return exp.out("validate", "out", "doe_validation_results" + gray_suffix(gray_mode(exp)) + ".h5")
+
+
+def noise_multi(exp: "Exp") -> bool:
+    """True when the noise section lists the validation cases to add noise to (PLAN_noise_validation.md: several
+    cases x SNR levels x realizations). Without 'cases' it is the old mode: one control case, no validation."""
+    return "cases" in exp.section("noise")
 
 
 def stages(exp: Exp) -> dict:
@@ -765,19 +776,37 @@ def _all_stages(exp: Exp) -> dict:
                                    [_py(os.path.join(SIM, "static_deflection.py"), data, "--experiment", exp.path)],
                                    sd, present=lambda: bool((h5_info(data) or {}).get("deflex")), writes=[data],
                                    roles=([], ["data (adds the Out_Deflex group inside it)"]))
-    noise_out = exp.out("noise", "out", "doe_noise_results.h5", shared=True)
-    S["noise"] = Stage(exp, "noise", [(exp, d)], [data], [noise_out],
+    # noise: old mode = one control case (file shared by the experiments of the same data); with 'cases' = several
+    # validation cases x SNR levels x realizations: the file depends on this experiment's labels and cases, so it
+    # lives in out_dir and the stage waits for label_build (the reference SNR comes from the labels)
+    multi = noise_multi(exp)
+    noise_out = exp.out("noise", "out", "doe_noise_multi_results.h5" if multi else "doe_noise_results.h5",
+                        shared=not multi)
+    S["noise"] = Stage(exp, "noise", [(exp, d)] + ([(exp, "label_build")] if multi else []),
+                       [data] + ([label["out"]] if multi else []), [noise_out],
                        [_py(os.path.join(SIM, "doe_noise.py"), "--doe_results", data, "--out", noise_out,
                             "--experiment", exp.path)], exp.section("noise"),
-                       roles=(["data"], ["noisy signals of a control case"]))
+                       roles=(["data"] + (["labels (the reference SNR comes from them)"] if multi else []),
+                              ["noisy copies of the validation cases (cases x SNR x realizations)" if multi
+                               else "noisy signals of a control case"]))
     ni_out = exp.out("noise_indicators", "out", "doe_noise_indicator_results.h5")
     S["noise_indicators"] = Stage(exp, "noise_indicators", [(exp, "noise"), (ref_exp, "label_build")],
                                   [noise_out, exp.reference], [ni_out],
                                   [_py(os.path.join(ANA, "doe_indicators.py"), "--experiment", exp.path,
-                                       "--doe_results", noise_out, "--out", ni_out)],
+                                       "--doe_results", noise_out, "--out", ni_out)
+                                   + (["--no-signals"] if multi else [])],   # the copies are many: no signals again
                                   {**ind_section, **exp.section("noise_indicators")},
                                   roles=(["noisy signals", f"labelled dataset (experiment {ref_exp.name})"],
                                          ["indicator results on the noisy signals"]))
+    # noise_validate: scores every noisy copy against the truth of its CLEAN case, taken from the clean validation
+    nv_out = exp.out("noise_validate", "out", "doe_noise_validation_results" + gray_suffix(gray) + ".h5")
+    S["noise_validate"] = Stage(
+        exp, "noise_validate", [(exp, "noise_indicators"), (exp, "validate")], [ni_out, val_out], [nv_out],
+        [_py(os.path.join(ANA, "validate_noise.py"), "--noise_ind", ni_out, "--clean", val_out, "--out", nv_out)],
+        {**exp.section("noise_validate"), "out": nv_out}, runnable=multi,
+        why_not="the noise is the old one-control-case mode: set 'cases' in Edit config of Noise to validate it",
+        roles=(["indicator results on the noisy copies", "clean validation (truth, onsets, gray mode, reference metrics)"],
+               ["validation per SNR level and realization (+ _by_snr.csv)"]))
     snr_out = exp.out("model_snr", "out", "doe_model_snr_results.h5", shared=True)
     r0 = runs[0]
     S["model_snr"] = Stage(exp, "model_snr", [(exp, "simulate")], [], [snr_out],
@@ -1025,10 +1054,39 @@ def check(exp: Exp) -> tuple:
             rep = sorted({round(k, 6) for k in mine["kappa"]} & {round(k, 6) for k in theirs["kappa"]})
             if rep:
                 warns.append(f"{len(rep)} kappa also in the reference: {rep[:5]}")
+    errs += _noise_problems(exp, warns)
     gray = _gray_fraction(exp.label["out"])
     if gray is not None and gray > 0.25:
         warns.append(f"{gray:.0%} of the cases are 'gray' in {os.path.basename(exp.label['out'])}")
     return errs, warns
+
+
+def _noise_problems(exp: Exp, warns: list) -> list:
+    """Errors of the noise sections (warnings are appended to `warns`): the keys of the multi-case mode."""
+    nz, errs = exp.section("noise"), []
+    if "noise_validate" in exp.enabled and not noise_multi(exp):
+        errs.append("noise_validate needs 'cases' in the noise section (Edit config of Noise): the old mode "
+                    "(one control case) has no truth to score against")
+    if not noise_multi(exp):
+        return errs
+    if "snr_range" in nz:
+        warns.append("noise.snr_range is ignored: the levels are the absolute SNR list 'snr_list'")
+    cases = nz["cases"]
+    info = h5_info(exp.data_h5) if exp.data_h5 else None
+    if cases != "all" and not (isinstance(cases, list) and cases and all(isinstance(c, str) for c in cases)):
+        errs.append("noise.cases must be 'all' or a list of case names (case_000, ...)")
+    elif info and cases != "all" and [c for c in cases if c not in info["cases"]]:
+        errs.append(f"noise.cases not in the data: {[c for c in cases if c not in info['cases']][:5]}")
+    snr = nz.get("snr_list")
+    if snr is not None and not (isinstance(snr, list) and snr and all(isinstance(s, (int, float)) for s in snr)):
+        errs.append("noise.snr_list must be a list of SNR levels in dB (e.g. [80, 60, 40, 30, 20, 10])")
+    nr = nz.get("realizations")
+    if nr is not None and not (isinstance(nr, int) and not isinstance(nr, bool) and nr >= 1):
+        errs.append("noise.realizations must be an integer >= 1")
+    ref = nz.get("snr_ref_case", "auto")
+    if ref != "auto" and info and ref not in info["cases"]:
+        errs.append(f"noise.snr_ref_case '{ref}' is not a case of the data (or 'auto')")
+    return errs
 
 
 def _gray_fraction(path: str):
@@ -1166,10 +1224,20 @@ STAGE_INFO = {
                  "Ranking of the variants; the Compare tab puts two validations side by side."),
     "static_deflection": ("Adds the theoretical static deflection (group Out_Deflex) to doe_results.h5.",
                           "Its section of the experiment YAML sets f_tooth_mm, k_cut, k_sys, alpha_deg, theta_deg."),
-    "noise": ("Builds doe_noise_results.h5: one control case with Gaussian noise at several SNR levels.",
-              "Its section sets control_case_idx, snr_list / snr_range, seed, signals."),
-    "noise_indicators": ("Runs the indicator variants on the noisy signals (robustness to noise).",
-                         "Every SNR level x variant done."),
+    "noise": ("Adds Gaussian noise to the signals. With 'cases' in its section (validation of the noise): noisy copies "
+              "of those validation cases, at absolute SNR levels (the same sigma for every case: the noise power is set "
+              "from the weakest unstable case) and several independent realizations, in doe_noise_multi_results.h5. "
+              "Without 'cases': one control case at several SNR levels (doe_noise_results.h5, no validation).",
+              "Cases x levels x realizations = the number of copies; each carries two signals (watch the disk: ~2 GB "
+              "for 216 copies)."),
+    "noise_indicators": ("Runs the indicator variants on the noisy signals (robustness to noise). The thresholds are "
+                         "the ones learned from the clean reference: the noise is only in the validation signals.",
+                         "Every copy x variant done."),
+    "noise_validate": ("Scores every noisy copy against the truth of its CLEAN case (the label does not change with the "
+                       "noise): balanced accuracy, MCC, AUC ... per SNR level and realization, summarised as mean / "
+                       "min / max over the realizations, with the clean validation as the 'no noise' reference.",
+                       "How far the balanced accuracy falls from the clean one as the SNR drops, and the highest SNR "
+                       "at which it has fallen by more than 0.05 (breakdown)."),
     "model_snr": ("Model SNR of every case against a control case, from the simulation folders.",
                   "Its section sets control_idx."),
 }
@@ -1506,7 +1574,30 @@ def _stage_summary(exp: Exp, key: str) -> list:
         if not info:
             return [("no noise file yet", None)]
         snr = [g for g in info["groups"] if g.startswith("snr_")]
+        if noise_multi(exp):   # snr_<dB>__<case>__r<k>: the copies, with the cases / levels / realizations they span
+            import h5py
+            with h5py.File(S[key].outputs[0], "r") as f:
+                a = f.attrs
+                lv, nr, nc = len(a.get("snr_levels", [])), int(a.get("realizations", 0)), len(a.get("cases", []))
+                ref = str(a.get("snr_ref_case", "?"))
+            return [(f"{len(snr)} noisy copies = {nc} cases x {lv} SNR levels x {nr} realization(s)", "ok"),
+                    (f"reference of the noise power: {ref} (the weakest unstable case: one sigma for every case)", None)]
         return [(f"control + {len(snr)} SNR levels" + (f" ({snr[0][4:]} ... {snr[-1][4:]} dB)" if snr else ""), "ok")]
+    if key == "noise_validate":
+        p = S[key].outputs[0]
+        if not os.path.isfile(p):
+            return [("no results yet", None)]
+        rows = noise_validation_rows(p)
+        f2 = lambda x: "-" if x is None or x != x else f"{x:.2f}"   # noqa: E731
+        out = [(f"{len(rows)} variants; balanced accuracy: clean -> noisiest level (mean over the realizations), "
+                "and the highest SNR at which it falls more than 0.05 below the clean one", "ok")]
+        for r in sorted(rows, key=lambda r: -(rows[r]["ba"] if rows[r]["ba"] == rows[r]["ba"] else -1)):
+            d = rows[r]
+            bd = d["breakdown"]
+            out.append((f"  {r}: {f2(d['clean'])} -> {f2(d['ba'])} at {d['snr']:g} dB; breakdown "
+                        + ("none (does not fall)" if bd is None or bd != bd else f"{float(bd):g} dB"),
+                        "bad" if bd is not None and bd == bd else None))
+        return out
     if key == "model_snr":
         p = S[key].outputs[0]
         info = h5_info(p) if os.path.isfile(p) else None
@@ -1902,7 +1993,7 @@ def label_defaults(indicators_section=None) -> dict:
 
 def default_indicators() -> dict:
     lib = presets()
-    return {"f_modal": 150.0, "cases": "all", "workers": 6,
+    return {"f_modal": 150.0, "cases": "all", "workers": DEFAULT_WORKERS,
             "variants": {n: lib[n] for n in INDICATOR_PRESETS_DEFAULT if n in lib}}
 
 
@@ -1979,7 +2070,7 @@ def copy_experiment(src: str, name: str, description: str = "", doe_suffix: str 
     d = resolved_yaml(src)
     d["name"] = name
     d["description"] = description or f"copy of {src}"
-    for k in ("label", "indicators", "validate", "noise_indicators"):   # own outputs: never the source's files
+    for k in ("label", "indicators", "validate", "noise", "noise_indicators", "noise_validate"):   # own outputs, not the source's
         if isinstance(d.get(k), dict):
             d[k] = {a: b for a, b in d[k].items() if a not in ("out", "labels_yaml")}
     if doe_suffix:
@@ -2044,6 +2135,37 @@ def validation_metrics(exp: Exp) -> dict:
             return {}
         return {run: {k: (v.item() if hasattr(v, "item") else v) for k, v in g.attrs.items()}
                 for run, g in f["metrics"].items()}
+
+
+def noise_samples(exp: Exp):
+    """Samples of the first signal of the first case of the data (it sizes the noisy copies), or None."""
+    import h5py
+    info = h5_info(exp.data_h5) if exp.data_h5 else None
+    if not info or not info["cases"] or not info["signals"]:
+        return None
+    try:
+        with h5py.File(exp.data_h5, "r") as f:
+            return int(f[info["cases"][0]][info["signals"][0]]["values"].shape[0])
+    except (OSError, KeyError):
+        return None
+
+
+def noise_validation_rows(path: str) -> dict:
+    """{variant: {clean, snr, ba, breakdown}} of a doe_noise_validation_results.h5 (contract §4.3 of
+    PLAN_noise_validation.md): balanced accuracy of the clean validation, mean balanced accuracy at the noisiest SNR
+    level (snr, dB) and snr_breakdown_db (NaN / None = it never falls). None where the file lacks it."""
+    import h5py
+    out = {}
+    with h5py.File(path, "r") as f:
+        for run, g in (f["by_snr"].items() if "by_snr" in f else []):
+            if "balanced_accuracy_mean" not in g or "snr_db" not in g:   # a variant the scoring could not rate
+                continue
+            snr, ba = g["snr_db"][()], g["balanced_accuracy_mean"][()]
+            i = int(snr.argmin())
+            clean = f["clean"][run].attrs.get("balanced_accuracy") if "clean" in f and run in f["clean"] else None
+            out[run] = dict(clean=None if clean is None else float(clean), snr=float(snr[i]), ba=float(ba[i]),
+                            breakdown=g.attrs.get("snr_breakdown_db"))
+    return out
 
 
 def dependents(name: str) -> list:
@@ -2972,6 +3094,74 @@ def run_command(name: str, key: str, python: str | None = None, yes: bool = True
     return [python or sys.executable, os.path.abspath(__file__), "run", name, key] + (["--yes"] if yes else [])
 
 
+def _selftest_noise(v2: Exp) -> None:
+    """Noise validation (PLAN_noise_validation.md): the old one-control-case noise keeps its commands and file, the
+    multi-case mode adds label_build, --no-signals and noise_validate, and adding them leaves the fingerprints of
+    the clean stages as they were."""
+    import h5py
+    import numpy as np
+    own = dict(own_yaml(v2.name), stages=list(FLOWS["Validation against a reference"]))
+    yaml_save(own, exp_path("vn"))
+    clean = {k: s.hash for k, s in stages(load("vn")).items()}
+    yaml_save(dict(own, stages=own["stages"] + ["noise", "noise_indicators"], noise={"seed": 1}), exp_path("vn"))
+    old = load("vn")
+    S = stages(old)
+    assert not noise_multi(old) and S["noise"].outputs == [os.path.join(old.data_dir, "doe_noise_results.h5")]
+    assert "label_build" not in [k for _, k in S["noise"].deps] and "--no-signals" not in S["noise_indicators"].cmds[0]
+    assert not _all_stages(old)["noise_validate"].runnable and not _noise_problems(old, [])
+    # workers not written: the default (6 once ran out of memory); written: kept, and neither changes a fingerprint
+    h = stages(old)["indicators"].hash
+    assert old.indicators["workers"] == DEFAULT_WORKERS == 3
+    save_section("vn", "indicators", dict(own.get("indicators") or {}, workers=5))
+    assert load("vn").indicators["workers"] == 5 and stages(load("vn"))["indicators"].hash == h
+    yaml_save(dict(own, stages=own["stages"] + ["noise", "noise_indicators"], noise={"seed": 1}), exp_path("vn"))
+    # several cases: its own file in out_dir, waits for the labels, indicators without signals, new stage
+    cfg = {"cases": ["case_000"], "snr_list": [20, 10], "realizations": 2}
+    yaml_save(dict(own, stages=own["stages"] + ["noise", "noise_indicators", "noise_validate"], noise=cfg), exp_path("vn"))
+    vn = load("vn")
+    S = stages(vn)
+    assert noise_multi(vn) and list(S)[-3:] == ["noise", "noise_indicators", "noise_validate"]
+    assert all(S[k].hash == h for k, h in clean.items()), "the clean stages changed"
+    assert S["noise"].outputs == [os.path.join(vn.out_dir, "doe_noise_multi_results.h5")]
+    assert "label_build" in [k for _, k in S["noise"].deps] and vn.label["out"] in S["noise"].inputs
+    assert "--no-signals" in S["noise_indicators"].cmds[0]
+    nv = S["noise_validate"]
+    assert nv.runnable and os.path.basename(nv.cmds[0][0]) == "validate_noise.py"
+    assert nv.cmds[0][nv.cmds[0].index("--clean") + 1] == validation_path(vn) and nv.inputs[1] == validation_path(vn)
+    assert nv.outputs == [os.path.join(vn.out_dir, "doe_noise_validation_results.h5")] and not _noise_problems(vn, [])
+    # the gray mode of the clean validation names both files (the noise one is scored the same way)
+    save_section("vn", "validate", {"gray": "stable"})
+    nv = stages(load("vn"))["noise_validate"]
+    assert nv.outputs[0].endswith("_gray-stable.h5") and nv.cmds[0][nv.cmds[0].index("--clean") + 1].endswith("_gray-stable.h5")
+    save_section("vn", "validate", None)
+    # bad keys: reported before running; snr_range is only a warning (the script ignores it)
+    save_section("vn", "noise", {"cases": ["case_999"], "snr_list": [], "realizations": 0, "snr_range": [5, 200]})
+    warns = []
+    assert len(_noise_problems(load("vn"), warns)) == 3 and any("snr_range" in w for w in warns)
+    save_section("vn", "noise", {"seed": 1})   # old mode with the validation turned on
+    assert any("noise_validate needs" in x for x in _noise_problems(load("vn"), []))
+    # the card of the stage reads /by_snr + /clean (contract 4.3) and says where the balanced accuracy breaks
+    save_section("vn", "noise", cfg)
+    vn = load("vn")
+    p = stages(vn)["noise_validate"].outputs[0]
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    with h5py.File(p, "w") as f:
+        g = f.create_group("by_snr/runA")
+        g["snr_db"], g["balanced_accuracy_mean"] = np.array([80.0, 10.0]), np.array([0.95, 0.6])
+        g.attrs["snr_breakdown_db"] = 30.0
+        f.create_group("clean/runA").attrs["balanced_accuracy"] = 0.96
+        f.create_group("by_snr/runB")["snr_db"] = np.array([10.0])   # no balanced accuracy: left out, the card does not break
+    txt = " | ".join(t for t, _ in stage_summary(vn, "noise_validate"))
+    assert "runA: 0.96 -> 0.60 at 10 dB; breakdown 30 dB" in txt and "runB" not in txt and "1 variants" in txt, txt
+    with h5py.File(p, "w") as f:
+        g = f.create_group("by_snr/runA")
+        g["snr_db"], g["balanced_accuracy_mean"] = np.array([80.0, 10.0]), np.array([0.95, 0.94])
+        f.create_group("clean/runA").attrs["balanced_accuracy"] = 0.96
+    assert "breakdown none" in " | ".join(t for t, _ in stage_summary(vn, "noise_validate"))
+    os.remove(exp_path("vn"))
+    reload()
+
+
 def _selftest_run(e: Exp) -> None:
     """Wrapper checks on the selftest training experiment (its label_build is done at this point)."""
     import subprocess
@@ -3148,6 +3338,7 @@ def _selftest():
         v2 = load("val2")
         assert v2.flow == "Validation against a reference" and default_goal(v2) == "Indicator validation"
         assert list(stages(v2)) == FLOWS["Validation against a reference"] and v2.indicators["variants"] == ["v1"]
+        _selftest_noise(v2)
         # the training dataset disappears -> the validation indicators say what is missing and where
         os.rename(e.label["out"], e.label["out"] + ".bak")
         st = status(v)

@@ -93,6 +93,64 @@ def shot(win, name):
     ImageGrab.grab(bbox=tuple(int(v * F) for v in (x, y, x + w, y + h))).save(os.path.join(SHOTS, name))
 
 
+def check_noise():
+    """Noise validation (PLAN_noise_validation.md): the Noise form (old mode untouched, cases picked from the list, the
+    keys written), the Noise validation form (only out) and the new box in the diagram, on the fake labelled training."""
+    e = ex.load(TR)
+    stages0 = ex.own_yaml(TR)["stages"]
+    f = L.NoiseForm(app, e)
+    assert not f.multi.get() and f.levels.get() == "80, 60, 40, 30, 20, 10" and f.count.cget("text") == ""
+    f._ok()
+    assert not ex.own_yaml(TR).get("noise") and not ex.noise_multi(ex.load(TR))        # saving the old mode changes nothing
+    f = L.NoiseForm(app, ex.load(TR))
+    f.multi.set(True)
+    f.levels.set("40, 20")
+    f.nreal.set("2")
+    f._pick()                                                                         # list of cases with kappa and label
+    lb = f.picker.winfo_children()[0]
+    assert lb.size() == 5 and "kappa 0.600" in lb.get(0) and "stable" in lb.get(0), lb.get(0)
+    lb.selection_clear(0, "end")
+    lb.selection_set(1)
+    lb.selection_set(3)
+    f._pick_ok()
+    assert f.cases.get() == "case_001, case_003" and "8 noisy copies" in f.count.cget("text"), f.count.cget("text")
+    shot(f.win, "noise_form.png")
+    f.nreal.set("0")
+    f._ok()                                                                           # refused: the form stays, says why
+    assert errors.pop()[2] == "error" and ex.own_yaml(TR).get("noise") is None
+    f.nreal.set("2")
+    f.seed.set("7")
+    f._ok()
+    assert ex.own_yaml(TR)["noise"] == {"cases": ["case_001", "case_003"], "snr_list": [40, 20], "realizations": 2,
+                                        "seed": 7}, ex.own_yaml(TR)["noise"]
+    assert ex.noise_multi(ex.load(TR)) and not ex._noise_problems(ex.load(TR), [])
+    f = L.NoiseForm(app, ex.load(TR))                                                 # reopened: the keys come back
+    assert f.multi.get() and f.cases.get() == "case_001, case_003" and f.levels.get() == "40, 20" and f.nreal.get() == "2"
+    f.multi.set(False)
+    f._ok()
+    assert "cases" not in ex.own_yaml(TR)["noise"] and ex.own_yaml(TR)["noise"]["seed"] == 7   # back to the old mode
+    ex.save_section(TR, "noise", {"cases": "all", "snr_list": [30, 10]})
+    # Noise validation: only out; the box is in the diagram and its card says there is nothing yet
+    d = ex.own_yaml(TR)
+    d["stages"] = stages0 + ["noise", "noise_indicators", "noise_validate"]
+    ex.yaml_save(d, ex.exp_path(TR))
+    ex.reload()
+    nv = L.NoiseValidateForm(app, ex.load(TR))
+    nv.out.set(os.path.join(tmp, "nv.h5"))
+    nv._ok()
+    assert ex.stages(ex.load(TR))["noise_validate"].outputs == [os.path.normpath(os.path.join(tmp, "nv.h5"))]
+    ex.save_section(TR, "noise_validate", None)
+    lay = L.diagram_layout(list(ex.stages(ex.load(TR))), False)
+    assert lay["noise_validate"][0] > lay["noise_indicators"][0] and lay["noise_validate"][1] == lay["noise"][1]
+    app.select(TR, "noise_validate")
+    assert ex.stage_summary(ex.load(TR), "noise_validate") == [("no results yet", None)]
+    shot(root, "noise_main.png")
+    d["stages"] = stages0                                                             # leave the experiment as it was
+    ex.yaml_save(d, ex.exp_path(TR))
+    ex.save_section(TR, "noise", None)
+    print("noise forms OK")
+
+
 def check_ramps():
     """Ramps of Ap (PLAN_ramps.md): create (mm, kappa, mixed with constant cases), SLD picker in ramps mode, edit,
     copy, dry-run, a decreasing ramp on a one-way workpiece, import / standardize of an .h5 with ramps."""
@@ -587,6 +645,7 @@ try:
     assert os.path.getmtime(os.path.join(ext, "old_results.h5")) == mt
     print("standardize of a file that has its experiment: only attributes, no new experiment OK")
     check_ramps()
+    check_noise()
     # ---- compare: two validations with fabricated metrics
     for n, ba in ((VA, 0.9), ("val_from_dialog", 0.7)):
         out = os.path.join(tmp, f"{n}_val.h5")

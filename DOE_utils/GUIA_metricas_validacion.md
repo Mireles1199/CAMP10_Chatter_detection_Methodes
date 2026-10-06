@@ -12,6 +12,7 @@ Los ejemplos vienen de dos experimentos con Ap constante: **n12000** (12098 rpm,
 5. Las gráficas, una por una.
 6. Cómo contárselo a los directores.
 7. Glosario y dónde está cada cosa.
+8. Validación con ruido (robustez).
 
 ---
 
@@ -529,3 +530,88 @@ Los colores son una paleta segura para daltónicos. Verde = acierto TP, azul = T
 | Esta guía | `DOE_utils/GUIA_metricas_validacion.md` |
 | Resultados | `doe_validation_results.h5` y `doe_validation_results_metrics.csv` (junto a los datos de cada experimento) |
 | Figuras guardadas | `<carpeta del .h5>/figs_validation/` |
+| Validación con ruido | `DOE_utils/DOE_simulacion/doe_noise.py` (ruido), `DOE_utils/DOE_analisis/validate_noise.py` (métricas), plan en `DOE_utils/PLAN_noise_validation.md` |
+| Figuras con ruido | `<carpeta del .h5>/figs_noise_validation/` |
+
+---
+
+## 8. Validación con ruido (robustez)
+
+### 8.1 La pregunta
+
+Todo lo anterior usa señales **limpias** de simulación. Un sensor real añade **ruido**. La pregunta es: *¿un indicador cuyo umbral se calibró con datos limpios sigue funcionando cuando la señal tiene ruido?* Es una pregunta de **robustez**.
+
+Analogía: un detector de humo calibrado en una casa sin cocina, ¿sigue sin dar falsas alarmas cuando alguien empieza a cocinar?
+
+### 8.2 Qué se hace
+
+1. Se toman los casos de validación (un subconjunto representativo en la primera pasada) y a cada uno se le suma **ruido blanco gaussiano** a varios niveles.
+2. Los indicadores se corren sobre esas señales ruidosas **con el mismo umbral del entrenamiento limpio**.
+3. Cada copia ruidosa se compara con la **etiqueta del caso limpio** del que viene: el ruido no cambia la verdad (el caso sigue siendo estable o inestable); solo pone a prueba al indicador.
+4. Se calculan las mismas métricas de la sección 3, **por nivel de ruido**.
+
+### 8.3 El SNR (relación señal/ruido) y por qué es "absoluto"
+
+- **SNR en dB:** cuánto más fuerte es la señal que el ruido. **Más dB = menos ruido.** Cada 10 dB el ruido se divide por ~3 en amplitud (por 10 en potencia): 20 dB = ruido de potencia 1 % de la señal; 40 dB = 0.01 %.
+- **Absoluto:** el ruido de un nivel tiene **el mismo tamaño en todos los casos**, como pasa con un sensor real. Se mide respecto a una señal de referencia fija: la del **caso inestable más débil** (el chatter más pequeño que queremos detectar). "SNR 20 dB" significa "ruido con el 1 % de la potencia de ese chatter".
+- **Consecuencia importante:** los casos estables vibran muy poco (en n12000, entre ~15 y ~1000 veces menos que la referencia en amplitud RMS). Por eso, a un nivel donde el chatter todavía se ve perfectamente, el ruido ya puede ser **más grande que toda la vibración de un caso estable**. Ahí es donde se esperan las primeras falsas alarmas.
+- Niveles de la primera pasada: **80, 60, 40, 30, 20 y 10 dB**.
+
+### 8.4 Realizaciones: por qué se repite con varias semillas
+
+El ruido es aleatorio: con otra "tirada" (semilla) el resultado de un caso puede cambiar, sobre todo cerca del límite. Por eso cada nivel se repite con **3 realizaciones** independientes.
+
+- Cada realización es una validación completa de todos los casos a ese nivel.
+- Se reporta la **media** entre realizaciones y su **rango (mínimo–máximo)**.
+- Las realizaciones **no se cuentan como casos nuevos** (son el mismo caso con otro ruido): mezclarlas haría que los resultados parecieran más seguros de lo que son.
+
+### 8.5 Qué métricas nuevas aparecen
+
+| Métrica | Qué es |
+|---|---|
+| Métricas por nivel (`/by_snr`) | Las mismas de la sección 3 (balanced accuracy, TPR, TNR, MCC, AUC, fracción de alarma en estables, anticipación), con media, mínimo y máximo entre realizaciones. |
+| **SNR de quiebre** (`snr_breakdown_db`) | El **mayor SNR** al que la balanced accuracy media cae **más de 0.05** por debajo de la limpia. Es "a partir de cuánto ruido el indicador empieza a fallar". Sin valor si nunca cae. |
+| Referencia limpia (`/clean`) | Las métricas sin ruido, para comparar. |
+
+### 8.6 Las gráficas de ruido
+
+**`noise_metrics`** (4 paneles: balanced accuracy, TPR, TNR, fracción de alarma en estables)
+- Eje horizontal: SNR, **de limpio (izquierda) a ruidoso (derecha)**. El primer punto, "clean", es el valor sin ruido (rombo hueco).
+- Línea = media entre realizaciones; banda = mínimo–máximo.
+- Línea vertical discontinua (panel de balanced accuracy) = SNR de quiebre de ese indicador.
+- **Cómo leerla:** una curva que se mantiene plana hasta niveles muy ruidosos = indicador robusto. Si cae el **TNR** (y sube la fracción de alarma), el ruido provoca **falsas alarmas**; si cae el **TPR**, el ruido **tapa** el chatter.
+
+**`noise_case_matrix`** (un panel por indicador)
+- Filas = casos ordenados por kappa (S estable, U inestable, g gris); columnas = niveles de SNR.
+- Color = fracción de realizaciones en que el caso salió **bien** (amarillo = siempre bien, morado = siempre mal); gris = no puntuado.
+- **Cómo leerla:** muestra **qué casos** empiezan a fallar primero. Lo esperable: los estables (por las falsas alarmas) antes que los inestables.
+
+**`noise_anticipation`**
+- Anticipación `t_det / t_onset` (sección 3.9) contra el SNR.
+- **Cómo leerla:** si el ruido hace alarmar antes (valor más bajo) o más tarde (más alto). Ojo: alarmar "antes" con ruido puede ser una falsa alarma disfrazada; hay que leerla junto con `noise_metrics`.
+
+### 8.7 Resultados de la primera pasada (n12000)
+
+12 casos (5 estables, 1 gris, 6 inestables), niveles 80, 60, 40, 30, 20 y 10 dB, 3 realizaciones. Balanced accuracy sin ruido (en esos mismos 12 casos) y SNR de quiebre:
+
+| Indicador | Sin ruido | A qué SNR empieza a fallar |
+|---|---|---|
+| green | 0.90 | **20 dB** |
+| ssq | 0.90 | **20 dB** |
+| maxent | 0.80 | **40 dB** |
+| rms_cv | 0.60 | ya falla a 80 dB (0.50) |
+
+**Cómo se lee:**
+- **El TPR no baja:** con ruido los indicadores siguen detectando todos los casos inestables. El ruido no tapa el chatter en este rango.
+- **Lo que cae es el TNR:** los casos estables vibran muy poco (~1e-8 m), así que el ruido los hace parecer chatter y se disparan **falsas alarmas**. Con el entrenamiento limpio, los umbrales no aguantan ruido de ese tamaño.
+- **Green y ssq aguantan mucho más que maxent** (hasta ~30 dB frente a ~60 dB). rms_cv ya fallaba sin ruido (por su arranque), así que el ruido casi no empeora algo que ya estaba mal.
+- **En `noise_case_matrix`** se ve el mismo patrón por caso: los estables pasan todos a la vez de acertar a fallar al cruzar el quiebre; los inestables nunca fallan. El estable de kappa 1.05 falla incluso sin ruido (es el caso ambiguo de siempre).
+- **En `noise_anticipation`:** al llegar al quiebre la anticipación se desploma (`t_det/t_onset` → ~0): el indicador alarma desde el principio, es decir, falsas alarmas, no detección temprana.
+
+Las bandas mínimo–máximo entre realizaciones son casi invisibles: las 3 realizaciones coinciden en casi todo (el resultado de cada caso es de todo o nada y el ruido a ese nivel no lo cambia). Eso es buena señal, pero con 12 casos y 3 realizaciones sigue siendo una primera pasada.
+
+### 8.8 Qué se puede y qué no se puede concluir
+
+- **Sí:** a qué nivel de ruido cada indicador, **con su calibración limpia**, empieza a fallar, y si falla por falsas alarmas o por perder el chatter.
+- **No:** cómo se comportaría si se **entrenara con ruido** (es otra pregunta, anotada para el futuro), ni cómo es el ruido de un sensor concreto (aquí es ruido blanco ideal, independiente en desplazamiento y velocidad: una simplificación declarada).
+- Con 12 casos y 3 realizaciones, las diferencias pequeñas entre indicadores no son concluyentes (igual que en la sección 3.7).

@@ -191,7 +191,17 @@ Todos los visores tienen el botón **💾 Export…** (el visor, cada vista de l
 
 ### Etapas opcionales
 
-Deflexión estática, ruido y SNR del modelo se activan en **Experiment settings** y se configuran en su sección del YAML (**Edit config** abre el archivo). Las claves son las constantes del script en minúscula (`snr_range`, `k_cut`, `control_idx`…).
+Deflexión estática, ruido y SNR del modelo se activan en **Experiment settings**. **Noise** y **Noise validation** tienen formulario en **Edit config**; las otras se configuran en su sección del YAML (**Edit config** abre el archivo): las claves son las constantes del script en minúscula (`k_cut`, `control_idx`…).
+
+### Validación con ruido
+
+¿Un indicador calibrado con datos limpios sigue funcionando cuando la señal tiene ruido de sensor? Los umbrales se quedan como salieron del entrenamiento limpio; solo se ensucian las señales de **validación**, y la verdad de cada copia ruidosa es la de su caso limpio.
+
+1. **Noise** (Edit config → *Noise for the validation*): elige los casos (**Pick…** los lista con su κ y su etiqueta), los **niveles de SNR** en dB y las **realizaciones**. El SNR es **absoluto**: el mismo ruido para todos los casos, calculado a partir del caso inestable más débil (**reference case**: `auto`, o uno a mano). Las copias son casos × niveles × realizaciones; el formulario dice cuántas son y cuánto pesa el archivo (`doe_noise_multi_results.h5`, en la carpeta de salida del experimento). Sin marcar la casilla queda el modo antiguo: un solo caso de control, sin validación.
+2. **Noise indicators**: corre los indicadores sobre cada copia (sin guardar las señales otra vez).
+3. **Noise validation** (necesita **Validate** hecha): puntúa cada copia contra la verdad del caso limpio, con el mismo modo de grises que la validación limpia. En su **Viewer** hay tres figuras: métricas contra SNR (línea = media, banda = mín–máx entre realizaciones, marcador = limpio, línea discontinua = el SNR donde la exactitud equilibrada cae más de 0.05), matriz caso × SNR y anticipación. **Figures…** las guarda en `figs_noise_validation/`.
+
+La etapa se activa en **Experiment settings** (**Noise validation** trae **Noise indicators**, **Noise** y **Validate**). Si **Noise** no tiene `cases`, **Noise validation** no se puede correr y dice por qué.
 
 ### Rampas de Ap
 

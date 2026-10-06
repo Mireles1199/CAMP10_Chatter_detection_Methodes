@@ -382,7 +382,7 @@ def main() -> None:
         list_cases(h5_in, all_groups, label_key)
         return
 
-    wanted = args.cases or ENABLED_CASES
+    wanted = _wanted_groups(args.cases, ENABLED_CASES, layout, bool(args.experiment))
     groups = all_groups if wanted == "all" else [g for g in wanted if g in all_groups]
     missing = [] if wanted == "all" else [g for g in wanted if g not in all_groups]
     if missing:
@@ -421,6 +421,7 @@ def main() -> None:
             "reference_h5": reference_h5,
             "spin_fallback": spin_fallback,
             "truth": truth, "strategy": strategy, "truth_h5": truth_h5, "onset": onset,
+            "copy_signals": not args.no_signals,
         },
         nb_workers=workers,
         dry_run=args.dry_run,
@@ -510,6 +511,9 @@ def parse_args(defaults: Dict[str, Any]) -> argparse.Namespace:
                    help=f"Workers en paralelo (default: NB_WORKERS={defaults['workers']})")
     p.add_argument("--cases", nargs="+", default=None, metavar="GRUPO",
                    help="Solo estos grupos, ej. case_000 case_003 (default: ENABLED_CASES)")
+    p.add_argument("--no-signals", dest="no_signals", action="store_true",
+                   help="No copiar Axial_* al HDF5 de salida (solo t, I_t, t_d y attrs): para los archivos de ruido "
+                        "multi-caso, que si no ocuparían GB")
     p.add_argument("--dry_run", action="store_true",
                    help="Imprime el plan de tareas sin correr los indicadores.")
     p.add_argument("--list", action="store_true",
@@ -853,8 +857,20 @@ def _safe_attr(v):
     return str(v)
 
 
+NOISE_ROOT_ATTRS = ("noise_layout", "snr_mode", "snr_ref_case", "snr_levels", "realizations", "seed", "cases")
+
+
+def _wanted_groups(cli_cases, enabled_cases, layout: str, from_experiment: bool):
+    """Grupos a procesar: los del CLI; si no, ENABLED_CASES; pero en un archivo de RUIDO con --experiment siempre
+    'all': indicators.cases del experimento lista case_* (no existen en el archivo de ruido, daría 0 grupos) y la
+    selección de casos ya la hizo noise.cases."""
+    if cli_cases:
+        return cli_cases
+    return "all" if layout == "noise" and from_experiment else enabled_cases
+
+
 def write_results(out_path: str, res: Dict[str, Any], h5_src: str,
-                  save_meta_arrays: bool = False) -> None:
+                  save_meta_arrays: bool = False, copy_signals: bool = True) -> None:
     """Escribe un resultado en out_path (modo 'a': se acumula entre corridas).
 
     La primera vez que aparece un caso copia además sus attrs y las señales
@@ -865,6 +881,11 @@ def write_results(out_path: str, res: Dict[str, Any], h5_src: str,
             if res.get(k):
                 out_f.attrs[{"reference_h5": "reference_dataset", "truth_h5": "label_dataset",
                              "strategy": "label_strategy"}[k]] = res[k]
+        if "__" in res["case"] and "noise_layout" not in out_f.attrs:   # multi-case noise file: its root attrs (SNR reference, levels...)
+            with h5py.File(h5_src, "r") as src_f:
+                for k, v in src_f.attrs.items():
+                    if k in NOISE_ROOT_ATTRS or k.startswith("snr_ref_power_"):
+                        out_f.attrs[k] = v
         case_grp = out_f.require_group(res["case"])
         if res["run_name"] in case_grp:
             del case_grp[res["run_name"]]
@@ -875,7 +896,7 @@ def write_results(out_path: str, res: Dict[str, Any], h5_src: str,
                     src = src_f[res["case"]]
                     for k, v in src.attrs.items():
                         case_grp.attrs[k] = v
-                    for sig in ("Axial_disp", "Axial_vel", "Axial_acc"):
+                    for sig in ("Axial_disp", "Axial_vel", "Axial_acc") if copy_signals else ():
                         if sig in src and sig not in case_grp:
                             for ds in ("time", "values"):
                                 case_grp.create_dataset(f"{sig}/{ds}", data=src[f"{sig}/{ds}"][()],
@@ -1016,7 +1037,7 @@ def run_all(
                    reference_h5=settings.get("reference_h5") or "")
         log.info("[%d/%d] completado: %s / %s", n_done, total, res["case"], res["run_name"])
         if out_path:
-            write_results(out_path, res, h5_path, save_meta_arrays)
+            write_results(out_path, res, h5_path, save_meta_arrays, settings.get("copy_signals", True))
         per_case.setdefault(res["case"], []).append(res)
         if len(per_case[res["case"]]) == len(runs) and not dry_run:
             _case_summary(h5_path, res["case"], per_case.pop(res["case"]), res["true_label"], res["strategy"],
@@ -1093,6 +1114,24 @@ def _selftest() -> None:
         assert abs(a["Ap_mm"] - 8.8) < 1e-9 and f.attrs["reference_dataset"] == "ref.h5"
         assert f["case_000/maxent_x"].attrs["meta_variance_floor_count"] == 3
     _case_summary(src, "case_000", [res], "unstable", "amplitude")
+    # --no-signals: attrs del grupo sí (realization, snr_db...), señales no
+    dst2 = os.path.join(tmp, "nosig.h5")
+    write_results(dst2, res, src, copy_signals=False)
+    with h5py.File(dst2, "r") as f:
+        assert "Axial_disp" not in f["case_000"] and f["case_000"].attrs["kappa"] == 1.03 and "maxent_x" in f["case_000"]
+    # un archivo de ruido multi-caso pasa sus attrs raíz (referencia del SNR, niveles) al de indicadores
+    nsrc, ndst = os.path.join(tmp, "noise_src.h5"), os.path.join(tmp, "noise_dst.h5")
+    with h5py.File(src, "r") as a, h5py.File(nsrc, "w") as b:
+        a.copy(a["case_000"], b, name="snr_040.00__case_000__r00")
+        b.attrs.update(noise_layout="multi", snr_ref_case="case_000", snr_ref_power_Axial_disp=1e-10, other="x")
+    write_results(ndst, dict(res, case="snr_040.00__case_000__r00"), nsrc, copy_signals=False)
+    with h5py.File(ndst, "r") as f:
+        assert f.attrs["noise_layout"] == "multi" and f.attrs["snr_ref_case"] == "case_000" and "other" not in f.attrs
+        assert f.attrs["snr_ref_power_Axial_disp"] == 1e-10
+    # los grupos de un archivo de ruido no se filtran con indicators.cases del experimento
+    assert _wanted_groups(None, ["case_000", "case_003"], "noise", True) == "all"
+    assert _wanted_groups(None, ["case_000"], "doe", True) == ["case_000"] and _wanted_groups(["snr_040.00"], "all", "noise", True) == ["snr_040.00"]
+    assert _wanted_groups(None, ["control"], "noise", False) == ["control"]   # sin experimento: el CONFIG manda
     # a ramp that crosses: true label 'mixed', t_onset and Ap at both ends written; the summary applies the rule of
     # Validate (detection >= onset OK, earlier a false alarm, none missed; no tolerance)
     with h5py.File(src, "a") as f:
