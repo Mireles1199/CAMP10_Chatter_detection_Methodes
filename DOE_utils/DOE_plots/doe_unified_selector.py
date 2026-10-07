@@ -1259,12 +1259,13 @@ def _load_pickled(path: str):
         return pickle.load(fh)
 
 
-def _apply_fig_style(language: str, scale: float) -> None:
-    """Set the language (EN | FR | both) and the scale (multiplier of the plot_style presets) of the figure modules."""
+def _apply_fig_style(language: str, scale: float, follow_text: bool = True) -> None:
+    """Set the language (EN | FR | both), the scale (multiplier of the plot_style presets) and whether the text follows
+    it (the "text" control of the Figures window) in the figure modules."""
     for name in ("validation_figures", "sld_model"):
         m = sys.modules.get(name)
         if m is not None:
-            m.LANGUAGE, m.FIGSCALE = language, scale
+            m.set_style(language, scale, follow_text)
 
 
 def _sim_models(path: str) -> set:

@@ -1356,8 +1356,8 @@ class App:
         import validation_figures as vf
         from figures_window import FiguresWindow, Item
 
-        def style(language, scale):
-            vf.LANGUAGE, vf.FIGSCALE = language, scale
+        def style(language, scale, follow_text=True):
+            vf.set_style(language, scale, follow_text)
         self._cmp_win = FiguresWindow(
             self.root, f"Validation compare — A = {a}   B = {b}",
             [Item(f"compare_{a}_vs_{b}", lambda: vf.fig_compare(pa, pb), native=True)], style=style,

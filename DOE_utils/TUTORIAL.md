@@ -146,6 +146,7 @@ Todos los visores tienen el botón **💾 Export…** (el visor, cada vista de l
 |---|---|
 | size | *own* (la figura tal cual: su tamaño de artículo, o el de pantalla para un panel), *SIMPLE* (1 columna), *WIDE* (página), *grid* (columnas × filas de *SIMPLE*; se rellena solo con la disposición de ejes del panel) |
 | scale | multiplica el tamaño (1 = el del artículo, 1.5 por defecto) |
+| text | *follows scale* (por defecto): letra, líneas y marcadores crecen con la escala como un zoom, así la figura se ve igual en grande o en pequeño (a 1.5 queda como antes). *fixed*: los puntos del estilo del artículo a cualquier escala (al ampliar, el texto parece más pequeño). En un panel o una figura no nativa solo actúa con *size* SIMPLE / WIDE / grid (con *own* el lienzo no cambia) |
 | language | EN / FR / both. Las figuras de validación y el SLD se dibujan en ese idioma; las demás se traducen al exportar con la tabla `DOE_plots/figure_texts.yaml` (si falta una frase, la barra de estado lo dice: añádela a la tabla) |
 | article proportions | en pantalla, la vista previa con la proporción del archivo |
 | dpi, format | 200 / 300 / 600; png / pdf / svg |

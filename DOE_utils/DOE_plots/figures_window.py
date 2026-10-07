@@ -4,8 +4,9 @@ language EN / FR / both, dpi, format, folder and name — with the article propo
 
 It knows nothing about the figures. Each element is an `Item(name, render, native, live)`:
   - render() -> Figure (raises if the figure has no data);
-  - native: the figure draws its own text in the chosen language (validation_figures, sld_model: `style(language, scale)`
-    sets their LANGUAGE / FIGSCALE); the others are translated on the exported copy by fig_lang.translate_figure;
+  - native: the figure draws its own text in the chosen language and scale (validation_figures, sld_model:
+    `style(language, scale, follow_text)` calls their set_style); the others are translated on the exported copy by
+    fig_lang.translate_figure and, at a preset size, their text follows the scale (fig_lang.scale_text);
   - live: render() gives the figure of a panel on screen; an independent copy is exported (selection and zoom kept, the
     panel is not touched);
   - folder: where this item is saved (absolute), instead of the folder of the window (Save and Save all);
@@ -34,6 +35,9 @@ LANGUAGES = ("EN", "FR", "both")
 FORMATS = ("png", "pdf", "svg")
 DPIS = ("200", "300", "600")   # 200 intermediate, 300 final (article-plot-style, sec. 10)
 SIZES = ("own", "SIMPLE", "WIDE", "grid")   # own = the figure's article size, or a panel as it is on screen
+# text: 'follows scale' = letters, lines and markers grow with the scale like a zoom (as at the default 1.5); 'fixed' = the
+# points of the article-plot-style skill at any scale (PLAN_plot_style.md §3)
+TEXT_MODES = ("follows scale", "fixed")
 
 
 class Item(NamedTuple):
@@ -94,7 +98,7 @@ class FiguresWindow:
         # items: Item, or names drawn by render(name) (native: the older call of the viewer)
         self.items = [it if isinstance(it, Item) else Item(it, (lambda n=it: render(n)), native=True) for it in items]
         self.labels = [it.name for it in self.items]
-        self.style = style or (lambda language, scale: None)
+        self.style = style or (lambda language, scale, follow_text=True: None)
         self.fig = self.canvas = self.toolbar = None
         self.missing = []
         self.win = win = tk.Toplevel(parent)
@@ -102,6 +106,7 @@ class FiguresWindow:
         win.geometry("1360x880")
         v = lambda x: tk.StringVar(value=x)   # noqa: E731
         self.lang, self.scale, self.dpi, self.fmt = v(language), v(f"{scale:g}"), v("300"), v("png")
+        self.text = v(TEXT_MODES[0])
         self.size, self.gcols, self.grows = v("own"), v("2"), v("1")
         self.folder, self.name = v(out_dir), v("")
         self.keep = tk.BooleanVar(value=True)
@@ -127,6 +132,7 @@ class FiguresWindow:
         add(row1, "scale", ttk.Spinbox(row1, textvariable=self.scale, from_=0.5, to=3.0, increment=0.25, width=7,
                                        command=self.draw))
         add(row1, "language", ttk.Combobox(row1, textvariable=self.lang, values=LANGUAGES, state="readonly", width=8))
+        add(row1, "text", ttk.Combobox(row1, textvariable=self.text, values=TEXT_MODES, state="readonly", width=13))
         ttk.Checkbutton(row1, text="article proportions", width=19, variable=self.keep,
                         command=self.fit).pack(side=tk.LEFT, padx=10)
         add(row2, "dpi", ttk.Combobox(row2, textvariable=self.dpi, values=DPIS, state="readonly", width=7), False)
@@ -188,8 +194,8 @@ class FiguresWindow:
             grid = (int(self.gcols.get()), int(self.grows.get()))
         except ValueError:
             raise ValueError("scale and grid must be numbers (scale 1 = the article preset, 1.5 by default)")
-        lang = self.lang.get()
-        self.style(lang, scale)
+        lang, follow = self.lang.get(), self.text.get() != "fixed"
+        self.style(lang, scale, follow)
         fig = item.render()
         if fig is None:
             raise ValueError("nothing to export yet (draw this panel first)")
@@ -202,6 +208,9 @@ class FiguresWindow:
             plt.close(fig)   # detached from pyplot's windows; the object stays
             FigureCanvasAgg(fig)   # its pyplot canvas was a Tk widget, destroyed by close: resizing it would fail
         self.missing = [] if item.native else translate(fig, lang)
+        if not item.native and self.size.get() != "own":   # a preset x scale: its text follows (or not) like a native one
+            from fig_lang import scale_text
+            scale_text(fig, ps.zoom(scale, follow))
         size = target_size(fig, self.size.get(), scale, grid)
         if abs(fig.get_size_inches()[0] - size[0]) > 1e-6 or abs(fig.get_size_inches()[1] - size[1]) > 1e-6:
             fig.set_size_inches(*size)
@@ -356,6 +365,17 @@ def _selftest():
     w.scale.set("1")
     f = w.make(w.items[0])
     assert tuple(f._keep_size) == ps.FIGSIZE_SIMPLE and tuple(live.get_size_inches()) != ps.FIGSIZE_SIMPLE
+    # 'text': follows the scale (default: as today at 1.5, x2 at 3) or fixed; native figures get it through style()
+    calls = []
+    w.style = lambda language, scale, follow_text=True: calls.append(follow_text)
+    fs = lambda s, mode: (w.scale.set(s), w.text.set(mode), w.make(w.items[0]).axes[0].xaxis.label.get_fontsize())[2]   # noqa: E731
+    base = fs("1.5", TEXT_MODES[0])
+    assert fs("3", TEXT_MODES[0]) == 2 * base and fs("3", "fixed") == base and calls[-2:] == [True, False], calls
+    assert live.axes[0].xaxis.label.get_fontsize() == base                    # the panel on screen is not touched
+    w.size.set("own")
+    assert fs("3", TEXT_MODES[0]) == base                                     # own size: the canvas does not grow, nor the text
+    w.text.set(TEXT_MODES[0])
+    w.scale.set("1")
     w.size.set("grid")
     w.gcols.set("2")
     w.grows.set("2")
