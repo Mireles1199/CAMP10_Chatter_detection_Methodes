@@ -32,6 +32,8 @@ PACKAGE_COPIES = [os.path.join(REPO, "indicators", *p, "viz", "plot_style.py") f
     ("green_integral", "src", "green_integral"), ("emd_hht", "src", "C_emd_hht"))]
 # files already migrated to the unified style (grows phase by phase); the lint is strict on them
 MIGRATED = [os.path.join(HERE, n) for n in ("plot_style.py", "validation_figures.py", "sld_model.py", "fig_lang.py")]
+MIGRATED += [os.path.join(HERE, n) for n in ("doe_plotter.py", "doe_model_snr_plotter.py", "doe_indicator_plotter.py",
+                                             "doe_noise_plotter.py")]   # F4 (wt-interfaz)
 MIGRATED += [os.path.join(REPO, "indicators", *p) for p in (
     ("maxent_sprt", "src", "MaxEnt_SPRT", "viz", "maxent_sprt_plots.py"), ("rms_cv", "src", "rms_cv", "viz", "rms_cv_plots.py"),
     ("rms_cv", "src", "rms_cv", "viz", "plots.py"), ("ssq_chatter", "src", "ssq_chatter", "viz", "sst_svd_plots.py"),
