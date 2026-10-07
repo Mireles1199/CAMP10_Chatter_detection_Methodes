@@ -66,6 +66,22 @@ import eta_compat  # noqa: E402  (kappa -> eta: a validation file of either age)
 
 LANGUAGE = "EN"   # "EN" | "FR" | "both"
 FIGSCALE = 1.5    # multiplier of the plot_style presets (same criterion as sld_model.py)
+TEXT_FOLLOWS = True   # True: letra, marcadores y grosores acompañan a FIGSCALE (como un zoom) | False: puntos fijos del skill
+
+
+def _k(v):
+    """Un tamaño a mano (pt) a la escala actual."""
+    return v * ps.zoom(FIGSCALE, TEXT_FOLLOWS)
+
+
+def _rc():
+    return ps.rc_scaled(FIGSCALE, TEXT_FOLLOWS)
+
+
+def set_style(language, scale, follow_text=True):
+    """Lo que llama la ventana de exportar antes de dibujar: idioma, escala y si el texto la sigue."""
+    global LANGUAGE, FIGSCALE, TEXT_FOLLOWS
+    LANGUAGE, FIGSCALE, TEXT_FOLLOWS = language, scale, follow_text
 RUN_COLOR = ["#0072B2", "#D55E00", "#009E73", "#CC79A7", "#E69F00", "#56B4E9"]   # Okabe-Ito, one per indicator
 FIGURES = {}
 NOISE_FIGURES = {}
@@ -180,13 +196,13 @@ def _figure(fn=None, *, registry=None, loader=None):
 
     @functools.wraps(fn)
     def run(h5_path, out_dir=None, snr=None, realization=None):
-        with plt.rc_context(ps.ARTICLE_RCPARAMS):
+        with plt.rc_context(_rc()):
             D = loader(h5_path, snr, realization)
             fig = fn(D)
             mode = str(D.attrs.get("gray_mode", "ignore"))
             if mode != "ignore":   # a figure of a non-default mode must say so
                 fig.supxlabel(T(f"gray cases counted as {mode}", f"cas gris comptés comme {'stable' if mode == 'stable' else 'instable'}"),
-                              x=0.99, ha="right", fontsize=7, color="grey")   # supxlabel: constrained_layout leaves room for it
+                              x=0.99, ha="right", fontsize="xx-small", color="grey")   # supxlabel: constrained_layout leaves room for it
         return _done(fig, out_dir, name)
     registry[name] = run
     return run
@@ -221,7 +237,7 @@ def fig_ranking(D):
     for j, (k, lab) in enumerate((("balanced_accuracy", T("balanced accuracy", "exactitude équilibrée", " / ")),
                                   ("MCC", "MCC"), ("AUC", "AUC"))):
         err = _err(D, k)
-        ax.bar(x + (j - 1) * w, np.nan_to_num([D.met[r][k] for r in D.order]), w, yerr=err, capsize=2, color=RUN_COLOR[j],
+        ax.bar(x + (j - 1) * w, np.nan_to_num([D.met[r][k] for r in D.order]), w, yerr=err, capsize=_k(2), color=RUN_COLOR[j],
                label=lab)
     ax.axhline(0, color="k", lw=0.8)
     ax.set_xticks(x, [f"{i + 1}. {short(r)}" for i, r in enumerate(D.order)], rotation=15)
@@ -240,8 +256,8 @@ def fig_roc(D):
             g = f[f"roc/{r}/{'high' if m['roc_direction'] == 1 else 'low'}"]
             mk = "osD^v<"[i % 6]   # one marker per indicator: identical points do not hide each other
             ax.step(g["fpr"][()], g["tpr"][()], where="post", color=RUN_COLOR[i])
-            ax.plot(1 - m["TNR"], m["TPR"], mk, ms=9, mfc="none", mew=1.5, color=RUN_COLOR[i])   # operating point of the indicator
-            ax.plot([], [], color=RUN_COLOR[i], marker=mk, mfc="none", ms=8,
+            ax.plot(1 - m["TNR"], m["TPR"], mk, ms=_k(9), mfc="none", mew=_k(1.5), color=RUN_COLOR[i])   # operating point of the indicator
+            ax.plot([], [], color=RUN_COLOR[i], marker=mk, mfc="none", ms=_k(8),
                     label=f"{short(r)} AUC={m['AUC']:.2f}" + ("" if m["roc_direction"] == 1 else " (low)"))
     ax.plot([0, 1], [0, 1], "k:", lw=0.8)
     ax.set(xlabel=T("FPR (stable cases that alarm)", "FPR (cas stables avec alarme)"), ylabel="TPR",
@@ -257,7 +273,7 @@ def fig_tpr_tnr(D):
     for off, k, col, lab in ((-0.15, "TPR", ps.COLOR_UNSTABLE, T("TPR (unstable cases)", "TPR (cas instables)", " / ")),
                              (0.15, "TNR", ps.COLOR_STABLE, T("TNR (stable cases)", "TNR (cas stables)", " / "))):
         v = np.array([D.met[r][k] for r in D.order], float)
-        ax.errorbar(x + off, v, yerr=_err(D, k), fmt="o", ms=6, capsize=3, color=col, label=lab)
+        ax.errorbar(x + off, v, yerr=_err(D, k), fmt="o", ms=_k(6), capsize=_k(3), color=col, label=lab)
     ax.set_xticks(x, [short(r) for r in D.order], rotation=15)
     ax.set(ylim=(-0.05, 1.05), ylabel=T("rate (Wilson 95%)", "taux (Wilson 95 %)"))
     fig.legend(*ax.get_legend_handles_labels(), loc="outside upper center", ncol=1 if LANGUAGE == "both" else 2)
@@ -272,7 +288,7 @@ def fig_confusion(D):
         m = D.met[r]
         ax.imshow([[0, 1], [2, 3]], cmap=cmap, vmin=-0.5, vmax=3.5, alpha=0.8)
         for (i, j), k in zip(((0, 0), (0, 1), (1, 0), (1, 1)), ("TP", "FN", "FP", "TN")):
-            ax.text(j, i, f"{k}\n{int(m[k])}", ha="center", va="center", fontsize=14)
+            ax.text(j, i, f"{k}\n{int(m[k])}", ha="center", va="center", fontsize="large")
         ax.set_xticks([0, 1], [T("alarm", "alarme"), T("no alarm", "pas d'alarme")])
         ax.set_yticks([0, 1], [T("unstable", "instable"), T("stable", "stable")], rotation=90, va="center")
         ax.set_title(short(r))
@@ -307,19 +323,19 @@ def fig_detection_time(D):
     s0 = D.summ[D.order[0]]
     m = np.isfinite(s0["t_onset_amp"])
     o = np.argsort(_eta(s0)[m])
-    ax.plot(_eta(s0)[m][o], s0["t_onset_amp"][m][o], "k-s", ms=4, label=T("amplitude onset $t_{onset}$", "début en amplitude $t_{onset}$", " / "))
+    ax.plot(_eta(s0)[m][o], s0["t_onset_amp"][m][o], "k-s", ms=_k(4), label=T("amplitude onset $t_{onset}$", "début en amplitude $t_{onset}$", " / "))
     for i, r in enumerate(D.order):
         s = D.summ[r]
         g = _gray(s)
         ok, st, un = np.isfinite(s["first_detection_t"]), (s["truth"] == "stable") & ~g, (s["truth"] == "unstable") & ~g
         gr = ok & g   # gray: hollow
-        ax.plot(_eta(s)[gr], s["first_detection_t"][gr], "o", ms=5, mfc="none", color=RUN_COLOR[i])
-        ax.plot(_eta(s)[ok & un], s["first_detection_t"][ok & un], "o", ms=5, color=RUN_COLOR[i], label=short(r))
-        ax.plot(_eta(s)[ok & st], s["first_detection_t"][ok & st], "x", ms=6, color=RUN_COLOR[i])
+        ax.plot(_eta(s)[gr], s["first_detection_t"][gr], "o", ms=_k(5), mfc="none", color=RUN_COLOR[i])
+        ax.plot(_eta(s)[ok & un], s["first_detection_t"][ok & un], "o", ms=_k(5), color=RUN_COLOR[i], label=short(r))
+        ax.plot(_eta(s)[ok & st], s["first_detection_t"][ok & st], "x", ms=_k(6), color=RUN_COLOR[i])
     ax.plot([], [], "o", mfc="none", color="k", label=T("gray (not scored)", "gris (non noté)", " / "))
     ax.axvline(1, color="grey", ls=":")
     ax.set(xlabel=r"$\eta$", ylabel=T("first detection [s]", "première détection [s]"), yscale="log")
-    fig.legend(*ax.get_legend_handles_labels(), loc="outside upper center", ncol=3, fontsize=8)
+    fig.legend(*ax.get_legend_handles_labels(), loc="outside upper center", ncol=3, fontsize="x-small")
     return fig
 
 
@@ -330,11 +346,11 @@ def fig_delay_vs_eta(D):
         s = D.summ[r]
         ok = np.isfinite(s["delay_det_s"])
         o = np.argsort(_eta(s)[ok])
-        ax.plot(_eta(s)[ok][o], s["delay_det_s"][ok][o], "o-", ms=4, color=RUN_COLOR[i], label=short(r))
+        ax.plot(_eta(s)[ok][o], s["delay_det_s"][ok][o], "o-", ms=_k(4), color=RUN_COLOR[i], label=short(r))
     ax.axhline(0, color="k", lw=0.8)
     ax.set(xlabel=r"$\eta$", ylabel=T("first detection $-$ $t_{onset}$ [s]", "première détection $-$ $t_{onset}$ [s]"),
            yscale="symlog")
-    ax.legend(fontsize=8)
+    ax.legend(fontsize="x-small")
     return fig
 
 
@@ -360,12 +376,12 @@ def fig_detection_amp(D):
                 msk = (t <= td) & (t > td - 0.1)
                 if msk.any() and base_attr in f[case].attrs:
                     xs.append(_eta(s0)[k]); ys.append(100 * np.abs(y[msk]).max() / (float(f[case].attrs[base_attr]) * scale))
-            ax.plot(xs, ys, "o-", ms=4, color=RUN_COLOR[i], label=short(r))
+            ax.plot(xs, ys, "o-", ms=_k(4), color=RUN_COLOR[i], label=short(r))
     ax.axhline(float(D.attrs.get("labeling_lim_sup_pct", 40)), color="k", ls="--", label="lim_sup")
     ax.axhline(float(D.attrs.get("labeling_lim_inf_pct", 10)), color="grey", ls=":", label="lim_inf")
     ax.set(xlabel=r"$\eta$", ylabel=T("$|$Axial_disp$|$ at first alarm [% of base]", "$|$Axial_disp$|$ à la 1re alarme [% base]"),
            yscale="log")
-    ax.legend(fontsize=8)
+    ax.legend(fontsize="x-small")
     return fig
 
 
@@ -381,14 +397,14 @@ def fig_score_vs_eta(D):
         s, sc = D.summ[r], _case_score(D, r)
         for truth, col in (("stable", ps.COLOR_STABLE), ("unstable", ps.COLOR_UNSTABLE)):
             k = (s["truth"] == truth) & ~_gray(s)
-            ax.plot(_eta(s)[k], sc[k], "o", ms=5, color=col, label=T(truth, {"stable": "stable", "unstable": "instable"}[truth], " / "))
+            ax.plot(_eta(s)[k], sc[k], "o", ms=_k(5), color=col, label=T(truth, {"stable": "stable", "unstable": "instable"}[truth], " / "))
         g = _gray(s) & np.isfinite(sc)
         if g.any():
-            ax.plot(_eta(s)[g], sc[g], "o", ms=5, mfc="none", color=ps.COLOR_GRAY, label=T("gray (not scored)", "gris (non noté)", " / "))
+            ax.plot(_eta(s)[g], sc[g], "o", ms=_k(5), mfc="none", color=ps.COLOR_GRAY, label=T("gray (not scored)", "gris (non noté)", " / "))
         ax.axvline(1, color="grey", ls=":")
         ax.set(title=f"{short(r)}  AUC={D.met[r]['AUC']:.2f}", xlabel=r"$\eta$", yscale=_yscale(sc))
         ax.set_ylabel("max $I_t$" if D.met[r]["roc_direction"] == 1 else "min $I_t$")
-    axs[0].legend(fontsize=8)
+    axs[0].legend(fontsize="x-small")
     return fig
 
 
@@ -401,7 +417,7 @@ def fig_score_dist(D):
         for x0, k, col in ((0, (s["truth"] == "stable") & ~g, ps.COLOR_STABLE), (1, (s["truth"] == "unstable") & ~g, ps.COLOR_UNSTABLE),
                            (2, g, ps.COLOR_GRAY)):
             v = sc[k]
-            ax.plot(x0 + np.linspace(-0.15, 0.15, len(v)), v, "o", ms=5, color=col, mfc="none" if x0 == 2 else col)
+            ax.plot(x0 + np.linspace(-0.15, 0.15, len(v)), v, "o", ms=_k(5), color=col, mfc="none" if x0 == 2 else col)
         ax.set_xticks([0, 1, 2], [T("stable", "stable"), T("unstable", "instable"), T("gray", "gris")])
         ax.set(title=f"{short(r)}  AUC={D.met[r]['AUC']:.2f}", yscale=_yscale(sc), xlim=(-0.5, 2.5))
         ax.set_ylabel(T("case score", "score du cas"))
@@ -418,12 +434,12 @@ def fig_anticipation(D):
             raise ValueError("no t_ratio in this file (run validate again)")
         ok = np.isfinite(s["t_ratio"]) & ~_gray(s)
         o = np.argsort(_eta(s)[ok])
-        ax.plot(_eta(s)[ok][o], s["t_ratio"][ok][o], "o-", ms=4, color=RUN_COLOR[i], label=short(r))
+        ax.plot(_eta(s)[ok][o], s["t_ratio"][ok][o], "o-", ms=_k(4), color=RUN_COLOR[i], label=short(r))
     ax.axhline(1, color="k", ls="--", lw=0.8)
     ax.set(xlabel=r"$\eta$", ylabel=T("$t_{det}\,/\,t_{onset}$", "$t_{det}\,/\,t_{onset}$"), ylim=(0, 1.1))
     ax.text(0.02, 0.97, T("1 = alarm when the amplitude reaches the limit", "1 = alarme quand l'amplitude atteint la limite"),
-            transform=ax.transAxes, va="top", fontsize=8)
-    ax.legend(fontsize=8, loc="lower right")
+            transform=ax.transAxes, va="top", fontsize="x-small")
+    ax.legend(fontsize="x-small", loc="lower right")
     return fig
 
 
@@ -443,12 +459,12 @@ def fig_pairwise_test(D):
     for a, b, x, y, p in zip(pa, pb, ao, bo, pv):
         for i, j, u, v in ((pos[a], pos[b], x, y), (pos[b], pos[a], y, x)):
             grid[i, j] = int(p < 0.05)
-            ax.text(j, i, f"p={p:.3f}\n{u} | {v}", ha="center", va="center", fontsize=9)
+            ax.text(j, i, f"p={p:.3f}\n{u} | {v}", ha="center", va="center", fontsize="small")
     ax.imshow(grid, cmap=ListedColormap(["#f2f2f2", "#dddddd", ps.COLOR_UNSTABLE]), vmin=-1, vmax=1)
     ax.set_xticks(range(n), [short(r) for r in D.order], rotation=15)
     ax.set_yticks(range(n), [short(r) for r in D.order])
     ax.set_xlabel(T("orange: p < 0.05 (more than chance)\ncell: row right, column wrong | the reverse",
-                    "orange : p < 0,05 (plus que le hasard)\ncase : ligne juste, colonne fausse | l'inverse"), fontsize=8)
+                    "orange : p < 0,05 (plus que le hasard)\ncase : ligne juste, colonne fausse | l'inverse"), fontsize="x-small")
     ax.tick_params(length=0)
     return fig
 
@@ -465,13 +481,13 @@ def fig_gray_bounds(D):
         opt = np.array([D.met[r]["gray_as_unstable_" + k] for r in D.order], float)
         cur = np.array([D.met[r][k] for r in D.order], float)
         ax.hlines(y, np.fmin(pes, opt), np.fmax(pes, opt), color="grey", lw=2)
-        ax.plot(pes, y, "s", ms=7, mfc="none", mew=1.5, color=ps.COLOR_STABLE, label=T("gray = stable (pessimistic)", "gris = stable (pessimiste)", " / "))
-        ax.plot(opt, y, "^", ms=8, mfc="none", mew=1.5, color=ps.COLOR_UNSTABLE, label=T("gray = unstable (optimistic)", "gris = instable (optimiste)", " / "))
-        ax.plot(cur, y, "o", ms=5, color="k", label=T("this file", "ce fichier", " / "))
+        ax.plot(pes, y, "s", ms=_k(7), mfc="none", mew=_k(1.5), color=ps.COLOR_STABLE, label=T("gray = stable (pessimistic)", "gris = stable (pessimiste)", " / "))
+        ax.plot(opt, y, "^", ms=_k(8), mfc="none", mew=_k(1.5), color=ps.COLOR_UNSTABLE, label=T("gray = unstable (optimistic)", "gris = instable (optimiste)", " / "))
+        ax.plot(cur, y, "o", ms=_k(5), color="k", label=T("this file", "ce fichier", " / "))
         ax.set_yticks(y, [short(r) for r in D.order] if ax is axs[0] else [])
         ax.set(xlabel=lab)
         ax.invert_yaxis()
-    fig.legend(*axs[0].get_legend_handles_labels(), loc="outside upper center", ncol=3, fontsize=8)
+    fig.legend(*axs[0].get_legend_handles_labels(), loc="outside upper center", ncol=3, fontsize="x-small")
     return fig
 
 
@@ -500,11 +516,11 @@ def fig_training_coverage(D):
     for name in ("stable", "unstable", "gray"):
         m = np.array([name in str(x).split(",") for x in lab])
         if m.any():
-            ax.plot(k[m], rpm[m], "o", ms=4, color=col.get(name, ps.COLOR_GRAY), label=T(f"training {name}", f"entraînement {name}", " / "))
+            ax.plot(k[m], rpm[m], "o", ms=_k(4), color=col.get(name, ps.COLOR_GRAY), label=T(f"training {name}", f"entraînement {name}", " / "))
     s0 = D.summ[D.order[0]]
-    ax.plot(_eta(s0), s0["spin_rpm"], "kx", ms=7, label=T("validation", "validation"))
+    ax.plot(_eta(s0), s0["spin_rpm"], "kx", ms=_k(7), label=T("validation", "validation"))
     ax.set(xlabel=r"$\eta$", ylabel=T("spin [rpm]", "rotation [tr/min]"))
-    ax.legend(fontsize=8)
+    ax.legend(fontsize="x-small")
     return fig
 
 
@@ -515,17 +531,17 @@ def fig_compare(h5_a, h5_b, out_dir=None):
     if not runs:
         raise ValueError("the two files have no indicator in common")
     name = lambda D: str(D.attrs.get("experiment", os.path.basename(os.path.dirname(os.path.abspath(D.path)))))   # noqa: E731
-    with plt.rc_context(ps.ARTICLE_RCPARAMS):
+    with plt.rc_context(_rc()):
         fig, axs = _fig(ps.FIGSIZE_WIDE, ncols=3)
         y = np.arange(len(runs))
         for ax, k in zip(axs, ("balanced_accuracy", "MCC", "AUC")):
             a, b = [np.array([D.met[r][k] for r in runs], float) for D in (A, B)]
             ax.hlines(y, a, b, color="grey", lw=1)
-            ax.plot(a, y, "o", ms=6, mfc="none", color=ps.COLOR_UNSTABLE, label="A: " + name(A))
-            ax.plot(b, y, "o", ms=6, color=ps.COLOR_STABLE, label="B: " + name(B))
+            ax.plot(a, y, "o", ms=_k(6), mfc="none", color=ps.COLOR_UNSTABLE, label="A: " + name(A))
+            ax.plot(b, y, "o", ms=_k(6), color=ps.COLOR_STABLE, label="B: " + name(B))
             ax.set_yticks(y, [short(r) for r in runs] if ax is axs[0] else [])
             ax.set(xlabel=k.replace("balanced_accuracy", "bal. accuracy"))
-        fig.legend(*axs[0].get_legend_handles_labels(), loc="outside upper center", ncol=2, fontsize=8)
+        fig.legend(*axs[0].get_legend_handles_labels(), loc="outside upper center", ncol=2, fontsize="x-small")
     return _done(fig, out_dir, f"compare_{name(A)}_vs_{name(B)}")
 
 
@@ -566,23 +582,23 @@ def fig_noise_metrics(D):
         for i, r in enumerate(D.order):
             b, c = D.by[r], RUN_COLOR[i % len(RUN_COLOR)]
             x_clean = _snr_axis(ax, b["snr_db"])
-            ax.plot(b["snr_db"], b[k + "_mean"], "o-", ms=4, color=c, label=short(r))
+            ax.plot(b["snr_db"], b[k + "_mean"], "o-", ms=_k(4), color=c, label=short(r))
             ax.fill_between(b["snr_db"], b[k + "_min"], b[k + "_max"], color=c, alpha=0.15, lw=0)
-            ax.plot([x_clean], [float(D.clean.get(r, {}).get(k, np.nan))], "D", ms=6, mfc="none", mew=1.5, color=c)
+            ax.plot([x_clean], [float(D.clean.get(r, {}).get(k, np.nan))], "D", ms=_k(6), mfc="none", mew=_k(1.5), color=c)
             if k == "balanced_accuracy" and np.isfinite(b["snr_breakdown_db"]):
                 y = 1.05 + 0.08 * (i + 0.5)   # a row above the data per indicator: same SNR, no overlap
-                ax.plot([b["snr_breakdown_db"]], [y], "v", ms=6, color=c, clip_on=False)
+                ax.plot([b["snr_breakdown_db"]], [y], "v", ms=_k(6), color=c, clip_on=False)
                 ax.annotate(f"{b['snr_breakdown_db']:g} dB", (b["snr_breakdown_db"], y), xytext=(6, 0), textcoords="offset points",
-                            va="center", fontsize=7, color=c, annotation_clip=False)
+                            va="center", fontsize="xx-small", color=c, annotation_clip=False)
         if k == "balanced_accuracy":
             ax.set(ylim=(-0.05, 1.05 + 0.08 * len(D.order)), yticks=np.arange(0, 1.01, 0.2))
         else:
             ax.set(ylim=(-0.05, 1.05))
         ax.set_ylabel(lab, y=0.4 if k == "balanced_accuracy" else 0.5)
     h, l = axs[0].get_legend_handles_labels()
-    h.append(plt.Line2D([], [], marker="v", ls="", color="grey", ms=6))
+    h.append(plt.Line2D([], [], marker="v", ls="", color="grey", ms=_k(6)))
     l.append(T("breakdown SNR", "SNR de rupture"))
-    fig.legend(h, l, loc="outside upper center", ncol=5, fontsize=8)
+    fig.legend(h, l, loc="outside upper center", ncol=5, fontsize="x-small")
     return fig
 
 
@@ -610,7 +626,7 @@ def fig_noise_case_matrix(D):
             m = s["case"] == c
             tag[c] = "g" if np.any(s["is_gray"][m] == 1) else {"stable": "S", "unstable": "U"}.get(s["truth"][m][0], "?")
         kap = {c: float(np.nanmax(np.where(s["case"] == c, _eta(s), np.nan))) for c in cases}
-        ax.set_yticks(range(len(cases)), [f"{kap[c]:.2f} {tag[c]}" for c in cases], fontsize=8)
+        ax.set_yticks(range(len(cases)), [f"{kap[c]:.2f} {tag[c]}" for c in cases], fontsize="x-small")
         ax.set_xticks(range(len(levels)), [f"{v:g}" for v in levels])
         ax.set(title=short(r), xlabel=T("SNR [dB]", "SNR [dB]"))
         ax.tick_params(length=0)
@@ -627,12 +643,12 @@ def fig_noise_anticipation(D):
     for i, r in enumerate(D.order):
         b, c = D.by[r], RUN_COLOR[i % len(RUN_COLOR)]
         x_clean = _snr_axis(ax, b["snr_db"])
-        ax.plot(b["snr_db"], b["median_t_ratio_mean"], "o-", ms=4, color=c, label=short(r))
+        ax.plot(b["snr_db"], b["median_t_ratio_mean"], "o-", ms=_k(4), color=c, label=short(r))
         ax.fill_between(b["snr_db"], b["median_t_ratio_min"], b["median_t_ratio_max"], color=c, alpha=0.15, lw=0)
-        ax.plot([x_clean], [float(D.clean.get(r, {}).get("median_t_ratio", np.nan))], "D", ms=6, mfc="none", mew=1.5, color=c)
+        ax.plot([x_clean], [float(D.clean.get(r, {}).get("median_t_ratio", np.nan))], "D", ms=_k(6), mfc="none", mew=_k(1.5), color=c)
     ax.axhline(1, color="k", ls="--", lw=0.8)
     ax.set(ylabel=T("median $t_{det}\\,/\\,t_{onset}$", "médiane $t_{det}\\,/\\,t_{onset}$"), ylim=(0, 1.1))
-    fig.legend(*ax.get_legend_handles_labels(), loc="outside upper center", ncol=4, fontsize=8)
+    fig.legend(*ax.get_legend_handles_labels(), loc="outside upper center", ncol=4, fontsize="x-small")
     return fig
 
 

@@ -28,10 +28,14 @@ import numpy as np
 from scipy.stats import norm as _scipy_norm
 
 from ..utils.types import IndicatorResult, SignalData
+from .colors import COLORS
 from .plot_style import (
-    FIGSIZE_SIMPLE, FIGSIZE_WIDE, SCALE, COLORS,
+    FIGSIZE_SIMPLE, FIGSIZE_WIDE, SCALE,
     figsize_from_scale, figsize_grid, apply_sci_yaxis,
 )
+from .plot_style import apply as _apply_style
+
+_apply_style()   # article-plot-style, at the default scale (was an import-time side effect of plot_style.py)
 
 color_red    = COLORS["threshold"]   # alarm / upper threshold
 color_orange = COLORS["chatter"]     # chatter signal / detection td / CV scatter

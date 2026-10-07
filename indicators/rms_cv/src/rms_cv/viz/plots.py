@@ -13,6 +13,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from .plot_style import FIGSIZE_SIMPLE, SCALE, figsize_from_scale, apply_sci_yaxis
+from .plot_style import apply as _apply_style
+
+_apply_style()   # article-plot-style, at the default scale (was an import-time side effect of plot_style.py)
 
 
 def plot_signal(t: "np.ndarray", x: "np.ndarray", *, title: str = "Tool Velocity Signal") -> None:

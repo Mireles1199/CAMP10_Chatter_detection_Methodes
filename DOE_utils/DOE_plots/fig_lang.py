@@ -95,6 +95,15 @@ def translate_figure(fig, language: str) -> list:
     return missing
 
 
+def scale_text(fig, k: float) -> None:
+    """Multiplies the font size of EVERY text of `fig` (titles, labels, ticks, legends, annotations) by k: the "text
+    follows the scale" export of a figure that draws its own point sizes (viewer panels). k = plot_style.zoom(scale, follow)."""
+    from matplotlib.text import Text
+    if k != 1:
+        for t in fig.findobj(Text):
+            t.set_fontsize(t.get_fontsize() * k)
+
+
 def _selftest():
     import matplotlib
     matplotlib.use("Agg")
@@ -119,6 +128,14 @@ def _selftest():
     missing = translate_figure(fig, "FR")
     assert ax.get_title() == "Temps de détection vs SNR" and ax.get_xlabel() == "Temps (s)"
     assert ax.get_legend().get_texts()[0].get_text() == "Contrôle" and missing == ["Something unknown"]
+    fig, ax = plt.subplots()
+    ax.set_title("t")
+    ax.legend([ax.plot([0, 1])[0]], ["a"])
+    sizes = [t.get_fontsize() for t in fig.findobj(__import__("matplotlib").text.Text)]
+    scale_text(fig, 2)
+    assert [t.get_fontsize() for t in fig.findobj(__import__("matplotlib").text.Text)] == [2 * x for x in sizes]
+    scale_text(fig, 1)   # k = 1 leaves it as it is
+    assert [t.get_fontsize() for t in fig.findobj(__import__("matplotlib").text.Text)] == [2 * x for x in sizes]
     print("fig_lang selftest OK")
 
 

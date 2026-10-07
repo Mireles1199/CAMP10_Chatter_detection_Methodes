@@ -16,10 +16,14 @@ from .plots import (
     plot_indicator_local,
     plot_training_distribution,
 )
+from .colors import COLORS
 from .plot_style import (
-    COLORS, FIGSIZE_SIMPLE, FIGSIZE_WIDE, SCALE,
+    FIGSIZE_SIMPLE, FIGSIZE_WIDE, SCALE,
     apply_sci_yaxis, figsize_from_scale, figsize_grid,
 )
+from .plot_style import apply as _apply_style
+
+_apply_style()   # article-plot-style, at the default scale (was an import-time side effect of plot_style.py)
 
 color_red    = COLORS["threshold"]
 color_orange = COLORS["chatter"]
