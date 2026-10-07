@@ -490,7 +490,8 @@ NOISE_FILE_NOTES = {
                     "original signals of each source case, read from the clean file (not copied here). Select the rows to "
                     "draw: a clean one, several copies, or a clean one plus a copy to compare.",
     TYPE_NOISE_IND: "I(t) of the indicators ON the noisy copies (thresholds and detections included). The 'clean' rows are the "
-                    "I(t) of the same case without noise, read from the clean indicator run. Select the rows to compare.",
+                    "I(t) of the same case without noise, read from the clean indicator run. Select the rows to compare; their "
+                    "signals (Signals tab) are read from the noise file and from the clean source case.",
     TYPE_NOISE_VAL: "Scoring of each noisy copy against the truth of its clean case (outcome per indicator). Select copies and "
                     "their 'clean' case (the original, noise-free case a copy comes from) to see their signals and I(t) in the "
                     "Signals / I(t) tabs, read from the origins; the figures of the validation are in the right panel.",
@@ -571,6 +572,40 @@ def _attach_truth(h5_path: str, cases: List[Dict]) -> None:
         notes.append(f"{len(absent)} source case(s) are not in {os.path.basename(path)} (no truth): {', '.join(absent[:4])}")
 
 
+def _origin_signals(path, group, f=None):
+    """Axial_disp / Axial_vel of `group` in the origin file `path` (open as `f`, if given), read lazily ({} if the file or
+    the group is not there)."""
+    if path is None:
+        return {}
+    if f is None:
+        try:
+            with h5py.File(path, "r") as f:
+                return _origin_signals(path, group, f)
+        except OSError:
+            return {}
+    if group not in f:
+        return {}
+    return _LazySignals(path, group, [s_ for s_ in ("Axial_disp", "Axial_vel") if s_ in f[group]
+                                      and isinstance(f[group][s_], h5py.Group) and "values" in f[group][s_]])
+
+
+def _attach_signals(h5_path: str, cases: List[Dict]) -> None:
+    """The rows of a noise indicator file (written without signals) get their signals lazily from the origins, as in the
+    noise validation: a noisy copy from noise_results, a clean row from source_signals. What is missing is a note."""
+    notes = _LOAD_NOTES.setdefault(h5_path, [])
+    for key, rows in (("noise_results", [c for c in cases if not _is_clean(c) and not c["signals"]]),
+                      ("source_signals", [c for c in cases if _is_clean(c) and not c["signals"]])):
+        if not rows:
+            continue
+        path, how = _noise_origin(h5_path, key)
+        if path is None:
+            notes.append(f"I cannot find {ORIGIN_TEXT[key]}: no signals for those rows ({how})")
+            continue
+        with h5py.File(path, "r") as f:   # once: the noise file has hundreds of copies
+            for c in rows:
+                c["signals"] = _origin_signals(path, c["var_val"]["case_source"] if _is_clean(c) else c["group"], f)
+
+
 def _load_noise(h5_path: str, with_runs: bool) -> List[Dict]:
     """Casos de doe_noise_results.h5 / doe_noise_indicator_results.h5. Old mode: control + snr_<dB> with their signals.
     Multi-case mode (attr 'realization' in the groups, PLAN_noise_validation.md): one group per noisy copy
@@ -609,6 +644,8 @@ def _load_noise(h5_path: str, with_runs: bool) -> List[Dict]:
     _LOAD_NOTES.pop(h5_path, None)
     if any("realization" in c["var_val"] for c in cases):   # multi-case mode: the clean cases come from the origin files
         _add_clean_rows(h5_path, with_runs, cases)
+        if with_runs:
+            _attach_signals(h5_path, cases)
         _attach_truth(h5_path, cases)
     cases.sort(key=lambda c: (c["var_val"].get("case_source", ""),
                               c["label_val"] if np.isfinite(c["label_val"]) else float("inf"),
@@ -657,25 +694,15 @@ def _attach_origin_data(h5_path: str, cases: List[Dict]) -> None:
         if P[key] is None:
             notes.append(f"I cannot find {ORIGIN_TEXT[key]} ({how})")
 
-    def signals_of(path, group):
-        if path is None:
-            return {}
-        try:
-            with h5py.File(path, "r") as f:
-                if group in f:
-                    return _LazySignals(path, group, [s_ for s_ in ("Axial_disp", "Axial_vel") if s_ in f[group]
-                                                      and isinstance(f[group][s_], h5py.Group) and "values" in f[group][s_]])
-        except OSError:
-            pass
-        return {}
 
     def runs_of(f, group):
         return _read_runs(f[group]) if f is not None and group in f else {}
     ind_n = h5py.File(P["noise_indicators"], "r") if P["noise_indicators"] else None
     ind_c = h5py.File(P["clean_indicators"], "r") if P["clean_indicators"] else None
+    sig_n = h5py.File(P["noise_results"], "r") if P["noise_results"] else None   # opened once: hundreds of copies
     try:
         for c in cases:   # the noisy copies
-            c["signals"], c["runs"] = signals_of(P["noise_results"], c["group"]), runs_of(ind_n, c["group"])
+            c["signals"], c["runs"] = _origin_signals(P["noise_results"], c["group"], sig_n), runs_of(ind_n, c["group"])
             c["_attr_src"] = (P["noise_results"], c["group"]) if P["noise_results"] else None
         done = {}
         for c in list(cases):   # the clean case of each copy
@@ -685,12 +712,12 @@ def _attach_origin_data(h5_path: str, cases: List[Dict]) -> None:
             vv = {"snr_db": float("inf"), "kind": "clean", "case_source": case, "realization": -1,
                   "kappa": c["var_val"]["kappa"], "truth": c["var_val"]["truth"]}
             done[case] = {"group": f"clean__{case}", "label_key": "snr_db", "label_val": float("inf"), "var_val": vv,
-                          "signals": signals_of(P["source_signals"], case), "forces": {}, "runs": runs_of(ind_c, case), "snr": {},
+                          "signals": _origin_signals(P["source_signals"], case), "forces": {}, "runs": runs_of(ind_c, case), "snr": {},
                           "dt_us": None, "wall_time_s": None, "Axial_disp": None, "Axial_vel": None,
                           "_attr_src": (P["source_signals"], case) if P["source_signals"] else None}
         cases.extend(done.values())
     finally:
-        for f in (ind_n, ind_c):
+        for f in (ind_n, ind_c, sig_n):
             if f is not None:
                 f.close()
 
@@ -5450,6 +5477,15 @@ def _selftest_noise(d: str, t) -> None:
     rows = load_h5_unified(nz, TYPE_DOE_NOISE)
     assert len(rows) == 10 and all(c["var_val"]["truth"] == "mixed" and c["truth_iv"] == [(0.0, 6.0, "stable"), (6.0, 10.0, "unstable")]
                                    for c in rows), [(c["group"], c["var_val"].get("truth"), c.get("truth_iv")) for c in rows]
+    # the indicator file keeps no signals: the Signals tab reads them from the origins (noise file / clean source), lazily
+    assert any("signals with noise" in x and "no signals" in x for x in _LOAD_NOTES[nzi]), _LOAD_NOTES[nzi]
+    _origins_module().set_origins(nzi, noise_results=nz, source_signals=os.path.join(d, "doe_results.h5"),
+                                  clean_indicators=os.path.join(d, "ind.h5"))
+    ri = {c["group"]: c for c in load_h5_unified(nzi, TYPE_NOISE_IND)}
+    cp, cl = ri["snr_010.00__case_000__r00"], ri["clean__case_000"]
+    assert isinstance(cp["signals"], _LazySignals) and abs(cp["signals"]["Axial_disp"][1][0] - 10.0) < 1e-12
+    assert isinstance(cl["signals"], _LazySignals) and "Axial_disp" in cl["signals"] and "maxent_x" in cl["runs"]
+    assert not any("no signals" in x for x in _LOAD_NOTES[nzi]), _LOAD_NOTES[nzi]
     # noise validation file: its own type, one row per copy with the outcome of every indicator, figures from NOISE_FIGURES
     nv = os.path.join(d, "doe_noise_validation_results.h5")
     with h5py.File(nv, "w") as f:
