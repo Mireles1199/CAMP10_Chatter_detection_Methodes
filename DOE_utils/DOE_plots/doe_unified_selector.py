@@ -3353,8 +3353,10 @@ class DoeSelectorUnifiedApp:
                 else:
                     ind_prefix = _run_indicator_prefix(rn)
                     color = self._ind_color_map.get(ind_prefix, (0.5, 0.5, 0.5)) if hasattr(self, "_ind_color_map") else c.get("_color", (0.5, 0.5, 0.5))
+                    if _is_clean(c):   # noise viewers: the clean case in a darker shade of its indicator, to tell it from the copies
+                        color = tuple(0.45 * v for v in mcolors.to_rgb(color))
                 lv_str = "control" if is_ctrl else (f"{pv:.3g}" if np.isfinite(pv) else "?")
-                lw = 2.2 if is_ctrl else _it_lw_nc
+                lw = 2.2 if is_ctrl else _it_lw_nc + (0.8 if _is_clean(c) else 0.0)
                 delay = _run_delay(run_data)   # validation files: first detection - t_onset
                 if delay is not None:
                     deltas.append(delay)
@@ -5513,6 +5515,12 @@ def _selftest_noise(d: str, t) -> None:
             app.tree.selection_set([iid["snr_010.00__case_000__r00"], iid["snr_010.00__case_001__r00"]])   # two source cases
             app._plot_signals()
             assert not app.ax_disp.patches and "several source cases" in app.sig_fig._suptitle.get_text()
+            # several indicators (curves coloured by indicator): the clean case is still told apart from its copies
+            app.tree.selection_set([iid["snr_010.00__case_000__r00"], iid["clean__case_000"]])
+            app._get_runs_to_show = lambda: ["maxent_x", "green_x"]
+            app._plot_It()
+            col = {l.get_label().split(" | ")[0]: l.get_color() for l in app.ax_It.get_lines() if " | " in l.get_label()}
+            assert set(col) == {"clean · case_000", "10 dB · case_000 · r00"} and len(set(map(str, col.values()))) == 2, col
         finally:
             root.destroy()
     with h5py.File(nv, "a") as f:   # an origin that is not there: said, and the rest is there
