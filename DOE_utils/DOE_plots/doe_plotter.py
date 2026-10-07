@@ -28,34 +28,6 @@ import colorsys
 import matplotlib.colors as mcolors
 from matplotlib.ticker import FixedLocator, NullLocator
 
-# ==============================================================================
-# ESTILO GLOBAL — CAMP10 indicator-plot-style skill
-# ==============================================================================
-def configurar_estilo_global() -> None:
-    plt.rcParams.update({
-        'font.family': 'serif', 'font.size': 9,
-        'axes.titlesize': 25,   'axes.labelsize': 25,
-        'xtick.labelsize': 16,  'ytick.labelsize': 23, 'legend.fontsize': 16,
-        'lines.linewidth': 2.0, 'lines.markersize': 6,
-        'axes.linewidth': 0.8,   'grid.linewidth': 0.5,
-        'xtick.major.width': 0.8, 'ytick.major.width': 0.8,
-        'xtick.direction': 'in',  'ytick.direction': 'in',
-        'xtick.major.size': 4,  'ytick.major.size': 4,
-        'xtick.minor.size': 2.5, 'ytick.minor.size': 2.5,
-        'xtick.minor.width': 0.6, 'ytick.minor.width': 0.6,
-        'mathtext.fontset': 'stix', 'axes.formatter.use_mathtext': True,
-        'legend.frameon': False,   'legend.loc': 'best',
-        'figure.dpi': 100, 'savefig.dpi': 300,
-        'savefig.bbox': 'tight', 'savefig.pad_inches': 0.02,
-        'savefig.transparent': True,
-        'figure.facecolor': 'white', 'axes.facecolor': 'white',
-        'path.simplify': True, 'path.simplify_threshold': 1.0,
-    })
-
-
-configurар_estilo_global = configurar_estilo_global  # alias
-configurар_estilo_global()
-
 
 def fig_size(scale: float = 1.0, ncols: int = 1, base_width: float = 3.4):
     """(width, height) en pulgadas — aspecto 0.40 para figuras de artículo."""
@@ -189,7 +161,7 @@ def plot_overlay(cases: list, signal: str) -> plt.Figure:
     secax.set_xlabel(f"Revolución  (RPM={RPM})")
     secax.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"{x:.3g}"))
 
-    ax.set_ylabel(SIGNAL_YLABELS.get(signal, signal), fontsize=16)
+    ax.set_ylabel(SIGNAL_YLABELS.get(signal, signal))
     # ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"{x:.2e}"))
     ax.ticklabel_format(style="sci", axis="y", scilimits=(0, 0))
     def _anchor_yoffset(event, _ax=ax):
@@ -204,7 +176,6 @@ def plot_overlay(cases: list, signal: str) -> plt.Figure:
     sm.set_array([])
     cbar = fig.colorbar(sm, ax=ax, pad=0.01)
     cbar.set_label(LABEL_KEY)
-    cbar.ax.tick_params(labelsize=16)
 
     # if len(cases) <= 12:
     #     ax.legend( loc="best", framealpha=0.7)
@@ -233,7 +204,6 @@ def _add_hlines_with_labels(ax, x_vals, y_vals, fmt="{:.4g}", color="red"):
         ax.text(
             1.01, val, fmt.format(val),
             ha="left", va="center",
-            # fontsize=12,
             transform=ax.get_yaxis_transform(), clip_on=False,
         )
 
@@ -252,7 +222,6 @@ def _setup_xaxis_conv(ax, x_vals, use_dt):
         if x_vals and XAXIS_FIXED_TICKS:
             ax.xaxis.set_major_locator(FixedLocator(x_vals))
             ax.xaxis.set_minor_locator(NullLocator())
-            # ax.tick_params(axis="x", rotation=45, labelsize=12)
             ax.tick_params(axis="x", rotation=45)
         ax.xaxis.set_major_formatter(_sci)
 
@@ -262,7 +231,6 @@ def _setup_xaxis_conv(ax, x_vals, use_dt):
         #     nb_ticks = [float(_nb_from_dt(xv)) for xv in x_vals]
         #     secax.xaxis.set_major_locator(FixedLocator(nb_ticks))
         #     secax.xaxis.set_minor_locator(NullLocator())
-        #     # secax.tick_params(axis="x", rotation=45, labelsize=12)
         #     secax.tick_params(axis="x", rotation=45)
         # secax.xaxis.set_major_formatter(_sci)
 
@@ -272,7 +240,7 @@ def _setup_xaxis_conv(ax, x_vals, use_dt):
             secax.xaxis.set_major_locator(FixedLocator(x_vals))
             secax.xaxis.set_minor_locator(NullLocator())
             secax.xaxis.set_major_formatter(_sci)
-            secax.tick_params(axis="x", rotation=45, labelsize=10)
+            secax.tick_params(axis="x", rotation=45, labelsize="small")
 
 
     else:
@@ -286,7 +254,7 @@ def _setup_xaxis_conv(ax, x_vals, use_dt):
             secax.xaxis.set_major_locator(FixedLocator(x_vals))
             secax.xaxis.set_minor_locator(NullLocator())
             secax.xaxis.set_major_formatter(_sci)
-            secax.tick_params(axis="x", rotation=45, labelsize=10)
+            secax.tick_params(axis="x", rotation=45, labelsize="small")
 
 
 def plot_convergence(cases: list, signal: str, metric: str) -> plt.Figure:
@@ -407,7 +375,7 @@ def plot_convergence_error_ref(cases: list, signal: str, metric: str) -> plt.Fig
     # Línea de referencia 1%
     ax.axhline(y=1.0, linestyle="--", linewidth=1.0,
                color=color_orange, alpha=0.75, label="1 % umbral")
-    ax.legend(fontsize=9)
+    ax.legend()
     return fig
 
 
@@ -479,7 +447,7 @@ def plot_convergence_error_consec(cases: list, signal: str, metric: str) -> plt.
     # Línea de referencia 1%
     ax.axhline(y=1.0, linestyle="--", linewidth=1.0,
                color=color_orange, alpha=0.75, label="1 % umbral")
-    ax.legend(fontsize=9)
+    ax.legend()
     return fig
 
 
@@ -559,6 +527,8 @@ CONFIGURACIÓN (editar en el script)
 
 
 def main():
+    import plot_style
+    plot_style.apply()
     args   = parse_args()
     doe_name = args.doe_name or DOE_NAME
     h5_path  = os.path.join(BASE_DIR, doe_name, "doe_results.h5")

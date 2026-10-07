@@ -35,7 +35,7 @@ import numpy as np
 from scipy.signal import hilbert
 
 # ==============================================================================
-# SKILL: indicator-plot-style
+# colours of the curves (the style is the article-plot-style skill: plot_style.py)
 # ==============================================================================
 
 def _hls(h, l, s):
@@ -53,30 +53,6 @@ def fig_size(scale=1.0, ncols=1, base_width=3.4):
     width = base_width * ncols * scale
     return (width, width * 0.40)
 
-
-def configurar_estilo_global() -> None:
-    plt.rcParams.update({
-        "font.family": "serif", "font.size": 9,
-        "axes.titlesize": 25,   "axes.labelsize": 25,
-        "xtick.labelsize": 23,  "ytick.labelsize": 23, "legend.fontsize": 23,
-        "lines.linewidth": 2.0, "lines.markersize": 6,
-        "axes.linewidth": 0.8,  "grid.linewidth": 0.5,
-        "xtick.major.width": 0.8, "ytick.major.width": 0.8,
-        "xtick.direction": "in",  "ytick.direction": "in",
-        "xtick.major.size": 4,  "ytick.major.size": 4,
-        "xtick.minor.size": 2.5, "ytick.minor.size": 2.5,
-        "xtick.minor.width": 0.6, "ytick.minor.width": 0.6,
-        "mathtext.fontset": "stix", "axes.formatter.use_mathtext": True,
-        "legend.frameon": False, "legend.loc": "best",
-        "figure.dpi": 100, "savefig.dpi": 300,
-        "savefig.bbox": "tight", "savefig.pad_inches": 0.02,
-        "savefig.transparent": True,
-        "figure.facecolor": "white", "axes.facecolor": "white",
-        "path.simplify": True, "path.simplify_threshold": 1.0,
-    })
-
-
-configurar_estilo_global()
 
 # ==============================================================================
 # CONFIG — editar aquí para lanzar desde VS Code sin argumentos
@@ -420,18 +396,17 @@ def plot_signal_overlay(cases: list[dict], doe_dir: str,
                     alpha=0.8, rasterized=True)
 
         cbar = fig.colorbar(sm, ax=ax, pad=0.01)
-        cbar.set_label(_pretty_param_label(param_key), fontsize=18)
+        cbar.set_label(_pretty_param_label(param_key))
         ticks = _colorbar_ticks_from_data(param_vals, norm)
         if ticks:
             cbar.set_ticks(ticks)
             cbar.set_ticklabels(_colorbar_ticklabels(ticks))
-        cbar.ax.tick_params(labelsize=18)
 
         ax.set_xlabel("Time (s)")
         ax.set_ylabel(SIGNAL_YLABELS.get(sig, sig))
         ax.set_title(f"{sig}  |  {_pretty_param_label(param_key)}")
         ax.ticklabel_format(style="sci", axis="y", scilimits=(0, 0))
-        ax.legend(fontsize=14, loc="upper left")
+        ax.legend(loc="upper left")
         # ax.grid(False, linestyle="--", alpha=0.3)
         
         fig.tight_layout()
@@ -505,18 +480,17 @@ def plot_rms_overlay(cases: list[dict], doe_dir: str,
                     alpha=0.8, rasterized=True)
 
         cbar = fig.colorbar(sm, ax=ax, pad=0.01)
-        cbar.set_label(_pretty_param_label(param_key), fontsize=18)
+        cbar.set_label(_pretty_param_label(param_key))
         ticks = _colorbar_ticks_from_data(param_vals, norm)
         if ticks:
             cbar.set_ticks(ticks)
             cbar.set_ticklabels(_colorbar_ticklabels(ticks))
-        cbar.ax.tick_params(labelsize=18)
 
         ax.set_xlabel("Time (s)")
         ax.set_ylabel(r"RMS")
         ax.set_title(f"RMS {sig}  |  {_pretty_param_label(param_key)}")
         ax.ticklabel_format(style="sci", axis="y", scilimits=(0, 0))
-        ax.legend(fontsize=14, loc="upper left")
+        ax.legend(loc="upper left")
         # ax.grid(False, linestyle="--", alpha=0.3)
         fig.tight_layout()
 
@@ -589,18 +563,17 @@ def plot_hilbert_overlay(cases: list[dict], doe_dir: str,
                     alpha=0.8, rasterized=True)
 
         cbar = fig.colorbar(sm, ax=ax, pad=0.01)
-        cbar.set_label(_pretty_param_label(param_key), fontsize=18)
+        cbar.set_label(_pretty_param_label(param_key))
         ticks = _colorbar_ticks_from_data(param_vals, norm)
         if ticks:
             cbar.set_ticks(ticks)
             cbar.set_ticklabels(_colorbar_ticklabels(ticks))
-        cbar.ax.tick_params(labelsize=18)
 
         ax.set_xlabel("Time (s)")
         ax.set_ylabel(r"Envelope")
         ax.set_title(f"Hilbert envelope {sig}  |  {_pretty_param_label(param_key)}")
         ax.ticklabel_format(style="sci", axis="y", scilimits=(0, 0))
-        ax.legend(fontsize=14, loc="upper left")
+        ax.legend(loc="upper left")
         ax.set_yscale("linear")
         fig.tight_layout()
 
@@ -693,6 +666,8 @@ Configuración (editar en el script):
 # ==============================================================================
 
 def main() -> None:
+    import plot_style
+    plot_style.apply()
     global DOE_NAME, CONTROL_IDX, DOE_PARAM_KEY, PLOT_SNR, PLOT_SIGNALS, PLOT_RMS, PLOT_HILBERT, SHOW, OUT_DIR  # noqa
 
     args = parse_args()

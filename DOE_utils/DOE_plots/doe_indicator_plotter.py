@@ -34,7 +34,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # ==============================================================================
-# SKILL: indicator-plot-style
+# colours of the curves (the style is the article-plot-style skill: plot_style.py)
 # ==============================================================================
 
 def _hls(h, l, s):
@@ -55,28 +55,6 @@ def fig_size(scale=1.0, ncols=1, base_width=3.4):
     width = base_width * ncols * scale
     return (width, width * 0.8)
 
-
-def configurar_estilo_global() -> None:
-    plt.rcParams.update({
-        "font.family": "serif", "font.size": 9,
-        "axes.titlesize": 25,   "axes.labelsize": 25,
-        "xtick.labelsize": 23,  "ytick.labelsize": 23, "legend.fontsize": 23,
-        "lines.linewidth": 2.0, "lines.markersize": 6,
-        "axes.linewidth": 0.8,  "grid.linewidth": 0.5,
-        "xtick.major.width": 0.8, "ytick.major.width": 0.8,
-        "xtick.direction": "in",  "ytick.direction": "in",
-        "xtick.major.size": 4,  "ytick.major.size": 4,
-        "xtick.minor.size": 2.5, "ytick.minor.size": 2.5,
-        "xtick.minor.width": 0.6, "ytick.minor.width": 0.6,
-        "mathtext.fontset": "stix", "axes.formatter.use_mathtext": True,
-        "legend.frameon": False, "legend.loc": "best",
-        "figure.dpi": 100, "savefig.dpi": 300,
-        "savefig.bbox": "tight", "savefig.pad_inches": 0.02,
-        "savefig.transparent": True,
-        "figure.facecolor": "white", "axes.facecolor": "white",
-        "path.simplify": True, "path.simplify_threshold": 1.0,
-    })
-configurar_estilo_global()
 
 # ==============================================================================
 # CONFIG — editar aquí para lanzar desde VS Code sin argumentos
@@ -190,6 +168,7 @@ def _pretty_label_key(label_key: str) -> str:
     mapping = {
         "dxl_size": "Dexel size",
         "$dxl_size$": "Dexel size",
+        "kappa": "η", "eta": "η",   # kappa -> eta: the screen says η (PLAN_eta_rename.md)
     }
     if label_key in mapping:
         return mapping[label_key]
@@ -467,8 +446,7 @@ def _plot_signal_overlay(
     cb_ticks = _colorbar_ticks_from_data(param_vals, norm)
     if cb_ticks:
         _decorate_control_colorbar(cbar, cb_ticks, xs)
-    cbar.set_label(_pretty_label_key(label_key), fontsize=18)
-    cbar.ax.tick_params(labelsize=16)
+    cbar.set_label(_pretty_label_key(label_key))
 
     ax.set_xlabel(r"$t$ (s)")
     if signal_name == "Axial_disp":
@@ -478,7 +456,7 @@ def _plot_signal_overlay(
     else:
         ax.set_ylabel(signal_label)
     ax.set_title(readable_title)
-    ax.legend(fontsize=13, loc="upper left", ncol=1)
+    ax.legend(loc="upper left", ncol=1)
     # ax.grid(True, linestyle=":", alpha=0.25)
     ax.set_yscale("linear")
     fig.tight_layout()
@@ -886,15 +864,14 @@ def _plot_signal_rms_crossing_scatter(
     cb_ticks = _colorbar_ticks_from_data(param_vals, norm)
     if cb_ticks:
         _decorate_control_colorbar(cbar, cb_ticks, xs)
-    cbar.set_label(_pretty_label_key(label_key), fontsize=18)
-    cbar.ax.tick_params(labelsize=16)
+    cbar.set_label(_pretty_label_key(label_key))
 
     ax.set_xlabel(_pretty_label_key(label_key))
     ax.set_ylabel(r"RMS reference time (s)")
     ax.set_title(title)
     ax.set_xscale("log")
     # ax.grid(True, linestyle=":", alpha=0.25)
-    ax.legend(fontsize=12, loc="lower left")
+    ax.legend(loc="lower left")
     fig.tight_layout()
 
     if out_dir:
@@ -1059,7 +1036,7 @@ def _plot_signal_rms_overlay(
             threshold_text_y,
             rf"$\mathrm{{RMS\ threshold}} = {rms_threshold:.2e}$",
             color=color_azul,
-            fontsize=13,
+            fontsize="large",
             ha="left",
             va="bottom",
             bbox=dict(facecolor="white", edgecolor="none", alpha=0.65, pad=0.2),
@@ -1070,8 +1047,7 @@ def _plot_signal_rms_overlay(
     cb_ticks = _colorbar_ticks_from_data(param_vals, norm)
     if cb_ticks:
         _decorate_control_colorbar(cbar, cb_ticks, xs)
-    cbar.set_label(_pretty_label_key(label_key), fontsize=18)
-    cbar.ax.tick_params(labelsize=16)
+    cbar.set_label(_pretty_label_key(label_key))
 
     ax.set_xlabel(r"$t$ (s)")
     if signal_name == "Axial_disp":
@@ -1081,7 +1057,7 @@ def _plot_signal_rms_overlay(
     else:
         ax.set_ylabel(r"RMS")
     ax.set_title(readable_title)
-    ax.legend(fontsize=13, loc="upper left", ncol=1)
+    ax.legend(loc="upper left", ncol=1)
     # ax.grid(True, linestyle=":", alpha=0.25)
     ax.set_yscale("log")
     fig.tight_layout()
@@ -1253,13 +1229,12 @@ def _plot_signal_log_rms_overlay(
     cb_ticks = _colorbar_ticks_from_data(param_vals, norm)
     if cb_ticks:
         _decorate_control_colorbar(cbar, cb_ticks, xs)
-    cbar.set_label(_pretty_label_key(label_key), fontsize=18)
-    cbar.ax.tick_params(labelsize=16)
+    cbar.set_label(_pretty_label_key(label_key))
 
     ax.set_xlabel(r"$t$ (s)")
     ax.set_ylabel(r"$\log_{10}(\mathrm{RMS}/\mathrm{RMS}_{ref})$")
     ax.set_title(f"Log RMS of {signal_label}")
-    ax.legend(fontsize=13, loc="upper left", ncol=1)
+    ax.legend(loc="upper left", ncol=1)
     fig.tight_layout()
 
     if out_dir:
@@ -1522,14 +1497,13 @@ def _plot_signal_log_rms_crossing_scatter(
     cb_ticks = _colorbar_ticks_from_data(param_vals, norm)
     if cb_ticks:
         _decorate_control_colorbar(cbar, cb_ticks, xs)
-    cbar.set_label(_pretty_label_key(label_key), fontsize=18)
-    cbar.ax.tick_params(labelsize=16)
+    cbar.set_label(_pretty_label_key(label_key))
 
     ax.set_xlabel(_pretty_label_key(label_key))
     ax.set_ylabel("Slope onset time (s)")
     ax.set_title(rf"Log-RMS Slope Onset Time — {signal_label}")
     ax.set_xscale("log")
-    ax.legend(fontsize=12, loc="best")
+    ax.legend(loc="best")
     fig.tight_layout()
 
     if out_dir:
@@ -1585,7 +1559,7 @@ def _plot_td_per_run(
     ax.set_ylabel(ylabel)
     ax.set_title(title)
     ax.set_xscale("log")
-    ax.legend(fontsize=14)
+    ax.legend()
     ax.grid(True, linestyle="--", alpha=0.3)
     fig.tight_layout()
     if out_dir:
@@ -1646,7 +1620,7 @@ def _plot_td_single(
     ax.set_ylabel(ylabel)
     ax.set_title(title)
     ax.set_xscale("log")
-    ax.legend(fontsize=13, loc="best")
+    ax.legend(loc="best")
     ax.grid(True, linestyle=":", alpha=0.25)
     fig.tight_layout()
 
@@ -1751,7 +1725,6 @@ def plot_It_overlay(
     sm.set_array([])
 
 
-
     for rname in all_runs:
         # Título legible: reemplazar _ por espacio y capitalizar
         readable_title = _pretty_indicator_name(rname)
@@ -1819,8 +1792,7 @@ def plot_It_overlay(
         cb_ticks = _colorbar_ticks_from_data(param_vals, norm)
         if cb_ticks:
             _decorate_control_colorbar(cbar, cb_ticks, xs)
-        cbar.set_label(_pretty_label_key(label_key), fontsize=18)
-        cbar.ax.tick_params(labelsize=16)
+        cbar.set_label(_pretty_label_key(label_key))
 
         ax.set_xlabel(r"$t$ (s)")
         ax.set_ylabel(r"$I(t)$")
@@ -1829,7 +1801,7 @@ def plot_It_overlay(
             ax.set_yscale("log")
 
         ax.set_title(readable_title)
-        ax.legend(fontsize=13, loc="upper left", ncol=1)
+        ax.legend(loc="upper left", ncol=1)
         ax.grid(True, linestyle=":", alpha=0.25)
         fig.tight_layout()
 
@@ -1956,6 +1928,8 @@ Configuración (editar en el script):
 # ==============================================================================
 
 def main() -> None:
+    import plot_style
+    plot_style.apply()
     global DOE_NAME, LABEL_KEY, T_GT, RUN_NAME_FILTER, PLOT_TD, PLOT_IT, PLOT_SIGNALS, PLOT_SIGNAL_RMS, SHOW, OUT_DIR  # noqa
     global PLOT_LOG_RMS, PLOT_LOG_RMS_CROSSING  # noqa
 

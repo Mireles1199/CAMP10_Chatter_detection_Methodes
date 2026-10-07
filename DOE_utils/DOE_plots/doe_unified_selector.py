@@ -54,7 +54,6 @@ import eta_compat as _eta   # kappa -> eta (docs/planes/PLAN_eta_rename.md): fil
 
 # doe_plotter convergence functions (return Figure)
 from doe_plotter import (
-    configurar_estilo_global as _cfg_estilo,
     SIGNAL_YLABELS,
     color_azul,
     color_orange,
@@ -103,7 +102,7 @@ try:
 except Exception:
     sld_model = None
 
-_cfg_estilo()
+plot_style.apply()   # article-plot-style (skill) for the whole viewer; exports scale it in figures_window
 
 # ── Constantes de tipo de formato ──────────────────────────────────────────────────────
 TYPE_DOE_RESULTS   = "doe_results"

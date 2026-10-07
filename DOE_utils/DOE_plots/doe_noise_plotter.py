@@ -34,7 +34,7 @@ import matplotlib.cm as cm
 import matplotlib.colors as mcolors
 
 # ==============================================================================
-# SKILL: indicator-plot-style — paleta y estilo global
+# colours of the curves (the style is the article-plot-style skill: plot_style.py)
 # ==============================================================================
 
 r, g, b = colorsys.hls_to_rgb(346/360, 0.45, 0.99);  color_red    = (r, g, b)
@@ -48,31 +48,6 @@ def fig_size(scale=1.0, ncols=1, base_width=3.4):
     width = base_width * ncols * scale
     return (width, width * 0.7)
 
-
-def configurar_estilo_global() -> None:
-    plt.rcParams.update({
-        'font.family': 'serif', 'font.size': 9,
-        'axes.titlesize': 25,   'axes.labelsize': 25,
-        'xtick.labelsize': 23,  'ytick.labelsize': 23, 'legend.fontsize': 23,
-        'lines.linewidth': 2.0, 'lines.markersize': 6,
-        'axes.linewidth': 0.8,   'grid.linewidth': 0.5,
-        'xtick.major.width': 0.8, 'ytick.major.width': 0.8,
-        'xtick.direction': 'in',  'ytick.direction': 'in',
-        'xtick.major.size': 4,  'ytick.major.size': 4,
-        'xtick.minor.size': 2.5, 'ytick.minor.size': 2.5,
-        'xtick.minor.width': 0.6, 'ytick.minor.width': 0.6,
-        'mathtext.fontset': 'stix', 'axes.formatter.use_mathtext': True,
-        'legend.frameon': False,   'legend.loc': 'best',
-        'figure.dpi': 100, 'savefig.dpi': 300,
-        'savefig.bbox': 'tight', 'savefig.pad_inches': 0.02,
-        'savefig.transparent': True,
-        'figure.facecolor': 'white', 'axes.facecolor': 'white',
-        'path.simplify': True, 'path.simplify_threshold': 1.0,
-    })
-
-
-configurар_estilo_global = configurar_estilo_global  # alias
-configurар_estilo_global()
 
 # ==============================================================================
 # CONFIG — editar aquí
@@ -299,12 +274,12 @@ def plot_signals(data: dict, out_dir: str = None, show: bool = True,
                         lw=1.4, alpha=0.85, rasterized=True)
 
         cbar = fig.colorbar(sm, ax=ax, pad=0.01)
-        cbar.set_label("SNR (dB)", fontsize=9)
+        cbar.set_label("SNR (dB)")
         ax.set_xlabel("Time (s)")
         ax.set_ylabel(SIGNAL_YLABELS.get(sig, sig))
         ax.ticklabel_format(style="sci", axis="y", scilimits=(0, 0))
         ax.set_title(sig)
-        ax.legend(fontsize=8, loc="upper left")
+        ax.legend(loc="upper left")
         ax.grid(False, alpha=0.3)
         fig.tight_layout()
 
@@ -466,14 +441,14 @@ def _plot_td_single(df_ind: pd.DataFrame, indicator: str,
     # colorbar
     if snrs and norm_det:
         cbar = fig.colorbar(sm_det, ax=ax, pad=0.01)
-        cbar.set_label("SNR (dB)", fontsize=18)
+        cbar.set_label("SNR (dB)")
 
     ylabel = r"$t_d$ (s)"
     ax.set_xlabel("SNR (dB)")
     ax.set_ylabel(ylabel)
     ax.set_title(f"{pretty_ind}  —  {ylabel} vs SNR")
     ax.invert_xaxis()
-    ax.legend(fontsize=16, loc="best")
+    ax.legend(loc="best")
     ax.grid(True, linestyle=":", alpha=0.25)
     fig.tight_layout()
 
@@ -558,14 +533,14 @@ def plot_detections(df: pd.DataFrame, out_dir: str, show: bool,
             
         # if sm_det is not None:
         #     cbar = fig.colorbar(sm_det, ax=ax, pad=0.02)
-        #     cbar.set_label("SNR (dB)", fontsize=16)
+        #     cbar.set_label("SNR (dB)")
 
         ax.set_xlabel("SNR (dB)")
         ax.set_ylabel(r"$t_d$ (s)")
         ax.set_title("Detection time vs SNR")
         ax.invert_xaxis()
         ax.grid(True, linestyle=":", alpha=0.25)
-        ax.legend(fontsize=11, loc="best")
+        ax.legend(loc="best")
         fig.tight_layout()
 
         if out_dir:
@@ -763,8 +738,7 @@ def plot_it_overlay(curves: dict, indicator: str,
         if cb_ticks:
             cbar.set_ticks(cb_ticks)
             cbar.set_ticklabels([_format_float(t, precision=0) for t in cb_ticks])
-        cbar.set_label("SNR (dB)", fontsize=18)
-        cbar.ax.tick_params(labelsize=16)
+        cbar.set_label("SNR (dB)")
 
     if t_gt is not None:
         ax.axvline(t_gt, color=color_red, lw=2.4, linestyle=":",
@@ -779,7 +753,7 @@ def plot_it_overlay(curves: dict, indicator: str,
     ax.set_xlabel("Time (s)")
     ax.set_ylabel(r"$I(t)$")
     ax.set_title(f"{readable_title}")
-    ax.legend(fontsize=13, loc="upper left", ncol=1)
+    ax.legend(loc="upper left", ncol=1)
 
     fig.tight_layout()
 
@@ -900,13 +874,13 @@ def plot_td_lollipop(df: pd.DataFrame, out_dir: str = None,
 
     if sm_lp:
         cbar = fig.colorbar(sm_lp, ax=ax, pad=0.01)
-        cbar.set_label("SNR (dB)", fontsize=18)
+        cbar.set_label("SNR (dB)")
 
     ax.set_yticks(range(len(indicators)))
-    ax.set_yticklabels(indicators, fontsize=18)
+    ax.set_yticklabels(indicators)
     ax.set_xlabel(r"$t_d$ (s)")
     ax.set_title(r"$t_d$ por indicador")
-    ax.legend(fontsize=16, loc="lower right")
+    ax.legend(loc="lower right")
     ax.grid(False, linestyle="--", alpha=0.3, axis="x")
     fig.tight_layout()
 
@@ -1042,6 +1016,8 @@ Modo de ejecución:
 
 
 def main():
+    import plot_style
+    plot_style.apply()
     args = parse_args()
 
     invoked_without_args = (len(sys.argv) == 1)

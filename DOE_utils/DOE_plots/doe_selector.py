@@ -31,7 +31,6 @@ matplotlib.use('TkAgg')
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from doe_plotter import (
     load_results,
-    configurar_estilo_global,
     LABEL_KEY,
     SIGNALS,
     SIGNAL_YLABELS,
@@ -59,7 +58,8 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 import tkinter as tk
 from tkinter import ttk, messagebox
 
-configurar_estilo_global()
+import plot_style  # noqa: E402
+plot_style.apply()
 
 # ── DOE plot options ────────────────────────────────────────────────────────────────────────
 _DOE_PLOT_ENTRIES = [
