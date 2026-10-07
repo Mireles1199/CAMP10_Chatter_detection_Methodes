@@ -149,6 +149,7 @@ Todos los visores tienen el botón **💾 Export…** (el visor, cada vista de l
 | text | *follows scale* (por defecto): letra, líneas y marcadores crecen con la escala como un zoom, así la figura se ve igual en grande o en pequeño (a 1.5 queda como antes). *fixed*: los puntos del estilo del artículo a cualquier escala (al ampliar, el texto parece más pequeño). En un panel o una figura no nativa solo actúa con *size* SIMPLE / WIDE / grid (con *own* el lienzo no cambia) |
 | language | EN / FR / both. Las figuras de validación y el SLD se dibujan en ese idioma; las demás se traducen al exportar con la tabla `DOE_plots/figure_texts.yaml` (si falta una frase, la barra de estado lo dice: añádela a la tabla) |
 | article proportions | en pantalla, la vista previa con la proporción del archivo |
+| legend | marcada (por defecto) muestra las leyendas; desmarcada, la figura se guarda sin ninguna leyenda (de ejes ni de figura), con los mismos datos y estilo |
 | dpi, format | 200 / 300 / 600; png / pdf / svg |
 | folder, name | carpeta (por defecto `figs_validation/`, `figs_indicators/` o `figs_reference/` junto al `.h5`) y nombre del archivo |
 

@@ -64,6 +64,13 @@ def translate(fig, language: str) -> list:
     return translate_figure(fig, language)
 
 
+def remove_legends(fig) -> None:
+    """Remove every legend of `fig` (each axis and the figure's own)."""
+    for leg in [ax.get_legend() for ax in fig.axes] + list(fig.legends):
+        if leg is not None:
+            leg.remove()
+
+
 def file_name(label: str, fmt: str = "") -> str:
     stem = re.sub(r"[^\w\-]+", "_", label).strip("_")
     return stem + ("." + fmt if fmt else "")
@@ -110,6 +117,7 @@ class FiguresWindow:
         self.size, self.gcols, self.grows = v("own"), v("2"), v("1")
         self.folder, self.name = v(out_dir), v("")
         self.keep = tk.BooleanVar(value=True)
+        self.legend = tk.BooleanVar(value=True)
         self.status = v("")
 
         row1 = ttk.Frame(win, padding=(6, 4, 6, 0))
@@ -135,6 +143,7 @@ class FiguresWindow:
         add(row1, "text", ttk.Combobox(row1, textvariable=self.text, values=TEXT_MODES, state="readonly", width=13))
         ttk.Checkbutton(row1, text="article proportions", width=19, variable=self.keep,
                         command=self.fit).pack(side=tk.LEFT, padx=10)
+        ttk.Checkbutton(row1, text="legend", variable=self.legend, command=self.draw).pack(side=tk.LEFT)
         add(row2, "dpi", ttk.Combobox(row2, textvariable=self.dpi, values=DPIS, state="readonly", width=7), False)
         add(row2, "format", ttk.Combobox(row2, textvariable=self.fmt, values=FORMATS, state="readonly", width=7), False)
         add(row2, "folder", ttk.Entry(row2, textvariable=self.folder, width=48), False)
@@ -211,6 +220,8 @@ class FiguresWindow:
         if not item.native and self.size.get() != "own":   # a preset x scale: its text follows (or not) like a native one
             from fig_lang import scale_text
             scale_text(fig, ps.zoom(scale, follow))
+        if not self.legend.get():   # 'legend' unticked: no legend of any axis nor of the figure (data and style untouched)
+            remove_legends(fig)
         size = target_size(fig, self.size.get(), scale, grid)
         if abs(fig.get_size_inches()[0] - size[0]) > 1e-6 or abs(fig.get_size_inches()[1] - size[1]) > 1e-6:
             fig.set_size_inches(*size)
@@ -344,7 +355,9 @@ def _selftest():
 
     def gen():
         f, a = plt.subplots(figsize=ps.figsize_from_scale(ps.FIGSIZE_SIMPLE, 1.5), constrained_layout=True)
-        a.plot([0, 1], [0, 1])
+        a.plot([0, 1], [0, 1], label="line")
+        a.legend()
+        f.legend(["figure legend"])
         f._keep_size = tuple(f.get_size_inches())
         return f
 
@@ -375,6 +388,13 @@ def _selftest():
     w.size.set("own")
     assert fs("3", TEXT_MODES[0]) == base                                     # own size: the canvas does not grow, nor the text
     w.text.set(TEXT_MODES[0])
+    # 'legend' unticked: no legend left (axes and figure), same data; ticked again: they are back
+    has = lambda f: [ax.get_legend() is not None for ax in f.axes] + [bool(f.legends)]   # noqa: E731
+    assert any(has(w.make(w.items[1])))
+    w.legend.set(False)
+    f = w.make(w.items[1])
+    assert not any(has(f)) and len(f.axes[0].lines) == 1, has(f)
+    w.legend.set(True)
     w.scale.set("1")
     w.size.set("grid")
     w.gcols.set("2")
