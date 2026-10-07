@@ -95,6 +95,7 @@ def fig_size(scale: float = 1.0, ncols: int = 1, base_width: float = 3.4):
     return (width, width * 0.40)
 
 
+# estilo heredado, sin migrar (PLAN_plot_style.md F6)
 def configurar_estilo_global() -> None:
     plt.rcParams.update({
         'font.family': 'serif', 'font.size': 9,

@@ -1,117 +1,259 @@
 ---
-name: time-plot-style
+name: article-plot-style
 description: >
-  Canonical matplotlib plotting style for frozen-time stability figures (ChatterPlotter
-  in time.py — Artiuclo_Manuf21_2026). Use when: creating any frozen-time stability
-  plot; adding stability-crossing markers (t_E, a_E); plotting depth-of-cut profiles
-  with R markers; plotting visible chatter sweeps (a_vis, t_vis vs R); plotting
-  cumulative growth G(t) or relative amplitude e^G(t); adding a synchronized upper
-  X-axis (ap [mm] ↔ t [s]); asked about "estilo time.py", "plot estabilidad", "frozen
-  time figure style", "scientific axis formatter", "secondary x-axis ap". Always apply
-  ALL conventions (rcParams, colors, formatters, markers) when writing or modifying any
-  frozen-time stability visualization file.
+  Estilo canonico de matplotlib para figuras de articulo/tesis (basado en ChatterPlotter,
+  time.py del proyecto Articulo_Manuf21_2026), con paleta accesible a daltonismo, dos
+  tamanos de figura por defecto (columna simple / ancho de pagina completa) escalables
+  con un multiplicador simple, y texto bilingue EN/FR seleccionable por variable. Usar
+  cuando: se cree o modifique cualquier figura de estabilidad tiempo-congelado; se
+  agreguen marcadores de cruce de estabilidad (t_E, a_E); se grafiquen perfiles de
+  profundidad de corte con marcadores R; se grafiquen barridos de chatter visible (a_vis,
+  t_vis vs R); se grafique crecimiento acumulado G(t) o amplitud relativa e^G(t); se
+  pregunte por "estilo de figura para articulo", "tamano de figura de una columna",
+  "figura de pagina completa", "escalar figura", "rcParams de la tesis", "paleta de
+  colores para graficas", "eje Y notacion cientifica", "eje X secundario ap/t", "texto
+  bilingue EN/FR", "idioma de la figura". Aplica SIEMPRE todas las convenciones (rcParams,
+  paleta, tamanos, escala, idioma, formatters, markers) al crear o modificar cualquier
+  figura de articulo/tesis.
 ---
 
-# Frozen-Time Stability Plot Style — time.py (Artiuclo_Manuf21_2026)
+# Estilo de figuras para articulo — article-plot-style
 
-Canonical reference: `Artiuclo_Manuf21_2026/Comparation/time.py` → `ChatterPlotter`.
+Basado en `ChatterPlotter` (`Articulo_Manuf21_2026/Comparation/time.py` — el nombre de
+carpeta real en disco puede aparecer con el typo histórico `Artiuclo_...`; si existe,
+úsalo tal cual para rutas, pero no repitas el typo en texto nuevo), adaptado como fuente
+única de verdad para cualquier figura de artículo o de la tesis en este repositorio.
+
+Mejoras respecto a la versión original de este estilo (`.github/skills/article-plot-style`):
+paleta estable/inestable accesible a daltonismo, una sola definición de `rcParams` (sin
+copias que puedan divergir), y dos tamaños de figura estándar por defecto.
 
 ---
 
-## 1. Global rcParams — `_configurar_estilo_global()`
+## 0. Principio: una sola fuente de verdad para rcParams
 
-Call once at the start (inside `__init__` of the plotter class, or at module level).
+Definir `ARTICLE_RCPARAMS` **una vez** (por ejemplo en un módulo `plot_style.py` compartido)
+y reutilizarlo con `plt.rcParams.update(ARTICLE_RCPARAMS)` en cualquier script o notebook.
+Nunca copiar el diccionario en más de un lugar del código.
 
 ```python
 import matplotlib.pyplot as plt
 
-local_style = {
+ARTICLE_RCPARAMS = {
     # Typography
-    'font.family': 'serif',
-    'font.size': 12,
-    # Titles and labels
-    'axes.titlesize': 16,
-    'axes.labelsize': 16,
-    'xtick.labelsize': 14,
-    'ytick.labelsize': 14,
+    'font.family': 'serif', 'font.size': 12,
+    'axes.titlesize': 16, 'axes.labelsize': 16,
+    'xtick.labelsize': 14, 'ytick.labelsize': 14,
     'legend.fontsize': 10,
-    # Lines
-    'lines.linewidth': 1.2,
-    'lines.markersize': 10,
+    # Lines & markers -- small by default; a highlighted single event point
+    # (stability crossing, first detection, ...) overrides with an explicit
+    # larger s= via ax.scatter, see sec. 4. Never rely on the rcParams default
+    # for a marker meant to stand out.
+    'lines.linewidth': 1.2, 'lines.markersize': 3,
     # Axes borders
-    'axes.linewidth': 0.8,
-    'grid.linewidth': 0.5,
+    'axes.linewidth': 0.8, 'grid.linewidth': 0.5,
     # Ticks — inward, with minor ticks
-    'xtick.major.width': 0.8,
-    'ytick.major.width': 0.8,
-    'xtick.direction': 'in',
-    'ytick.direction': 'in',
-    'xtick.major.size': 4,
-    'ytick.major.size': 4,
-    'xtick.minor.size': 2.5,
-    'ytick.minor.size': 2.5,
-    'xtick.minor.width': 0.6,
-    'ytick.minor.width': 0.6,
+    'xtick.major.width': 0.8, 'ytick.major.width': 0.8,
+    'xtick.direction': 'in', 'ytick.direction': 'in',
+    'xtick.major.size': 4, 'ytick.major.size': 4,
+    'xtick.minor.size': 2.5, 'ytick.minor.size': 2.5,
+    'xtick.minor.width': 0.6, 'ytick.minor.width': 0.6,
     # Math text — STIX font
-    'mathtext.fontset': 'stix',
-    'axes.formatter.use_mathtext': True,
+    'mathtext.fontset': 'stix', 'axes.formatter.use_mathtext': True,
     # Legend — no frame
-    'legend.frameon': False,
-    'legend.loc': 'best',
-    'legend.handlelength': 2.0,
-    'legend.borderaxespad': 0.5,
+    'legend.frameon': False, 'legend.loc': 'best',
+    'legend.handlelength': 2.0, 'legend.borderaxespad': 0.5,
     # Export
-    'figure.dpi': 100,
-    'savefig.dpi': 300,
-    'savefig.bbox': 'tight',
-    'savefig.pad_inches': 0.02,
-    'savefig.transparent': True,
+    'figure.dpi': 100, 'savefig.dpi': 300, 'savefig.bbox': 'tight',
+    'savefig.pad_inches': 0.02, 'savefig.transparent': True,
     # Background — white
-    'figure.facecolor': 'white',
-    'axes.facecolor': 'white',
+    'figure.facecolor': 'white', 'axes.facecolor': 'white',
 }
-plt.rcParams.update(local_style)
+plt.rcParams.update(ARTICLE_RCPARAMS)
 ```
 
 ---
 
-## 2. Figure sizes (shared layout)
+## 1. Tamanos de figura por defecto
 
-| # panels | figsize |
-|----------|---------|
-| 1–3 | `(5*n + 1, 4)` with `plt.subplots(1, n)` |
-| 4–5 | `(6*ncols, 5*nrows)` with `ncols=3 if n==5 else 2` |
-| Single standalone | `(3.5*3.5, 2.5*3.5)` ≈ `(12.25, 8.75)` |
-
-Use `constrained_layout=True` on the figure. Do NOT call `tight_layout()`.
-
----
-
-## 3. Colors
-
-| Element | Color |
-|---------|-------|
-| Main stability curve Re{λ_max} | `'steelblue'` |
-| Stable fill (σ < 0) | `color='green', alpha=0.15` |
-| Unstable fill (σ ≥ 0) | `color='red', alpha=0.15` |
-| Stability-crossing marker (t_E, a_E, axvline) | `'crimson'` |
-| Depth-of-cut profile line | `'navy'` |
-| Cumulative growth G(t) | `'darkorange'` |
-| a_vis curve (twin axis) | `'crimson'` |
-| t_vis curve (twin axis) | `'steelblue'` |
-| R-sweep color gradient | `plt.cm.plasma(np.linspace(0.1, 0.85, n_R))` |
-
----
-
-## 4. Scatter markers for key events
+Plantilla de referencia: articulo a dos columnas estilo Elsevier
+(ancho de columna ≈ 3.5 in, ancho de pagina completa ≈ 7.16 in).
+**Toda figura nueva parte de uno de estos dos presets**, nunca de un `figsize` ad-hoc.
 
 ```python
-# Stability crossing at t_E / a_E
+FIGSIZE_SIMPLE = (3.5, 2.6)   # 1 columna — panel unico
+FIGSIZE_WIDE   = (7.16, 2.6)  # ancho de pagina completa — misma altura que SIMPLE
+```
+
+- **`FIGSIZE_SIMPLE`**: default para cualquier figura de un solo panel pensada para
+  ocupar una columna del artículo.
+- **`FIGSIZE_WIDE`**: default para (a) un solo panel que necesita el ancho completo de
+  la página (p. ej. una serie temporal larga u otra que no cabe legible en una columna),
+  o (b) **exactamente dos paneles lado a lado**:
+  `plt.subplots(1, 2, figsize=FIGSIZE_WIDE, constrained_layout=True)` — es literalmente
+  `FIGSIZE_SIMPLE` con el ancho duplicado y la misma altura, así que cada uno de los dos
+  paneles resultantes conserva la proporción de una figura simple.
+
+### Multiplicador por defecto — `FIGSCALE_SIMPLE`
+
+El multiplicador (`scale`) que se le pasa a `figsize_from_scale` por defecto es
+`FIGSCALE_SIMPLE = 1.5`, no `1`. A tamaño `1` los presets de artículo (pensados para
+una columna Elsevier impresa) quedan chicos para revisar en pantalla durante el
+desarrollo; `1.5` es el punto de partida recomendado, y sigue siendo un solo
+control editable (no hace falta un multiplicador separado por preset SIMPLE/WIDE).
+
+```python
+FIGSCALE_SIMPLE = 1.5   # multiplicador por defecto para figsize_from_scale
+```
+
+Para más de 2 paneles, generalizar a partir de la unidad simple en vez de inventar
+tamaños nuevos:
+
+```python
+def figsize_grid(ncols, nrows=1):
+    w, h = FIGSIZE_SIMPLE
+    return (w * ncols, h * nrows)
+```
+
+### Escalar un preset preservando la proporción — `figsize_from_scale`
+
+Cuando se necesita una figura más grande o más chica que `FIGSIZE_SIMPLE`/`FIGSIZE_WIDE`
+(p. ej. una versión ampliada para un póster, o una miniatura), **no** recalcular ancho y
+alto a mano. Usar `figsize_from_scale`, que toma el preset base y un multiplicador
+simple (`1` = tamaño original, `1.5`, `2`, `0.5`, ...) aplicado por igual a ancho y alto,
+de modo que la proporción del preset se mantiene siempre.
+
+```python
+def figsize_from_scale(base_figsize: tuple[float, float], scale: float) -> tuple[float, float]:
+    """Escala un figsize base preservando su relacion de aspecto.
+
+    `scale` es un multiplicador simple (1 = tamano original, 1.5, 2, 0.5, ...)
+    aplicado por igual a ancho y alto, asi la proporcion del preset original
+    se mantiene siempre.
+    """
+    w, h = base_figsize
+    return (w * scale, h * scale)
+```
+
+Ejemplo: `figsize_from_scale(FIGSIZE_WIDE, 1)` reproduce `FIGSIZE_WIDE` sin cambios;
+`figsize_from_scale(FIGSIZE_WIDE, 2)` la duplica manteniendo la proporción 7.16:2.6.
+
+Usar siempre `constrained_layout=True` al crear la figura. **No** usar `tight_layout()`.
+
+### Escala del texto — `rc_scaled`
+
+`figsize_from_scale` solo escala el **lienzo**: los puntos de `ARTICLE_RCPARAMS` (12/16/14/10)
+son fijos, así que al exportar a una escala mayor el texto parece más pequeño. Los puntos del
+skill están pensados para la escala por defecto `FIGSCALE_SIMPLE` (1.5); a otra escala el texto
+debe acompañar a la talla, como un zoom. Regla: lo que es talla (letra, grosores, marcadores,
+ticks) se multiplica por `scale / FIGSCALE_SIMPLE`.
+
+```python
+_SIZE_KEYS = ('font.size', 'axes.titlesize', 'axes.labelsize', 'xtick.labelsize', 'ytick.labelsize',
+              'legend.fontsize', 'lines.linewidth', 'lines.markersize', 'axes.linewidth', 'grid.linewidth',
+              'xtick.major.width', 'ytick.major.width', 'xtick.major.size', 'ytick.major.size',
+              'xtick.minor.size', 'ytick.minor.size', 'xtick.minor.width', 'ytick.minor.width')
+
+def zoom(scale, follow_text=True):
+    """Factor del texto: 1 a FIGSCALE_SIMPLE; 1.0 siempre si follow_text=False (puntos fijos)."""
+    return scale / FIGSCALE_SIMPLE if follow_text else 1.0
+
+def rc_scaled(scale=FIGSCALE_SIMPLE, follow_text=True):
+    rc = dict(ARTICLE_RCPARAMS)
+    f = zoom(scale, follow_text)
+    if f != 1:
+        rc.update({k: ARTICLE_RCPARAMS[k] * f for k in _SIZE_KEYS})
+    return rc
+
+# uso (no ensucia el estilo global): with plt.rc_context(rc_scaled(SCALE)): ...
+```
+
+- `follow_text=True` (por defecto, "el texto sigue a la escala"): la figura a otra escala es la
+  misma, solo más grande o más pequeña. `follow_text=False` ("fijo"): puntos del skill a cualquier
+  escala. A `FIGSCALE_SIMPLE` ambos devuelven `ARTICLE_RCPARAMS` tal cual.
+- Los tamaños de letra a mano se escriben **relativos** (`'small'`, `'x-small'`, `'large'`...): siguen
+  a `font.size` y por tanto a la escala. Un marcador o grosor a mano se multiplica por
+  `zoom(scale, follow_text)` (un `s=` de `scatter` es un área: por `zoom(...) ** 2`).
+- Una figura que no dibuja con estos rcParams (p. ej. un panel de visor) puede seguir la escala
+  multiplicando el `fontsize` de todos sus `Text` por `zoom(scale, follow_text)` en la copia exportada.
+- Implementación de referencia: `DOE_utils/DOE_plots/plot_style.py` del repositorio CAMP10.
+
+---
+
+## 2. Texto bilingüe EN/FR — `_lang_text`
+
+Para figuras que van tanto al artículo (inglés) como a la tesis (francés), el texto
+(título, ejes, leyenda) debe poder generarse en inglés, en francés, o en ambos a la vez
+con un prefijo `[EN]`/`[FR]` que identifique cada idioma. Usar un único parámetro
+`language` (`"EN"` | `"FR"` | `"both"`) en la función de la figura, resuelto con
+`_lang_text`:
+
+```python
+def _lang_text(en: str, fr: str, language: str, sep: str = "\n") -> str:
+    """Arma el texto de la figura segun el idioma elegido.
+
+    language: "EN" (solo ingles) | "FR" (solo frances) | "both" (bilingue, con prefijo).
+    `sep` controla como se unen ambos idiomas en modo "both": "\n" para
+    titulo/ejes (una linea por idioma), " / " para una leyenda de una sola linea.
+    """
+    if language == "EN":
+        return en
+    if language == "FR":
+        return fr
+    if language == "both":
+        return f"[EN] {en}{sep}[FR] {fr}"
+    raise ValueError(f"language debe ser 'EN', 'FR' o 'both', recibido: {language!r}")
+```
+
+Uso típico dentro de la función de la figura:
+```python
+ax.set_xlabel(_lang_text("Depth $a_p$ [mm]", "Profondeur $a_p$ [mm]", language))
+ax.set_title(_lang_text("Frozen-time stability", "Stabilité à temps figé", language))
+ax.plot(..., label=_lang_text("Stable", "Stable", language, sep=" / "))
+```
+
+Exponer siempre `language` como variable editable al inicio del script que llama a la
+figura (p. ej. `FIGURE_LANGUAGE = "both"` en `main()`), **nunca** cablear el texto bilingüe
+dentro de la función de ploteo.
+
+---
+
+## 3. Colores
+
+Paleta basada en Okabe-Ito (segura para las formas más comunes de daltonismo:
+deuteranopía/protanopía). El par rojo/verde del estilo original para
+estable/inestable se reemplaza por azul/naranja, y además se añade `hatch` como
+codificación redundante por forma (no solo por color).
+
+| Elemento | Color | Notas |
+|---|---|---|
+| Curva principal de estabilidad Re{λ_max} | `'steelblue'` | |
+| Relleno **estable** (σ < 0) | `'#0072B2'` (azul), `alpha=0.15` | sin hatch |
+| Relleno **inestable** (σ ≥ 0) | `'#E69F00'` (naranja), `alpha=0.15`, `hatch='//'` | hatch como redundancia de forma |
+| Marcador de cruce de estabilidad (t_E, a_E, axvline) | `'crimson'` | |
+| Línea de perfil de profundidad de corte | `'navy'` | |
+| Crecimiento acumulado G(t) | `'darkorange'` | |
+| Curva a_vis (eje twin) | `'crimson'` | |
+| Curva t_vis (eje twin) | `'steelblue'` | |
+| Gradiente de barrido R | `plt.cm.plasma(np.linspace(0.1, 0.85, n_R))` | plasma es perceptualmente uniforme y colorblind-safe |
+
+```python
+ax.fill_between(t, re, 0, where=(re < 0),  alpha=0.15, color='#0072B2', label='Stable')
+ax.fill_between(t, re, 0, where=(re >= 0), alpha=0.15, color='#E69F00',
+                hatch='//', label='Unstable')
+```
+
+---
+
+## 4. Marcadores de eventos clave
+
+```python
+# Cruce de estabilidad en t_E / a_E
 ax.scatter([x_mark], [0.0],
            color='crimson', zorder=5, s=75,
            edgecolor='k', linewidths=0.6)
 
-# Visible chatter crossings (per R)
+# Cruces de chatter visible (por R)
 ax.scatter([x_mark], [target],
            color=col, zorder=5, s=75,
            edgecolor='k', linewidths=0.6)
@@ -119,18 +261,18 @@ ax.scatter([x_mark], [target],
 
 ---
 
-## 5. Line styles for events
+## 5. Estilos de línea para eventos
 
 ```python
-ax.axhline(0.0, color='k', linewidth=0.8, linestyle='--')   # zero line
-ax.axvline(t_E, color='crimson', linewidth=1.2, linestyle=':')   # t_E marker
-ax.axhline(a_E, color='crimson', linewidth=1.0, linestyle='-.')  # a_E marker
-ax.axvline(t_vis, color=col, linewidth=1.0, linestyle='--')      # R-sweep lines
+ax.axhline(0.0, color='k', linewidth=0.8, linestyle='--')        # línea cero
+ax.axvline(t_E, color='crimson', linewidth=1.2, linestyle=':')   # marcador t_E
+ax.axhline(a_E, color='crimson', linewidth=1.0, linestyle='-.')  # marcador a_E
+ax.axvline(t_vis, color=col, linewidth=1.0, linestyle='--')      # líneas de barrido R
 ```
 
 ---
 
-## 6. Scientific Y-axis formatter (apply to every ax)
+## 6. Formateador científico del eje Y (aplicar a cada `ax`)
 
 ```python
 import matplotlib.ticker as mticker
@@ -141,25 +283,25 @@ fmt.set_powerlimits((-2, 2))
 ax.yaxis.set_major_formatter(fmt)
 ax.ticklabel_format(axis='y', style='sci', scilimits=(-2, 2))
 
-# Move the offset text (×10^n label)
+# Reposicionar el texto de offset (etiqueta ×10^n)
 off = ax.yaxis.get_offset_text()
-off.set_size(14)
+off.set_size(plt.rcParams['ytick.labelsize'])   # sigue a la escala (no un 14 fijo)
 off.set_x(-0.12)
 off.set_y(-0.05)
 ```
 
 ---
 
-## 7. Synchronized upper X-axis — ap [mm] ↔ t [s]
+## 7. Eje X superior sincronizado — ap [mm] ↔ t [s]
 
-Use `_add_top_xaxis_interactive` when `x_axis='both'`. Do NOT use `secondary_xaxis`
-for non-linear profiles — use `twiny()` with a manual formatter instead.
+Usar cuando se necesite un eje secundario no lineal. **No** usar `secondary_xaxis` para
+perfiles no lineales — usar `twiny()` con un formateador manual.
 
 ```python
 def add_top_xaxis_ap(ax, t, a_mm, mode="auto", tick_step=1):
     """
-    Add synchronized upper X-axis: ap [mm] ← t [s].
-    mode: 'linear' | 'step' | 'auto' (auto-detects constant segments)
+    Agrega eje X superior sincronizado: ap [mm] <- t [s].
+    mode: 'linear' | 'step' | 'auto' (detecta segmentos constantes)
     """
     import numpy as np
 
@@ -189,7 +331,7 @@ def add_top_xaxis_ap(ax, t, a_mm, mode="auto", tick_step=1):
             return a_mm[idx]
         return np.interp(x, t, a_mm)
 
-    # Copy lower ticks and relabel with a_p values
+    # Copiar ticks inferiores y reetiquetar con valores de a_p
     ax.figure.canvas.draw()
     lower_ticks = ax.get_xticks()
     xmin, xmax  = ax.get_xlim()
@@ -206,97 +348,95 @@ def add_top_xaxis_ap(ax, t, a_mm, mode="auto", tick_step=1):
 
 ---
 
-## 8. Legend conventions
+## 8. Convenciones de leyenda
 
-- No frame: `legend.frameon = False` (via rcParams, already set)
-- Stability plot: `loc='upper left'`
-- Twin-axis plots: combine handles from both axes:
+- Sin marco: `legend.frameon = False` (ya seteado vía rcParams)
+- Gráfico de estabilidad: `loc='upper left'`
+- Gráficos con eje twin: combinar handles de ambos ejes:
   ```python
   lines1, labs1 = ax.get_legend_handles_labels()
   lines2, labs2 = ax2.get_legend_handles_labels()
   ax.legend(lines1 + lines2, labs1 + labs2, loc='lower right')
   ```
-- Growth / amplitude plots: `loc='upper left'`
+- Gráficos de crecimiento/amplitud: `loc='upper left'`
 
 ---
 
 ## 9. Grid
 
-Grid is OFF by default in time.py style:
+Grid apagado por defecto:
 ```python
-# ax.grid(False)   ← default, no explicit call needed
+# ax.grid(False)   <- default, no requiere llamada explícita
 ```
 
 ---
 
-## 10. Export
+## 10. Exportación
 
 ```python
 fig.savefig(str(out_path), dpi=200, bbox_inches='tight')
 ```
-- Interactive HTML: `fig.write_html(str(html_path), include_plotlyjs='cdn')` (Plotly only)
-- Use `dpi=300` for final publication figures, `dpi=200` for intermediate exports.
+- HTML interactivo: `fig.write_html(str(html_path), include_plotlyjs='cdn')` (solo Plotly)
+- `dpi=300` para figuras finales de publicación, `dpi=200` para exportaciones intermedias.
 
 ---
 
-## 11. Plot catalogue (ChatterPlotter)
+## 11. Catálogo de gráficos (ChatterPlotter)
 
-| Method | X-axis | Y-axis | Key elements |
-|--------|--------|--------|-------------|
-| `plot_stability` | t [s] or ap [mm] | Re{λ_max} [s⁻¹] | fill_between green/red, axvline t_E, scatter at crossing |
-| `plot_depth_profile` | t [s] | ap [mm] | navy line, axvline t_E, axhline a_E, plasma R markers |
-| `plot_visible_sweep` | R factor | a_vis [mm] (left) / t_vis [s] (right) | twin-axis, 'o-' crimson + 's--' steelblue |
-| `plot_growth` | t [s] | G(t) [—] | darkorange line, axhline G=0, plasma R scatter |
-| `plot_amplitude` | t [s] | e^G(t) [—] | darkorange, axhline 1.0, zoom inset per R |
+| Método | Eje X | Eje Y | Elementos clave | Preset de tamaño típico |
+|--------|--------|--------|-------------|-------------------------|
+| `plot_stability` | t [s] o ap [mm] | Re{λ_max} [s⁻¹] | fill_between azul/naranja+hatch, axvline t_E, scatter en el cruce | `FIGSIZE_SIMPLE` |
+| `plot_depth_profile` | t [s] | ap [mm] | línea navy, axvline t_E, axhline a_E, marcadores R plasma | `FIGSIZE_SIMPLE` |
+| `plot_visible_sweep` | Factor R | a_vis [mm] (izq.) / t_vis [s] (der.) | eje twin, 'o-' crimson + 's--' steelblue | `FIGSIZE_SIMPLE` |
+| `plot_growth` | t [s] | G(t) [—] | línea darkorange, axhline G=0, scatter R plasma | `FIGSIZE_SIMPLE` o `FIGSIZE_WIDE` si la serie es larga |
+| `plot_amplitude` | t [s] | e^G(t) [—] | darkorange, axhline 1.0, inset de zoom por R | `FIGSIZE_SIMPLE` |
 
-All methods accept `ax=None` (create their own axes) or an existing `Axes`.
+Todos los métodos aceptan `ax=None` (crean sus propios ejes) o un `Axes` existente.
 
 ---
 
-## 12. Quick start template
+## 12. Plantilla de inicio rápido
 
 ```python
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import numpy as np
 
-# ── 1. Apply style ───────────────────────────────────────
-plt.rcParams.update({
-    'font.family': 'serif', 'font.size': 12,
-    'axes.titlesize': 16, 'axes.labelsize': 16,
-    'xtick.labelsize': 14, 'ytick.labelsize': 14,
-    'legend.fontsize': 10, 'lines.linewidth': 1.2,
-    'lines.markersize': 10, 'axes.linewidth': 0.8,
-    'xtick.direction': 'in', 'ytick.direction': 'in',
-    'mathtext.fontset': 'stix', 'axes.formatter.use_mathtext': True,
-    'legend.frameon': False, 'figure.facecolor': 'white',
-    'axes.facecolor': 'white', 'savefig.dpi': 300,
-    'savefig.bbox': 'tight',
-})
+# ── 1. Estilo (una sola fuente de verdad) ───────────────
+from plot_style import ARTICLE_RCPARAMS, FIGSIZE_SIMPLE, FIGSIZE_WIDE, FIGSCALE_SIMPLE, figsize_from_scale, _lang_text
+plt.rcParams.update(ARTICLE_RCPARAMS)
 
-# ── 2. Figure ────────────────────────────────────────────
-fig, ax = plt.subplots(figsize=(7, 4), constrained_layout=True)
+# ── 2. Idioma y escala: variables editables por el usuario ──
+LANGUAGE = "both"           # "EN" | "FR" | "both"
+SCALE    = FIGSCALE_SIMPLE  # 1.5 por defecto (ver seccion 1); 1 = tamano original, 2, 0.5, ...
 
-# ── 3. Plot data ─────────────────────────────────────────
-ax.fill_between(t, re, 0, where=(re < 0),  alpha=0.15, color='green', label='Stable')
-ax.fill_between(t, re, 0, where=(re >= 0), alpha=0.15, color='red',   label='Unstable')
+# ── 3. Figura: elegir el preset segun destino ───────────
+fig, ax = plt.subplots(figsize=figsize_from_scale(FIGSIZE_SIMPLE, SCALE), constrained_layout=True)
+# o, para dos paneles a ancho de pagina completa:
+# fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize_from_scale(FIGSIZE_WIDE, SCALE), constrained_layout=True)
+
+# ── 4. Datos ─────────────────────────────────────────────
+ax.fill_between(t, re, 0, where=(re < 0),  alpha=0.15, color='#0072B2',
+                label=_lang_text('Stable', 'Stable', LANGUAGE, sep=' / '))
+ax.fill_between(t, re, 0, where=(re >= 0), alpha=0.15, color='#E69F00', hatch='//',
+                label=_lang_text('Unstable', 'Instable', LANGUAGE, sep=' / '))
 ax.plot(t, re, color='steelblue', linewidth=1.5, label=r'$\mathrm{Re}\{\lambda_{\max}\}$')
 ax.axhline(0.0, color='k', linewidth=0.8, linestyle='--')
 ax.axvline(t_E, color='crimson', linewidth=1.2, linestyle=':')
 ax.scatter([t_E], [0.0], color='crimson', s=75, edgecolor='k', linewidths=0.6, zorder=5)
 
-# ── 4. Scientific formatter ───────────────────────────────
+# ── 5. Formateador cientifico ────────────────────────────
 fmt = mticker.ScalarFormatter(useMathText=True)
 fmt.set_scientific(True); fmt.set_powerlimits((-2, 2))
 ax.yaxis.set_major_formatter(fmt)
 off = ax.yaxis.get_offset_text()
-off.set_size(14); off.set_x(-0.12); off.set_y(-0.05)
+off.set_size(plt.rcParams['ytick.labelsize'])   # sigue a la escala (no un 14 fijo); off.set_x(-0.12); off.set_y(-0.05)
 
-# ── 5. Labels & legend ────────────────────────────────────
-ax.set_xlabel('Time [s]')
+# ── 6. Etiquetas y leyenda ────────────────────────────────
+ax.set_xlabel(_lang_text('Time [s]', 'Temps [s]', LANGUAGE))
 ax.set_ylabel(r'$\mathrm{Re}\{\lambda_{\max}\}$ [s$^{-1}$]')
-ax.set_title('Frozen-time stability')
+ax.set_title(_lang_text('Frozen-time stability', 'Stabilité à temps figé', LANGUAGE))
 ax.legend(loc='upper left')
 
-plt.show()
+fig.savefig('fig.png', dpi=300, bbox_inches='tight')
 ```

@@ -1041,6 +1041,7 @@ def plot_traces(
         has_btn = cur_zoom_x is not None or cur_zoom_y is not None
         _zoom: dict = {"xlim": None, "ylim": None}
 
+        # estilo heredado, sin migrar (PLAN_plot_style.md F6)
         plt.rcParams.update(_PLOT_STYLE)
         fig = plt.figure(figsize=fig_size(scale=4.0, ncols=1))
 

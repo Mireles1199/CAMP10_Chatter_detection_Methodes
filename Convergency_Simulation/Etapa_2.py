@@ -94,6 +94,7 @@ def plot_epsilon_convergence(data: List[dict], language: str = "both",
     en el panel inferior, con su propio zoom. Sin esto un solo outlier aplana la
     escala y no deja distinguir los puntos finos entre si.
     """
+    # estilo heredado, sin migrar (PLAN_plot_style.md F6)
     plt.rcParams.update(ARTICLE_RCPARAMS)
 
     dxl       = np.asarray([r["dxl_size"]        for r in data], dtype=float) * 1e3  # -> mm

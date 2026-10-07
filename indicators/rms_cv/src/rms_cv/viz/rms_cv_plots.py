@@ -201,7 +201,7 @@ def plots_rms_cv(
             if label:
                 ax.text(
                     vx, 0.97, f"  {label}",
-                    rotation=90, va="top", ha="right", fontsize=16,
+                    rotation=90, va="top", ha="right", fontsize=16,  # tamaño a mano: anotación densa
                     color=color, transform=ax.get_xaxis_transform(), clip_on=True,
                 )
 
@@ -243,7 +243,7 @@ def plots_rms_cv(
             axes.axhline(y=rms_threshold, color=color_red, linestyle="--", linewidth=1.2)
             axes.text(0.99, rms_threshold, rf"$RMS_{{thr}}={rms_threshold:.4g}$",
                       transform=axes.get_yaxis_transform(), clip_on=True,
-                      color=color_red, ha='right', va='bottom', fontsize=14)
+                      color=color_red, ha='right', va='bottom', fontsize=14)  # tamaño a mano: anotación densa
         if hlines is not None:
             for yv in hlines:
                 axes.axhline(y=yv, color='gray', linestyle='--', lw=1, alpha=0.7)
@@ -267,19 +267,19 @@ def plots_rms_cv(
             axes.text(0.99, cv_threshold,
                       rf"$\mu + 3\sigma = {cv_threshold:.4g}$",
                       transform=axes.get_yaxis_transform(), clip_on=True,
-                      color=color_red, ha='right', va='bottom', fontsize=16)
+                      color=color_red, ha='right', va='bottom', fontsize=16)  # tamaño a mano: anotación densa
             if cv_threshold_low is not None and cv_threshold_low > 0:
                 axes.axhline(y=cv_threshold_low, color=color_red, linestyle=":", linewidth=1.2)
                 axes.text(0.99, cv_threshold_low,
                           rf"$\mu - 3\sigma = {cv_threshold_low:.4g}$",
                           transform=axes.get_yaxis_transform(), clip_on=True,
-                          color=color_red, ha='right', va='top', fontsize=16)
+                          color=color_red, ha='right', va='top', fontsize=16)  # tamaño a mano: anotación densa
             if cv_mu_stable is not None:
                 axes.axhline(y=cv_mu_stable, color=color_verde, linestyle="-", linewidth=1.0)
                 axes.text(0.99, cv_mu_stable,
                           rf"$\mu_{{stable}} = {cv_mu_stable:.4g}$",
                           transform=axes.get_yaxis_transform(), clip_on=True,
-                          color=color_verde, ha='right', va='bottom', fontsize=16)
+                          color=color_verde, ha='right', va='bottom', fontsize=16)  # tamaño a mano: anotación densa
         axes.set_xlabel("Time (s)")
         axes.set_ylabel("CV")
         axes.set_title(title)
@@ -369,7 +369,7 @@ def plots_rms_cv(
             ax.axhline(y=rms_threshold, color=color_red, ls="--", lw=1.2)
             ax.text(0.99, rms_threshold, rf"$RMS_{{thr}}={rms_threshold:.4g}$",
                     transform=ax.get_yaxis_transform(), clip_on=True,
-                    color=color_red, ha='right', va='bottom', fontsize=14)
+                    color=color_red, ha='right', va='bottom', fontsize=14)  # tamaño a mano: anotación densa
         ax.set_xlabel("Time (s)")
         ax.set_ylabel("RMS")
         ax.set_title("RMS Sequence")
@@ -405,17 +405,17 @@ def plots_rms_cv(
                         color=color_azul, lw=1.8, ls="-")
                 ax.axvline(mu_stable, color=color_verde, ls="-", lw=1.4)
                 ax.text(mu_stable, 0.97, rf"  $\mu={mu_stable:.3g}$",
-                        rotation=90, va="top", ha="right", fontsize=14,
+                        rotation=90, va="top", ha="right", fontsize=14,  # tamaño a mano: anotación densa
                         color=color_verde, transform=ax.get_xaxis_transform(), clip_on=True)
         if cv_threshold is not None:
             ax.axvline(cv_threshold, color=color_red, ls="--", lw=1.4)
             ax.text(cv_threshold, 0.97, rf"  $\mu+3\sigma={cv_threshold:.4g}$",
-                    rotation=90, va="top", ha="right", fontsize=16,
+                    rotation=90, va="top", ha="right", fontsize=16,  # tamaño a mano: anotación densa
                     color=color_red, transform=ax.get_xaxis_transform(), clip_on=True)
         if cv_threshold_low is not None:
             ax.axvline(cv_threshold_low, color=color_red, ls=":", lw=1.2)
             ax.text(cv_threshold_low, 0.97, rf"  $\mu-3\sigma={cv_threshold_low:.4g}$",
-                    rotation=90, va="top", ha="right", fontsize=16,
+                    rotation=90, va="top", ha="right", fontsize=16,  # tamaño a mano: anotación densa
                     color=color_red, transform=ax.get_xaxis_transform(), clip_on=True)
 
         ax.set_xlabel("CV")
@@ -469,12 +469,12 @@ def plots_rms_cv(
             ax.axhline(mu_stable, color=color_verde, ls="-", lw=1.4)
             ax.text(0.99, mu_stable, rf"$\mu={mu_stable:.4g}$",
                     transform=ax.get_yaxis_transform(), clip_on=True,
-                    color=color_verde, ha='right', va='bottom', fontsize=16)
+                    color=color_verde, ha='right', va='bottom', fontsize=16)  # tamaño a mano: anotación densa
         if cv_threshold is not None:
             ax.axhline(cv_threshold, color=color_red, ls="--", lw=1.4)
             ax.text(0.99, cv_threshold, rf"$\mu+3\sigma={cv_threshold:.4g}$",
                     transform=ax.get_yaxis_transform(), clip_on=True,
-                    color=color_red, ha='right', va='bottom', fontsize=16)
+                    color=color_red, ha='right', va='bottom', fontsize=16)  # tamaño a mano: anotación densa
         ax.set_xlabel("Time (s)" if train_time is not None else "Sample index (training population)")
         ax.set_ylabel("CV")
         ax.set_title("CV Training Curve")
@@ -578,19 +578,19 @@ def plots_rms_cv(
             ax_bot.axhline(cv_threshold, color=color_red, ls="--", lw=1.4)
             ax_bot.text(0.99, cv_threshold, rf"$\mu+3\sigma={cv_threshold:.4g}$",
                         transform=ax_bot.get_yaxis_transform(), clip_on=True,
-                        color=color_red, ha='right', va='bottom', fontsize=16)
+                        color=color_red, ha='right', va='bottom', fontsize=16)  # tamaño a mano: anotación densa
             if cv_threshold_low is not None and cv_threshold_low > 0:
                 ax_bot.axhline(cv_threshold_low, color=color_red, ls=":", lw=1.2)
                 ax_bot.text(0.99, cv_threshold_low,
                             rf"$\mu-3\sigma={cv_threshold_low:.4g}$",
                             transform=ax_bot.get_yaxis_transform(), clip_on=True,
-                            color=color_red, ha='right', va='top', fontsize=16)
+                            color=color_red, ha='right', va='top', fontsize=16)  # tamaño a mano: anotación densa
             if cv_mu_stable is not None:
                 ax_bot.axhline(cv_mu_stable, color=color_verde, ls="-", lw=1.0)
                 ax_bot.text(0.99, cv_mu_stable,
                             rf"$\mu_{{stable}}={cv_mu_stable:.4g}$",
                             transform=ax_bot.get_yaxis_transform(), clip_on=True,
-                            color=color_verde, ha='right', va='bottom', fontsize=16)
+                            color=color_verde, ha='right', va='bottom', fontsize=16)  # tamaño a mano: anotación densa
         ax_bot.set_xlabel("Time (s)")
         ax_bot.set_ylabel("CV")
         apply_sci_yaxis(ax_bot)

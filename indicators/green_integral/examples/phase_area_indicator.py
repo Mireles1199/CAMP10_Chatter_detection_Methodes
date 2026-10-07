@@ -65,6 +65,7 @@ from green_integral.utils.types import SignalData, LyapunovConfig
 # ══════════════════════════════════════════════════════════════════════════════
 import matplotlib as mpl
 
+# estilo heredado, sin migrar (PLAN_plot_style.md F6)
 mpl.rcParams.update({
     "font.family":       "DejaVu Sans",
     "font.size":         11,

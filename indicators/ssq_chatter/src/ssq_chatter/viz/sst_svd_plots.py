@@ -136,7 +136,7 @@ def plots_sst_svd(
                 # label (correctly) disappear instead of silently reshaping the plot.
                 ax.text(
                     vx, 0.97, f"  {label}",
-                    rotation=90, va="top", ha="right", fontsize=16,
+                    rotation=90, va="top", ha="right", fontsize=16,  # tamaño a mano: anotación densa
                     color=color, transform=ax.get_xaxis_transform(),
                     clip_on=True,
                 )
@@ -388,12 +388,12 @@ def plots_sst_svd(
             ax.axhline(lim_sup, color=color_red, ls="--", lw=1.4)
             ax.text(0.99, lim_sup, _thresh_label(lim_sup, True),
                     transform=ax.get_yaxis_transform(), clip_on=True,
-                    color=color_red, ha='right', va='bottom', fontsize=16)
+                    color=color_red, ha='right', va='bottom', fontsize=16)  # tamaño a mano: anotación densa
         if lim_inf is not None:
             ax.axhline(lim_inf, color=color_red, ls=":", lw=1.2)
             ax.text(0.99, lim_inf, _thresh_label(lim_inf, False),
                     transform=ax.get_yaxis_transform(), clip_on=True,
-                    color=color_red, ha='right', va='top', fontsize=16)
+                    color=color_red, ha='right', va='top', fontsize=16)  # tamaño a mano: anotación densa
         ax.set_yscale('log')
         _draw_vlines(ax, vlines)
         ax.set_xlabel("Time (s)")
@@ -444,12 +444,12 @@ def plots_sst_svd(
             ax.axhline(lim_sup, color=color_red, ls="--", lw=1.4)
             ax.text(0.99, lim_sup, _thresh_label(lim_sup, True),
                     transform=ax.get_yaxis_transform(), clip_on=True,
-                    color=color_red, ha='right', va='bottom', fontsize=16)
+                    color=color_red, ha='right', va='bottom', fontsize=16)  # tamaño a mano: anotación densa
         if lim_inf is not None:
             ax.axhline(lim_inf, color=color_red, ls=":", lw=1.2)
             ax.text(0.99, lim_inf, _thresh_label(lim_inf, False),
                     transform=ax.get_yaxis_transform(), clip_on=True,
-                    color=color_red, ha='right', va='top', fontsize=16)
+                    color=color_red, ha='right', va='top', fontsize=16)  # tamaño a mano: anotación densa
         ax.set_yscale('log')
         # _draw_vlines(ax, vlines)
         # zoom applied last -- see note in _plot_svd
@@ -496,7 +496,7 @@ def plots_sst_svd(
                 # mu line
                 ax.axvline(mu_s, color=color_verde, ls="-", lw=1.4)
                 ax.text(mu_s, 0.97, rf"  $\mu={mu_s:.3g}$",
-                        rotation=90, va="top", ha="right", fontsize=14,
+                        rotation=90, va="top", ha="right", fontsize=14,  # tamaño a mano: anotación densa
                         color=color_verde, transform=ax.get_xaxis_transform(), clip_on=True)
             # stats box (MaxEnt convention: numeric mu/sigma printed inside the
             # plot, not just via the axvline label) -- log10-space stats (what's
@@ -508,7 +508,7 @@ def plots_sst_svd(
             )
             if training_mu is not None and training_sigma is not None:
                 _txt += f"\n" rf"$\mu$ = {training_mu:.4g}   $\sigma$ = {training_sigma:.4g}"
-            ax.text(0.02, 0.97, _txt, transform=ax.transAxes, fontsize=9,
+            ax.text(0.02, 0.97, _txt, transform=ax.transAxes, fontsize=9,  # tamaño a mano: anotación densa
                     va="top", ha="left",
                     bbox=dict(boxstyle="round,pad=0.4", fc="white", ec="gray", alpha=0.85),
                     clip_on=True)
@@ -516,7 +516,7 @@ def plots_sst_svd(
             log_sup = np.log10(lim_sup)
             ax.axvline(log_sup, color=color_red, ls="--", lw=1.4)
             ax.text(log_sup, 0.97, "  " + _thresh_label(lim_sup, True),
-                    rotation=90, va="top", ha="right", fontsize=16,
+                    rotation=90, va="top", ha="right", fontsize=16,  # tamaño a mano: anotación densa
                     color=color_red, transform=ax.get_xaxis_transform(), clip_on=True)
         if lim_inf is not None and lim_inf > 0:
             # lim_inf = mu - z*sigma can go negative for small SVD populations
@@ -525,7 +525,7 @@ def plots_sst_svd(
             log_inf = np.log10(lim_inf)
             ax.axvline(log_inf, color=color_red, ls=":", lw=1.2)
             ax.text(log_inf, 0.97, "  " + _thresh_label(lim_inf, False),
-                    rotation=90, va="top", ha="right", fontsize=16,
+                    rotation=90, va="top", ha="right", fontsize=16,  # tamaño a mano: anotación densa
                     color=color_red, transform=ax.get_xaxis_transform(), clip_on=True)
         ax.set_xlabel(r"$\log_{10}$(1st SVD Component)")
         ax.set_ylabel("Density")
@@ -564,12 +564,12 @@ def plots_sst_svd(
             ax_bot.axhline(lim_sup, color=color_red, ls="--", lw=1.4)
             ax_bot.text(0.99, lim_sup, _thresh_label(lim_sup, True),
                         transform=ax_bot.get_yaxis_transform(), clip_on=True,
-                        color=color_red, ha='right', va='bottom', fontsize=16)
+                        color=color_red, ha='right', va='bottom', fontsize=16)  # tamaño a mano: anotación densa
         if lim_inf is not None:
             ax_bot.axhline(lim_inf, color=color_red, ls=":", lw=1.2)
             ax_bot.text(0.99, lim_inf, _thresh_label(lim_inf, False),
                         transform=ax_bot.get_yaxis_transform(), clip_on=True,
-                        color=color_red, ha='right', va='top', fontsize=16)
+                        color=color_red, ha='right', va='top', fontsize=16)  # tamaño a mano: anotación densa
         ax_bot.set_xlabel("Time (s)")
         ax_bot.set_ylabel("1st SVD Component")
         apply_sci_yaxis(ax_bot)
@@ -675,7 +675,7 @@ def plots_sst_svd(
         ax.axvline(mu_s, color=color_verde, ls="-", lw=1.4)
         ax.text(mu_s, 0.97, rf"  $\mu={mu_s:.3g}$",
                 rotation=90, va="top", ha="right", clip_on=True,
-                color=color_verde, transform=ax.get_xaxis_transform(), fontsize=14)
+                color=color_verde, transform=ax.get_xaxis_transform(), fontsize=14)  # tamaño a mano: anotación densa
         # μ+zσ: use runner threshold (log-converted) if available, else histogram stats
         if lim_sup is not None and lim_sup > 0:
             _sup_pos = np.log10(lim_sup)
@@ -689,7 +689,7 @@ def plots_sst_svd(
             ax.axvline(_sup_pos, color=color_red, ls="--", lw=1.4)
             ax.text(_sup_pos, 0.97, _sup_lbl,
                     rotation=90, va="top", ha="right", clip_on=True,
-                    color=color_red, transform=ax.get_xaxis_transform(), fontsize=16)
+                    color=color_red, transform=ax.get_xaxis_transform(), fontsize=16)  # tamaño a mano: anotación densa
         # μ-zσ: use runner threshold (log-converted) if available, else histogram stats
         if lim_inf is not None and lim_inf > 0:
             _inf_pos = np.log10(lim_inf)
@@ -703,7 +703,7 @@ def plots_sst_svd(
             ax.axvline(_inf_pos, color=color_red, ls=":", lw=1.2)
             ax.text(_inf_pos, 0.97, _inf_lbl,
                     rotation=90, va="top", ha="right", clip_on=True,
-                    color=color_red, transform=ax.get_xaxis_transform(), fontsize=16)
+                    color=color_red, transform=ax.get_xaxis_transform(), fontsize=16)  # tamaño a mano: anotación densa
         ax.set_xlabel(r"$\log_{10}$(1st SVD Component)")
         ax.set_ylabel("Density")
         ax.set_title(rf"Training PDF — Stable d1 | {seg_label}")
@@ -741,12 +741,12 @@ def plots_sst_svd(
             ax_bot.axhline(lim_sup, color=color_red, ls="--", lw=1.4)
             ax_bot.text(0.99, lim_sup, _thresh_label(lim_sup, True),
                         transform=ax_bot.get_yaxis_transform(), clip_on=True,
-                        color=color_red, ha='right', va='bottom', fontsize=16)
+                        color=color_red, ha='right', va='bottom', fontsize=16)  # tamaño a mano: anotación densa
         if lim_inf is not None:
             ax_bot.axhline(lim_inf, color=color_red, ls=":", lw=1.2)
             ax_bot.text(0.99, lim_inf, _thresh_label(lim_inf, False),
                         transform=ax_bot.get_yaxis_transform(), clip_on=True,
-                        color=color_red, ha='right', va='top', fontsize=16)
+                        color=color_red, ha='right', va='top', fontsize=16)  # tamaño a mano: anotación densa
         ax_bot.set_xlabel("Time (s)")
         ax_bot.set_ylabel("1st SVD Component")
         ax_bot.grid(False)
@@ -807,7 +807,7 @@ def plots_sst_svd(
         for i, (t_i, v_i) in enumerate(pieces):
             ax = axes[i // ncols, i % ncols]
             _fill(ax, t_i, v_i)
-            ax.set_title(f"Piece {i + 1}", fontsize=10)
+            ax.set_title(f"Piece {i + 1}", fontsize="small")
             ax.set_box_aspect(1)
         for j in range(n, nrows * ncols):
             fig.delaxes(axes[j // ncols, j % ncols])

@@ -239,6 +239,7 @@ def fig3_error_summary(cases: list, F_ref: float, highlight_dxl_size: float | No
     language: "EN" | "FR" | "both" -- ver FIGURE_LANGUAGE en main().
     figsize: tamano de la figura -- ver FIGURE_SCALE/figsize_from_scale en main().
     """
+    # estilo heredado, sin migrar (PLAN_plot_style.md F6)
     plt.rcParams.update(_STYLE)
     if not cases:
         log.warning("Figure 3: no cases available.")

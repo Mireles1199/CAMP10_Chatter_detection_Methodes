@@ -21,6 +21,7 @@ from MaxEnt_SPRT import HDF5Reader
 from Topology import time_series_to_diagram, diagram_to_image
 
 
+# estilo heredado, sin migrar (PLAN_plot_style.md F6)
 def configurar_estilo_global() -> None:
     local_style = {
         'font.family': 'serif',
