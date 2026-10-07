@@ -5,6 +5,8 @@
     python check_plot_style.py --render DIR                 draws the baseline figures of real files -> DIR/*.png + DIR/digests.json
     python check_plot_style.py --compare DIR_A DIR_B        the DATA drawn by every figure is identical (styles may differ)
     python check_plot_style.py --digests DIR OUT.json       digest of every figure pickled in DIR/**/*.pkl (indicator_plots.py --pickle-dir)
+    python check_plot_style.py --pngs DIR OUT_DIR           draw every figure pickled in DIR/**/*.pkl as OUT_DIR/**/*.png
+    python check_plot_style.py --compare-pngs A B           the PNGs of two such folders are pixel-identical
     python check_plot_style.py --sync                       the 5 package copies of plot_style.py are byte-identical to the canonical
     python check_plot_style.py --sync-write                 (re)write the 5 copies from the canonical
     python check_plot_style.py --lint                       no local rcParams / hand-set font sizes in the migrated files
@@ -30,6 +32,11 @@ PACKAGE_COPIES = [os.path.join(REPO, "indicators", *p, "viz", "plot_style.py") f
     ("green_integral", "src", "green_integral"), ("emd_hht", "src", "C_emd_hht"))]
 # files already migrated to the unified style (grows phase by phase); the lint is strict on them
 MIGRATED = [os.path.join(HERE, n) for n in ("plot_style.py", "validation_figures.py", "sld_model.py", "fig_lang.py")]
+MIGRATED += [os.path.join(REPO, "indicators", *p) for p in (
+    ("maxent_sprt", "src", "MaxEnt_SPRT", "viz", "maxent_sprt_plots.py"), ("rms_cv", "src", "rms_cv", "viz", "rms_cv_plots.py"),
+    ("rms_cv", "src", "rms_cv", "viz", "plots.py"), ("ssq_chatter", "src", "ssq_chatter", "viz", "sst_svd_plots.py"),
+    ("green_integral", "src", "green_integral", "viz", "green_integral_plots.py"), ("green_integral", "src", "green_integral", "viz", "plots.py"),
+    ("emd_hht", "src", "C_emd_hht", "viz", "plotting.py"))]
 FORBIDDEN = [(r"rcParams\.update\(", "local rcParams"), (r"def (_?configurar_estilo_global|configure_global_style)", "old style function"),
              (r"(?<![\w.])(fontsize|labelsize|titlesize)\s*=\s*\d", "hand-set font size (use a relative name)")]
 BASELINE_DEFAULT = dict(
@@ -128,6 +135,39 @@ def digests_of_pickles(root, out_json):
     return res
 
 
+def pngs_of_pickles(root, out_dir):
+    import glob
+    import pickle
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    n = 0
+    for p in sorted(glob.glob(os.path.join(root, "**", "*.pkl"), recursive=True)):
+        dst = os.path.join(out_dir, os.path.relpath(p, root)[:-4] + ".png")
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        with open(p, "rb") as f:
+            fig = pickle.load(f)
+        fig.savefig(dst, dpi=100)
+        plt.close(fig)
+        n += 1
+    print(f"{n} PNG -> {out_dir}")
+
+
+def compare_pngs(a, b):
+    import glob
+    import matplotlib.image as mi
+    names = sorted(os.path.relpath(p, a) for p in glob.glob(os.path.join(a, "**", "*.png"), recursive=True))
+    bad = []
+    for n in names:
+        pb = os.path.join(b, n)
+        x = mi.imread(os.path.join(a, n))
+        y = mi.imread(pb) if os.path.exists(pb) else None
+        if y is None or x.shape != y.shape or not np.array_equal(x, y):
+            bad.append((n, None if y is None or x.shape != y.shape else float(np.abs(x - y).mean())))
+    print(f"{len(names)} PNG compared; {len(bad)} differ: {bad[:12]}")
+    return not bad
+
+
 def sync_write(canon=CANON, copies=PACKAGE_COPIES):
     ref = open(canon, "rb").read()
     for p in copies:
@@ -150,6 +190,8 @@ def lint(files=MIGRATED):
     for p in files:
         for i, line in enumerate(open(p, encoding="utf8").read().splitlines(), 1):
             code = line.split("#", 1)[0]
+            if "tamaño a mano" in line:   # a documented exception: dense annotation sizes kept as drawn
+                continue
             if os.path.basename(p) == "plot_style.py" and "rcParams.update(" in code:
                 continue   # the canonical may document/offer apply()
             for rx, why in FORBIDDEN:
@@ -191,6 +233,8 @@ def _selftest():
     open(ok, "w").write("ax.legend(fontsize='small')  # fontsize=8 in a comment\nx = size = 3\n")
     open(bad, "w").write("plt.rcParams.update({})\nax.text(0, 0, 's', fontsize=8)\ndef configurar_estilo_global(): pass\n")
     assert lint([ok]) and not lint([bad])
+    open(ok, "w", encoding="utf8").write("ax.text(0, 0, 's', fontsize=11)  # tamaño a mano: anotación densa" + chr(10))
+    assert lint([ok])
     print("check_plot_style selftest OK")
 
 
@@ -199,6 +243,8 @@ def main():
     p.add_argument("--render", metavar="DIR")
     p.add_argument("--compare", nargs=2, metavar=("DIR_A", "DIR_B"))
     p.add_argument("--digests", nargs=2, metavar=("DIR", "OUT_JSON"))
+    p.add_argument("--pngs", nargs=2, metavar=("DIR", "OUT_DIR"))
+    p.add_argument("--compare-pngs", nargs=2, metavar=("A", "B"))
     p.add_argument("--sync", action="store_true")
     p.add_argument("--sync-write", action="store_true")
     p.add_argument("--lint", action="store_true")
@@ -214,6 +260,10 @@ def main():
         render(a.render, a.clean, a.noise, a.snr)
     if a.digests:
         digests_of_pickles(*a.digests)
+    if a.pngs:
+        pngs_of_pickles(*a.pngs)
+    if a.compare_pngs:
+        ok &= compare_pngs(*a.compare_pngs)
     if a.compare:
         ok &= compare(*a.compare)
     if a.sync_write:

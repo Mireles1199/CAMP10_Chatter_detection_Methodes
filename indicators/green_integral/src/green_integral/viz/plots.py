@@ -32,13 +32,13 @@ def _draw_vlines(ax, vlines, default_color="black", default_ls="--"):
             x, label = entry
             ax.axvline(x, color=default_color, ls=default_ls, lw=1.2)
             ax.text(x, 0.97, f"  {label}",
-                    rotation=90, va="top", ha="right", fontsize=16,
+                    rotation=90, va="top", ha="right", fontsize=16,  # tamaño a mano: anotación densa
                     color=default_color, transform=ax.get_xaxis_transform())
         else:
             x, label, col = entry[0], entry[1], entry[2]
             ax.axvline(x, color=col, ls=default_ls, lw=1.2)
             ax.text(x, 0.97, f"  {label}",
-                    rotation=90, va="top", ha="right", fontsize=16,
+                    rotation=90, va="top", ha="right", fontsize=16,  # tamaño a mano: anotación densa
                     color=col, transform=ax.get_xaxis_transform())
 
 
@@ -108,16 +108,16 @@ def plot_windows_local(
         axes.text(0.99, thr["upper"],
                   rf"$\mu+{z_lbl}\sigma={thr['upper']:.3g}$",
                   transform=axes.get_yaxis_transform(),
-                  color=color_red, ha='right', va='bottom', fontsize=16)
+                  color=color_red, ha='right', va='bottom', fontsize=16)  # tamaño a mano: anotación densa
         axes.axhline(thr["lower"], color=color_red,   ls=":",  lw=1.2)
         axes.text(0.99, thr["lower"],
                   rf"$\mu-{z_lbl}\sigma={thr['lower']:.3g}$",
                   transform=axes.get_yaxis_transform(),
-                  color=color_red, ha='right', va='top', fontsize=16)
+                  color=color_red, ha='right', va='top', fontsize=16)  # tamaño a mano: anotación densa
         axes.axhline(thr["mu"], color=color_verde, ls="-", lw=1.0)
         axes.text(0.99, thr["mu"], rf"$\mu={thr['mu']:.3g}$",
                   transform=axes.get_yaxis_transform(),
-                  color=color_verde, ha='right', va='bottom', fontsize=16)
+                  color=color_verde, ha='right', va='bottom', fontsize=16)  # tamaño a mano: anotación densa
 
     t_d = result.get("t_d")
     if t_d is not None:

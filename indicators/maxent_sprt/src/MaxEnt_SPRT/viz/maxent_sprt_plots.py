@@ -144,10 +144,10 @@ def plots_maxent_sprt(
         ax.axhline(y=0,       color='gray',      linestyle=':')
         ax.text(0.99, lim_sup, f"$b = {lim_sup:.4g}$",
                 transform=ax.get_yaxis_transform(),
-                color=color_red, ha='right', va='bottom', fontsize=16, clip_on=True)
+                color=color_red, ha='right', va='bottom', fontsize=16, clip_on=True)  # tamaño a mano: anotación densa
         ax.text(0.99, lim_inf, f"$a = {lim_inf:.4g}$",
                 transform=ax.get_yaxis_transform(),
-                color=color_azul, ha='right', va='bottom', fontsize=16, clip_on=True)
+                color=color_azul, ha='right', va='bottom', fontsize=16, clip_on=True)  # tamaño a mano: anotación densa
 
         if zoom_x is not None:
             ax.set_xlim(zoom_x)
@@ -312,7 +312,7 @@ def plots_maxent_sprt(
                     ax.axvline(x=t_split, color="black", linestyle=":", lw=1.2,
                                label=f"$t_{{gt}}$ = {t_split:.3f} s")
                     ax.text(t_split, 0.97, f"  $t_{{gt}}={t_split:.3f}$ s",
-                            rotation=90, va="top", ha="right", fontsize=8,
+                            rotation=90, va="top", ha="right", fontsize=8,  # tamaño a mano: anotación densa
                             color="black", transform=ax.get_xaxis_transform(), clip_on=True)
             elif t_split is not None:
                 mask_s = t < t_split
@@ -562,13 +562,13 @@ def plots_maxent_sprt(
                 os0, os1 = opr_starts[i], opr_bounds[i]
                 t_o, v_o = t_opr_arr[os0:os1], v_opr_arr[os0:os1]
             _fill(ax, t[s0:s1], v[s0:s1], t_o, v_o)
-            ax.set_title(f"Piece {i + 1}", fontsize=10)
+            ax.set_title(f"Piece {i + 1}", fontsize="small")
             ax.set_box_aspect(1)
 
         for j in range(n, nrows * ncols):
             fig.delaxes(axes[j // ncols, j % ncols])
 
-        axes[0, 0].legend(fontsize=8)
+        axes[0, 0].legend(fontsize=8)  # tamaño a mano: anotación densa
         fig.suptitle(title, y=1.02)
         fig.supxlabel("Time (s)")
         fig.supylabel(ylabel)
@@ -632,7 +632,7 @@ def plots_maxent_sprt(
             if label:
                 ax.text(
                     vx, 0.97, f"  {label}",
-                    rotation=90, va="top", ha="right", fontsize=16,
+                    rotation=90, va="top", ha="right", fontsize=16,  # tamaño a mano: anotación densa
                     color=color, transform=ax.get_xaxis_transform(),
                 clip_on=True)
 
@@ -762,7 +762,7 @@ def plots_maxent_sprt(
                                           constrained_layout=True, num=fig_label)
         fig.suptitle(
             r"D6 - Log-likelihoods $\ln p_0(H)$,  $\ln p_1(H)$  and  $\Lambda(H) = \ln\,p_1/p_0$",
-            fontsize=13)
+            fontsize=13)  # tamaño a mano: anotación densa
 
         ax_a.plot(H_r, ln_p0, color=color_azul,   lw=2.2, label=r"$\ln p_0(H)$  (stable)")
         ax_a.plot(H_r, ln_p1, color=color_orange,  lw=2.2, label=r"$\ln p_1(H)$  (chatter)")
@@ -781,12 +781,12 @@ def plots_maxent_sprt(
             (H_thr,   rf"$H_{{thr}}$",      "black",       "right"),
             (H_cross, rf"$\Lambda\!=\!0$",  "gray",        "left"),
         ]:
-            ax_a.text(_xv, 0.97, _lbl, color=_col, fontsize=8,
+            ax_a.text(_xv, 0.97, _lbl, color=_col, fontsize=8,  # tamaño a mano: anotación densa
                       ha=_ha, va="top", transform=ax_a.get_xaxis_transform(), clip_on=True)
         ax_a.set_xlabel(r"$H$  (entropy of segment)")
         ax_a.set_ylabel(r"$\ln p(H)$")
         ax_a.set_title(r"Log-likelihoods: parabolas centred on $\mu_0$, $\mu_1$")
-        ax_a.legend(fontsize=9, loc="lower center")
+        ax_a.legend(fontsize=9, loc="lower center")  # tamaño a mano: anotación densa
 
         ax_b.plot(H_r, Lam_H, color=color_verde, lw=2.2,
                   label=r"$\Lambda(H) = \ln\frac{p_1(H)}{p_0(H)}$")
@@ -800,16 +800,16 @@ def plots_maxent_sprt(
             (a_val, rf"$a={a_val:.2f}$",  color_azul,  "--"),
         ]:
             ax_b.axhline(_yh, color=_col, ls=_ls, lw=1.2, alpha=0.8)
-            ax_b.text(0.99, _yh, f"  {_lbl}", color=_col, fontsize=8,
+            ax_b.text(0.99, _yh, f"  {_lbl}", color=_col, fontsize=8,  # tamaño a mano: anotación densa
                       ha="right", va="bottom", transform=ax_b.get_yaxis_transform(), clip_on=True)
         ax_b.axvline(H_thr,  color="black", ls="--", lw=1.0, alpha=0.75)
-        ax_b.text(H_thr, 0.97, rf"$H_{{thr}}$", color="black", fontsize=8,
+        ax_b.text(H_thr, 0.97, rf"$H_{{thr}}$", color="black", fontsize=8,  # tamaño a mano: anotación densa
                   ha="right", va="top", transform=ax_b.get_xaxis_transform(), clip_on=True)
         ax_b.axvline(H_cross, color="gray", ls=":", lw=0.9, alpha=0.6)
-        ax_b.set_xlabel(r"$H$  (entropy of segment)", fontsize=12)
-        ax_b.set_ylabel(r"$\Lambda(H) = \ln p_1(H) - \ln p_0(H)$", fontsize=12)
-        ax_b.set_title(r"Single-segment log-likelihood ratio $\Lambda(H)$", fontsize=11)
-        ax_b.legend(fontsize=9, loc="upper left")
+        ax_b.set_xlabel(r"$H$  (entropy of segment)", fontsize="medium")
+        ax_b.set_ylabel(r"$\Lambda(H) = \ln p_1(H) - \ln p_0(H)$", fontsize="medium")
+        ax_b.set_title(r"Single-segment log-likelihood ratio $\Lambda(H)$", fontsize=11)  # tamaño a mano: anotación densa
+        ax_b.legend(fontsize=9, loc="upper left")  # tamaño a mano: anotación densa
 
         return fig, (ax_a, ax_b)
 
@@ -828,7 +828,7 @@ def plots_maxent_sprt(
         fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=figsize_from_scale(FIGSIZE_WIDE, scale),
                                           constrained_layout=True, num=fig_label)
         fig.suptitle(r"D7 - $p_0(H(t))$ and $p_1(H(t))$ over time"
-                     "\n(which distribution is more likely at each segment?)", fontsize=12)
+                     "\n(which distribution is more likely at each segment?)", fontsize="medium")
 
         ax_a.plot(t_arr, _p0_t, color=color_azul,   lw=1.2,
                   label=r"$p_0(H(t))$ - how stable-like is this segment?")
@@ -840,12 +840,12 @@ def plots_maxent_sprt(
                           color=color_azul,   label=r"$p_0 > p_1 \rightarrow$    stable wins")
         if t_gt is not None:
             ax_a.axvline(t_gt, color="black", ls="--", lw=1.2)
-            ax_a.text(t_gt, 0.98, r"  $t_{gt}$", color="black", fontsize=9,
+            ax_a.text(t_gt, 0.98, r"  $t_{gt}$", color="black", fontsize=9,  # tamaño a mano: anotación densa
                       va="top", transform=ax_a.get_xaxis_transform(), clip_on=True)
-        ax_a.set_xlabel("Time [s]", fontsize=11)
-        ax_a.set_ylabel(r"$p(H(t))$", fontsize=11)
-        ax_a.set_title(r"PDF values at each segment's entropy $H(t)$", fontsize=10)
-        ax_a.legend(fontsize=8, loc="upper left")
+        ax_a.set_xlabel("Time [s]", fontsize=11)  # tamaño a mano: anotación densa
+        ax_a.set_ylabel(r"$p(H(t))$", fontsize=11)  # tamaño a mano: anotación densa
+        ax_a.set_title(r"PDF values at each segment's entropy $H(t)$", fontsize="small")
+        ax_a.legend(fontsize=8, loc="upper left")  # tamaño a mano: anotación densa
         _shade_intervals_local(ax_a, training_intervals)
 
         ax_b.plot(t_arr, _ratio, color=color_verde, lw=1.2,
@@ -853,12 +853,12 @@ def plots_maxent_sprt(
         ax_b.axhline(1.0, color="gray", ls=":", lw=0.9, label="ratio = 1  (indifferent)")
         if t_gt is not None:
             ax_b.axvline(t_gt, color="black", ls="--", lw=1.2)
-            ax_b.text(t_gt, 0.98, r"  $t_{gt}$", color="black", fontsize=9,
+            ax_b.text(t_gt, 0.98, r"  $t_{gt}$", color="black", fontsize=9,  # tamaño a mano: anotación densa
                       va="top", transform=ax_b.get_xaxis_transform(), clip_on=True)
-        ax_b.set_xlabel("Time [s]", fontsize=11)
-        ax_b.set_ylabel(r"$p_1 / p_0$", fontsize=11)
-        ax_b.set_title(r"Likelihood ratio per segment  ($> 1$: evidence for chatter)", fontsize=10)
-        ax_b.legend(fontsize=8, loc="upper left")
+        ax_b.set_xlabel("Time [s]", fontsize=11)  # tamaño a mano: anotación densa
+        ax_b.set_ylabel(r"$p_1 / p_0$", fontsize=11)  # tamaño a mano: anotación densa
+        ax_b.set_title(r"Likelihood ratio per segment  ($> 1$: evidence for chatter)", fontsize="small")
+        ax_b.legend(fontsize=8, loc="upper left")  # tamaño a mano: anotación densa
         _shade_intervals_local(ax_b, training_intervals)
 
         return fig, (ax_a, ax_b)
@@ -880,7 +880,7 @@ def plots_maxent_sprt(
         fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=figsize_from_scale(FIGSIZE_WIDE, scale),
                                           constrained_layout=True, num=fig_label)
         fig.suptitle(r"D8 - $\ln p_0(H(t))$ and $\ln p_1(H(t))$ over time"
-                     "\n(log-likelihoods and their difference = $\Lambda_k$)", fontsize=12)
+                     "\n(log-likelihoods and their difference = $\Lambda_k$)", fontsize="medium")
 
         ax_a.plot(t_arr, _lp0_t, color=color_azul,  lw=1.2,
                   label=r"$\ln p_0(H(t))$  (log-prob stable)")
@@ -892,12 +892,12 @@ def plots_maxent_sprt(
                           color=color_azul,   label=r"$\ln p_0 > \ln p_1 \rightarrow$    stable more likely")
         if t_gt is not None:
             ax_a.axvline(t_gt, color="black", ls="--", lw=1.2)
-            ax_a.text(t_gt, 0.98, r"  $t_{gt}$", color="black", fontsize=9,
+            ax_a.text(t_gt, 0.98, r"  $t_{gt}$", color="black", fontsize=9,  # tamaño a mano: anotación densa
                       va="top", transform=ax_a.get_xaxis_transform(), clip_on=True)
-        ax_a.set_xlabel("Time [s]", fontsize=11)
-        ax_a.set_ylabel(r"$\ln p(H(t))$", fontsize=11)
-        ax_a.set_title(r"Log-likelihoods at each segment  (gap = $\Lambda_k$)", fontsize=10)
-        ax_a.legend(fontsize=8, loc="lower left")
+        ax_a.set_xlabel("Time [s]", fontsize=11)  # tamaño a mano: anotación densa
+        ax_a.set_ylabel(r"$\ln p(H(t))$", fontsize=11)  # tamaño a mano: anotación densa
+        ax_a.set_title(r"Log-likelihoods at each segment  (gap = $\Lambda_k$)", fontsize="small")
+        ax_a.legend(fontsize=8, loc="lower left")  # tamaño a mano: anotación densa
         _shade_intervals_local(ax_a, training_intervals)
 
         ax_b.plot(t_arr, _Lk_t, color=color_verde, lw=1.0, alpha=0.8,
@@ -909,12 +909,12 @@ def plots_maxent_sprt(
                           label=r"$\Lambda_k < 0$: pushes $S_k$ toward stable")
         if t_gt is not None:
             ax_b.axvline(t_gt, color="black", ls="--", lw=1.2)
-            ax_b.text(t_gt, 0.98, r"  $t_{gt}$", color="black", fontsize=9,
+            ax_b.text(t_gt, 0.98, r"  $t_{gt}$", color="black", fontsize=9,  # tamaño a mano: anotación densa
                       va="top", transform=ax_b.get_xaxis_transform(), clip_on=True)
-        ax_b.set_xlabel("Time [s]", fontsize=11)
-        ax_b.set_ylabel(r"$\Lambda_k$", fontsize=11)
-        ax_b.set_title(r"$\Lambda_k$ per segment over time  (increments of $S_k$)", fontsize=10)
-        ax_b.legend(fontsize=8, loc="upper left")
+        ax_b.set_xlabel("Time [s]", fontsize=11)  # tamaño a mano: anotación densa
+        ax_b.set_ylabel(r"$\Lambda_k$", fontsize=11)  # tamaño a mano: anotación densa
+        ax_b.set_title(r"$\Lambda_k$ per segment over time  (increments of $S_k$)", fontsize="small")
+        ax_b.legend(fontsize=8, loc="upper left")  # tamaño a mano: anotación densa
         _shade_intervals_local(ax_b, training_intervals)
 
         return fig, (ax_a, ax_b)
@@ -960,7 +960,7 @@ def plots_maxent_sprt(
                                           constrained_layout=True, num=fig_label)
         fig.suptitle(
             r"D9 - Both distributions $P_0$ (stable) and $P_1$ (chatter): "
-            "theory and measured $H$ values", fontsize=13)
+            "theory and measured $H$ values", fontsize=13)  # tamaño a mano: anotación densa
 
         # Left: analytical PDFs with alpha/beta fills
         ax_a.plot(H_ax, pdf0, color=color_azul,   lw=2.2,
@@ -980,7 +980,7 @@ def plots_maxent_sprt(
             (_cross, r"$\Lambda\!=\!0$",              "gray",        "left"),
         ]:
             ax_a.axvline(_xv, color=_col, ls="--", lw=1.0, alpha=0.75)
-            ax_a.text(_xv, 0.97, f"  {_lbl}", color=_col, fontsize=8,
+            ax_a.text(_xv, 0.97, f"  {_lbl}", color=_col, fontsize=8,  # tamaño a mano: anotación densa
                       ha=_ha, va="top", transform=ax_a.get_xaxis_transform(), clip_on=True)
         for _mu, _sig, _col in [(P0_mu, P0_sig, color_azul), (P1_mu, P1_sig, color_orange)]:
             ax_a.annotate("", xy=(_mu + 3*_sig, -0.008*_y_top),
@@ -988,13 +988,13 @@ def plots_maxent_sprt(
                           arrowprops=dict(arrowstyle="<->", color=_col, lw=1.2),
                           annotation_clip=False, clip_on=True)
             ax_a.text(_mu, -0.03*_y_top, r"$\pm3\sigma$",
-                      ha="center", va="top", fontsize=7, color=_col, clip_on=False)
-        ax_a.set_xlabel(r"Segment entropy $H$  [nat]", fontsize=11)
-        ax_a.set_ylabel(r"Probability density  [nat$^{-1}$]", fontsize=11)
-        ax_a.set_title(r"Analytical $P_0$ / $P_1$ with error regions $\alpha$, $\beta$", fontsize=10)
+                      ha="center", va="top", fontsize=7, color=_col, clip_on=False)  # tamaño a mano: anotación densa
+        ax_a.set_xlabel(r"Segment entropy $H$  [nat]", fontsize=11)  # tamaño a mano: anotación densa
+        ax_a.set_ylabel(r"Probability density  [nat$^{-1}$]", fontsize=11)  # tamaño a mano: anotación densa
+        ax_a.set_title(r"Analytical $P_0$ / $P_1$ with error regions $\alpha$, $\beta$", fontsize="small")
         ax_a.set_xlim(H_lo, H_hi)
         ax_a.set_ylim(bottom=-0.06 * _y_top)
-        ax_a.legend(fontsize=8, loc="upper right", framealpha=0.93)
+        ax_a.legend(fontsize=8, loc="upper right", framealpha=0.93)  # tamaño a mano: anotación densa
 
         # Right: real histogram + fitted PDFs
         if len(_H_s) > 0:
@@ -1007,9 +1007,9 @@ def plots_maxent_sprt(
         ax_b.plot(H_ax, pdf1, color=color_orange,  lw=2.2, ls="-", label=r"Fitted $p_1(H)$")
         ax_b.axvline(_H_thr, color=color_red, ls="--", lw=1.2)
         ax_b.axvline(_cross,  color="gray",   ls=":",  lw=0.9)
-        ax_b.text(_H_thr, 0.97, rf"$H_{{thr}}$", color=color_red, fontsize=8,
+        ax_b.text(_H_thr, 0.97, rf"$H_{{thr}}$", color=color_red, fontsize=8,  # tamaño a mano: anotación densa
                   ha="right", va="top", transform=ax_b.get_xaxis_transform(), clip_on=True)
-        ax_b.text(_cross,  0.97, r"  $\Lambda\!=\!0$", color="gray", fontsize=8,
+        ax_b.text(_cross,  0.97, r"  $\Lambda\!=\!0$", color="gray", fontsize=8,  # tamaño a mano: anotación densa
                   ha="left",  va="top", transform=ax_b.get_xaxis_transform(), clip_on=True)
         if len(_H_s) > 0 and len(_H_c) > 0:
             _mu0m = float(np.mean(_H_s));  _s0m = float(np.std(_H_s))
@@ -1021,14 +1021,14 @@ def plots_maxent_sprt(
                 rf"$\mu_1$:  {_mu1m:.3f}  (fit {P1_mu:.3f})" "\n"
                 rf"$\sigma_1$: {_s1m:.3f}  (fit {P1_sig:.3f})"
             )
-            ax_b.text(0.02, 0.97, _txt, transform=ax_b.transAxes, fontsize=7.5,
+            ax_b.text(0.02, 0.97, _txt, transform=ax_b.transAxes, fontsize=7.5,  # tamaño a mano: anotación densa
                       va="top", ha="left",
                       bbox=dict(boxstyle="round,pad=0.4", fc="white", ec="gray", alpha=0.85), clip_on=True)
-        ax_b.set_xlabel(r"Segment entropy $H$  [nat]", fontsize=11)
-        ax_b.set_ylabel("Density (normalised histogram)", fontsize=11)
-        ax_b.set_title(r"Real signal: histogram of $H$ values vs fitted Gaussians", fontsize=10)
+        ax_b.set_xlabel(r"Segment entropy $H$  [nat]", fontsize=11)  # tamaño a mano: anotación densa
+        ax_b.set_ylabel("Density (normalised histogram)", fontsize=11)  # tamaño a mano: anotación densa
+        ax_b.set_title(r"Real signal: histogram of $H$ values vs fitted Gaussians", fontsize="small")
         ax_b.set_xlim(H_lo, H_hi)
-        ax_b.legend(fontsize=8, loc="upper right", framealpha=0.93)
+        ax_b.legend(fontsize=8, loc="upper right", framealpha=0.93)  # tamaño a mano: anotación densa
 
         return fig, (ax_a, ax_b)
 
@@ -1080,32 +1080,32 @@ def plots_maxent_sprt(
         ax.axhline(0,     color="gray",      ls=":",  lw=0.8)
         ax.text(0.99, b_val, rf"$b={b_val:.2f}$",
                 transform=ax.get_yaxis_transform(),
-                color=color_red, ha='right', va='bottom', fontsize=16, clip_on=True)
+                color=color_red, ha='right', va='bottom', fontsize=16, clip_on=True)  # tamaño a mano: anotación densa
         ax.text(0.99, a_val, rf"$a={a_val:.2f}$",
                 transform=ax.get_yaxis_transform(),
-                color=color_verde, ha='right', va='top', fontsize=16, clip_on=True)
+                color=color_verde, ha='right', va='top', fontsize=16, clip_on=True)  # tamaño a mano: anotación densa
 
         # ── Vertical event lines ──────────────────────────────────────────────
         if t_gt is not None:
             ax.axvline(t_gt, color="black", ls="--", lw=1.2)
             ax.text(t_gt, 0.97, f"  $t_{{gt}}={t_gt:.3f}$ s",
                     rotation=90, va="top", ha="right",
-                    color="black", transform=ax.get_xaxis_transform(), fontsize=16, clip_on=True)
+                    color="black", transform=ax.get_xaxis_transform(), fontsize=16, clip_on=True)  # tamaño a mano: anotación densa
         if t_det_lam is not None:
             ax.axvline(t_det_lam, color=color_azul, ls="-.", lw=1.3)
             ax.text(t_det_lam, 0.87, rf"  $t_{{d,\Lambda}}={t_det_lam:.3f}$ s",
                     rotation=90, va="top", ha="right",
-                    color=color_azul, transform=ax.get_xaxis_transform(), fontsize=16, clip_on=True)
+                    color=color_azul, transform=ax.get_xaxis_transform(), fontsize=16, clip_on=True)  # tamaño a mano: anotación densa
         if t_det_sprt is not None:
             ax.axvline(t_det_sprt, color=color_red, ls="-.", lw=1.3)
             ax.text(t_det_sprt, 0.75, rf"  $t_{{d,S_k}}={t_det_sprt:.3f}$ s",
                     rotation=90, va="top", ha="right",
-                    color=color_red, transform=ax.get_xaxis_transform(), fontsize=16, clip_on=True)
+                    color=color_red, transform=ax.get_xaxis_transform(), fontsize=16, clip_on=True)  # tamaño a mano: anotación densa
 
         apply_sci_yaxis(ax)
         ax.set_xlabel("Time [s]")
         ax.set_ylabel(r"Log-likelihood ratio")
-        ax.legend(loc="best", fontsize=12)
+        ax.legend(loc="best", fontsize="medium")
         return fig, (ax, ax)
 
     def _plot_H_Sk_joint(
@@ -1129,18 +1129,18 @@ def plots_maxent_sprt(
         ax_h.plot(t_arr, H_arr, color=color_azul, marker='.', lw=0.8)
         if t_gt is not None:
             ax_h.axvline(t_gt, color="black", ls="--", lw=1.2)
-            ax_h.text(t_gt, 0.97, f"  $t_{{gt}}={t_gt:.3f}$ s", color="black", fontsize=16,
+            ax_h.text(t_gt, 0.97, f"  $t_{{gt}}={t_gt:.3f}$ s", color="black", fontsize=16,  # tamaño a mano: anotación densa
                       va="top", ha="right", rotation=90, transform=ax_h.get_xaxis_transform(), clip_on=True)
 
         if t_d_first is not None:
             ax_h.axvline(t_d_first, color=color_red, ls="-.", lw=1.5)
             ax_h.text(t_d_first, 0.97, f"  $t_d={t_d_first:.3f}$ s",
-                      rotation=90, va="top", ha="right", fontsize=16,
+                      rotation=90, va="top", ha="right", fontsize=16,  # tamaño a mano: anotación densa
                       color=color_red, transform=ax_h.get_xaxis_transform(), clip_on=True)
             
-        ax_h.set_xlabel("Time [s]", fontsize=11)
-        ax_h.set_ylabel(r"Entropy $H(t)$ [nat]", fontsize=11)
-        ax_h.set_title(r"Online entropy $H(t)$", fontsize=10)
+        ax_h.set_xlabel("Time [s]", fontsize=11)  # tamaño a mano: anotación densa
+        ax_h.set_ylabel(r"Entropy $H(t)$ [nat]", fontsize=11)  # tamaño a mano: anotación densa
+        ax_h.set_title(r"Online entropy $H(t)$", fontsize="small")
 
         # Bottom: Sk(t)
         ax_s.plot(np.asarray(t_arr), np.asarray(Sk_arr), color=color_purple,
@@ -1153,19 +1153,19 @@ def plots_maxent_sprt(
         apply_sci_yaxis(ax_s)
         if t_gt is not None:
             ax_s.axvline(t_gt, color="black", ls="--", lw=1.2)
-            ax_s.text(t_gt, 0.97, f"  $t_{{gt}}={t_gt:.3f}$ s", color="black", fontsize=16,
+            ax_s.text(t_gt, 0.97, f"  $t_{{gt}}={t_gt:.3f}$ s", color="black", fontsize=16,  # tamaño a mano: anotación densa
                       va="top", ha="right", rotation=90, transform=ax_s.get_xaxis_transform(), clip_on=True)
         
         if t_d_first is not None:
             ax_s.axvline(t_d_first, color=color_red, ls="-.", lw=1.5)
             ax_s.text(t_d_first, 0.97, f"  $t_d={t_d_first:.3f}$ s",
-                      rotation=90, va="top", ha="right", fontsize=16,
+                      rotation=90, va="top", ha="right", fontsize=16,  # tamaño a mano: anotación densa
                       color=color_red, transform=ax_s.get_xaxis_transform(), clip_on=True)
         _shade_intervals_local(ax_s, training_intervals)
-        ax_s.set_xlabel("Time [s]", fontsize=11)
-        ax_s.set_ylabel(r"$S_k$", fontsize=11)
-        ax_s.set_title(r"SPRT statistic $S_k$  (accumulates $\Lambda_k$ increments)", fontsize=10)
-        ax_s.legend(fontsize=8, loc="upper left")
+        ax_s.set_xlabel("Time [s]", fontsize=11)  # tamaño a mano: anotación densa
+        ax_s.set_ylabel(r"$S_k$", fontsize=11)  # tamaño a mano: anotación densa
+        ax_s.set_title(r"SPRT statistic $S_k$  (accumulates $\Lambda_k$ increments)", fontsize="small")
+        ax_s.legend(fontsize=8, loc="upper left")  # tamaño a mano: anotación densa
         return fig, (ax_h, ax_s)
 
     def _plot_signal_full_online(

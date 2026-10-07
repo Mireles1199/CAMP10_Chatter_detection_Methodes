@@ -103,11 +103,11 @@ def _draw_vlines(ax, vlines, default_color="black", default_ls="--"):
         elif len(entry) == 2:
             x, label = entry
             ax.axvline(x, color=default_color, ls=default_ls, lw=1.2)
-            _add_vline_label(ax, x, label, fontsize=16, color=default_color)
+            _add_vline_label(ax, x, label, fontsize=16, color=default_color)  # tamaño a mano: anotación densa
         else:
             x, label, col = entry[0], entry[1], entry[2]
             ax.axvline(x, color=col, ls=default_ls, lw=1.2)
-            _add_vline_label(ax, x, label, fontsize=16, color=col)
+            _add_vline_label(ax, x, label, fontsize=16, color=col)  # tamaño a mano: anotación densa
 
 
 def _plot_pieces_grid(
@@ -156,7 +156,7 @@ def _plot_pieces_grid(
     for i, (t_i, v_i) in enumerate(pieces):
         ax = axes[i // ncols, i % ncols]
         _fill(ax, t_i, v_i)
-        ax.set_title(f"Piece {i + 1}", fontsize=10)
+        ax.set_title(f"Piece {i + 1}", fontsize="small")
         ax.set_box_aspect(1)
     for j in range(n, nrows * ncols):
         fig.delaxes(axes[j // ncols, j % ncols])
@@ -368,13 +368,13 @@ def plots_lyapunov(
         # y_mu    = thr["mu"]
         ax_c2.axhline(y_upper, color=color_red, ls="--", lw=1.4)
         _add_hline_label(ax_c2, y_upper, rf"$\mu+{z_lbl}\sigma={thr['upper']:.3g}$",
-                         color=color_red, ha='right', va='bottom', fontsize=16)
+                         color=color_red, ha='right', va='bottom', fontsize=16)  # tamaño a mano: anotación densa
         ax_c2.axhline(y_lower, color=color_red, ls=":", lw=1.2)
         _add_hline_label(ax_c2, y_lower, rf"$\mu-{z_lbl}\sigma={thr['lower']:.3g}$",
-                         color=color_red, ha='right', va='top', fontsize=16)
+                         color=color_red, ha='right', va='top', fontsize=16)  # tamaño a mano: anotación densa
         ax_c2.axhline(y_mu, color=color_verde, ls="-", lw=1.0)
         _add_hline_label(ax_c2, y_mu, rf"$\mu={thr['mu']:.3g}$",
-                         color=color_verde, ha='right', va='bottom', fontsize=16)
+                         color=color_verde, ha='right', va='bottom', fontsize=16)  # tamaño a mano: anotación densa
     _draw_vlines(ax_c2, auto_vlines)
     ax_c2.legend()
 
@@ -410,13 +410,13 @@ def plots_lyapunov(
         # y_mu    = thr["mu"]
         ax_c2b.axhline(y_upper, color=color_red, ls="--", lw=1.4)
         _add_hline_label(ax_c2b, y_upper, rf"$\mu+{z_lbl}\sigma={thr['upper']:.3g}$",
-                         color=color_red, ha='right', va='bottom', fontsize=16)
+                         color=color_red, ha='right', va='bottom', fontsize=16)  # tamaño a mano: anotación densa
         ax_c2b.axhline(y_lower, color=color_red, ls=":", lw=1.2)
         _add_hline_label(ax_c2b, y_lower, rf"$\mu-{z_lbl}\sigma={thr['lower']:.3g}$",
-                         color=color_red, ha='right', va='top', fontsize=16)
+                         color=color_red, ha='right', va='top', fontsize=16)  # tamaño a mano: anotación densa
         ax_c2b.axhline(y_mu, color=color_verde, ls="-", lw=1.0)
         _add_hline_label(ax_c2b, y_mu, rf"$\mu={thr['mu']:.3g}$",
-                         color=color_verde, ha='right', va='bottom', fontsize=16)
+                         color=color_verde, ha='right', va='bottom', fontsize=16)  # tamaño a mano: anotación densa
     _draw_vlines(ax_c2b, auto_vlines)
     ax_c2b.legend()
 
@@ -576,7 +576,7 @@ def plots_lyapunov(
                     _hi3_d1b = mu_h + 3 * std_h
                     ax_d1b.axhline(_hi3_d1b, color=color_red, ls="--", lw=1.4)
                     _add_hline_label(ax_d1b, _hi3_d1b, rf"$\mu+3\sigma={_hi3_d1b:.3g}$",
-                                     color=color_red, ha='right', va='bottom', fontsize=14)
+                                     color=color_red, ha='right', va='bottom', fontsize=14)  # tamaño a mano: anotación densa
                 ax_d1b.legend()
                 fig_d1b.tight_layout()  # one-shot, not layout='tight' — see C1 for why
 
@@ -619,13 +619,13 @@ def plots_lyapunov(
                             color=color_verde, lw=1.8,
                             label=rf"PDF  $\mu$={mu_h:.3g}, $\sigma$={std_h:.3g}")
                 ax_d4b.axvline(mu_h, color=color_verde, ls="-", lw=1.4)
-                _add_vline_label(ax_d4b, mu_h, rf"$\mu={mu_h:.3g}$", fontsize=14, color=color_verde)
+                _add_vline_label(ax_d4b, mu_h, rf"$\mu={mu_h:.3g}$", fontsize=14, color=color_verde)  # tamaño a mano: anotación densa
                 ax_d4b.axvline(mu_h + 3 * std_h, color=color_red, ls="--", lw=1.4)
                 _add_vline_label(ax_d4b, mu_h + 3 * std_h, rf"$\mu+3\sigma={mu_h + 3 * std_h:.3g}$",
-                                 fontsize=14, color=color_red)
+                                 fontsize=14, color=color_red)  # tamaño a mano: anotación densa
                 ax_d4b.axvline(mu_h - 3 * std_h, color=color_red, ls=":", lw=1.2)
                 _add_vline_label(ax_d4b, mu_h - 3 * std_h, rf"$\mu-3\sigma={mu_h - 3 * std_h:.3g}$",
-                                 fontsize=14, color=color_red)
+                                 fontsize=14, color=color_red)  # tamaño a mano: anotación densa
                 ax_d4b.legend()
                 ax_d4b.grid(False)
                 fig_d4b.tight_layout()  # one-shot, not layout='tight' — see C1 for why
@@ -789,8 +789,8 @@ def plots_signal_diagnostics(
     aA1.set_ylabel("|FFT(x)|")
     aA1.set_title("Frequency content — stable zone")
     aA1.text(0.98, 0.95, f"t = [{stable_range[0]:.1f}, {stable_range[1]:.1f}] s",
-             transform=aA1.transAxes, ha="right", va="top", fontsize=9)
-    aA1.legend(fontsize=9)
+             transform=aA1.transAxes, ha="right", va="top", fontsize=9)  # tamaño a mano: anotación densa
+    aA1.legend(fontsize=9)  # tamaño a mano: anotación densa
     aA1.grid(True, alpha=0.3)
 
     # A2: autocorrelation of ln(areas) in stable zone
@@ -815,7 +815,7 @@ def plots_signal_diagnostics(
     aA2.set_xlabel("Lag [ms]")
     aA2.set_ylabel("Autocorrelation")
     aA2.set_title("Autocorrelation of ln(areas) in stable zone")
-    aA2.legend(fontsize=9)
+    aA2.legend(fontsize=9)  # tamaño a mano: anotación densa
     aA2.grid(True, alpha=0.3)
 
     # ── Fig B — Equilibrium decomposition ─────────────────────────────────
@@ -834,8 +834,8 @@ def plots_signal_diagnostics(
     aB1.set_ylabel("x [m]")
     aB1.set_title("Signal and quasi-static equilibrium")
     aB1.text(0.98, 0.95, f"t = [{zoom_range[0]:.2f}, {zoom_range[1]:.2f}] s",
-             transform=aB1.transAxes, ha="right", va="top", fontsize=9)
-    aB1.legend(fontsize=9)
+             transform=aB1.transAxes, ha="right", va="top", fontsize=9)  # tamaño a mano: anotación densa
+    aB1.legend(fontsize=9)  # tamaño a mano: anotación densa
     aB1.grid(True, alpha=0.3)
 
     # B2: dynamic residual
@@ -843,7 +843,7 @@ def plots_signal_diagnostics(
     aB2.axhline(0, color="black", lw=0.5)
     aB2.set_ylabel("x_dyn [m]")
     aB2.set_title("Dynamic component (vibration about equilibrium)")
-    aB2.legend(fontsize=9)
+    aB2.legend(fontsize=9)  # tamaño a mano: anotación densa
     aB2.grid(True, alpha=0.3)
 
     # B3: orbit of centered signal
@@ -856,7 +856,7 @@ def plots_signal_diagnostics(
     aB3.set_xlabel("x_dyn [m]")
     aB3.set_ylabel("v_dyn [m/s]")
     aB3.set_title("Centered phase portrait")
-    aB3.legend(fontsize=9)
+    aB3.legend(fontsize=9)  # tamaño a mano: anotación densa
     aB3.grid(True, alpha=0.2)
 
     # ── Fig C — Phase portrait snapshots: stable / transition / chatter ────
