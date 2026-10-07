@@ -1023,16 +1023,17 @@ def _all_var_keys(cases: List[Dict]) -> List[str]:
 
 
 def _capture_new_figure(func, *args, **kwargs) -> Optional[Figure]:
-    """Llama func, captura la última figura matplotlib creada."""
+    """Llama func, captura la última figura matplotlib creada. Las otras figuras nuevas se cierran: cada figura de pyplot
+    tiene su ventana Tk oculta, que mantenía vivo el proceso (y su lock de viewer_ipc) después de cerrar el visor."""
     before = set(plt.get_fignums())
     result = func(*args, **kwargs)
     after  = set(plt.get_fignums())
     new_nums = sorted(after - before)
-    if isinstance(result, Figure):
-        return result
-    if new_nums:
-        return plt.figure(new_nums[-1])
-    return None
+    fig = result if isinstance(result, Figure) else (plt.figure(new_nums[-1]) if new_nums else None)
+    for num in new_nums:
+        if fig is None or num != fig.number:
+            plt.close(num)
+    return fig
 
 
 def _embed_figure(fig: Figure, canvas_frame: tk.Frame,
@@ -5017,12 +5018,26 @@ def main() -> None:
     import viewer_ipc
     server = viewer_ipc.Server()
 
+    job = None
+
     def take():
+        nonlocal job
         for p in server.poll():
             if os.path.isfile(p):
                 viewer.open_or_refresh(p)
-        root.after(300, take)
-    root.after(300, take)
+        job = root.after(300, take)
+
+    def close():
+        # mainloop only returns when EVERY Tk window of the process is gone, and pyplot keeps a hidden one per figure: the
+        # process (and its lock: the launcher then sent files to a viewer nobody saw) outlived the window. Close them all.
+        server.close()
+        if job is not None:
+            root.after_cancel(job)
+        plt.close("all")
+        root.quit()
+        root.destroy()
+    root.protocol("WM_DELETE_WINDOW", close)
+    job = root.after(300, take)
     try:
         root.mainloop()
     finally:
@@ -5142,7 +5157,34 @@ def _selftest() -> None:
     _selftest_variants(d, t)
     _selftest_margins(d, t)
     _selftest_indicator_plots(d)
+    _selftest_close(ind)
     print("doe_unified_selector selftest OK")
+
+
+def _selftest_close(h5: str) -> None:
+    """Closing the viewer window ends the process and frees the lock of viewer_ipc, also with a pyplot figure open (its hidden
+    Tk window used to keep mainloop running: the launcher then sent files to that invisible viewer)."""
+    import subprocess
+    import tempfile
+    lock = os.path.join(tempfile.mkdtemp(prefix="viewer_close_"), "lock.json")
+    code = ("import sys, tkinter as tk, matplotlib.pyplot as plt\n"
+            f"sys.path.insert(0, {SCRIPT_DIR!r})\n"
+            "import doe_unified_selector as u\n"
+            "orig = tk.Tk.mainloop\n"
+            "def ml(self, n=0):\n"
+            "    plt.figure()\n"
+            f"    print('lock', __import__('os').path.isfile({lock!r}), flush=True)\n"
+            "    self.after(1500, lambda: self.tk.call(self.protocol('WM_DELETE_WINDOW')))\n"
+            "    orig(self, n)\n"
+            "tk.Tk.mainloop = ml\n"
+            f"sys.argv = ['viewer', '--h5', {h5!r}]\n"
+            "u.main()\n"
+            "print('main returned', flush=True)\n")
+    p = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120,
+                       env=dict(os.environ, DOE_VIEWER_LOCK=lock, PYTHONIOENCODING="utf-8"))
+    assert "lock True" in p.stdout and "main returned" in p.stdout, (p.stdout[-500:], p.stderr[-1500:])
+    assert not os.path.exists(lock) and "invalid command name" not in p.stderr, p.stderr[-800:]
+    print("  closing the viewer ends the process and frees the lock OK")
 
 
 def _selftest_variants(d: str, t) -> None:
