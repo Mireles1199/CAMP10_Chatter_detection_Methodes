@@ -205,3 +205,7 @@ Se buscó por programa (`rcParams`, `rc_context`, `style.use`, `def configurar_e
 ### 10.4 Decisiones del usuario (2026-10-07) y su ejecución
 
 F2b = A (hecha, ver la tabla de §9: 108 de 124 tamaños quedan marcados); F6 = no migrar, solo marcar (hecho); skill `article-plot-style` ampliado con la escala del texto (`rc_scaled` / `zoom`, "sigue a la escala" con referencia `FIGSCALE_SIMPLE` = 1.5 y opción "fijo"; las dos copias son hoy el mismo fichero; la copia del repo era el skill antiguo `time-plot-style`). **Pendiente de confirmar: el `kappa` de `augmented_trajectory_exploration.py` NO es η**: es la curvatura de Frenet-Serret κ_n = ||r' × r''|| / ||r'||³ de la trayectoria r(t) = [x, v, ap] (con la torsión τ al lado), no Ap/AP_REF; convertirlo a η haría que η signifique dos cosas. Recomendación: dejarlo como κ. No se tocó.
+
+### 10.5 `indicator-plot-style` eliminado (decisión del usuario, 2026-10-07)
+
+`.github/skills/indicator-plot-style/` se borra con `git rm` (versionado: recuperable con git). Referencias corregidas para apuntar a `article-plot-style`: `augmented_trajectory_exploration.py`, `rms_cv_plots.py`, `sst_svd_plots.py`; los 4 `doe_*_plotter.py` ya no lo citan en REPO-Utils (F4 de wt-interfaz). El `kappa` de `augmented_trajectory_exploration.py` se queda como κ (curvatura de la trayectoria, no η), también por decisión del usuario. §1.2, §1.4 y §4 conservan el texto como historia del diagnóstico.

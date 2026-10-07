@@ -187,7 +187,7 @@ def plots_rms_cv(
     plt = _PltShadow()
 
     def _draw_vlines(ax, vlines, default_color="black", default_ls="--"):
-        """Draw vertical event lines with optional rotated text labels (indicator-plot-style)."""
+        """Draw vertical event lines with optional rotated text labels (article-plot-style)."""
         if vlines is None:
             return
         for entry in vlines:

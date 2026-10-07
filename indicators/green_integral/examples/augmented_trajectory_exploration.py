@@ -80,7 +80,7 @@ from green_integral import (
 )
 
 # ══════════════════════════════════════════════════════════════════════════════
-# COLOR PALETTE — canonical CAMP10 colors (skill: indicator-plot-style)
+# COLOR PALETTE — canonical CAMP10 colors (skill: article-plot-style)
 # ══════════════════════════════════════════════════════════════════════════════
 r, g, b = colorsys.hls_to_rgb(346/360, 0.45, 0.99);  color_red    = (r, g, b)
 r, g, b = colorsys.hls_to_rgb(36/360,  0.45, 0.99);  color_orange = (r, g, b)
