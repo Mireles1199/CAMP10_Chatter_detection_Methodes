@@ -53,6 +53,7 @@ from green_integral import HDF5Reader
 # Canonical CAMP10 plot style
 # ══════════════════════════════════════════════════════════════════════════════
 
+# estilo heredado, sin migrar (PLAN_plot_style.md F6)
 def configurar_estilo_global() -> None:
     local_style = {
         'font.family': 'serif',

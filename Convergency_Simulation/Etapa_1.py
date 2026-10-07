@@ -625,6 +625,7 @@ def fig_paper_stability_map(h5_path: str, spin_rate: float, language: str = "bot
         "font.size": 9, "axes.titlesize": 12, "axes.labelsize": 12,
         "xtick.labelsize": 9, "ytick.labelsize": 9, "legend.fontsize": 10,
     })
+    # estilo heredado, sin migrar (PLAN_plot_style.md F6)
     plt.rcParams.update(_style_small)
     lobe_results = _compute_sld_1dof_lobes()  # [(lobes_150hz, f_peaks_150hz), (lobes_250hz, f_peaks_250hz)]
     pts = _load_stage1_lobe_case_points(h5_path, spin_rate)

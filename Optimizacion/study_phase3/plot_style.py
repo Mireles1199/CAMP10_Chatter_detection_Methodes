@@ -15,6 +15,7 @@ from __future__ import annotations
 import matplotlib.pyplot as plt
 
 
+# estilo heredado, sin migrar (PLAN_plot_style.md F6)
 def apply_research_style() -> None:
     """Apply a publication-quality Matplotlib style globally (font size 16)."""
     plt.rcParams.update(

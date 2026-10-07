@@ -460,6 +460,7 @@ def plot_dt_convergence(data: List[dict], language: str = "both",
     resolucion de deteccion, broken axis para outliers, notacion eta=a_p/a_p,crit,theo),
     con N_dt en el eje X en vez del tamano de dexel.
     """
+    # estilo heredado, sin migrar (PLAN_plot_style.md F6)
     plt.rcParams.update(ARTICLE_RCPARAMS)
 
     ndt       = np.asarray([r["nb_dt_rev"]       for r in data], dtype=float)

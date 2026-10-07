@@ -35,6 +35,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.ndimage import uniform_filter1d
 
+# estilo heredado, sin migrar (PLAN_plot_style.md F6)
 def _configurar_estilo_global() -> None:
     """Configura el estilo global de los gráficos."""
     # plt.style.use('dark_background')

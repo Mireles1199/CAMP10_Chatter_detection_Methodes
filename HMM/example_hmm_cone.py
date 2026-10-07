@@ -177,6 +177,7 @@ else:
 
 # ── Style helpers ────────────────────────────────────────────────────────────
 def _configurar_estilo():
+    # estilo heredado, sin migrar (PLAN_plot_style.md F6)
     plt.rcParams.update({
         'font.family': 'serif', 'font.size': 9,
         'axes.titlesize': 25, 'axes.labelsize': 25,

@@ -13,6 +13,7 @@ from __future__ import annotations
 import matplotlib.pyplot as plt
 
 
+# estilo heredado, sin migrar (PLAN_plot_style.md F6)
 def configure_global_style() -> None:
     """Configure global matplotlib style for all effective-window plots."""
     local_style = {

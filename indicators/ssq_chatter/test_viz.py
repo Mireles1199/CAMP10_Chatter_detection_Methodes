@@ -13,6 +13,7 @@ from matplotlib.patches import Rectangle, FancyArrowPatch, ConnectionPatch
 # ============================================================
 
 def configure_plot_style() -> None:
+    # estilo heredado, sin migrar (PLAN_plot_style.md F6)
     plt.rcParams.update({
         "figure.dpi": 140,
         "savefig.dpi": 300,

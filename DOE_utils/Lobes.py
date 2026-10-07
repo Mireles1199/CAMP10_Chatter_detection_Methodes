@@ -381,6 +381,7 @@ class PlotStyle:
         self._params = dict(params)
 
     def __enter__(self):
+        # estilo heredado, sin migrar (PLAN_plot_style.md F6)
         self._ctx = plt.rc_context(self._params)
         self._ctx.__enter__()
         return self
