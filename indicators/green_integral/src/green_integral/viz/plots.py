@@ -8,7 +8,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import norm as _scipy_norm
 
-from .plot_style import COLORS, FIGSIZE_WIDE, SCALE, figsize_from_scale
+from .colors import COLORS
+from .plot_style import FIGSIZE_WIDE, SCALE, figsize_from_scale
+from .plot_style import apply as _apply_style
+
+_apply_style()   # article-plot-style, at the default scale (was an import-time side effect of plot_style.py)
 
 color_red    = COLORS["threshold"]
 color_orange = COLORS["chatter"]

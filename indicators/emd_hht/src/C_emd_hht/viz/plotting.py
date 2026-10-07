@@ -14,7 +14,6 @@ from scipy.optimize import curve_fit
 from ..lib.misc import _time_axis, _smoothstep
 from ..utils.signal_chatter import amplitude_spectrum
 from .plot_style import (
-    ARTICLE_RCPARAMS,
     FIGSIZE_SIMPLE,
     FIGSIZE_WIDE,
     FIGSCALE_SIMPLE,
@@ -23,8 +22,9 @@ from .plot_style import (
     figsize_from_scale,
     apply_sci_yaxis,
 )
+from .plot_style import apply as _apply_style
 
-plt.rcParams.update(ARTICLE_RCPARAMS)
+_apply_style()   # article-plot-style, at the default scale (was an import-time side effect of plot_style.py)
 
 
 def plot_imfs_separados(imfs: np.ndarray, fs: Optional[float] = None, max_to_plot: Optional[int] = None, show: bool = True) -> list[Any]:

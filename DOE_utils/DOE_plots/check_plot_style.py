@@ -4,7 +4,9 @@
 
     python check_plot_style.py --render DIR                 draws the baseline figures of real files -> DIR/*.png + DIR/digests.json
     python check_plot_style.py --compare DIR_A DIR_B        the DATA drawn by every figure is identical (styles may differ)
+    python check_plot_style.py --digests DIR OUT.json       digest of every figure pickled in DIR/**/*.pkl (indicator_plots.py --pickle-dir)
     python check_plot_style.py --sync                       the 5 package copies of plot_style.py are byte-identical to the canonical
+    python check_plot_style.py --sync-write                 (re)write the 5 copies from the canonical
     python check_plot_style.py --lint                       no local rcParams / hand-set font sizes in the migrated files
     python check_plot_style.py --selftest
 
@@ -101,13 +103,39 @@ def render(out_dir, clean, noise, snr):
 
 
 def compare(a, b):
-    A, B = (json.load(open(os.path.join(d, "digests.json"))) for d in (a, b))
+    """a, b: folders with a digests.json, or the .json files themselves."""
+    A, B = (json.load(open(os.path.join(d, "digests.json") if os.path.isdir(d) else d)) for d in (a, b))
     bad = sorted(k for k in set(A) | set(B) if A.get(k) != B.get(k))
     print(f"{len(A)} vs {len(B)} figures; data digests differ in {len(bad)}: {bad}")
     return not bad
 
 
 # ============================================================================== sync and lint
+def digests_of_pickles(root, out_json):
+    """{relative path of each .pkl under root: digest of the figure it holds} -> out_json (compare with --compare on folders)."""
+    import glob
+    import pickle
+    import matplotlib
+    matplotlib.use("Agg")
+    res = {}
+    for p in sorted(glob.glob(os.path.join(root, "**", "*.pkl"), recursive=True)):
+        with open(p, "rb") as f:
+            res[os.path.relpath(p, root).replace("\\", "/")] = digest(pickle.load(f))
+    os.makedirs(os.path.dirname(os.path.abspath(out_json)), exist_ok=True)
+    with open(out_json, "w") as f:
+        json.dump(res, f, indent=1, sort_keys=True)
+    print(f"{len(res)} pickled figures -> {out_json}")
+    return res
+
+
+def sync_write(canon=CANON, copies=PACKAGE_COPIES):
+    ref = open(canon, "rb").read()
+    for p in copies:
+        with open(p, "wb") as f:
+            f.write(ref)
+    print(f"sync: {len(copies)} copies written from the canonical")
+
+
 def sync_check(canon=CANON, copies=PACKAGE_COPIES):
     ref = open(canon, "rb").read()
     bad = [p for p in copies if not os.path.exists(p) or open(p, "rb").read() != ref]
@@ -157,6 +185,8 @@ def _selftest():
     assert sync_check(a, [b]) and not sync_check(a, [b, os.path.join(d, "missing")])
     open(b, "wb").write(b"y")
     assert not sync_check(a, [b])
+    sync_write(a, [b])
+    assert sync_check(a, [b])
     ok, bad = os.path.join(d, "ok.py"), os.path.join(d, "bad.py")
     open(ok, "w").write("ax.legend(fontsize='small')  # fontsize=8 in a comment\nx = size = 3\n")
     open(bad, "w").write("plt.rcParams.update({})\nax.text(0, 0, 's', fontsize=8)\ndef configurar_estilo_global(): pass\n")
@@ -168,7 +198,9 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--render", metavar="DIR")
     p.add_argument("--compare", nargs=2, metavar=("DIR_A", "DIR_B"))
+    p.add_argument("--digests", nargs=2, metavar=("DIR", "OUT_JSON"))
     p.add_argument("--sync", action="store_true")
+    p.add_argument("--sync-write", action="store_true")
     p.add_argument("--lint", action="store_true")
     p.add_argument("--selftest", action="store_true")
     p.add_argument("--clean", default=BASELINE_DEFAULT["clean"])
@@ -180,8 +212,12 @@ def main():
         return _selftest()
     if a.render:
         render(a.render, a.clean, a.noise, a.snr)
+    if a.digests:
+        digests_of_pickles(*a.digests)
     if a.compare:
         ok &= compare(*a.compare)
+    if a.sync_write:
+        sync_write()
     if a.sync:
         ok &= sync_check()
     if a.lint:

@@ -11,10 +11,13 @@ import matplotlib.patches as _mpatches
 
 from ..utils.types import IndicatorResult, SignalData
 
+from .colors import COLORS
 from .plot_style import (
-    ARTICLE_RCPARAMS, FIGSIZE_SIMPLE, FIGSIZE_WIDE, SCALE,
-    COLORS, figsize_grid, figsize_from_scale, apply_sci_yaxis,
+    FIGSIZE_SIMPLE, FIGSIZE_WIDE, SCALE, figsize_grid, figsize_from_scale, apply_sci_yaxis,
 )
+from .plot_style import apply as _apply_style
+
+_apply_style()   # article-plot-style, at the default scale (was an import-time side effect of plot_style.py)
 
 # Alias hacia la paleta compartida (article-plot-style, Okabe-Ito) -- se
 # mantienen estos nombres para no tocar los ~40 call-sites de este archivo.
@@ -33,11 +36,6 @@ def fig_size(scale=1.0, ncols=1, nrows=1, base_width=None):
     is now the single source of truth for 1 column.
     """
     return figsize_from_scale(figsize_grid(ncols, nrows), scale)
-
-
-def configurar_estilo_global() -> None:
-    """Apply the shared article-style rcParams (see plot_style.py)."""
-    plt.rcParams.update(ARTICLE_RCPARAMS)
 
 
 def plots_maxent_sprt(
@@ -1234,7 +1232,7 @@ def plots_maxent_sprt(
 
     # ──────────────────────────────────────────────────────────────────
 
-    configurar_estilo_global()
+    _apply_style()
 
     meta = result.meta or {}
 
