@@ -32,6 +32,7 @@ Resumen: 6 copias del mismo concepto con 4 versiones distintas (3 vs 10 de `mark
 | `TDA/tda_chatter_h5.py`, `HMM/example_hmm_cone.py`, `DOE_utils/Lobes.py` | `configurar_estilo_global()` / `rc_context` propios | idem |
 | `indicators/green_integral/examples/{DDE_signal_sources,Green_Integral_Lyapunov_Tutorial,augmented_trajectory_exploration,phase_area_indicator}.py` | `configurar_estilo_global()` / `configure_global_style()` copiados | ejemplos |
 | `Optimizacion/study_phase1/study_phase1.py` | 8 usos de `rcParams` | script antiguo |
+| `indicators/ssq_chatter/test_viz.py` | `rcParams` suelto (script de prueba) | script de prueba |
 
 Los que ya usan el estilo canónico: `sld_model.py`, `validation_figures.py`, `label_grid.py` y `doe_unified_selector.py` (`rc_context(ARTICLE_RCPARAMS)`), `figures_window.py` (presets × escala), `indicator_plots.py` (`--scale 1.5`), y las figuras de los 5 paquetes de indicadores (con `FIGSCALE` 2).
 
@@ -164,3 +165,39 @@ Decisiones de §6 tomadas con las opciones recomendadas (markersize 3, escala po
 | F6 legados | pendiente (§6.3: se migra lo que alimenta la tesis; el resto queda marcado) | |
 
 **Contrato para wt-interfaz (F5):** antes de dibujar, la ventana de exportar llama `validation_figures.set_style(language, scale, follow_text)` y `sld_model.set_style(...)` (en vez de asignar `LANGUAGE`/`FIGSCALE`; asignar sigue funcionando y deja `follow_text=True`). Para una figura NO nativa (paneles del visor, `doe_*_plotter`): tras `fig_lang.translate_figure`, `fig_lang.scale_text(fig, plot_style.zoom(scale, follow_text))`. Defecto del control "texto": "sigue a la escala". A la escala por defecto 1.5 el resultado es el de hoy.
+
+## 10. Recomendación para las dos decisiones pendientes (F2b y F6) — para decidir rápido
+
+### 10.1 F2b — tamaños de letra a mano dentro de los paquetes de indicadores
+
+**Hechos medidos** (figuras reales de `case_007` de n12000, tamaños de todos los textos de cada figura; 46 figuras: MaxEnt 21, Green 9, RMS-CV 9, SSQ 7):
+
+- Los números a mano que **ya son un tamaño de `ARTICLE_RCPARAMS`** en su papel (16 en etiquetas/títulos, 14 en ticks, 10 en leyendas, 12) no cambian nada si se quitan o se pasan a su nombre exacto (`'small'` = 10.0 pt, `'medium'` = 12.0 pt). Son más de la mitad de las apariciones.
+- Los demás sí cambian al pasar a un nombre relativo: 7 → `'xx-small'` (6.9, −1 %), 8 → `'x-small'` (8.3, +4 %), 9 → `'small'` (10, +11 %), 11 → `'small'` (10, −9 %), 13 → `'large'` (14.4, +11 %), 14 → `'large'` (14.4, +3 %).
+- **Figuras que se verían distintas** (las que usan 7, 8, 9, 11 o 13): MaxEnt **F0a, F0b, F1, F2, F6a, F6b** (solo el 8 → +4 %: una anotación), **D3** (11 y 13), **D6** (8, 9, 11, 13), **D7, D8** (8 y 11), **D9** (7, 7.5, 8, 11, 13: la más cargada) y **D_JOINT** (8 y 11); SSQ **C3** (un texto de 9 pt); Green la FFT de `plots_signal_diagnostics` (9 pt; no sale en `case_007`). El resto (MaxEnt O3–O5, F3–F5, F7, S1, D4; Green C1–C3, C6, C7, Ĝ; RMS-CV todas; SSQ C1, C2, C4–C7) **no cambia** con la opción A.
+
+| Opción | Qué hace | Pros | Contras |
+|---|---|---|---|
+| **A (recomendada)** | Quitar los tamaños que ya son los del estilo y pasar a nombre exacto los que lo son (10, 12); **dejar** los 7/8/9/11/13 de las anotaciones densas de MaxEnt D3–D9/D_JOINT, SSQ C3 y Green FFT, cada uno marcado con `# tamaño a mano: anotación densa` y permitidos en el lint de los paquetes | Cero cambio visual en 36 de las 46 figuras de `case_007` (comprobable: PNG idénticos píxel a píxel, no solo datos); retira el grueso del rastro; no retoca figuras de diagnóstico ya afinadas a mano | Quedan ≈ 40–50 números a mano en los paquetes (ver la lista); esos textos no siguen a la escala *dentro* del paquete (sí al exportar, con `fig_lang.scale_text`) |
+| B | Convertir TODO a nombres relativos (la regla de §5) | Sin números a mano; el lint estricto también en los paquetes | Cambia el aspecto de 12 figuras de MaxEnt, SSQ C3 y Green FFT (±11 %), con anotaciones densas que pueden solaparse; hay que revisar cada una a ojo |
+| C | No hacer F2b; solo marcar | Cero riesgo y cero trabajo | El texto de los paquetes no sigue a la escala dentro del paquete; ≈ 200 números a mano siguen ahí; contradice "borrar todo rastro" |
+
+Esfuerzo: A ≈ 1–1.5 h (semi-manual: hay que mirar cada llamada: `legend(fontsize=16)` no equivale a una etiqueta de 16), con renders de las 4 variantes y comparación de PNG; B ≈ 3 h más la revisión visual por el usuario; C 0.
+**Recomendación: A**, y B solo si el usuario quiere cero números a mano y acepta revisar las figuras D de MaxEnt.
+
+### 10.2 F6 — scripts heredados que definen su propio estilo
+
+Hechos: `Convergency_Simulation` (6 scripts) guarda `.jpg` **y** `.pdf` a 300 dpi (calidad de publicación) y es el más activo (último commit 2026-10-05); `HMM/example_hmm_cone.py` (2026-09-30) y `DOE_utils/Lobes.py` (2026-10-01, no lo importa ningún otro fichero del repo) son recientes; `TDA`, `Optimizacion/study_phase1`, `Optimizacion/study_phase3` (22 ficheros, 11 que importan su `plot_style` propio) y `effective_window` (14 ficheros) guardan a 150 dpi o no guardan y llevan sin tocarse desde 2026-09-25; `indicators/ssq_chatter/legacy` (22), `indicators/emd_hht/legacy` (3, abril) y los `examples/` de los paquetes son archivo o demostraciones.
+
+| Opción | Qué hace | Pros | Contras |
+|---|---|---|---|
+| **A (recomendada)** | Migrar solo lo que el usuario confirme que alimenta una figura de la tesis o del artículo (candidatos por actividad y dpi: `Convergency_Simulation`, `Lobes.py`, `HMM`); el resto se marca con una línea `# estilo heredado, sin migrar (PLAN_plot_style.md F6)` y el lint lo lista como "marcado" | Retoca solo lo que importa; cada migrado se verifica rehaciendo la figura; un `grep "estilo heredado"` da la lista honesta de lo que queda | El rastro de estilo antiguo sigue (marcado) en ≈ 50 ficheros de archivo |
+| B | Migrar todo (≈ 60 ficheros: `effective_window`, `Optimizacion`, `TDA`, `legacy`, ejemplos) | Ningún estilo antiguo en el repo | Muchos scripts no se pueden rehacer (sin datos o dependencias antiguas), así que no se puede verificar que no cambian; riesgo de romper cosas que nadie usa; ≈ 1–2 días |
+| C | Borrar los estilos antiguos de los scripts de archivo sin migrarlos | Código más limpio | Rompe scripts de archivo y es irreversible fuera de git; **no recomendado** |
+
+Esfuerzo: A ≈ 30 min por script migrado (si hay datos para rehacerlo) + 15 min de marcado de los demás; B ≈ 1–2 días; C no.
+**Recomendación: A.** Pregunta concreta para el usuario: ¿qué figuras de la tesis salen de `Convergency_Simulation`, `HMM` y `Lobes.py`, y de `Optimizacion/study_phase3` (sus 11 figuras)?
+
+### 10.3 Revisión de "estilo heredado sin marcar"
+
+Se buscó por programa (`rcParams`, `rc_context`, `style.use`, `def configurar_estilo_global | configure_global_style | apply_research_style`) en todo el repo. Todo lo que define estilo propio está en uno de estos grupos: canónica y migrados (`plot_style.py`, `validation_figures.py`, `sld_model.py`, `label_grid.py`, `doe_unified_selector.py`, que usan `rc_context(ARTICLE_RCPARAMS)`), F4 (los 4 `doe_*_plotter.py`: wt-interfaz), F6 (`Convergency_Simulation`, `Lobes.py`, `HMM`, `TDA`, `Optimizacion`, `effective_window`, 4 ejemplos de Green, `ssq_chatter/test_viz.py`) y los dos tests de estilo de los paquetes (`test_article_plot_style.py`, que usan `rc_context` para comprobar y no definen estilo). **Único hueco encontrado y corregido: `ssq_chatter/test_viz.py` no estaba en el inventario (§1.2).** Los `.github/skills/*` de §1.4 quedan para la decisión 5 de §6 (puntero al skill).
